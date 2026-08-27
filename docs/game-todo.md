@@ -15,8 +15,8 @@
 - [x] Add built-in Flood Fortress scenarios.
 - [x] Add scripted `--flood-demo` validation.
 - [ ] Add explicit budget UI for Challenge mode.
-- [ ] Add a post-run settlement/score screen instead of only Play-tab status.
-- [ ] Add clearer command preview/rejection UI.
+- [x] Add a post-run settlement/score screen instead of only Play-tab status.
+- [x] Add clearer command preview/rejection UI.
 
 ## Phase 2: Command Layer
 
@@ -26,8 +26,8 @@
 - [x] Add a rule-based text command source as the future LLM/ASR seam.
 - [x] Route Bevy play input through the dispatcher.
 - [x] Add core storehouse and evacuation commands.
-- [ ] Add command preview rendering before confirmation.
-- [ ] Add richer rejection messages in the Play tab.
+- [x] Add command preview rendering before confirmation.
+- [x] Add richer rejection messages in the Play tab.
 
 ## Phase 3: Workers And Jobs
 
@@ -53,7 +53,7 @@
 - [x] Add first flood simulation.
 - [ ] Add food production.
 - [ ] Add better monster spawn rules.
-- [ ] Add save/load for gameplay state, not only the tilemap.
+- [x] Add save/load for gameplay state, not only the tilemap.
 - [ ] Add water receding/drain behavior.
 - [ ] Add structural damage from sustained flood pressure.
 
@@ -64,7 +64,7 @@
 - [x] Add perf coverage for fog overlay rendering.
 - [x] Add perf coverage for gameplay entity overlays.
 - [x] Keep default threshold at 150 workload FPS.
-- [ ] Add CI wiring for the release FPS script.
+- [x] Add CI wiring for the release FPS script.
 - [ ] Add a low-end profile with smaller entity counts.
 - [ ] Add perf coverage for Flood Fortress water overlays once water visuals grow.
 
