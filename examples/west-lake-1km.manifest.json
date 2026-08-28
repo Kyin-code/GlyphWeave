@@ -1,0 +1,103 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "西湖西北岸 1km 样板",
+    "seed": 1208,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "west-lake-northwest",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "user-confirmed-waterfront",
+    "terrain": "stylized-low-poly",
+    "layoutReference": "杭州西湖西北岸的湖、孤山、堤道与桥的公开地理关系",
+    "palette": "wet-stone-and-willow"
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.west-lake",
+      "name": "外湖占位体",
+      "type": "lake",
+      "purpose": "形成场景主体水面",
+      "description": "场景中部偏南的开阔湖面，岸线由道路、堤道和山丘围合。",
+      "sceneId": "west-lake-northwest",
+      "worldX": 520,
+      "worldZ": 470,
+      "worldY": -8,
+      "widthM": 760,
+      "depthM": 520,
+      "heightM": 3,
+      "assetId": "landmark.west-lake"
+    },
+    {
+      "entityId": "landmark.solitary-hill",
+      "name": "孤山占位体",
+      "type": "island_hill",
+      "purpose": "湖中观景与园林核心",
+      "description": "位于湖区北侧的低矮岛丘，四周环水，东西两端由堤桥连接。",
+      "sceneId": "west-lake-northwest",
+      "worldX": 430,
+      "worldZ": 330,
+      "worldY": 18,
+      "widthM": 260,
+      "depthM": 180,
+      "heightM": 35,
+      "assetId": "landmark.solitary-hill"
+    },
+    {
+      "entityId": "landmark.white-causeway",
+      "name": "白堤占位体",
+      "type": "causeway",
+      "purpose": "连接岸线与岛丘的步行堤道",
+      "description": "东西向的窄堤，带有树列和小桥节点。",
+      "sceneId": "west-lake-northwest",
+      "worldX": 260,
+      "worldZ": 360,
+      "worldY": 4,
+      "widthM": 430,
+      "depthM": 18,
+      "heightM": 5,
+      "assetId": "landmark.white-causeway"
+    },
+    {
+      "entityId": "landmark.lakeside-pavilion",
+      "name": "湖畔亭占位体",
+      "type": "pavilion",
+      "purpose": "观景节点",
+      "description": "面向湖面的木石亭，作为近景识别物和导航节点。",
+      "sceneId": "west-lake-northwest",
+      "worldX": 690,
+      "worldZ": 270,
+      "worldY": 8,
+      "widthM": 36,
+      "depthM": 36,
+      "heightM": 18,
+      "assetId": "landmark.lakeside-pavilion"
+    },
+    {
+      "entityId": "landmark.north-hills",
+      "name": "北侧山脊占位体",
+      "type": "ridge",
+      "purpose": "形成三面环山的远景边界",
+      "description": "场景北侧连续起伏的山脊，作为湖区背景和高度层次。",
+      "sceneId": "west-lake-northwest",
+      "worldX": 500,
+      "worldZ": 820,
+      "worldY": 40,
+      "widthM": 900,
+      "depthM": 140,
+      "heightM": 120,
+      "assetId": "landmark.north-hills"
+    }
+  ],
+  "sceneGraph": { "transitions": [] }
+}

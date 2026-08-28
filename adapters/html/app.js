@@ -7,6 +7,9 @@ let world
 let scene
 let mode = 'strategic'
 let webglCanvas
+let nearRenderer
+let nearScene
+let nearCamera
 
 canvas.addEventListener('click', (event) => {
   if (!scene || mode !== 'strategic') return
@@ -59,20 +62,28 @@ function drawStrategic() {
 
 async function drawNear() {
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
+  const viewport = document.querySelector('#viewport')
+  const viewportWidth = viewport.clientWidth
+  const viewportHeight = viewport.clientHeight
   canvas.style.display = 'none'
   webglCanvas ??= document.createElement('canvas')
   webglCanvas.style.width = '100%'
   webglCanvas.style.height = '100%'
+  webglCanvas.style.display = 'block'
   document.querySelector('#viewport').append(webglCanvas)
-  const renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true })
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)
-  renderer.setClearColor('#0c100e')
-  const camera = new THREE.PerspectiveCamera(48, canvas.clientWidth / canvas.clientHeight, 1, 10000)
-  camera.position.set(scene.widthM * .45, Math.max(scene.widthM, scene.depthM) * .7, scene.depthM * .7)
-  camera.lookAt(scene.widthM / 2, 0, scene.depthM / 2)
-  const light = new THREE.HemisphereLight(0xdce8df, 0x202820, 2); renderer.scene = new THREE.Scene(); renderer.scene.add(light)
-  const group = new THREE.Group(); renderer.scene.add(group)
-  for (const chunk of scene.chunks.slice(0, 9)) {
+  if (nearRenderer) { nearRenderer.setAnimationLoop(null); nearRenderer.dispose(); nearRenderer = null }
+  nearRenderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true })
+  nearRenderer.setSize(viewportWidth, viewportHeight, false)
+  nearRenderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+  nearRenderer.setClearColor('#0c100e')
+  nearCamera = new THREE.PerspectiveCamera(48, viewportWidth / viewportHeight, 1, 10000)
+  nearCamera.position.set(scene.widthM * .45, Math.max(scene.widthM, scene.depthM) * .7, scene.depthM * .7)
+  nearCamera.lookAt(scene.widthM / 2, 0, scene.depthM / 2)
+  nearScene = new THREE.Scene()
+  nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
+  const sun = new THREE.DirectionalLight(0xffe6b0, 2); sun.position.set(-400, 900, 300); nearScene.add(sun)
+  const group = new THREE.Group(); nearScene.add(group)
+  for (const chunk of scene.chunks) {
     const response = await fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`)
     const bytes = await response.arrayBuffer(); const width = chunk.validWidthM; const depth = chunk.validDepthM
     const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width / 8, 64), Math.min(depth / 8, 64)); geometry.rotateX(-Math.PI / 2)
@@ -80,7 +91,28 @@ async function drawNear() {
     for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); positions.setY(i, new DataView(bytes).getInt16((z * width + x) * 2, true) / 4) }
     geometry.computeVertexNormals(); const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#667d58', roughness: 1 })); mesh.position.set(chunk.worldX + width / 2, 0, chunk.worldZ + depth / 2); group.add(mesh)
   }
-  renderer.setAnimationLoop(() => renderer.render(renderer.scene, camera))
+  for (const landmark of scene.landmarks) {
+    const type = landmark.type
+    const geometry = type === 'island_hill' ? new THREE.SphereGeometry(.5, 24, 12)
+      : type === 'ridge' ? new THREE.ConeGeometry(.5, 1, 8)
+      : type === 'pavilion' ? new THREE.CylinderGeometry(.5, .5, 1, 8)
+      : new THREE.BoxGeometry(1, 1, 1)
+    const material = new THREE.MeshStandardMaterial({
+      color: type === 'lake' ? '#326b78' : type === 'causeway' ? '#b38b5a' : type === 'pavilion' ? '#c84f3f' : '#6f8557',
+      roughness: type === 'lake' ? .25 : .9,
+      metalness: type === 'lake' ? .1 : 0,
+      transparent: type === 'lake',
+      opacity: type === 'lake' ? .82 : 1,
+    })
+    const marker = new THREE.Mesh(geometry, material)
+    if (type === 'island_hill') marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
+    else if (type === 'ridge') marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
+    else marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
+    marker.position.set(landmark.worldX, landmark.worldY + landmark.heightM / 2, landmark.worldZ)
+    group.add(marker)
+  }
+  nearRenderer.render(nearScene, nearCamera)
+  nearRenderer.setAnimationLoop(() => nearRenderer.render(nearScene, nearCamera))
 }
 
 function draw() { info.textContent = `${scene.sceneId}  ${scene.widthM}m × ${scene.depthM}m  ${scene.chunkCountX}×${scene.chunkCountZ} chunks`; if (mode === 'strategic') drawStrategic(); else drawNear() }
