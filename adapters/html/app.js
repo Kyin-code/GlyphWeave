@@ -43,9 +43,9 @@ function resize() {
   if (scene) draw()
 }
 
-function color(surface) { return ['#526a4f', '#6f8050', '#69737a', '#456b73', '#aa9560'][surface] ?? '#526a4f' }
+function color(surface) { return ['#526a4f', '#6f8050', '#69737a', '#456b73', '#aa9560', '#809357', '#3f6548', '#8d765c'][surface] ?? '#526a4f' }
 
-function colorRgb(surface) { return [[.32, .42, .31], [.43, .52, .31], [.41, .45, .48], [.16, .42, .46], [.67, .58, .38]][surface] ?? [.32, .42, .31] }
+function colorRgb(surface) { return [[.32, .42, .31], [.43, .52, .31], [.41, .45, .48], [.16, .42, .46], [.67, .58, .38], [.50, .60, .34], [.24, .39, .28], [.55, .46, .36]][surface] ?? [.32, .42, .31] }
 
 async function loadScene() {
   scene = await fetch(`../${world.scenes[sceneSelect.selectedIndex]}`).then(response => response.json())
@@ -112,26 +112,12 @@ async function drawNear() {
   const focusX = scene.widthM / 2
   const focusZ = scene.depthM / 2
   const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
-  const grid = new THREE.GridHelper(Math.max(scene.widthM, scene.depthM), Math.ceil(Math.max(scene.widthM, scene.depthM) / 512), '#cfad68', '#4a5f52')
-  grid.position.set(scene.widthM / 2, -1, scene.depthM / 2)
-  grid.scale.set(scene.widthM / Math.max(scene.widthM, scene.depthM), 1, scene.depthM / Math.max(scene.widthM, scene.depthM))
-  nearScene.add(grid)
-  for (const chunk of scene.chunks) {
-    const labelCanvas = document.createElement('canvas')
-    labelCanvas.width = 256; labelCanvas.height = 48
-    const labelContext = labelCanvas.getContext('2d')
-    labelContext.fillStyle = 'rgba(8, 14, 11, .8)'; labelContext.fillRect(0, 0, 256, 48)
-    labelContext.fillStyle = '#e4c77a'; labelContext.font = '22px monospace'; labelContext.fillText(`CHUNK ${chunk.chunkX},${chunk.chunkZ} · 512m`, 8, 31)
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(labelCanvas), transparent: true, depthTest: false }))
-    label.position.set(chunk.worldX + chunk.validWidthM / 2, 70, chunk.worldZ + chunk.validDepthM / 2)
-    label.scale.set(180, 34, 1)
-    nearScene.add(label)
-  }
+  const inFocusChunk = entity => focusChunk && entity.worldX >= focusChunk.worldX && entity.worldX < focusChunk.worldX + focusChunk.validWidthM && entity.worldZ >= focusChunk.worldZ && entity.worldZ < focusChunk.worldZ + focusChunk.validDepthM
   for (const chunk of scene.chunks) {
     const [heightResponse, surfaceResponse] = await Promise.all([fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`), fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`)])
     const bytes = await heightResponse.arrayBuffer(); const surface = new Uint8Array(await surfaceResponse.arrayBuffer()); const width = chunk.validWidthM; const depth = chunk.validDepthM
     const isFocusChunk = focusChunk?.chunkX === chunk.chunkX && focusChunk?.chunkZ === chunk.chunkZ
-    const meshStep = isFocusChunk ? 1 : 8
+    const meshStep = isFocusChunk ? 2 : 8
     const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
     const positions = geometry.attributes.position
     const colors = []
@@ -139,6 +125,7 @@ async function drawNear() {
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); geometry.computeVertexNormals(); const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })); mesh.position.set(chunk.worldX + width / 2, 0, chunk.worldZ + depth / 2); group.add(mesh)
   }
   for (const landmark of scene.landmarks) {
+    if (focusChunk && !inFocusChunk(landmark)) continue
     const type = landmark.type
     const geometry = type === 'island_hill' ? new THREE.SphereGeometry(.5, 24, 12)
       : type === 'ridge' ? new THREE.ConeGeometry(.5, 1, 8)
@@ -159,6 +146,7 @@ async function drawNear() {
     group.add(marker)
   }
   for (const entity of scene.entities ?? []) {
+    if (!inFocusChunk(entity)) continue
     if (['tree', 'bush', 'rock'].includes(entity.kind)) continue
     const geometry = entity.kind === 'road' ? new THREE.BoxGeometry(850, 3, 14)
       : entity.kind === 'bridge' ? new THREE.BoxGeometry(120, 8, 24)
@@ -182,10 +170,16 @@ async function drawNear() {
   }
   let buildingPrototype
   try { buildingPrototype = await objLoader.loadAsync('../assets/2Story_GableRoof.obj') } catch (error) { console.warn('asset load failed: 2Story_GableRoof.obj', error) }
+  const buildingVariants = []
+  for (const file of ['1Story_GableRoof.obj', '2Story_Wide.obj', '2Story_RoundRoof.obj']) {
+    try { buildingVariants.push(await objLoader.loadAsync(`../assets/${file}`)) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
+  }
   for (const entity of scene.entities ?? []) {
+    if (!inFocusChunk(entity)) continue
     const prototype = prototypes.get(entity.kind)
-    if (entity.kind === 'building' && buildingPrototype) {
-      const prop = buildingPrototype.clone(true)
+    if (entity.kind === 'building' && (buildingPrototype || buildingVariants.length)) {
+      const source = [buildingPrototype, ...buildingVariants].filter(Boolean)[Math.abs(entity.worldX + entity.worldZ) % (buildingVariants.length + 1)]
+      const prop = source.clone(true)
       prop.position.set(entity.worldX, entity.worldY, entity.worldZ)
       prop.scale.setScalar(.65 * entity.scale)
       prop.traverse(child => { if (child.material) child.material = new THREE.MeshStandardMaterial({ color: '#b86a49', roughness: .88 }) })
@@ -209,10 +203,8 @@ function updateNearCoordinateInfo() {
   if (!scene || !nearControls) return
   const x = Math.max(0, Math.min(scene.widthM - 1, Math.floor(nearControls.target.x)))
   const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
-  const chunkX = Math.floor(x / 512)
-  const chunkZ = Math.floor(z / 512)
   window.glyphweaveFeedback.cameraDistance = nearControls.getDistance()
-  info.textContent = `${scene.sceneId}  X=${x} Z=${z}  chunk=${chunkX},${chunkZ}  512m sector`
+  info.textContent = `${scene.sceneId}  X=${x} Z=${z}  terrain detail=${window.glyphweaveFeedback.visualChecks.highDetailChunk ? '2m geometry / 1m data' : 'coarse'}`
 }
 
 function draw() {

@@ -335,6 +335,12 @@ fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
         ("PathRocks_Diffuse.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/PathRocks_Diffuse.png")),
         ("2Story_GableRoof.obj", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_GableRoof.obj")),
         ("2Story_GableRoof.mtl", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_GableRoof.mtl")),
+        ("1Story_GableRoof.obj", include_bytes!("../../../../assets/third_party/quaternius/buildings/1Story_GableRoof.obj")),
+        ("1Story_GableRoof.mtl", include_bytes!("../../../../assets/third_party/quaternius/buildings/1Story_GableRoof.mtl")),
+        ("2Story_Wide.obj", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_Wide.obj")),
+        ("2Story_Wide.mtl", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_Wide.mtl")),
+        ("2Story_RoundRoof.obj", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_RoundRoof.obj")),
+        ("2Story_RoundRoof.mtl", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_RoundRoof.mtl")),
     ];
     for (name, data) in files { fs::write(assets.join(name), data)?; }
     fs::write(assets.join("LICENSE.txt"), include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"))?;
@@ -404,7 +410,19 @@ fn surface_kind(seed: u64, x: i32, z: i32, height: i16, waterfront: bool) -> u8 
         if radius < 1.0 { return 3; }
         if radius < 1.12 { return 4; }
     }
-    if height < -12 { 3 } else if height > 700 { 2 } else if signed_noise(seed.rotate_left(31), x, z) > 70 { 1 } else { 0 }
+    if height < -12 {
+        3
+    } else if height > 700 {
+        2
+    } else {
+        match signed_noise(seed.rotate_left(31), x, z) {
+            value if value > 78 => 1,
+            value if value > 18 => 5,
+            value if value < -78 => 7,
+            value if value < -18 => 6,
+            _ => 0,
+        }
+    }
 }
 
 fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec], waterfront: bool) -> Vec<EntityInstance> {
