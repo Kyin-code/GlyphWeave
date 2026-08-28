@@ -94,7 +94,19 @@ fn preview_command(args: &[String]) -> CliResult<()> {
         let mut request = [0_u8; 4096];
         let length = stream.read(&mut request)?;
         let line = String::from_utf8_lossy(&request[..length]);
-        let requested = line.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("/");
+        let request_line = line.lines().next().unwrap_or("");
+        let mut request_parts = request_line.split_whitespace();
+        let method = request_parts.next().unwrap_or("GET");
+        let requested = request_parts.next().unwrap_or("/");
+        if method == "POST" && requested == "/api/feedback" {
+            let body = line.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+            let feedback: serde_json::Value = serde_json::from_str(body)?;
+            fs::write(root.join("visual-feedback.json"), serde_json::to_vec_pretty(&feedback)?)?;
+            let response = serde_json::to_vec(&serde_json::json!({"ok": true, "path": "visual-feedback.json"}))?;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", response.len())?;
+            stream.write_all(&response)?;
+            continue;
+        }
         let relative = requested.trim_start_matches('/').replace('/', "\\");
         let relative = if relative.is_empty() { "preview\\index.html".to_owned() } else { relative };
         let path = root.join(&relative);
@@ -173,6 +185,14 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let mut chunks = 0_usize;
     let mut entities = 0_usize;
     let mut landmarks = 0_usize;
+    let visual_feedback = fs::read(root.join("visual-feedback.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    if let Some(feedback) = &visual_feedback {
+        if feedback.get("verdict").and_then(serde_json::Value::as_str).is_some_and(|value| value != "pass") {
+            warnings.push("visual feedback requires review".to_owned());
+        }
+    }
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
             serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
@@ -197,6 +217,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "warnings": warnings, "scenes": scene_reports,
+        "visualFeedback": visual_feedback,
         "agentNextAction": "inspect HTML screenshot and create a Patch when visual quality is insufficient",
     });
     fs::write(root.join("quality-report.json"), serde_json::to_vec_pretty(&report)?)?;
