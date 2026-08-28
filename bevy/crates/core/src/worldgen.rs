@@ -9,6 +9,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use crate::storage::codec::encode_world_with_metadata;
+use crate::voxel::{VoxelCoord, VoxelWorld};
 
 pub const WORLD_FORMAT: &str = "glyphweave-world";
 pub const WORLD_VERSION: u32 = 1;
@@ -248,11 +250,41 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         fs::write(scene_dir.join("scene.json"), serde_json::to_vec_pretty(&index)?)?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
     }
+    write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex { format: WORLD_FORMAT.to_owned(), version: WORLD_VERSION, name: manifest.world.name.clone(), seed: manifest.world.seed, render_mode: manifest.world.render_mode.clone(), revision, scenes: scene_paths };
     fs::write(output.join("world.json"), serde_json::to_vec_pretty(&index)?)?;
     fs::write(output.join("glyphweave.manifest.json"), serde_json::to_vec_pretty(manifest)?)?;
     write_adapter_templates(output)?;
     Ok(index)
+}
+
+fn write_gemap_anchor(output: &Path, manifest: &WorldManifest, revision: &str) -> WorldgenResult<()> {
+    let mut world = VoxelWorld::new(&manifest.world.name);
+    let anchor = world.intern_block("glyphweave:world_anchor").map_err(|error| std::io::Error::other(error.to_string()))?;
+    world.set(VoxelCoord::new(0, 0, 0), anchor).map_err(|error| std::io::Error::other(error.to_string()))?;
+    let metadata = BTreeMap::from([("world".to_owned(), serde_json::json!({"revision": revision, "sidecar": "world.json"}))]);
+    let bytes = encode_world_with_metadata(&world, Some(metadata)).map_err(|error| std::io::Error::other(error.to_string()))?;
+    fs::write(output.join("world.gemap"), bytes)?;
+    Ok(())
+}
+
+pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResult<WorldManifest> {
+    manifest.validate()?;
+    if patch.format != "glyphweave-world-patch" || patch.version != 1 { return Err(WorldgenError::InvalidFormat(patch.format.clone())); }
+    let mut result = manifest.clone();
+    for operation in &patch.operations {
+        match operation {
+            PatchOperation::MoveLandmark { entity_id, world_x, world_z, world_y } => {
+                let landmark = result.landmarks.iter_mut().find(|item| item.entity_id == *entity_id)
+                    .ok_or_else(|| WorldgenError::InvalidLandmark(entity_id.clone()))?;
+                landmark.world_x = *world_x;
+                landmark.world_z = *world_z;
+                landmark.world_y = *world_y;
+            }
+        }
+    }
+    result.validate()?;
+    Ok(result)
 }
 
 fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
