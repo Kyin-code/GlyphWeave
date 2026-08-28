@@ -409,8 +409,8 @@ fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec], w
         entities.push(EntityInstance { entity_id: landmark.entity_id.clone(), asset_id: landmark.asset_id.clone(), kind: landmark.entity_type.clone(), world_x: landmark.world_x, world_z: landmark.world_z, world_y: landmark.world_y, scale: 1.0 });
     }
     let mut serial = 0_u32;
-    for z in (32..scene.depth_m.saturating_sub(16)).step_by(48) {
-        for x in (32..scene.width_m.saturating_sub(16)).step_by(48) {
+    for z in (24..scene.depth_m.saturating_sub(16)).step_by(32) {
+        for x in (24..scene.width_m.saturating_sub(16)).step_by(32) {
             let world_x = scene.origin_x + x as i32;
             let world_z = scene.origin_z + z as i32;
             if waterfront {
@@ -419,7 +419,11 @@ fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec], w
                 if lake_x * lake_x + lake_z * lake_z < 1.15 { continue; }
             }
             let roll = signed_noise(seed.rotate_left(13), world_x, world_z);
-            let kind = if roll > 105 { "building" } else if roll > 46 { "tree" } else if roll < -88 { "rock" } else if roll < -42 { "bush" } else { continue };
+            let kind = if roll > 112 { "building" } else if roll > -12 { "tree" } else if roll < -104 { "rock" } else if roll < 58 { "bush" } else { continue };
+            let jitter_x = signed_noise(seed.rotate_left(7), world_x, world_z).rem_euclid(13) - 6;
+            let jitter_z = signed_noise(seed.rotate_left(19), world_x, world_z).rem_euclid(13) - 6;
+            let world_x = world_x + jitter_x;
+            let world_z = world_z + jitter_z;
             let world_y = i32::from(terrain_height(seed, world_x, world_z, waterfront)) / 4;
             entities.push(EntityInstance { entity_id: format!("generated.{kind}.{serial}"), asset_id: format!("prop.{kind}"), kind: kind.to_owned(), world_x, world_z, world_y, scale: if kind == "building" { 1.8 } else { 1.0 } });
             serial += 1;

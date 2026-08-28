@@ -58,6 +58,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "init-world" => init_world_command(&args[1..]),
         "generate-world" => generate_world_command(&args[1..]),
         "apply-patch" => apply_patch_command(&args[1..]),
+        "quality-report" => quality_report_command(&args[1..]),
         "preview" => preview_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
@@ -160,6 +161,46 @@ fn apply_patch_command(args: &[String]) -> CliResult<()> {
     let patched = apply_patch(&manifest, &patch)?;
     let index = bake_world(&patched, Path::new(&args[2]))?;
     println!("patched world revision: {}", index.revision);
+    Ok(())
+}
+
+fn quality_report_command(args: &[String]) -> CliResult<()> {
+    let root = Path::new(one_path("quality-report", args)?);
+    let world: glyphweave_core::worldgen::WorldIndex =
+        serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let mut scene_reports = Vec::new();
+    let mut warnings = Vec::new();
+    let mut chunks = 0_usize;
+    let mut entities = 0_usize;
+    let mut landmarks = 0_usize;
+    for scene_path in &world.scenes {
+        let scene: glyphweave_core::worldgen::SceneIndex =
+            serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        let mut kinds = BTreeMap::<String, usize>::new();
+        for entity in &scene.entities { *kinds.entry(entity.kind.clone()).or_default() += 1; }
+        let expected = (scene.chunk_count_x * scene.chunk_count_z) as usize;
+        if scene.chunks.len() != expected { warnings.push(format!("{}: chunk index incomplete", scene.scene_id)); }
+        if scene.entities.len() < 100 && scene.width_m.saturating_mul(scene.depth_m) >= 1_000_000 {
+            warnings.push(format!("{}: low entity density ({})", scene.scene_id, scene.entities.len()));
+        }
+        chunks += scene.chunks.len(); entities += scene.entities.len(); landmarks += scene.landmarks.len();
+        scene_reports.push(serde_json::json!({
+            "sceneId": scene.scene_id, "sizeM": [scene.width_m, scene.depth_m],
+            "chunks": scene.chunks.len(), "expectedChunks": expected,
+            "landmarks": scene.landmarks.len(), "entities": scene.entities.len(),
+            "entityKinds": kinds,
+        }));
+    }
+    let report = serde_json::json!({
+        "format": "glyphweave.quality-report", "version": 1,
+        "status": if warnings.is_empty() { "pass" } else { "warn" },
+        "worldRevision": world.revision, "sceneCount": world.scenes.len(),
+        "chunks": chunks, "entities": entities, "landmarks": landmarks,
+        "warnings": warnings, "scenes": scene_reports,
+        "agentNextAction": "inspect HTML screenshot and create a Patch when visual quality is insufficient",
+    });
+    fs::write(root.join("quality-report.json"), serde_json::to_vec_pretty(&report)?)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
@@ -592,7 +633,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
     );
 }
 
