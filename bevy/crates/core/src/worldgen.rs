@@ -104,6 +104,19 @@ pub struct SceneIndex {
     pub chunk_count_z: u32,
     pub chunks: Vec<ChunkDescriptor>,
     pub landmarks: Vec<LandmarkSpec>,
+    pub entities: Vec<EntityInstance>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityInstance {
+    pub entity_id: String,
+    pub asset_id: String,
+    pub kind: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    pub world_y: i32,
+    pub scale: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,7 +248,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 let height_file = format!("{stem}.height.bin");
                 let surface_file = format!("{stem}.surface.bin");
                 let lod2_file = format!("{stem}.lod2.bin");
-                let (height, surface, lod2) = generate_chunk(manifest.world.seed ^ scene.seed_offset, base_x, base_z, valid_width_m, valid_depth_m);
+                let waterfront = manifest.style.to_string().contains("西湖");
+                let (height, surface, lod2) = generate_chunk(manifest.world.seed ^ scene.seed_offset, base_x, base_z, valid_width_m, valid_depth_m, waterfront);
                 fs::write(scene_dir.join(&height_file), &height)?;
                 fs::write(scene_dir.join(&surface_file), &surface)?;
                 fs::write(scene_dir.join(&lod2_file), &lod2)?;
@@ -245,8 +259,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 chunks.push(descriptor);
             }
         }
-        let landmarks = manifest.landmarks.iter().filter(|item| item.scene_id == scene.scene_id).cloned().collect();
-        let index = SceneIndex { scene_id: scene.scene_id.clone(), width_m: scene.width_m, depth_m: scene.depth_m, origin_x: scene.origin_x, origin_z: scene.origin_z, chunk_size_m: STREAM_CHUNK_METERS, chunk_count_x, chunk_count_z, chunks, landmarks };
+        let landmarks: Vec<LandmarkSpec> = manifest.landmarks.iter().filter(|item| item.scene_id == scene.scene_id).cloned().collect();
+        let entities = generate_entities(manifest.world.seed ^ scene.seed_offset, scene, &landmarks);
+        let index = SceneIndex { scene_id: scene.scene_id.clone(), width_m: scene.width_m, depth_m: scene.depth_m, origin_x: scene.origin_x, origin_z: scene.origin_z, chunk_size_m: STREAM_CHUNK_METERS, chunk_count_x, chunk_count_z, chunks, landmarks, entities };
         fs::write(scene_dir.join("scene.json"), serde_json::to_vec_pretty(&index)?)?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
     }
@@ -305,7 +320,7 @@ pub fn write_demo_manifest(path: &Path) -> WorldgenResult<()> {
     Ok(())
 }
 
-fn generate_chunk(seed: u64, base_x: i32, base_z: i32, width: u32, depth: u32) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+fn generate_chunk(seed: u64, base_x: i32, base_z: i32, width: u32, depth: u32, waterfront: bool) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let cell_count = (width * depth) as usize;
     let mut height = Vec::with_capacity(cell_count * 2);
     let mut surface = Vec::with_capacity(cell_count);
@@ -315,11 +330,11 @@ fn generate_chunk(seed: u64, base_x: i32, base_z: i32, width: u32, depth: u32) -
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let quarter_meters = terrain_height(seed, world_x, world_z);
+            let quarter_meters = terrain_height(seed, world_x, world_z, waterfront);
             let index = (z * width + x) as usize;
             samples[index] = quarter_meters;
             height.extend_from_slice(&quarter_meters.to_le_bytes());
-            surface.push(surface_kind(seed, world_x, world_z, quarter_meters));
+            surface.push(surface_kind(seed, world_x, world_z, quarter_meters, waterfront));
         }
     }
     for block_z in (0..depth).step_by(64) {
@@ -334,20 +349,52 @@ fn generate_chunk(seed: u64, base_x: i32, base_z: i32, width: u32, depth: u32) -
             }
             let average = (total / count) as i16;
             lod2.extend_from_slice(&average.to_le_bytes());
-            lod2.push(surface_kind(seed, base_x + block_x as i32, base_z + block_z as i32, average));
+            lod2.push(surface_kind(seed, base_x + block_x as i32, base_z + block_z as i32, average, waterfront));
         }
     }
     (height, surface, lod2)
 }
 
-fn terrain_height(seed: u64, x: i32, z: i32) -> i16 {
-    let broad = signed_noise(seed, x.div_euclid(32), z.div_euclid(32));
-    let detail = signed_noise(seed.rotate_left(17), x.div_euclid(7), z.div_euclid(7));
-    (broad * 24 + detail * 4).clamp(-128, 1_024) as i16
+fn terrain_height(seed: u64, x: i32, z: i32, waterfront: bool) -> i16 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    let hills = (xf / 190.0).sin() * 36.0 + (zf / 240.0).cos() * 30.0;
+    let detail = ((xf + zf) / 47.0).sin() * 8.0;
+    let lake = if waterfront {
+        let dx = (xf - 520.0) / 380.0;
+        let dz = (zf - 470.0) / 260.0;
+        if dx * dx + dz * dz < 1.0 { -42.0 } else { 0.0 }
+    } else { 0.0 };
+    let variation = f64::from(signed_noise(seed, x.div_euclid(64), z.div_euclid(64))) * 0.08;
+    ((hills + detail + lake + variation).mul_add(4.0, 40.0)).clamp(-128.0, 1_024.0) as i16
 }
 
-fn surface_kind(seed: u64, x: i32, z: i32, height: i16) -> u8 {
+fn surface_kind(seed: u64, x: i32, z: i32, height: i16, waterfront: bool) -> u8 {
+    if waterfront {
+        let dx = (f64::from(x) - 520.0) / 380.0;
+        let dz = (f64::from(z) - 470.0) / 260.0;
+        if dx * dx + dz * dz < 1.0 { return 3; }
+    }
     if height < -12 { 3 } else if height > 700 { 2 } else if signed_noise(seed.rotate_left(31), x, z) > 70 { 1 } else { 0 }
+}
+
+fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec]) -> Vec<EntityInstance> {
+    let mut entities = Vec::new();
+    for landmark in landmarks {
+        entities.push(EntityInstance { entity_id: landmark.entity_id.clone(), asset_id: landmark.asset_id.clone(), kind: landmark.entity_type.clone(), world_x: landmark.world_x, world_z: landmark.world_z, world_y: landmark.world_y, scale: 1.0 });
+    }
+    let mut serial = 0_u32;
+    for z in (64..scene.depth_m.saturating_sub(32)).step_by(96) {
+        for x in (64..scene.width_m.saturating_sub(32)).step_by(96) {
+            let world_x = scene.origin_x + x as i32;
+            let world_z = scene.origin_z + z as i32;
+            let roll = signed_noise(seed.rotate_left(13), world_x, world_z);
+            let kind = if roll > 82 { "building" } else if roll > 45 { "tree" } else if roll < -82 { "rock" } else { continue };
+            entities.push(EntityInstance { entity_id: format!("generated.{kind}.{serial}"), asset_id: format!("prop.{kind}"), kind: kind.to_owned(), world_x, world_z, world_y: 40, scale: if kind == "building" { 1.8 } else { 1.0 } });
+            serial += 1;
+        }
+    }
+    entities
 }
 
 fn signed_noise(seed: u64, x: i32, z: i32) -> i32 {
@@ -369,7 +416,7 @@ mod tests {
 
     #[test]
     fn same_seed_produces_same_chunk() {
-        assert_eq!(generate_chunk(42, 0, 0, 32, 32), generate_chunk(42, 0, 0, 32, 32));
+        assert_eq!(generate_chunk(42, 0, 0, 32, 32, false), generate_chunk(42, 0, 0, 32, 32, false));
     }
 
     #[test]

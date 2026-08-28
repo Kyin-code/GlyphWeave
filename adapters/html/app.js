@@ -111,6 +111,18 @@ async function drawNear() {
     marker.position.set(landmark.worldX, landmark.worldY + landmark.heightM / 2, landmark.worldZ)
     group.add(marker)
   }
+  for (const entity of scene.entities ?? []) {
+    const geometry = entity.kind === 'tree' ? new THREE.ConeGeometry(7, 28, 7)
+      : entity.kind === 'rock' ? new THREE.DodecahedronGeometry(8, 0)
+      : entity.kind === 'building' ? new THREE.BoxGeometry(18, 24, 18)
+      : null
+    if (!geometry) continue
+    const material = new THREE.MeshStandardMaterial({ color: entity.kind === 'tree' ? '#47704a' : entity.kind === 'rock' ? '#76716a' : '#a35d43', roughness: .95 })
+    const prop = new THREE.Mesh(geometry, material)
+    prop.position.set(entity.worldX, entity.worldY + (entity.kind === 'tree' ? 14 : 10), entity.worldZ)
+    prop.scale.setScalar(entity.scale)
+    group.add(prop)
+  }
   nearRenderer.render(nearScene, nearCamera)
   nearRenderer.setAnimationLoop(() => nearRenderer.render(nearScene, nearCamera))
 }
