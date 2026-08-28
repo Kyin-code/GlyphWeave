@@ -26,6 +26,15 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box"
+    },
+    "prop.building": {
+      "format": "obj",
+      "path": "assets/third_party/quaternius/buildings/2Story_GableRoof.obj",
+      "material": "assets/third_party/quaternius/buildings/2Story_GableRoof.mtl",
+      "unit": "meter",
+      "origin": "asset",
+      "forward": "+z",
+      "collision": "generated-box"
     }
   }
 }

@@ -7,6 +7,7 @@ Stylized Nature MegaKit Standard pack.
 - Source: https://quaternius.com/packs/stylizednaturemegakit.html
 - Formats: glTF 2.0 plus referenced binary and texture files
 - Selection: one tree, one bush, and one pebble for the preview MVP
+- Selection: one two-story gable-roof building for the preview MVP
 
 The complete downloaded pack is intentionally not committed. Add more files
 only when a world style or scene template actually uses them, and update

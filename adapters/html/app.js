@@ -80,6 +80,7 @@ async function drawNear() {
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
   const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/GLTFLoader.js')
   const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/controls/OrbitControls.js')
+  const { OBJLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/OBJLoader.js')
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -169,12 +170,23 @@ async function drawNear() {
     group.add(prop)
   }
   const loader = new GLTFLoader()
+  const objLoader = new OBJLoader()
   const prototypes = new Map()
   for (const [kind, file] of [['tree', 'CommonTree_1.gltf'], ['bush', 'Bush_Common.gltf'], ['rock', 'Pebble_Round_1.gltf']]) {
     try { prototypes.set(kind, (await loader.loadAsync(`../assets/${file}`)).scene) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
   }
+  let buildingPrototype
+  try { buildingPrototype = await objLoader.loadAsync('../assets/2Story_GableRoof.obj') } catch (error) { console.warn('asset load failed: 2Story_GableRoof.obj', error) }
   for (const entity of scene.entities ?? []) {
     const prototype = prototypes.get(entity.kind)
+    if (entity.kind === 'building' && buildingPrototype) {
+      const prop = buildingPrototype.clone(true)
+      prop.position.set(entity.worldX, entity.worldY, entity.worldZ)
+      prop.scale.setScalar(.65 * entity.scale)
+      prop.traverse(child => { if (child.material) child.material = new THREE.MeshStandardMaterial({ color: '#b86a49', roughness: .88 }) })
+      group.add(prop)
+      continue
+    }
     if (!prototype) continue
     const prop = prototype.clone(true)
     prop.position.set(entity.worldX, entity.worldY, entity.worldZ)

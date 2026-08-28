@@ -333,6 +333,8 @@ fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
         ("Pebble_Round_1.gltf", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Pebble_Round_1.gltf")),
         ("Pebble_Round_1.bin", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Pebble_Round_1.bin")),
         ("PathRocks_Diffuse.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/PathRocks_Diffuse.png")),
+        ("2Story_GableRoof.obj", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_GableRoof.obj")),
+        ("2Story_GableRoof.mtl", include_bytes!("../../../../assets/third_party/quaternius/buildings/2Story_GableRoof.mtl")),
     ];
     for (name, data) in files { fs::write(assets.join(name), data)?; }
     fs::write(assets.join("LICENSE.txt"), include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"))?;
