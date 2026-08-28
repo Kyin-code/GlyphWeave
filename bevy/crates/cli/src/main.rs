@@ -15,6 +15,7 @@ use glyphweave_core::storage::model::{Manifest, RegionManifest};
 use glyphweave_core::voxel::{
     CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
 };
+use glyphweave_core::worldgen::{WorldManifest, bake_world, write_demo_manifest};
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
 const DEFAULT_DUMP_LIMIT: usize = 64;
@@ -52,6 +53,8 @@ fn run(args: Vec<String>) -> CliResult<()> {
         return Err("missing command".into());
     };
     match command {
+        "init-world" => init_world_command(&args[1..]),
+        "generate-world" => generate_world_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
         "inspect" => inspect_command(&args[1..]),
@@ -66,6 +69,34 @@ fn run(args: Vec<String>) -> CliResult<()> {
             Err(format!("unknown command {other:?}").into())
         }
     }
+}
+
+fn init_world_command(args: &[String]) -> CliResult<()> {
+    let path = one_path("init-world", args)?;
+    write_demo_manifest(path)?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+fn generate_world_command(args: &[String]) -> CliResult<()> {
+    if args.len() != 2 {
+        return Err("generate-world requires MANIFEST.json OUTPUT_DIR".into());
+    }
+    let manifest: WorldManifest = serde_json::from_slice(&fs::read(&args[0])?)?;
+    let output = Path::new(&args[1]);
+    let index = bake_world(&manifest, output)?;
+    let report = serde_json::json!({
+        "format": "glyphweave.generation-report",
+        "version": 1,
+        "status": "complete",
+        "worldRevision": index.revision,
+        "sceneCount": index.scenes.len(),
+        "renderMode": index.render_mode,
+        "output": output,
+    });
+    fs::write(output.join("generation-report.json"), serde_json::to_vec_pretty(&report)?)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
 }
 
 fn convert_command(args: &[String]) -> CliResult<()> {
@@ -497,7 +528,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
     );
 }
 

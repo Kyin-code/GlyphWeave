@@ -12,3 +12,4 @@ pub mod storage;
 pub mod tile;
 pub mod voxel;
 pub mod world;
+pub mod worldgen;
