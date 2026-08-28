@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::net::TcpListener;
 
 use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
 use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
@@ -55,6 +57,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
     match command {
         "init-world" => init_world_command(&args[1..]),
         "generate-world" => generate_world_command(&args[1..]),
+        "preview" => preview_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
         "inspect" => inspect_command(&args[1..]),
@@ -68,6 +71,52 @@ fn run(args: Vec<String>) -> CliResult<()> {
             print_usage();
             Err(format!("unknown command {other:?}").into())
         }
+    }
+}
+
+fn preview_command(args: &[String]) -> CliResult<()> {
+    if args.is_empty() || args.len() > 2 {
+        return Err("preview requires WORLD_DIR [PORT]".into());
+    }
+    let root = fs::canonicalize(&args[0])?;
+    let port: u16 = match args.get(1) {
+        Some(value) => value
+            .parse()
+            .map_err(|_| "PORT must be a valid u16")?,
+        None => 8080,
+    };
+    let listener = TcpListener::bind(("127.0.0.1", port))?;
+    println!("preview: http://127.0.0.1:{port}/preview/");
+    for stream in listener.incoming() {
+        let mut stream = stream?;
+        let mut request = [0_u8; 4096];
+        let length = stream.read(&mut request)?;
+        let line = String::from_utf8_lossy(&request[..length]);
+        let requested = line.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("/");
+        let relative = requested.trim_start_matches('/').replace('/', "\\");
+        let relative = if relative.is_empty() { "preview\\index.html".to_owned() } else { relative };
+        let path = root.join(&relative);
+        let canonical = path.canonicalize().ok();
+        let allowed = canonical.as_ref().is_some_and(|path| path.starts_with(&root));
+        let (status, content_type, body) = if allowed {
+            match fs::read(canonical.expect("checked canonical path")) {
+                Ok(body) => ("200 OK", mime_for(&relative), body),
+                Err(_) => ("404 Not Found", "text/plain", b"Not found".to_vec()),
+            }
+        } else { ("403 Forbidden", "text/plain", b"Forbidden".to_vec()) };
+        write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", body.len())?;
+        stream.write_all(&body)?;
+    }
+    Ok(())
+}
+
+fn mime_for(path: &str) -> &'static str {
+    match Path::new(path).extension().and_then(|ext| ext.to_str()).unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "json" => "application/json",
+        "bin" => "application/octet-stream",
+        _ => "application/octet-stream",
     }
 }
 
@@ -528,7 +577,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
     );
 }
 
