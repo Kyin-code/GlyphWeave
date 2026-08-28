@@ -10,6 +10,7 @@ let webglCanvas
 let nearRenderer
 let nearScene
 let nearCamera
+let nearControls
 
 window.glyphweaveSubmitFeedback = async (feedback) => {
   const payload = {
@@ -78,6 +79,7 @@ function drawStrategic() {
 async function drawNear() {
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
   const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/GLTFLoader.js')
+  const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/controls/OrbitControls.js')
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -87,6 +89,7 @@ async function drawNear() {
   webglCanvas.style.height = '100%'
   webglCanvas.style.display = 'block'
   document.querySelector('#viewport').append(webglCanvas)
+  if (nearControls) { nearControls.dispose(); nearControls = null }
   if (nearRenderer) { nearRenderer.setAnimationLoop(null); nearRenderer.dispose(); nearRenderer = null }
   nearRenderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true })
   nearRenderer.setSize(viewportWidth, viewportHeight, false)
@@ -94,15 +97,36 @@ async function drawNear() {
   nearRenderer.setClearColor('#0c100e')
   nearCamera = new THREE.PerspectiveCamera(48, viewportWidth / viewportHeight, 1, 10000)
   nearCamera.position.set(scene.widthM * .5, Math.max(scene.widthM, scene.depthM) * .55, scene.depthM * .58)
-  nearCamera.lookAt(scene.widthM / 2, 0, scene.depthM / 2)
   nearScene = new THREE.Scene()
   nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
   const sun = new THREE.DirectionalLight(0xffe6b0, 2); sun.position.set(-400, 900, 300); nearScene.add(sun)
+  nearControls = new OrbitControls(nearCamera, webglCanvas)
+  nearControls.target.set(scene.widthM / 2, 0, scene.depthM / 2)
+  nearControls.enableDamping = true
+  nearControls.minDistance = 40
+  nearControls.maxDistance = 2400
+  nearControls.maxPolarAngle = Math.PI * .48
+  nearControls.addEventListener('change', updateNearCoordinateInfo)
   const group = new THREE.Group(); nearScene.add(group)
+  const grid = new THREE.GridHelper(Math.max(scene.widthM, scene.depthM), Math.ceil(Math.max(scene.widthM, scene.depthM) / 512), '#cfad68', '#4a5f52')
+  grid.position.set(scene.widthM / 2, -1, scene.depthM / 2)
+  grid.scale.set(scene.widthM / Math.max(scene.widthM, scene.depthM), 1, scene.depthM / Math.max(scene.widthM, scene.depthM))
+  nearScene.add(grid)
+  for (const chunk of scene.chunks) {
+    const labelCanvas = document.createElement('canvas')
+    labelCanvas.width = 256; labelCanvas.height = 48
+    const labelContext = labelCanvas.getContext('2d')
+    labelContext.fillStyle = 'rgba(8, 14, 11, .8)'; labelContext.fillRect(0, 0, 256, 48)
+    labelContext.fillStyle = '#e4c77a'; labelContext.font = '22px monospace'; labelContext.fillText(`CHUNK ${chunk.chunkX},${chunk.chunkZ} · 512m`, 8, 31)
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(labelCanvas), transparent: true, depthTest: false }))
+    label.position.set(chunk.worldX + chunk.validWidthM / 2, 70, chunk.worldZ + chunk.validDepthM / 2)
+    label.scale.set(180, 34, 1)
+    nearScene.add(label)
+  }
   for (const chunk of scene.chunks) {
     const [heightResponse, surfaceResponse] = await Promise.all([fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`), fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`)])
     const bytes = await heightResponse.arrayBuffer(); const surface = new Uint8Array(await surfaceResponse.arrayBuffer()); const width = chunk.validWidthM; const depth = chunk.validDepthM
-    const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width / 8, 64), Math.min(depth / 8, 64)); geometry.rotateX(-Math.PI / 2)
+    const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, 128), Math.min(depth - 1, 128)); geometry.rotateX(-Math.PI / 2)
     const positions = geometry.attributes.position
     const colors = []
     for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); const material = surface[z * width + x]; positions.setY(i, new DataView(bytes).getInt16((z * width + x) * 2, true) / 4); colors.push(...colorRgb(material)) }
@@ -160,7 +184,16 @@ async function drawNear() {
   nearRenderer.render(nearScene, nearCamera)
   window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
-  nearRenderer.setAnimationLoop(() => nearRenderer.render(nearScene, nearCamera))
+  nearRenderer.setAnimationLoop(() => { nearControls.update(); nearRenderer.render(nearScene, nearCamera) })
+}
+
+function updateNearCoordinateInfo() {
+  if (!scene || !nearControls) return
+  const x = Math.max(0, Math.min(scene.widthM - 1, Math.floor(nearControls.target.x)))
+  const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
+  const chunkX = Math.floor(x / 512)
+  const chunkZ = Math.floor(z / 512)
+  info.textContent = `${scene.sceneId}  X=${x} Z=${z}  chunk=${chunkX},${chunkZ}  512m sector`
 }
 
 function draw() {
