@@ -62,6 +62,7 @@ function drawStrategic() {
 
 async function drawNear() {
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
+  const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/GLTFLoader.js')
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -112,6 +113,7 @@ async function drawNear() {
     group.add(marker)
   }
   for (const entity of scene.entities ?? []) {
+    if (['tree', 'bush', 'rock'].includes(entity.kind)) continue
     const geometry = entity.kind === 'tree' ? new THREE.ConeGeometry(7, 28, 7)
       : entity.kind === 'rock' ? new THREE.DodecahedronGeometry(8, 0)
       : entity.kind === 'building' ? new THREE.BoxGeometry(18, 24, 18)
@@ -121,6 +123,19 @@ async function drawNear() {
     const prop = new THREE.Mesh(geometry, material)
     prop.position.set(entity.worldX, entity.worldY + (entity.kind === 'tree' ? 14 : 10), entity.worldZ)
     prop.scale.setScalar(entity.scale)
+    group.add(prop)
+  }
+  const loader = new GLTFLoader()
+  const prototypes = new Map()
+  for (const [kind, file] of [['tree', 'CommonTree_1.gltf'], ['bush', 'Bush_Common.gltf'], ['rock', 'Pebble_Round_1.gltf']]) {
+    try { prototypes.set(kind, (await loader.loadAsync(`../assets/${file}`)).scene) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
+  }
+  for (const entity of scene.entities ?? []) {
+    const prototype = prototypes.get(entity.kind)
+    if (!prototype) continue
+    const prop = prototype.clone(true)
+    prop.position.set(entity.worldX, entity.worldY, entity.worldZ)
+    prop.scale.setScalar(entity.kind === 'tree' ? 2.5 : entity.kind === 'bush' ? 1.8 : 2.0)
     group.add(prop)
   }
   nearRenderer.render(nearScene, nearCamera)

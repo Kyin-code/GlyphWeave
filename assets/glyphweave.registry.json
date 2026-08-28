@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "license": "CC0-1.0",
+  "source": "Quaternius Stylized Nature MegaKit Standard",
+  "assets": {
+    "prop.tree": {
+      "format": "gltf",
+      "path": "assets/third_party/quaternius/stylized-nature/CommonTree_1.gltf",
+      "unit": "meter",
+      "origin": "asset",
+      "forward": "+z",
+      "collision": "generated-cylinder"
+    },
+    "prop.bush": {
+      "format": "gltf",
+      "path": "assets/third_party/quaternius/stylized-nature/Bush_Common.gltf",
+      "unit": "meter",
+      "origin": "asset",
+      "forward": "+z",
+      "collision": "generated-box"
+    },
+    "prop.rock": {
+      "format": "gltf",
+      "path": "assets/third_party/quaternius/stylized-nature/Pebble_Round_1.gltf",
+      "unit": "meter",
+      "origin": "asset",
+      "forward": "+z",
+      "collision": "generated-box"
+    }
+  }
+}

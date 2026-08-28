@@ -312,6 +312,30 @@ fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
     fs::write(godot.join("project.godot"), include_str!("../../../../adapters/godot/project.godot"))?;
     fs::write(godot.join("main.tscn"), include_str!("../../../../adapters/godot/main.tscn"))?;
     fs::write(godot.join("main.gd"), include_str!("../../../../adapters/godot/main.gd"))?;
+    write_preview_assets(output)?;
+    Ok(())
+}
+
+fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
+    let assets = output.join("assets");
+    fs::create_dir_all(&assets)?;
+    let files: &[(&str, &[u8])] = &[
+        ("CommonTree_1.gltf", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/CommonTree_1.gltf")),
+        ("CommonTree_1.bin", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/CommonTree_1.bin")),
+        ("Bark_NormalTree_Normal.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Bark_NormalTree_Normal.png")),
+        ("Bark_NormalTree.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Bark_NormalTree.png")),
+        ("Leaves_NormalTree_C.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Leaves_NormalTree_C.png")),
+        ("Leaves_NormalTree.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Leaves_NormalTree.png")),
+        ("Bush_Common.gltf", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Bush_Common.gltf")),
+        ("Bush_Common.bin", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Bush_Common.bin")),
+        ("Leaves_TwistedTree_C.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Leaves_TwistedTree_C.png")),
+        ("Pebble_Round_1.gltf", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Pebble_Round_1.gltf")),
+        ("Pebble_Round_1.bin", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/Pebble_Round_1.bin")),
+        ("PathRocks_Diffuse.png", include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/PathRocks_Diffuse.png")),
+    ];
+    for (name, data) in files { fs::write(assets.join(name), data)?; }
+    fs::write(assets.join("LICENSE.txt"), include_bytes!("../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"))?;
+    fs::write(assets.join("glyphweave.registry.json"), include_bytes!("../../../../assets/glyphweave.registry.json"))?;
     Ok(())
 }
 
