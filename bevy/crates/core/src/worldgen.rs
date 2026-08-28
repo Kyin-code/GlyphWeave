@@ -251,7 +251,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     let index = WorldIndex { format: WORLD_FORMAT.to_owned(), version: WORLD_VERSION, name: manifest.world.name.clone(), seed: manifest.world.seed, render_mode: manifest.world.render_mode.clone(), revision, scenes: scene_paths };
     fs::write(output.join("world.json"), serde_json::to_vec_pretty(&index)?)?;
     fs::write(output.join("glyphweave.manifest.json"), serde_json::to_vec_pretty(manifest)?)?;
+    write_adapter_templates(output)?;
     Ok(index)
+}
+
+fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
+    let preview = output.join("preview");
+    let godot = output.join("godot");
+    fs::create_dir_all(&preview)?;
+    fs::create_dir_all(&godot)?;
+    fs::write(preview.join("index.html"), include_str!("../../../../adapters/html/index.html"))?;
+    fs::write(preview.join("app.js"), include_str!("../../../../adapters/html/app.js"))?;
+    fs::write(godot.join("project.godot"), include_str!("../../../../adapters/godot/project.godot"))?;
+    fs::write(godot.join("main.tscn"), include_str!("../../../../adapters/godot/main.tscn"))?;
+    fs::write(godot.join("main.gd"), include_str!("../../../../adapters/godot/main.gd"))?;
+    Ok(())
 }
 
 pub fn write_demo_manifest(path: &Path) -> WorldgenResult<()> {
