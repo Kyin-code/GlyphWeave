@@ -114,12 +114,15 @@ async function drawNear() {
   }
   for (const entity of scene.entities ?? []) {
     if (['tree', 'bush', 'rock'].includes(entity.kind)) continue
-    const geometry = entity.kind === 'tree' ? new THREE.ConeGeometry(7, 28, 7)
+    const geometry = entity.kind === 'road' ? new THREE.BoxGeometry(850, 3, 14)
+      : entity.kind === 'bridge' ? new THREE.BoxGeometry(120, 8, 24)
+      : entity.kind === 'building_cluster' ? new THREE.BoxGeometry(120, 32, 100)
+      : entity.kind === 'tree' ? new THREE.ConeGeometry(7, 28, 7)
       : entity.kind === 'rock' ? new THREE.DodecahedronGeometry(8, 0)
       : entity.kind === 'building' ? new THREE.BoxGeometry(18, 24, 18)
       : null
     if (!geometry) continue
-    const material = new THREE.MeshStandardMaterial({ color: entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#a35d43', roughness: .95 })
+    const material = new THREE.MeshStandardMaterial({ color: entity.kind === 'road' ? '#786b5a' : entity.kind === 'bridge' ? '#b38b5a' : entity.kind === 'building_cluster' ? '#a35d43' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#a35d43', roughness: .95 })
     const prop = new THREE.Mesh(geometry, material)
     prop.position.set(entity.worldX, entity.worldY + (entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10), entity.worldZ)
     prop.scale.setScalar(entity.scale * (entity.kind === 'bush' ? 1.4 : 1))
@@ -139,10 +142,34 @@ async function drawNear() {
     group.add(prop)
   }
   nearRenderer.render(nearScene, nearCamera)
+  window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
+  window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   nearRenderer.setAnimationLoop(() => nearRenderer.render(nearScene, nearCamera))
 }
 
-function draw() { info.textContent = `${scene.sceneId}  ${scene.widthM}m × ${scene.depthM}m  ${scene.chunkCountX}×${scene.chunkCountZ} chunks`; if (mode === 'strategic') drawStrategic(); else drawNear() }
+function draw() {
+  const entities = scene.entities ?? []
+  const kinds = entities.reduce((result, entity) => {
+    result[entity.kind] = (result[entity.kind] ?? 0) + 1
+    return result
+  }, {})
+  window.glyphweaveFeedback = {
+    sceneId: scene.sceneId,
+    sizeM: [scene.widthM, scene.depthM],
+    mode,
+    chunks: scene.chunks.length,
+    landmarks: scene.landmarks.length,
+    entities: entities.length,
+    entityKinds: kinds,
+    visualChecks: {
+      sceneLoaded: true,
+      chunkIndexComplete: scene.chunks.length === scene.chunkCountX * scene.chunkCountZ,
+      nearCanvasReady: mode === 'near' ? Boolean(webglCanvas?.width && webglCanvas?.height) : null,
+    },
+  }
+  info.textContent = `${scene.sceneId}  ${scene.widthM}m × ${scene.depthM}m  ${scene.chunkCountX}×${scene.chunkCountZ} chunks`
+  if (mode === 'strategic') drawStrategic(); else drawNear()
+}
 document.querySelector('#strategic').onclick = () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() }
 document.querySelector('#close').onclick = () => { mode = 'near'; draw() }
 sceneSelect.onchange = loadScene

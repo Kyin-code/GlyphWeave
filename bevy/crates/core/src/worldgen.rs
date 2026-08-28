@@ -408,6 +408,13 @@ fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec], w
     for landmark in landmarks {
         entities.push(EntityInstance { entity_id: landmark.entity_id.clone(), asset_id: landmark.asset_id.clone(), kind: landmark.entity_type.clone(), world_x: landmark.world_x, world_z: landmark.world_z, world_y: landmark.world_y, scale: 1.0 });
     }
+    if waterfront {
+        entities.extend([
+            EntityInstance { entity_id: "generated.north-shore-road".to_owned(), asset_id: "prop.road".to_owned(), kind: "road".to_owned(), world_x: scene.origin_x + 500, world_z: scene.origin_z + 96, world_y: 18, scale: 1.0 },
+            EntityInstance { entity_id: "generated.lake-bridge".to_owned(), asset_id: "prop.bridge".to_owned(), kind: "bridge".to_owned(), world_x: scene.origin_x + 520, world_z: scene.origin_z + 245, world_y: 4, scale: 1.0 },
+            EntityInstance { entity_id: "generated.west-village".to_owned(), asset_id: "prop.building-cluster".to_owned(), kind: "building_cluster".to_owned(), world_x: scene.origin_x + 790, world_z: scene.origin_z + 180, world_y: 18, scale: 1.0 },
+        ]);
+    }
     let mut serial = 0_u32;
     for z in (24..scene.depth_m.saturating_sub(16)).step_by(32) {
         for x in (24..scene.width_m.saturating_sub(16)).step_by(32) {
