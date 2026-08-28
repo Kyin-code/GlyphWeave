@@ -78,7 +78,7 @@ async function drawNear() {
   nearRenderer.setPixelRatio(Math.min(devicePixelRatio, 2))
   nearRenderer.setClearColor('#0c100e')
   nearCamera = new THREE.PerspectiveCamera(48, viewportWidth / viewportHeight, 1, 10000)
-  nearCamera.position.set(scene.widthM * .45, Math.max(scene.widthM, scene.depthM) * .7, scene.depthM * .7)
+  nearCamera.position.set(scene.widthM * .5, Math.max(scene.widthM, scene.depthM) * .55, scene.depthM * .58)
   nearCamera.lookAt(scene.widthM / 2, 0, scene.depthM / 2)
   nearScene = new THREE.Scene()
   nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
@@ -119,10 +119,10 @@ async function drawNear() {
       : entity.kind === 'building' ? new THREE.BoxGeometry(18, 24, 18)
       : null
     if (!geometry) continue
-    const material = new THREE.MeshStandardMaterial({ color: entity.kind === 'tree' ? '#47704a' : entity.kind === 'rock' ? '#76716a' : '#a35d43', roughness: .95 })
+    const material = new THREE.MeshStandardMaterial({ color: entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#a35d43', roughness: .95 })
     const prop = new THREE.Mesh(geometry, material)
-    prop.position.set(entity.worldX, entity.worldY + (entity.kind === 'tree' ? 14 : 10), entity.worldZ)
-    prop.scale.setScalar(entity.scale)
+    prop.position.set(entity.worldX, entity.worldY + (entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10), entity.worldZ)
+    prop.scale.setScalar(entity.scale * (entity.kind === 'bush' ? 1.4 : 1))
     group.add(prop)
   }
   const loader = new GLTFLoader()

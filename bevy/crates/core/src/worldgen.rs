@@ -260,7 +260,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }
         }
         let landmarks: Vec<LandmarkSpec> = manifest.landmarks.iter().filter(|item| item.scene_id == scene.scene_id).cloned().collect();
-        let entities = generate_entities(manifest.world.seed ^ scene.seed_offset, scene, &landmarks);
+        let waterfront = manifest.style.to_string().contains("西湖");
+        let entities = generate_entities(manifest.world.seed ^ scene.seed_offset, scene, &landmarks, waterfront);
         let index = SceneIndex { scene_id: scene.scene_id.clone(), width_m: scene.width_m, depth_m: scene.depth_m, origin_x: scene.origin_x, origin_z: scene.origin_z, chunk_size_m: STREAM_CHUNK_METERS, chunk_count_x, chunk_count_z, chunks, landmarks, entities };
         fs::write(scene_dir.join("scene.json"), serde_json::to_vec_pretty(&index)?)?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
@@ -402,19 +403,25 @@ fn surface_kind(seed: u64, x: i32, z: i32, height: i16, waterfront: bool) -> u8 
     if height < -12 { 3 } else if height > 700 { 2 } else if signed_noise(seed.rotate_left(31), x, z) > 70 { 1 } else { 0 }
 }
 
-fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec]) -> Vec<EntityInstance> {
+fn generate_entities(seed: u64, scene: &SceneSpec, landmarks: &[LandmarkSpec], waterfront: bool) -> Vec<EntityInstance> {
     let mut entities = Vec::new();
     for landmark in landmarks {
         entities.push(EntityInstance { entity_id: landmark.entity_id.clone(), asset_id: landmark.asset_id.clone(), kind: landmark.entity_type.clone(), world_x: landmark.world_x, world_z: landmark.world_z, world_y: landmark.world_y, scale: 1.0 });
     }
     let mut serial = 0_u32;
-    for z in (64..scene.depth_m.saturating_sub(32)).step_by(96) {
-        for x in (64..scene.width_m.saturating_sub(32)).step_by(96) {
+    for z in (32..scene.depth_m.saturating_sub(16)).step_by(48) {
+        for x in (32..scene.width_m.saturating_sub(16)).step_by(48) {
             let world_x = scene.origin_x + x as i32;
             let world_z = scene.origin_z + z as i32;
+            if waterfront {
+                let lake_x = (f64::from(world_x) - 520.0) / 380.0;
+                let lake_z = (f64::from(world_z) - 470.0) / 260.0;
+                if lake_x * lake_x + lake_z * lake_z < 1.15 { continue; }
+            }
             let roll = signed_noise(seed.rotate_left(13), world_x, world_z);
-            let kind = if roll > 82 { "building" } else if roll > 45 { "tree" } else if roll < -82 { "rock" } else { continue };
-            entities.push(EntityInstance { entity_id: format!("generated.{kind}.{serial}"), asset_id: format!("prop.{kind}"), kind: kind.to_owned(), world_x, world_z, world_y: 40, scale: if kind == "building" { 1.8 } else { 1.0 } });
+            let kind = if roll > 105 { "building" } else if roll > 46 { "tree" } else if roll < -88 { "rock" } else if roll < -42 { "bush" } else { continue };
+            let world_y = i32::from(terrain_height(seed, world_x, world_z, waterfront)) / 4;
+            entities.push(EntityInstance { entity_id: format!("generated.{kind}.{serial}"), asset_id: format!("prop.{kind}"), kind: kind.to_owned(), world_x, world_z, world_y, scale: if kind == "building" { 1.8 } else { 1.0 } });
             serial += 1;
         }
     }
