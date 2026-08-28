@@ -469,4 +469,22 @@ mod tests {
         world.scenes[0].width_m = 511;
         assert!(matches!(world.validate(), Err(WorldgenError::InvalidSceneSize { .. })));
     }
+
+    #[test]
+    fn waterfront_does_not_place_land_entities_in_water() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        for entity in generate_entities(42, &scene, &[], true) {
+            if !matches!(entity.kind.as_str(), "tree" | "bush" | "rock") { continue; }
+            let dx = (f64::from(entity.world_x) - 520.0) / 380.0;
+            let dz = (f64::from(entity.world_z) - 470.0) / 260.0;
+            assert!(dx * dx + dz * dz >= 1.0, "{} spawned in water", entity.entity_id);
+        }
+    }
 }
