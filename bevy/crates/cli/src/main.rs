@@ -97,6 +97,8 @@ fn preview_command(args: &[String]) -> CliResult<()> {
         let relative = requested.trim_start_matches('/').replace('/', "\\");
         let relative = if relative.is_empty() { "preview\\index.html".to_owned() } else { relative };
         let path = root.join(&relative);
+        let relative = if path.is_dir() { format!("{relative}index.html") } else { relative };
+        let path = root.join(&relative);
         let canonical = path.canonicalize().ok();
         let allowed = canonical.as_ref().is_some_and(|path| path.starts_with(&root));
         let (status, content_type, body) = if allowed {
