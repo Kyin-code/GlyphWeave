@@ -6,6 +6,8 @@ var scene_index: Dictionary
 var loaded: Dictionary = {}
 var camera: Camera3D
 var status_label: Label
+var dragging := false
+var last_mouse := Vector2.ZERO
 
 func _ready() -> void:
 	world = _read_json("res://../world.json")
@@ -29,6 +31,26 @@ func _process(_delta: float) -> void:
 		if near and not loaded.has(key): _load_chunk(chunk, key)
 		if not near and loaded.has(key): loaded[key].queue_free(); loaded.erase(key)
 	status_label.text = "scene=%s  chunk=%d,%d  loaded=%d  X=%d Z=%d Y=%.2f" % [scene_index.sceneId, cx, cz, loaded.size(), int(target.x), int(target.z), target.y]
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_MIDDLE: dragging = event.pressed; last_mouse = event.position
+		if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP: camera.position -= camera.global_transform.basis.z * 80.0
+		if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN: camera.position += camera.global_transform.basis.z * 80.0
+	if event is InputEventMouseMotion and dragging:
+		var delta: Vector2 = event.position - last_mouse
+		camera.position.x -= delta.x * 1.5
+		camera.position.z -= delta.y * 1.5
+		last_mouse = event.position
+
+func teleport_to(scene_id: String, world_x: int, world_z: int, world_y: float = 0.0) -> bool:
+	if scene_id != scene_index.get("sceneId", ""): return false
+	var scene_width: int = scene_index.get("widthM", 0)
+	var scene_depth: int = scene_index.get("depthM", 0)
+	if world_x < scene_index.get("originX", 0) or world_z < scene_index.get("originZ", 0): return false
+	if world_x >= scene_index.get("originX", 0) + scene_width or world_z >= scene_index.get("originZ", 0) + scene_depth: return false
+	camera.position = Vector3(world_x, camera.position.y + world_y, world_z)
+	return true
 
 func _update_visible_chunks() -> void:
 	var target := Vector3(camera.position.x, 0, camera.position.z)

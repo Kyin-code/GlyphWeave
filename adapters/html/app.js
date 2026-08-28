@@ -7,6 +7,17 @@ let world
 let scene
 let mode = 'strategic'
 
+canvas.addEventListener('click', (event) => {
+  if (!scene || mode !== 'strategic') return
+  const rect = canvas.getBoundingClientRect()
+  const scale = Math.min(canvas.clientWidth / scene.widthM, canvas.clientHeight / scene.depthM)
+  const offsetX = (canvas.clientWidth - scene.widthM * scale) / 2
+  const offsetZ = (canvas.clientHeight - scene.depthM * scale) / 2
+  const worldX = Math.floor((event.clientX - rect.left - offsetX) / scale) + scene.originX
+  const worldZ = Math.floor((event.clientY - rect.top - offsetZ) / scale) + scene.originZ
+  info.textContent = `${scene.sceneId}  X=${worldX} Z=${worldZ} Y=heightfield`
+})
+
 function resize() {
   canvas.width = canvas.clientWidth * devicePixelRatio
   canvas.height = canvas.clientHeight * devicePixelRatio
