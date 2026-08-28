@@ -109,6 +109,9 @@ async function drawNear() {
   nearControls.maxPolarAngle = Math.PI * .48
   nearControls.addEventListener('change', updateNearCoordinateInfo)
   const group = new THREE.Group(); nearScene.add(group)
+  const focusX = scene.widthM / 2
+  const focusZ = scene.depthM / 2
+  const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
   const grid = new THREE.GridHelper(Math.max(scene.widthM, scene.depthM), Math.ceil(Math.max(scene.widthM, scene.depthM) / 512), '#cfad68', '#4a5f52')
   grid.position.set(scene.widthM / 2, -1, scene.depthM / 2)
   grid.scale.set(scene.widthM / Math.max(scene.widthM, scene.depthM), 1, scene.depthM / Math.max(scene.widthM, scene.depthM))
@@ -127,7 +130,9 @@ async function drawNear() {
   for (const chunk of scene.chunks) {
     const [heightResponse, surfaceResponse] = await Promise.all([fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`), fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`)])
     const bytes = await heightResponse.arrayBuffer(); const surface = new Uint8Array(await surfaceResponse.arrayBuffer()); const width = chunk.validWidthM; const depth = chunk.validDepthM
-    const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, 128), Math.min(depth - 1, 128)); geometry.rotateX(-Math.PI / 2)
+    const isFocusChunk = focusChunk?.chunkX === chunk.chunkX && focusChunk?.chunkZ === chunk.chunkZ
+    const meshStep = isFocusChunk ? 1 : 8
+    const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
     const positions = geometry.attributes.position
     const colors = []
     for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); const material = surface[z * width + x]; positions.setY(i, new DataView(bytes).getInt16((z * width + x) * 2, true) / 4); colors.push(...colorRgb(material)) }
@@ -194,6 +199,7 @@ async function drawNear() {
     group.add(prop)
   }
   nearRenderer.render(nearScene, nearCamera)
+  window.glyphweaveFeedback.visualChecks.highDetailChunk = focusChunk ? `${focusChunk.chunkX},${focusChunk.chunkZ}` : null
   window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   nearRenderer.setAnimationLoop(() => { nearControls.update(); nearRenderer.render(nearScene, nearCamera) })
@@ -205,6 +211,7 @@ function updateNearCoordinateInfo() {
   const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
   const chunkX = Math.floor(x / 512)
   const chunkZ = Math.floor(z / 512)
+  window.glyphweaveFeedback.cameraDistance = nearControls.getDistance()
   info.textContent = `${scene.sceneId}  X=${x} Z=${z}  chunk=${chunkX},${chunkZ}  512m sector`
 }
 
