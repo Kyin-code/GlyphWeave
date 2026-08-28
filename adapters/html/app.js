@@ -6,6 +6,7 @@ const sceneSelect = document.querySelector('#scene')
 let world
 let scene
 let mode = 'strategic'
+let webglCanvas
 
 canvas.addEventListener('click', (event) => {
   if (!scene || mode !== 'strategic') return
@@ -58,7 +59,12 @@ function drawStrategic() {
 
 async function drawNear() {
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+  canvas.style.display = 'none'
+  webglCanvas ??= document.createElement('canvas')
+  webglCanvas.style.width = '100%'
+  webglCanvas.style.height = '100%'
+  document.querySelector('#viewport').append(webglCanvas)
+  const renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true })
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)
   renderer.setClearColor('#0c100e')
   const camera = new THREE.PerspectiveCamera(48, canvas.clientWidth / canvas.clientHeight, 1, 10000)
@@ -78,7 +84,7 @@ async function drawNear() {
 }
 
 function draw() { info.textContent = `${scene.sceneId}  ${scene.widthM}m × ${scene.depthM}m  ${scene.chunkCountX}×${scene.chunkCountZ} chunks`; if (mode === 'strategic') drawStrategic(); else drawNear() }
-document.querySelector('#strategic').onclick = () => { mode = 'strategic'; draw() }
+document.querySelector('#strategic').onclick = () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() }
 document.querySelector('#close').onclick = () => { mode = 'near'; draw() }
 sceneSelect.onchange = loadScene
 window.onresize = resize
