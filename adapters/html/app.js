@@ -42,7 +42,9 @@ function resize() {
   if (scene) draw()
 }
 
-function color(surface) { return ['#526a4f', '#6f8050', '#69737a', '#456b73'][surface] ?? '#526a4f' }
+function color(surface) { return ['#526a4f', '#6f8050', '#69737a', '#456b73', '#aa9560'][surface] ?? '#526a4f' }
+
+function colorRgb(surface) { return [[.32, .42, .31], [.43, .52, .31], [.41, .45, .48], [.16, .42, .46], [.67, .58, .38]][surface] ?? [.32, .42, .31] }
 
 async function loadScene() {
   scene = await fetch(`../${world.scenes[sceneSelect.selectedIndex]}`).then(response => response.json())
@@ -98,12 +100,13 @@ async function drawNear() {
   const sun = new THREE.DirectionalLight(0xffe6b0, 2); sun.position.set(-400, 900, 300); nearScene.add(sun)
   const group = new THREE.Group(); nearScene.add(group)
   for (const chunk of scene.chunks) {
-    const response = await fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`)
-    const bytes = await response.arrayBuffer(); const width = chunk.validWidthM; const depth = chunk.validDepthM
+    const [heightResponse, surfaceResponse] = await Promise.all([fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`), fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`)])
+    const bytes = await heightResponse.arrayBuffer(); const surface = new Uint8Array(await surfaceResponse.arrayBuffer()); const width = chunk.validWidthM; const depth = chunk.validDepthM
     const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width / 8, 64), Math.min(depth / 8, 64)); geometry.rotateX(-Math.PI / 2)
     const positions = geometry.attributes.position
-    for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); positions.setY(i, new DataView(bytes).getInt16((z * width + x) * 2, true) / 4) }
-    geometry.computeVertexNormals(); const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#667d58', roughness: 1 })); mesh.position.set(chunk.worldX + width / 2, 0, chunk.worldZ + depth / 2); group.add(mesh)
+    const colors = []
+    for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); const material = surface[z * width + x]; positions.setY(i, new DataView(bytes).getInt16((z * width + x) * 2, true) / 4); colors.push(...colorRgb(material)) }
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); geometry.computeVertexNormals(); const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })); mesh.position.set(chunk.worldX + width / 2, 0, chunk.worldZ + depth / 2); group.add(mesh)
   }
   for (const landmark of scene.landmarks) {
     const type = landmark.type
@@ -185,6 +188,7 @@ function draw() {
 }
 document.querySelector('#strategic').onclick = () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() }
 document.querySelector('#close').onclick = () => { mode = 'near'; draw() }
+document.querySelector('#fullscreen').onclick = async () => { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); resize() }
 sceneSelect.onchange = loadScene
 window.onresize = resize
 fetch('../world.json').then(response => response.json()).then(async data => { world = data; title.textContent = data.name; for (const path of data.scenes) { const option = document.createElement('option'); option.textContent = path.split('/')[1]; sceneSelect.append(option) } await loadScene(); resize() })

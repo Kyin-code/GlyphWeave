@@ -398,7 +398,9 @@ fn surface_kind(seed: u64, x: i32, z: i32, height: i16, waterfront: bool) -> u8 
     if waterfront {
         let dx = (f64::from(x) - 520.0) / 380.0;
         let dz = (f64::from(z) - 470.0) / 260.0;
-        if dx * dx + dz * dz < 1.0 { return 3; }
+        let radius = dx * dx + dz * dz;
+        if radius < 1.0 { return 3; }
+        if radius < 1.12 { return 4; }
     }
     if height < -12 { 3 } else if height > 700 { 2 } else if signed_noise(seed.rotate_left(31), x, z) > 70 { 1 } else { 0 }
 }
