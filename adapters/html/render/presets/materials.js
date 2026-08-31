@@ -39,10 +39,30 @@ export const grassLook = {
   roughness: 0.47,
 }
 
-// ---- 未来材质占位（Kyin 会逐步回填）--------------------------------------
+// ---- 地面 (Ground) ---------------------------------------------------------
+// 原则（Kyin）：地面染成草的颜色（看季节），立体草叶片只做动态效果。
+// 当前为春夏季草绿调色板（makeMCTerrain），随季节可整体调整色相。
 export const groundPresets = {
-  // 地形起伏：Mound Scale / Mound Height 应根据地形数据自动给出（未定）
-  mounds: { enabled: true, note: '根据地形高度自动', },
+  season: 'summer', // 季节：spring / summer / autumn / winter
+  // 低/中/高海拔草色 (RGB 0-255)，夏季草绿
+  palette: {
+    low: [66, 118, 52],
+    mid: [88, 132, 60],
+    high: [132, 148, 70],
+  },
+  tonalAmount: 0.18,  // 大尺度色调变化幅度
+  warmStrength: 0.22, // 阳光暖化强度
+  mossColor: [70, 130, 50], // 草甸 cover 色
+  mossCoverage: 0.38,
+  note: '远景因雾与光照自然过渡，近景保持草绿',
+}
+
+// 季节调色板（未来可切换）
+export const seasonPalettes = {
+  spring: { low: [80, 128, 58], mid: [104, 142, 64], high: [148, 156, 76] },
+  summer: { low: [66, 118, 52], mid: [88, 132, 60], high: [132, 148, 70] },
+  autumn: { low: [150, 128, 60], mid: [170, 140, 66], high: [184, 152, 72] },
+  winter: { low: [140, 148, 120], mid: [150, 154, 128], high: [158, 158, 132] },
 }
 
 export const mossPresets = {
