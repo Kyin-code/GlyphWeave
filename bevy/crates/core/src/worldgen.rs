@@ -1346,29 +1346,27 @@ fn fbm2d(seed: u64, x: f64, z: f64) -> f64 {
 fn erosion_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let xf = f64::from(x);
     let zf = f64::from(z);
-    // Large-scale drainage direction (the "main river" of the region).
-    let main = value_noise2d(seed.wrapping_add(0x6a09_e667), xf / 900.0, zf / 900.0);
-    // Mid-scale tributary network.
-    let branch = value_noise2d(seed.wrapping_add(0xbb67_ae85), xf / 260.0, zf / 260.0);
-    // Fine streamlets that give valleys texture.
-    let stream = value_noise2d(seed.wrapping_add(0x3c6e_f372), xf / 90.0, zf / 90.0);
-    // Valley strength: low noise = drainage concentration = deeper cut.
-    let valley = {
-        let m = (0.5 - main * 0.5).clamp(0.0, 1.0); // main low -> 1
-        let b = (0.55 - branch * 0.55).clamp(0.0, 1.0);
-        let s = (0.6 - stream * 0.6).clamp(0.0, 1.0);
-        (m * m * 0.6 + b * b * 0.3 + s * s * 0.1).clamp(0.0, 1.0)
-    };
-    // Only cut on genuinely low ground: elevation follows the same noise
-    // family, so the "low" test keeps carving out of mountain ridges.
+    // Domain-warped field: warping makes the zero lines meander like rivers
+    // instead of straight grid lines.
+    let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0) * 60.0;
+    let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0) * 60.0;
+    // Two river scales: major channels (broad valleys) + minor streams.
+    let major = value_noise2d(seed.wrapping_add(0x6a09_e667), (xf + warp_x) / 640.0, (zf + warp_z) / 640.0);
+    let minor = value_noise2d(seed.wrapping_add(0xbb67_ae85), (xf + warp_x * 1.4) / 190.0, (zf + warp_z * 1.4) / 190.0);
+    // Distance to the nearest channel (field near zero) - closer = stronger flow.
+    let d_major = (major.abs() * 640.0).min(90.0) / 90.0;
+    let d_minor = (minor.abs() * 190.0).min(46.0) / 46.0;
+    let near_channel = (1.0 - d_major) * 0.62 + (1.0 - d_minor) * 0.38;
+    // Flow strength: 0 on ridges, 1 in valleys where drainage concentrates.
     let landform = landform_field(seed, x, z, water);
-    let low_ground = (0.5 - (landform / 80.0).clamp(0.0, 1.0) * 0.5).clamp(0.0, 1.0);
+    let low_ground = (1.0 - (landform / 90.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
     // Settled land stays untouched: cities sit on flat, erosion-free pads.
     let urban = urbanization_field(seed, x, z, water, 0.5);
     let wild = (1.0 - urban * 1.8).clamp(0.0, 1.0);
-    // Smoothstep the strength so ridges fade out gently instead of a hard cut.
-    let strength = valley * valley * (3.0 - 2.0 * valley);
-    -(strength * low_ground * wild * 26.0)
+    let strength = near_channel * low_ground * wild;
+    // Smoothstep so channel banks ease out instead of a hard V cut.
+    let strength_s = strength * strength * (3.0 - 2.0 * strength);
+    -(strength_s * 30.0)
 }
 
 /// Deterministic terrain skeleton (peak / valley structure) in world space.
@@ -1826,6 +1824,37 @@ fn terrain_height_with_geometry_carved(
     (terrain.mul_add(4.0, 0.0)).clamp(-128.0, 1_024.0) as i16
 }
 
+/// Climate moisture field in world space (0 = arid, 1 = humid).
+///
+/// Moisture comes from distance to the nearest water surface plus a fractal
+/// climate band: coastal and lakeside land is humid (forest), inland and
+/// leeward ground dries out toward steppe / desert. This is the mapgen4
+/// "wind → rainfall → biome" idea expressed as a continuous pure function, so
+/// biomes are climate-driven rather than random noise classification.
+fn humidity_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    // Distance to the nearest water body (lake centre or river axis).
+    let dist_water = match water.kind {
+        WaterKind::Lake => {
+            let radius = lake_radius_at(xf, zf, water);
+            radius.sqrt().max(0.0) * water.half_width.max(1.0)
+        }
+        WaterKind::River => (xf - water.center_x).abs() - water.half_width,
+        WaterKind::None => f64::MAX,
+    };
+    let shore_damp = (1.0 - (dist_water / 500.0).clamp(0.0, 1.0)) * 0.45;
+    // Broad climate bands: large-scale wet / dry regions.
+    let climate = fbm2d(seed.wrapping_add(0xa5b0_cb4f), xf / 1800.0, zf / 1800.0);
+    let band = (climate * 0.5 + 0.5).clamp(0.0, 1.0) * 0.55;
+    // Moisture is pulled down on high ridges (rain shadow) and boosted in
+    // valleys.
+    let landform = landform_field(seed, x, z, water);
+    let ridge = (landform / 90.0).clamp(0.0, 1.0);
+    let elevation_effect = (1.0 - ridge) * 0.15;
+    (shore_damp + band + elevation_effect).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 fn lake_radius(x: f64, z: f64, scene_width: u32, scene_depth: u32) -> f64 {
     lake_radius_at(
@@ -1892,6 +1921,16 @@ fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: Wat
         }
         WaterKind::None => {}
     }
+    // Eroded valley channels (rivers on land): where the hydrological carve
+    // has cut the terrain down near the water datum and the flow is strong,
+    // mark the channel as wet mud so rivers read as water courses on the
+    // ground instead of grass grooves.
+    if water.kind != WaterKind::None
+        && height < 8
+        && erosion_carve(seed, x, z, water) < -14.0
+    {
+        return 4;
+    }
     if height < -12 {
         // Below datum. The channel itself (distance < half_width) is already
         // marked water above. Beyond the channel, low ground must read as mud
@@ -1927,19 +1966,46 @@ fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: Wat
                 }
             }
             Landform::Plain => {
-                // Settlement plain: grass dominant.
-                match signed_noise(seed.rotate_left(31), x, z) {
-                    value if value > 82 => 1,
-                    value if value < -82 => 7,
-                    _ => 0,
+                // Settlement plain: biome follows moisture — humid forest,
+                // temperate grass, arid steppe.
+                let moisture = humidity_field(seed, x, z, water);
+                if moisture > 0.62 {
+                    // Humid plain: forest / tall grass.
+                    match signed_noise(seed.rotate_left(31), x, z) {
+                        value if value > 40 => 6,
+                        _ => 1,
+                    }
+                } else if moisture > 0.38 {
+                    // Temperate grassland.
+                    match signed_noise(seed.rotate_left(31), x, z) {
+                        value if value > 82 => 1,
+                        value if value < -82 => 7,
+                        _ => 0,
+                    }
+                } else {
+                    // Arid steppe: dry grass / dirt.
+                    match signed_noise(seed.rotate_left(31), x, z) {
+                        value if value > 60 => 7,
+                        value if value < -60 => 5,
+                        _ => 1,
+                    }
                 }
             }
             Landform::Hill => {
-                // Rolling hills: grass with forested hummocks.
-                match signed_noise(seed.rotate_left(31), x, z) {
-                    value if value > 70 => 6,
-                    value if value < -70 => 2,
-                    _ => 0,
+                // Rolling hills: forest on humid slopes, grass / rock on dry.
+                let moisture = humidity_field(seed, x, z, water);
+                if moisture > 0.55 {
+                    match signed_noise(seed.rotate_left(31), x, z) {
+                        value if value > 30 => 6,
+                        value if value < -60 => 2,
+                        _ => 0,
+                    }
+                } else {
+                    match signed_noise(seed.rotate_left(31), x, z) {
+                        value if value > 70 => 6,
+                        value if value < -70 => 2,
+                        _ => 0,
+                    }
                 }
             }
             Landform::Mountain => {
@@ -4535,3 +4601,4 @@ mod tests {
         let _ = seen;
     }
 }
+
