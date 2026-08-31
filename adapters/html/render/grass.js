@@ -5,6 +5,15 @@
 // translucency, and a coverage mask (patchy meadow) driven by the same noise
 // family as the terrain texture. One InstancedBufferGeometry = one draw call
 // per field.
+//
+// Blade-height presets are Kyin-tuned in Soil Studio (02-grass-system) and
+// mirrored from render/presets/materials.js (grassPresets) — keep in sync.
+
+// 浅草 / 中草 / 高草 (Kyin, 2026-08-31)
+const lowPres = { bladeHeight: 0.2, bladeWidth: 0.02, curl: 0.25 }
+const midPres = { bladeHeight: 0.78, bladeWidth: 0.042, curl: 0.48 }
+const highPres = { bladeHeight: 1.54, bladeWidth: 0.05, curl: 0.73 }
+
 export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, count, salt, focusX, focusZ) {
   const segments = 5
   const maxCount = Math.max(200, count)
@@ -35,31 +44,60 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
   const iColorVar = new Float32Array(maxCount)
 
   // Coverage mask: world-space noise decides where grass grows (patchy meadow),
-  // AND a focus-density falloff concentrates blades near the camera focus so
-  // the visible foreground reads lush without burning draw calls on distant
-  // blades (which are sub-pixel anyway).
+  // AND a strong focus-density falloff concentrates blades near the camera
+  // focus: rejection sampling with cubic distance decay puts ~90% of blades
+  // inside the visible ~150m ring, so the foreground reads as dense meadow
+  // while distant blades (sub-pixel anyway) cost almost nothing.
+  //
+  // Three-height layering (Kyin-tuned presets): low grass fills damp hollows,
+  // mid grass is the meadow main, high grass crowns rises — giving the field a
+  // natural depth gradient instead of one uniform blade height.
   let placed = 0
   let guard = 0
   const fx = focusX ?? (worldX + width / 2), fz = focusZ ?? (worldZ + depth / 2)
   const maxR = Math.max(width, depth) * .55
-  while (placed < maxCount && guard < maxCount * 60) {
+  const focusR = Math.min(maxR, 55) // dense core radius around the camera
+  // Outside the core, blades fall off with squared distance so the transition
+  // to the sparse distance is gentle (avoids a hard grass circle).
+  const farR = Math.min(maxR, 220)
+  // Blade-height zones by terrain height: sample the range once so the layering
+  // is consistent across the whole field.
+  let hMin = Infinity, hMax = -Infinity
+  for (let s = 0; s < 200; s++) {
+    const sx = worldX + rnd(s, 1, salt) * width
+    const sz = worldZ + rnd(s, 2, salt) * depth
+    const hh = heightAt(sx, sz)
+    if (hh < hMin) hMin = hh
+    if (hh > hMax) hMax = hh
+  }
+  const hRange = Math.max(1e-3, hMax - hMin)
+  while (placed < maxCount && guard < maxCount * 120) {
     guard++
-    const x = worldX + rnd(placed, 0, salt) * width
-    const z = worldZ + rnd(placed, 1, salt) * depth
+    const x = worldX + rnd(guard, 0, salt) * width
+    const z = worldZ + rnd(guard, 1, salt) * depth
     const cover = fallbackFractal(x * .0022 + salt * .013, z * .0022 - salt * .017) * .5 + .5
     if (cover < .3) continue
-    // Distance from the camera focus normalized to 0..1 (0 = at focus).
-    const d = Math.hypot(x - fx, z - fz) / maxR
-    if (d > .72 && rnd(guard, 8, salt) < .7) continue
+    // Distance falloff: dense within focusR, gentle square falloff out to farR.
+    const d = Math.hypot(x - fx, z - fz)
+    const keep = d < focusR ? 1 : d < farR ? Math.pow((farR - d) / (farR - focusR), 2) : 0
+    if (rnd(guard, 8, salt) > keep) continue
+    const gy = heightAt(x, z)
     iWorld[placed * 2] = x
     iWorld[placed * 2 + 1] = z
-    iBaseY[placed] = heightAt(x, z)
-    iYaw[placed] = rnd(placed, 4, salt) * Math.PI * 2
-    iHeight[placed] = .55 + rnd(placed, 2, salt) * .7
-    iWidth[placed] = .7 + rnd(placed, 3, salt) * .45
-    iPhase[placed] = rnd(placed, 5, salt) * Math.PI * 2
-    iCurlVar[placed] = .5 + rnd(placed, 6, salt) * .9
-    iColorVar[placed] = rnd(placed, 7, salt)
+    iBaseY[placed] = gy
+    iYaw[placed] = rnd(guard, 4, salt) * Math.PI * 2
+    // Height zone from terrain elevation: low in hollows, high on rises, with a
+    // deterministic per-blade jitter so the boundaries stay soft.
+    const elev = (gy - hMin) / hRange
+    const jitter = rnd(guard, 9, salt) * .18
+    const zone = elev + jitter
+    const pres = zone < .35 ? lowPres : zone < .75 ? midPres : highPres
+    const varScale = .82 + rnd(guard, 2, salt) * .36 // ±18% per-blade
+    iHeight[placed] = pres.bladeHeight * varScale
+    iWidth[placed] = pres.bladeWidth * (1.2 - rnd(guard, 3, salt) * .4)
+    iPhase[placed] = rnd(guard, 5, salt) * Math.PI * 2
+    iCurlVar[placed] = pres.curl * (.7 + rnd(guard, 6, salt) * .6)
+    iColorVar[placed] = rnd(guard, 7, salt)
     placed++
   }
   const used = placed
@@ -82,12 +120,12 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     uWindScale: { value: .35 },
     uGust: { value: .6 },
     uCurl: { value: 1.0 },
-    uBladeHeight: { value: 1.4 },
-    uBladeWidth: { value: .16 },
+    uBladeHeight: { value: 1.0 },
+    uBladeWidth: { value: 1.0 },
     uColorBase: { value: new THREE.Color('#33421b') },
     uColorTip: { value: new THREE.Color('#9bc24a') },
-    uColorVarAmt: { value: .45 },
-    uTranslucency: { value: .95 },
+    uColorVarAmt: { value: .5 },
+    uTranslucency: { value: 1.1 },
     uSunDir: { value: new THREE.Vector3(-.45, .82, .3).normalize() },
     uSunColor: { value: new THREE.Color('#ffd9a0') },
     uSunIntensity: { value: 2.6 },
@@ -192,6 +230,10 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
         float gradient = smoothstep(0.08, 1.0, vT);
         vec3 gcol = mix(uColorBase, uColorTip, gradient);
         gcol *= mix(1.0 - uColorVarAmt, 1.0 + uColorVarAmt, vColorVar);
+        // Slight per-blade hue scatter (yellow-green to blue-green) so the
+        // field reads as varied living grass, not one flat tone.
+        float hueShift = (vColorVar - 0.5) * 0.35;
+        gcol = gcol * (1.0 + hueShift * vec3(-0.25, 0.35, -0.3));
         // Base occlusion: darker at the roots.
         gcol *= mix(0.5, 1.0, smoothstep(0.0, 0.35, vT));
 

@@ -571,7 +571,7 @@ async function drawNear() {
   // focused chunk (Journey/Flower style). Density concentrates near the camera
   // so the visible foreground reads lush. Only for natural scenes.
   if (window.__steppe && focusChunk) {
-    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 160000, 7, focusX, focusZ)
+    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 500000, 7, focusX, focusZ)
     grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
     group.add(grass.mesh)
     window.__steppeGrass = grass
