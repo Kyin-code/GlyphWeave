@@ -125,10 +125,13 @@ mod tests {
     fn snapshot_round_trips_through_gemap_metadata() {
         let mut world = VoxelWorld::new("Save with run");
         let wall = world.intern_block("glyphweave:wall").unwrap();
-        world.set(crate::voxel::VoxelCoord::new(0, 0, 0), wall).unwrap();
+        world
+            .set(crate::voxel::VoxelCoord::new(0, 0, 0), wall)
+            .unwrap();
 
         let state = populated_state();
-        let metadata = BTreeMap::from([(GAMEPLAY_METADATA_KEY.to_owned(), encode_snapshot(&state))]);
+        let metadata =
+            BTreeMap::from([(GAMEPLAY_METADATA_KEY.to_owned(), encode_snapshot(&state))]);
         let bytes = encode_world_with_metadata(&world, Some(metadata)).unwrap();
         let decoded = decode_world_with_metadata(&bytes, ArchiveLimits::default()).unwrap();
 

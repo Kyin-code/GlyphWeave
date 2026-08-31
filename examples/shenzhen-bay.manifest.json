@@ -1,0 +1,107 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "深圳湾滨海城市场景",
+    "seed": 20260829,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "shenzhen-bay-core",
+      "widthM": 1000,
+      "depthM": 2000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-modern-coastal-city",
+    "terrain": "continuous-heightfield",
+    "layoutReference": "Shenzhen Bay core corridor: Houhai / Nanshan coastal city on the north shore, Shenzhen Bay sea channel, mangrove reserve on the tidal flats, and the bay bridge crossing the sea to the south.",
+    "referenceData": {
+      "sources": [
+        "https://www.sz.gov.cn/",
+        "https://data.sz.gov.cn/"
+      ],
+      "retrievedAt": "2026-08-30",
+      "bayWidthM": 560,
+      "mangroveReserveAreaM2": 36800,
+      "crop": "1000m x 2000m core Shenzhen Bay window from Houhai city to the bay bridge; not the full coastline",
+      "inferenceReason": "The crop keeps the sea channel, mangrove tidal flats and the cross-bay bridge inside a walkable first-person scene."
+    },
+    "landUseProfile": {
+      "theme": "coastal-bay",
+      "urbanCoreRatio": 0.14,
+      "suburbanRatio": 0.10,
+      "greenRatio": 0.20,
+      "farmRatio": 0.04,
+      "forestRatio": 0.12,
+      "pastureRatio": 0.04,
+      "reserveRatio": 0.30
+    },
+    "water": {
+      "waterType": "river",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "flowDirection": "world_z",
+      "flowSpeedMps": 0.3,
+      "shoreProfile": { "transitionWidthM": 60, "shallowBandM": 30, "navigationDepthM": 6 },
+      "waveModel": { "preset": "harbour-wind", "amplitudeM": 0.1, "wavelengthM": 16, "direction": "world_z", "roughness": 0.2 },
+      "footprint": { "shape": "band", "centerXM": 500, "halfWidthM": 280, "axis": "world_z" }
+    },
+    "assetContracts": {
+      "river": { "type": "water", "placement": "water-surface", "allowedSurfaces": ["water"], "forbiddenSurfaces": ["underground"], "minWidthM": 400, "maxWidthM": 700, "minDepthM": 1200, "maxDepthM": 2200, "minHeightM": 1, "maxHeightM": 1 },
+      "road": { "type": "road", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 200, "maxWidthM": 2400, "minDepthM": 6, "maxDepthM": 30, "minHeightM": 0.1, "maxHeightM": 1 },
+      "sidewalk": { "type": "pedestrian-pavement", "placement": "surface-grounded", "allowedSurfaces": ["stone", "shore", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 200, "maxWidthM": 2400, "minDepthM": 3, "maxDepthM": 8, "minHeightM": 0.1, "maxHeightM": 1 },
+      "bridge": { "type": "bridge", "placement": "bridge-deck", "allowedSurfaces": ["water", "shore"], "forbiddenSurfaces": ["underground"], "minWidthM": 200, "maxWidthM": 1000, "minDepthM": 10, "maxDepthM": 40, "minHeightM": 6, "maxHeightM": 90 },
+      "residential_tower": { "type": "residential", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 20, "maxWidthM": 120, "minDepthM": 20, "maxDepthM": 120, "minHeightM": 18, "maxHeightM": 60 },
+      "residential_home": { "type": "residential", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 24, "maxWidthM": 140, "minDepthM": 24, "maxDepthM": 130, "minHeightM": 4, "maxHeightM": 14 },
+      "residential_block": { "type": "residential", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 20, "maxWidthM": 120, "minDepthM": 20, "maxDepthM": 120, "minHeightM": 4, "maxHeightM": 60 },
+      "commercial_center": { "type": "commercial", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 40, "maxWidthM": 300, "minDepthM": 30, "maxDepthM": 240, "minHeightM": 4, "maxHeightM": 80 },
+      "school": { "type": "school", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 30, "maxWidthM": 140, "minDepthM": 25, "maxDepthM": 120, "minHeightM": 4, "maxHeightM": 30 },
+      "parking_lot": { "type": "parking", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 20, "maxWidthM": 240, "minDepthM": 12, "maxDepthM": 160, "minHeightM": 0.1, "maxHeightM": 2 },
+      "green_space": { "type": "green", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 20, "maxWidthM": 240, "minDepthM": 20, "maxDepthM": 240, "minHeightM": 0.1, "maxHeightM": 4 },
+      "nature_reserve": { "type": "reserve", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "wetland"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 80, "maxWidthM": 800, "minDepthM": 80, "maxDepthM": 800, "minHeightM": 0.1, "maxHeightM": 10 },
+      "mangrove": { "type": "mangrove", "placement": "surface-grounded", "allowedSurfaces": ["shore", "wetland"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 2, "maxWidthM": 8, "minDepthM": 2, "maxDepthM": 8, "minHeightM": 3, "maxHeightM": 10 },
+      "reed": { "type": "reed", "placement": "surface-grounded", "allowedSurfaces": ["shore", "wetland"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 1, "minDepthM": 0.2, "maxDepthM": 1, "minHeightM": 1, "maxHeightM": 5 },
+      "tree": { "type": "tree", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 2, "maxWidthM": 5.5, "minDepthM": 2, "maxDepthM": 5.5, "minHeightM": 4, "maxHeightM": 9 },
+      "bush": { "type": "bush", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.5, "maxWidthM": 3, "minDepthM": 0.5, "maxDepthM": 3, "minHeightM": 0.3, "maxHeightM": 3 },
+      "rock": { "type": "rock", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 4, "minDepthM": 0.2, "maxDepthM": 4, "minHeightM": 0.1, "maxHeightM": 4 },
+      "street_lamp": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.3, "maxWidthM": 2, "minDepthM": 0.3, "maxDepthM": 2, "minHeightM": 4, "maxHeightM": 8 },
+      "road_sign": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.4, "maxWidthM": 3, "minDepthM": 0.2, "maxDepthM": 1.5, "minHeightM": 2, "maxHeightM": 4 },
+      "water_well": { "type": "amenity", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 2, "maxWidthM": 12, "minDepthM": 2, "maxDepthM": 12, "minHeightM": 1, "maxHeightM": 4 },
+      "canal": { "type": "waterway", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 6, "maxWidthM": 40, "minDepthM": 50, "maxDepthM": 2000, "minHeightM": 0.1, "maxHeightM": 6 },
+      "farmland": { "type": "farmland", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 40, "maxWidthM": 500, "minDepthM": 40, "maxDepthM": 500, "minHeightM": 0.1, "maxHeightM": 3 },
+      "mountain_forest": { "type": "forest", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 40, "maxWidthM": 800, "minDepthM": 40, "maxDepthM": 800, "minHeightM": 1, "maxHeightM": 200 },
+      "pasture": { "type": "pasture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 60, "maxWidthM": 800, "minDepthM": 60, "maxDepthM": 800, "minHeightM": 0.1, "maxHeightM": 4 },
+      "town_hall": { "type": "civic", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 30, "maxWidthM": 160, "minDepthM": 24, "maxDepthM": 120, "minHeightM": 8, "maxHeightM": 60 },
+      "market": { "type": "market", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 36, "maxWidthM": 200, "minDepthM": 30, "maxDepthM": 160, "minHeightM": 3, "maxHeightM": 20 },
+      "industrial": { "type": "industrial", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 40, "maxWidthM": 260, "minDepthM": 40, "maxDepthM": 200, "minHeightM": 6, "maxHeightM": 40 },
+      "park": { "type": "park", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "shore"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 50, "maxWidthM": 400, "minDepthM": 50, "maxDepthM": 400, "minHeightM": 0.5, "maxHeightM": 20 },
+      "building": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 8, "maxWidthM": 80, "minDepthM": 8, "maxDepthM": 80, "minHeightM": 4, "maxHeightM": 30 },
+      "resort_lodge": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 16, "maxWidthM": 60, "minDepthM": 12, "maxDepthM": 40, "minHeightM": 4, "maxHeightM": 18 },
+      "building_tower": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 16, "maxWidthM": 120, "minDepthM": 16, "maxDepthM": 120, "minHeightM": 24, "maxHeightM": 120 },
+      "block_tower": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 16, "maxWidthM": 120, "minDepthM": 16, "maxDepthM": 120, "minHeightM": 24, "maxHeightM": 120 },
+      "lamp": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 1, "minDepthM": 0.2, "maxDepthM": 1, "minHeightM": 2, "maxHeightM": 7 },
+      "grass_clump": { "type": "grass", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.5, "maxWidthM": 3, "minDepthM": 0.5, "maxDepthM": 3, "minHeightM": 0.2, "maxHeightM": 4 },
+      "bench": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 2, "maxWidthM": 5, "minDepthM": 0.5, "maxDepthM": 2, "minHeightM": 0.4, "maxHeightM": 2 },
+      "fallen_log": { "type": "fallen-log", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 1, "maxWidthM": 6, "minDepthM": 0.3, "maxDepthM": 2, "minHeightM": 0.2, "maxHeightM": 2 },
+      "car": { "type": "vehicle", "placement": "road-surface", "allowedSurfaces": ["road", "bridge"], "forbiddenSurfaces": ["water", "grass", "underground"], "minWidthM": 4, "maxWidthM": 6, "minDepthM": 1.6, "maxDepthM": 2.4, "minHeightM": 1.2, "maxHeightM": 2 },
+      "pedestrian": { "type": "pedestrian", "placement": "sidewalk-surface", "allowedSurfaces": ["stone", "shore", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.4, "maxWidthM": 1.2, "minDepthM": 0.4, "maxDepthM": 1.2, "minHeightM": 1.4, "maxHeightM": 2.2 },
+      "storefront": { "type": "street-front", "placement": "surface-grounded", "allowedSurfaces": ["stone", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 8, "maxWidthM": 24, "minDepthM": 6, "maxDepthM": 20, "minHeightM": 4, "maxHeightM": 14 },
+      "food_stall": { "type": "street-food", "placement": "surface-grounded", "allowedSurfaces": ["stone", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 4, "maxWidthM": 12, "minDepthM": 3, "maxDepthM": 8, "minHeightM": 2, "maxHeightM": 5 }
+    }
+  },
+  "landmarks": [
+    { "entityId": "landmark.shenzhen-bay", "name": "深圳湾", "type": "river", "purpose": "南山与香港之间的大湾区海域", "description": "深圳湾核心海面，连通后海与深圳湾大桥。", "sceneId": "shenzhen-bay-core", "worldX": 500, "worldZ": 1000, "worldY": 0, "widthM": 560, "depthM": 2000, "heightM": 1, "assetId": "water.shenzhen-bay" },
+    { "entityId": "landmark.shenzhen-bay-bridge", "name": "深圳湾跨海大桥", "type": "bridge", "purpose": "跨越深圳湾连接深圳南山与香港", "description": "跨海公路桥，横跨海湾中部连接南北岸。", "sceneId": "shenzhen-bay-core", "worldX": 500, "worldZ": 1000, "worldY": 5, "widthM": 900, "depthM": 22, "heightM": 60, "assetId": "landmark.shenzhen-bay-bridge" },
+    { "entityId": "landmark.binhai-park", "name": "深圳湾公园", "type": "park", "purpose": "滨海城市绿带与红树林观景区", "description": "沿深圳湾北岸的滨海公园，草坪、步道和观鸟点。", "sceneId": "shenzhen-bay-core", "worldX": 500, "worldZ": 250, "worldY": 2, "widthM": 340, "depthM": 120, "heightM": 2, "assetId": "landmark.binhai-park" },
+    { "entityId": "landmark.mangrove-reserve", "name": "福田红树林自然保护区", "type": "nature_reserve", "purpose": "深圳湾北岸红树林生态保护区", "description": "沿滩涂的红树林带，鸟类栖息地和潮间带生态区。", "sceneId": "shenzhen-bay-core", "worldX": 800, "worldZ": 350, "worldY": 1, "widthM": 260, "depthM": 120, "heightM": 8, "assetId": "landmark.mangrove-reserve" },
+    { "entityId": "landmark.houhai-core", "name": "后海总部基地", "type": "station", "purpose": "深圳湾北岸高密度城市核心", "description": "后海中心区，滨海高层商务与住宅组团。", "sceneId": "shenzhen-bay-core", "worldX": 500, "worldZ": 1750, "worldY": 3, "widthM": 360, "depthM": 180, "heightM": 90, "assetId": "landmark.houhai-core" },
+    { "entityId": "landmark.nanshan-highway", "name": "滨海大道", "type": "station", "purpose": "沿深圳湾北岸的城市主干道", "description": "滨海大道，连接南山与福田的滨海快速路。", "sceneId": "shenzhen-bay-core", "worldX": 500, "worldZ": 480, "worldY": 2, "widthM": 560, "depthM": 26, "heightM": 8, "assetId": "landmark.nanshan-highway" },
+    { "entityId": "landmark.food-stall-corner", "name": "街角小吃摊", "type": "food_stall", "purpose": "滨海大道与商店街交汇处的小吃摊", "description": "遮阳棚小吃车、小桌凳、地砖、绿化和遮阴树。", "sceneId": "shenzhen-bay-core", "worldX": 140, "worldZ": 150, "worldY": 2, "widthM": 6, "depthM": 4, "heightM": 3, "assetId": "landmark.food-stall-corner" }
+  ],
+  "sceneGraph": { "transitions": [] }
+}

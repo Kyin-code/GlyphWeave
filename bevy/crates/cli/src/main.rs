@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fs;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 
 use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
 use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
@@ -17,10 +17,23 @@ use glyphweave_core::storage::model::{Manifest, RegionManifest};
 use glyphweave_core::voxel::{
     CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
 };
-use glyphweave_core::worldgen::{WorldManifest, WorldPatch, apply_patch, bake_world, write_demo_manifest};
+use glyphweave_core::worldgen::{
+    LandUseProfile, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch, bake_world,
+    write_demo_manifest,
+};
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
 const DEFAULT_DUMP_LIMIT: usize = 64;
+
+fn river_half_width_at(z: f64, scene: &glyphweave_core::worldgen::SceneIndex, base: f64) -> f64 {
+    if scene.depth_m < 3_000 {
+        return base.max(1.0);
+    }
+    let t = ((z - f64::from(scene.origin_z)) / f64::from(scene.depth_m)).clamp(0.0, 1.0);
+    let broad_bend = (t * std::f64::consts::TAU * 1.15).sin() * 0.08;
+    let harbour_bay = ((t - 0.28) * std::f64::consts::TAU * 3.0).sin().max(0.0) * 0.045;
+    (base * (1.0 + broad_bend + harbour_bay)).max(1.0)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DumpSelector {
@@ -56,9 +69,12 @@ fn run(args: Vec<String>) -> CliResult<()> {
     };
     match command {
         "init-world" => init_world_command(&args[1..]),
+        "generate-demo-world" => generate_demo_world_command(&args[1..]),
+        "generate-procedural-world" => generate_procedural_world_command(&args[1..]),
         "generate-world" => generate_world_command(&args[1..]),
         "apply-patch" => apply_patch_command(&args[1..]),
         "quality-report" => quality_report_command(&args[1..]),
+        "scale-audit" => scale_audit_command(&args[1..]),
         "preview" => preview_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
@@ -82,18 +98,15 @@ fn preview_command(args: &[String]) -> CliResult<()> {
     }
     let root = fs::canonicalize(&args[0])?;
     let port: u16 = match args.get(1) {
-        Some(value) => value
-            .parse()
-            .map_err(|_| "PORT must be a valid u16")?,
+        Some(value) => value.parse().map_err(|_| "PORT must be a valid u16")?,
         None => 8080,
     };
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     println!("preview: http://127.0.0.1:{port}/preview/");
     for stream in listener.incoming() {
         let mut stream = stream?;
-        let mut request = [0_u8; 4096];
-        let length = stream.read(&mut request)?;
-        let line = String::from_utf8_lossy(&request[..length]);
+        let request = read_http_request(&mut stream)?;
+        let line = String::from_utf8_lossy(&request);
         let request_line = line.lines().next().unwrap_or("");
         let mut request_parts = request_line.split_whitespace();
         let method = request_parts.next().unwrap_or("GET");
@@ -101,33 +114,103 @@ fn preview_command(args: &[String]) -> CliResult<()> {
         if method == "POST" && requested == "/api/feedback" {
             let body = line.split_once("\r\n\r\n").map_or("", |(_, body)| body);
             let feedback: serde_json::Value = serde_json::from_str(body)?;
-            fs::write(root.join("visual-feedback.json"), serde_json::to_vec_pretty(&feedback)?)?;
-            let response = serde_json::to_vec(&serde_json::json!({"ok": true, "path": "visual-feedback.json"}))?;
-            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", response.len())?;
+            fs::write(
+                root.join("visual-feedback.json"),
+                serde_json::to_vec_pretty(&feedback)?,
+            )?;
+            let response = serde_json::to_vec(
+                &serde_json::json!({"ok": true, "path": "visual-feedback.json"}),
+            )?;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response.len()
+            )?;
             stream.write_all(&response)?;
             continue;
         }
         let relative = requested.trim_start_matches('/').replace('/', "\\");
-        let relative = if relative.is_empty() { "preview\\index.html".to_owned() } else { relative };
+        let relative = if relative.is_empty() {
+            "preview\\index.html".to_owned()
+        } else {
+            relative
+        };
         let path = root.join(&relative);
-        let relative = if path.is_dir() { format!("{relative}index.html") } else { relative };
+        let relative = if path.is_dir() {
+            format!("{relative}index.html")
+        } else {
+            relative
+        };
         let path = root.join(&relative);
         let canonical = path.canonicalize().ok();
-        let allowed = canonical.as_ref().is_some_and(|path| path.starts_with(&root));
+        let allowed = canonical
+            .as_ref()
+            .is_some_and(|path| path.starts_with(&root));
         let (status, content_type, body) = if allowed {
             match fs::read(canonical.expect("checked canonical path")) {
                 Ok(body) => ("200 OK", mime_for(&relative), body),
                 Err(_) => ("404 Not Found", "text/plain", b"Not found".to_vec()),
             }
-        } else { ("403 Forbidden", "text/plain", b"Forbidden".to_vec()) };
-        write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", body.len())?;
+        } else {
+            ("403 Forbidden", "text/plain", b"Forbidden".to_vec())
+        };
+        write!(
+            stream,
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+            body.len()
+        )?;
         stream.write_all(&body)?;
     }
     Ok(())
 }
 
+fn read_http_request(stream: &mut TcpStream) -> CliResult<Vec<u8>> {
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    let header_end;
+    loop {
+        let length = stream.read(&mut buffer)?;
+        if length == 0 {
+            return Err("HTTP request ended before headers".into());
+        }
+        request.extend_from_slice(&buffer[..length]);
+        if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            header_end = index + 4;
+            break;
+        }
+        if request.len() > 64 * 1024 {
+            return Err("HTTP headers exceed 64 KiB".into());
+        }
+    }
+    let headers = String::from_utf8_lossy(&request[..header_end]);
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            line.split_once(':')
+                .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+        })
+        .unwrap_or(0);
+    let total_length = header_end.saturating_add(content_length);
+    while request.len() < total_length {
+        let length = stream.read(&mut buffer)?;
+        if length == 0 {
+            return Err("HTTP request ended before body".into());
+        }
+        request.extend_from_slice(&buffer[..length]);
+        if request.len() > 4 * 1024 * 1024 {
+            return Err("HTTP request exceeds 4 MiB".into());
+        }
+    }
+    Ok(request)
+}
+
 fn mime_for(path: &str) -> &'static str {
-    match Path::new(path).extension().and_then(|ext| ext.to_str()).unwrap_or("") {
+    match Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+    {
         "html" => "text/html; charset=utf-8",
         "js" => "text/javascript; charset=utf-8",
         "json" => "application/json",
@@ -143,6 +226,52 @@ fn init_world_command(args: &[String]) -> CliResult<()> {
     Ok(())
 }
 
+fn generate_demo_world_command(args: &[String]) -> CliResult<()> {
+    let output = one_path("generate-demo-world", args)?;
+    let index = bake_world(&WorldManifest::default_demo(), output)?;
+    write_generation_report(output, &index)?;
+    Ok(())
+}
+
+fn generate_procedural_world_command(args: &[String]) -> CliResult<()> {
+    if !(3..=6).contains(&args.len()) {
+        return Err(
+            "generate-procedural-world requires OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]"
+                .into(),
+        );
+    }
+    let output = Path::new(&args[0]);
+    let width_m: u32 = args[1].parse().map_err(|_| "WIDTH_M must be a u32")?;
+    let depth_m: u32 = args[2].parse().map_err(|_| "DEPTH_M must be a u32")?;
+    let seed: u64 = args.get(3).map_or(Ok(42), |value| {
+        value.parse().map_err(|_| "SEED must be a u64")
+    })?;
+    let theme = args.get(4).cloned();
+    let urban_ratio: Option<f64> = args.get(5).map_or(Ok(None), |value| {
+        value
+            .parse()
+            .map(Some)
+            .map_err(|_| "URBAN_RATIO must be a f64")
+    })?;
+    let mut manifest = WorldManifest::default_demo();
+    manifest.world.seed = seed;
+    manifest.scenes[0].width_m = width_m;
+    manifest.scenes[0].depth_m = depth_m;
+    if let Some(theme) = theme {
+        if let Some(profile) = manifest.style.get_mut("landUseProfile") {
+            profile["theme"] = serde_json::json!(theme);
+        }
+    }
+    if let Some(ratio) = urban_ratio {
+        if let Some(profile) = manifest.style.get_mut("landUseProfile") {
+            profile["urbanCoreRatio"] = serde_json::json!(ratio);
+            profile["suburbanRatio"] = serde_json::json!((ratio * 1.2).min(1.0 - ratio));
+        }
+    }
+    let index = bake_world(&manifest, output)?;
+    write_generation_report(output, &index)
+}
+
 fn generate_world_command(args: &[String]) -> CliResult<()> {
     if args.len() != 2 {
         return Err("generate-world requires MANIFEST.json OUTPUT_DIR".into());
@@ -150,16 +279,40 @@ fn generate_world_command(args: &[String]) -> CliResult<()> {
     let manifest: WorldManifest = serde_json::from_slice(&fs::read(&args[0])?)?;
     let output = Path::new(&args[1]);
     let index = bake_world(&manifest, output)?;
+    write_generation_report(output, &index)
+}
+
+fn write_generation_report(
+    output: &Path,
+    index: &glyphweave_core::worldgen::WorldIndex,
+) -> CliResult<()> {
+    let mut chunk_count = 0_usize;
+    let mut entity_count = 0_usize;
+    let mut landmark_count = 0_usize;
+    for scene_path in &index.scenes {
+        let scene: glyphweave_core::worldgen::SceneIndex =
+            serde_json::from_slice(&fs::read(output.join(scene_path))?)?;
+        chunk_count += scene.chunks.len();
+        entity_count += scene.entities.len();
+        landmark_count += scene.landmarks.len();
+    }
     let report = serde_json::json!({
         "format": "glyphweave.generation-report",
         "version": 1,
-        "status": "complete",
+        "status": "baked",
+        "nextGate": "scale-audit",
         "worldRevision": index.revision,
         "sceneCount": index.scenes.len(),
+        "chunkCount": chunk_count,
+        "entityCount": entity_count,
+        "landmarkCount": landmark_count,
         "renderMode": index.render_mode,
-        "output": output,
+        "output": output.display().to_string(),
     });
-    fs::write(output.join("generation-report.json"), serde_json::to_vec_pretty(&report)?)?;
+    fs::write(
+        output.join("generation-report.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
@@ -188,41 +341,595 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let visual_feedback = fs::read(root.join("visual-feedback.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let scale_audit = fs::read(root.join("scale-audit.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let scale_failed = scale_audit
+        .as_ref()
+        .and_then(|report| report.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|status| status != "pass");
+    if scale_audit.is_none() {
+        warnings.push(
+            "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report"
+                .to_owned(),
+        );
+    }
+    if scale_failed {
+        warnings.push("scale-audit failed".to_owned());
+    }
     if let Some(feedback) = &visual_feedback {
-        if feedback.get("verdict").and_then(serde_json::Value::as_str).is_some_and(|value| value != "pass") {
+        if feedback
+            .get("verdict")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value != "pass")
+        {
             warnings.push("visual feedback requires review".to_owned());
         }
     }
+    let manifest: WorldManifest =
+        serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    let profile = LandUseProfile::from_style(&manifest.style);
+    let mut area_reports = Vec::new();
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
             serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
         let mut kinds = BTreeMap::<String, usize>::new();
-        for entity in &scene.entities { *kinds.entry(entity.kind.clone()).or_default() += 1; }
-        let expected = (scene.chunk_count_x * scene.chunk_count_z) as usize;
-        if scene.chunks.len() != expected { warnings.push(format!("{}: chunk index incomplete", scene.scene_id)); }
-        if scene.entities.len() < 100 && scene.width_m.saturating_mul(scene.depth_m) >= 1_000_000 {
-            warnings.push(format!("{}: low entity density ({})", scene.scene_id, scene.entities.len()));
+        for entity in &scene.entities {
+            *kinds.entry(entity.kind.clone()).or_default() += 1;
         }
-        chunks += scene.chunks.len(); entities += scene.entities.len(); landmarks += scene.landmarks.len();
+        let expected = (scene.chunk_count_x * scene.chunk_count_z) as usize;
+        if scene.chunks.len() != expected {
+            warnings.push(format!("{}: chunk index incomplete", scene.scene_id));
+        }
+        if scene.entities.len() < 100 && scene.width_m.saturating_mul(scene.depth_m) >= 1_000_000 {
+            warnings.push(format!(
+                "{}: low entity density ({})",
+                scene.scene_id,
+                scene.entities.len()
+            ));
+        }
+        chunks += scene.chunks.len();
+        entities += scene.entities.len();
+        landmarks += scene.landmarks.len();
+        let areas = analyze_landuse_areas(&scene);
+        if let Some(profile) = &profile {
+            // The profile ratios describe the intended land-use mix. Compare
+            // the *normalized* shares (urban/rural/nature summing to 1) so a
+            // sparse scene with large unassigned terrain still reports the
+            // mix correctly instead of failing on absolute coverage.
+            let used = areas.urban_ratio + areas.rural_ratio + areas.nature_ratio;
+            if used > 0.0 {
+                let share = |value: f64| value / used;
+                let target_sum =
+                    profile.urban_target() + profile.rural_target() + profile.nature_target();
+                if target_sum > 0.0 {
+                    let tolerance = 0.25;
+                    let target = [
+                        (
+                            "urban",
+                            share(areas.urban_ratio),
+                            profile.urban_target() / target_sum,
+                        ),
+                        (
+                            "rural",
+                            share(areas.rural_ratio),
+                            profile.rural_target() / target_sum,
+                        ),
+                        (
+                            "nature",
+                            share(areas.nature_ratio),
+                            profile.nature_target() / target_sum,
+                        ),
+                    ];
+                    for (label, actual, expected_target) in target {
+                        if (actual - expected_target).abs() > tolerance {
+                            warnings.push(format!(
+                                "{}: {label} area share {actual:.3} is outside profile target {expected_target:.3} ±{tolerance}",
+                                scene.scene_id
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        area_reports.push(serde_json::json!({
+            "sceneId": scene.scene_id,
+            "areaM2": areas.scene_area_m2,
+            "urbanM2": areas.urban_m2,
+            "ruralM2": areas.rural_m2,
+            "natureM2": areas.nature_m2,
+            "urbanRatio": areas.urban_ratio,
+            "ruralRatio": areas.rural_ratio,
+            "natureRatio": areas.nature_ratio,
+            "byKindM2": areas.by_kind,
+        }));
         scene_reports.push(serde_json::json!({
             "sceneId": scene.scene_id, "sizeM": [scene.width_m, scene.depth_m],
             "chunks": scene.chunks.len(), "expectedChunks": expected,
             "landmarks": scene.landmarks.len(), "entities": scene.entities.len(),
             "entityKinds": kinds,
+            "landUseArea": area_reports.last(),
         }));
     }
     let report = serde_json::json!({
         "format": "glyphweave.quality-report", "version": 1,
-        "status": if warnings.is_empty() { "pass" } else { "warn" },
+        "status": if scale_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "warnings": warnings, "scenes": scene_reports,
+        "landUseProfile": profile.map(|profile| serde_json::json!({
+            "theme": profile.theme.as_str(),
+            "urbanTarget": profile.urban_target(),
+            "ruralTarget": profile.rural_target(),
+            "natureTarget": profile.nature_target(),
+        })),
         "visualFeedback": visual_feedback,
+        "scaleAudit": scale_audit,
         "agentNextAction": "inspect HTML screenshot and create a Patch when visual quality is insufficient",
     });
-    fs::write(root.join("quality-report.json"), serde_json::to_vec_pretty(&report)?)?;
+    fs::write(
+        root.join("quality-report.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+/// Read a style asset contract's size limits for `kind`, falling back to the
+/// given procedural defaults when the contract or field is absent.
+fn contract_limits(
+    contracts: Option<&serde_json::Map<String, serde_json::Value>>,
+    kind: &str,
+    default_w_lo: f32,
+    default_w_hi: f32,
+    default_h_lo: f32,
+    default_h_hi: f32,
+) -> (f32, f32, f32, f32) {
+    let Some(c) = contracts.and_then(|m| m.get(kind)) else {
+        return (default_w_lo, default_w_hi, default_h_lo, default_h_hi);
+    };
+    let num = |f: &str, dflt: f32| -> f32 {
+        c.get(f)
+            .and_then(serde_json::Value::as_f64)
+            .map(|v| v as f32)
+            .unwrap_or(dflt)
+    };
+    (
+        num("minWidthM", default_w_lo),
+        num("maxWidthM", default_w_hi),
+        num("minHeightM", default_h_lo),
+        num("maxHeightM", default_h_hi),
+    )
+}
+
+fn scale_audit_command(args: &[String]) -> CliResult<()> {
+    let root = Path::new(one_path("scale-audit", args)?);
+    let manifest: WorldManifest =
+        serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    let mut failures = Vec::new();
+    let style = &manifest.style;
+    if !manifest.landmarks.is_empty()
+        && style
+            .get("referenceData")
+            .and_then(serde_json::Value::as_object)
+            .is_none()
+    {
+        failures.push("missing style.referenceData".to_owned());
+    }
+    if let Some(water) = style.get("water").and_then(serde_json::Value::as_object) {
+        for field in ["waterType", "levelPolicy", "shoreProfile", "waveModel"] {
+            if !water.contains_key(field) {
+                failures.push(format!("style.water missing {field}"));
+            }
+        }
+    } else if manifest
+        .landmarks
+        .iter()
+        .any(|landmark| matches!(landmark.entity_type.as_str(), "lake" | "river"))
+    {
+        failures.push("missing structured style.water model".to_owned());
+    }
+    let contracts = style
+        .get("assetContracts")
+        .and_then(serde_json::Value::as_object);
+    if contracts.is_none() {
+        failures.push("missing style.assetContracts".to_owned());
+    }
+    let world: glyphweave_core::worldgen::WorldIndex =
+        serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let mut audited_entities = 0_usize;
+    let mut tree_count = 0_usize;
+    let mut expected_chunk_total = 0_usize;
+    let mut actual_chunk_total = 0_usize;
+    let mut max_boundary_step = 0_i32;
+    for scene_path in &world.scenes {
+        let scene: glyphweave_core::worldgen::SceneIndex =
+            serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        let expected_chunks = (scene.chunk_count_x * scene.chunk_count_z) as usize;
+        expected_chunk_total += expected_chunks;
+        actual_chunk_total += scene.chunks.len();
+        let mut covered_chunks = BTreeSet::new();
+        if scene.chunks.len() != expected_chunks {
+            failures.push(format!(
+                "{} has {} chunks, expected {}",
+                scene.scene_id,
+                scene.chunks.len(),
+                expected_chunks
+            ));
+        }
+        for chunk in &scene.chunks {
+            covered_chunks.insert((chunk.chunk_x, chunk.chunk_z));
+            if chunk.chunk_x >= scene.chunk_count_x || chunk.chunk_z >= scene.chunk_count_z {
+                failures.push(format!(
+                    "{} chunk ({},{}) is outside declared grid",
+                    scene.scene_id, chunk.chunk_x, chunk.chunk_z
+                ));
+            }
+            let chunk_root = root.join("scenes").join(&scene.scene_id);
+            let expected_height_bytes =
+                u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m) * 2;
+            let expected_surface_bytes =
+                u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m);
+            let lod_width = chunk.valid_width_m.div_ceil(64);
+            let lod_depth = chunk.valid_depth_m.div_ceil(64);
+            let expected_lod2_bytes = u64::from(lod_width) * u64::from(lod_depth) * 3;
+            for (name, expected) in [
+                (&chunk.height_file, expected_height_bytes),
+                (&chunk.surface_file, expected_surface_bytes),
+                (&chunk.lod2_file, expected_lod2_bytes),
+            ] {
+                match fs::metadata(chunk_root.join(name)) {
+                    Ok(metadata) if metadata.len() == expected => {}
+                    Ok(metadata) => failures.push(format!(
+                        "{} chunk ({},{}) file {} has {} bytes, expected {}",
+                        scene.scene_id,
+                        chunk.chunk_x,
+                        chunk.chunk_z,
+                        name,
+                        metadata.len(),
+                        expected
+                    )),
+                    Err(_) => failures.push(format!(
+                        "{} chunk ({},{}) file {} is missing",
+                        scene.scene_id, chunk.chunk_x, chunk.chunk_z, name
+                    )),
+                }
+            }
+            let mut payload = Vec::new();
+            for name in [&chunk.height_file, &chunk.surface_file, &chunk.lod2_file] {
+                match fs::read(chunk_root.join(name)) {
+                    Ok(bytes) => payload.extend_from_slice(&bytes),
+                    Err(_) => payload.clear(),
+                }
+                if payload.is_empty() {
+                    break;
+                }
+            }
+            if !payload.is_empty() && blake3::hash(&payload).to_hex().to_string() != chunk.hash {
+                failures.push(format!(
+                    "{} chunk ({},{}) hash mismatch",
+                    scene.scene_id, chunk.chunk_x, chunk.chunk_z
+                ));
+            }
+        }
+        for chunk_z in 0..scene.chunk_count_z {
+            for chunk_x in 0..scene.chunk_count_x {
+                if !covered_chunks.contains(&(chunk_x, chunk_z)) {
+                    failures.push(format!(
+                        "{} missing chunk ({},{})",
+                        scene.scene_id, chunk_x, chunk_z
+                    ));
+                }
+            }
+        }
+        if covered_chunks.len() != scene.chunks.len() {
+            failures.push(format!(
+                "{} contains duplicate chunk coordinates",
+                scene.scene_id
+            ));
+        }
+        for boundary_x in (1..scene.chunk_count_x)
+            .map(|value| scene.origin_x + (value * scene.chunk_size_m) as i32)
+        {
+            for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
+                if let (Some(left), Some(right)) = (
+                    scene_height_at(&root, &scene, boundary_x - 1, z),
+                    scene_height_at(&root, &scene, boundary_x, z),
+                ) {
+                    max_boundary_step = max_boundary_step.max((right - left).abs());
+                } else {
+                    failures.push(format!(
+                        "{} missing height at x boundary {}",
+                        scene.scene_id, boundary_x
+                    ));
+                    break;
+                }
+            }
+        }
+        for boundary_z in (1..scene.chunk_count_z)
+            .map(|value| scene.origin_z + (value * scene.chunk_size_m) as i32)
+        {
+            for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
+                if let (Some(top), Some(bottom)) = (
+                    scene_height_at(&root, &scene, x, boundary_z - 1),
+                    scene_height_at(&root, &scene, x, boundary_z),
+                ) {
+                    max_boundary_step = max_boundary_step.max((bottom - top).abs());
+                } else {
+                    failures.push(format!(
+                        "{} missing height at z boundary {}",
+                        scene.scene_id, boundary_z
+                    ));
+                    break;
+                }
+            }
+        }
+        if max_boundary_step > 16 {
+            failures.push(format!(
+                "{} boundary height step {} quarter-meters exceeds 16",
+                scene.scene_id, max_boundary_step
+            ));
+        }
+        let water_zones: Vec<(f64, f64, f64, f64, String)> = scene
+            .landmarks
+            .iter()
+            .filter(|landmark| matches!(landmark.entity_type.as_str(), "river" | "lake"))
+            .map(|landmark| {
+                let half_w = f64::from(landmark.width_m) * 0.5;
+                let half_d = f64::from(landmark.depth_m) * 0.5;
+                (
+                    f64::from(landmark.world_x),
+                    f64::from(landmark.world_z),
+                    half_w,
+                    half_d,
+                    landmark.entity_type.clone(),
+                )
+            })
+            .collect();
+        for entity in &scene.entities {
+            audited_entities += 1;
+            let Some(contract) = contracts
+                .and_then(|items| {
+                    items.get(&entity.kind).or_else(|| {
+                        if matches!(entity.kind.as_str(), "urban_building" | "building_tower") {
+                            items.get("building")
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .and_then(serde_json::Value::as_object)
+            else {
+                failures.push(format!(
+                    "{} has no asset contract for kind {}",
+                    entity.entity_id, entity.kind
+                ));
+                continue;
+            };
+            for field in ["type", "placement", "allowedSurfaces", "forbiddenSurfaces"] {
+                if !contract.contains_key(field) {
+                    failures.push(format!("{} contract missing {field}", entity.kind));
+                }
+            }
+            if entity.width_m <= 0.0 || entity.depth_m <= 0.0 || entity.height_m <= 0.0 {
+                failures.push(format!("{} has non-positive dimensions", entity.entity_id));
+            }
+            if matches!(
+                entity.kind.as_str(),
+                "tree"
+                    | "bush"
+                    | "rock"
+                    | "building"
+                    | "urban_building"
+                    | "building_tower"
+                    | "storefront"
+                    | "bench"
+                    | "lamp"
+                    | "grass_clump"
+                    | "fallen_log"
+                    | "building_cluster"
+            ) {
+                // GIS / real-data footprints are positioned by the source map,
+                // including legitimate waterfront structures; the procedural
+                // water-zone check only applies to generated entities.
+                if entity.entity_id.starts_with("gis.") {
+                    continue;
+                }
+                for (zone_x, zone_z, half_w, half_d, zone_kind) in &water_zones {
+                    let margin = match entity.kind.as_str() {
+                        "reed" => 0.0,
+                        _ => 4.0,
+                    };
+                    let half_x = f64::from(entity.width_m) * 0.5 + margin;
+                    let half_z = f64::from(entity.depth_m) * 0.5 + margin;
+                    let samples = [
+                        (f64::from(entity.world_x), f64::from(entity.world_z)),
+                        (
+                            f64::from(entity.world_x) - half_x,
+                            f64::from(entity.world_z) - half_z,
+                        ),
+                        (
+                            f64::from(entity.world_x) - half_x,
+                            f64::from(entity.world_z) + half_z,
+                        ),
+                        (
+                            f64::from(entity.world_x) + half_x,
+                            f64::from(entity.world_z) - half_z,
+                        ),
+                        (
+                            f64::from(entity.world_x) + half_x,
+                            f64::from(entity.world_z) + half_z,
+                        ),
+                    ];
+                    let inside = samples.iter().any(|(x, z)| {
+                        if zone_kind == "river" {
+                            let effective_half_w = river_half_width_at(*z, &scene, *half_w);
+                            (*x - zone_x).abs() < effective_half_w - margin
+                        } else {
+                            ((*x - zone_x) / half_w).powi(2) + ((*z - zone_z) / half_d).powi(2)
+                                < 1.0
+                        }
+                    });
+                    if inside {
+                        failures.push(format!(
+                            "{} {} is inside {zone_kind} water zone",
+                            entity.entity_id, entity.kind
+                        ));
+                    }
+                }
+            }
+            for (field, value, min_field, max_field) in [
+                ("widthM", entity.width_m, "minWidthM", "maxWidthM"),
+                ("depthM", entity.depth_m, "minDepthM", "maxDepthM"),
+                ("heightM", entity.height_m, "minHeightM", "maxHeightM"),
+            ] {
+                let min = contract
+                    .get(min_field)
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0) as f32;
+                let max = contract
+                    .get(max_field)
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(f32::MAX as f64) as f32;
+                if value < min || value > max {
+                    failures.push(format!(
+                        "{} {}={value:.2} outside {min:.2}..{max:.2}",
+                        entity.entity_id, field
+                    ));
+                }
+            }
+            if entity.kind == "urban_building" {
+                for tower in scene
+                    .entities
+                    .iter()
+                    .filter(|candidate| candidate.kind == "building_tower")
+                {
+                    let overlap_x = (f64::from(entity.world_x - tower.world_x)).abs()
+                        < f64::from(entity.width_m + tower.width_m) * 0.5;
+                    let overlap_z = (f64::from(entity.world_z - tower.world_z)).abs()
+                        < f64::from(entity.depth_m + tower.depth_m) * 0.5;
+                    if overlap_x && overlap_z {
+                        failures.push(format!(
+                            "{} overlaps tower {}",
+                            entity.entity_id, tower.entity_id
+                        ));
+                    }
+                }
+            }
+            match entity.kind.as_str() {
+                "tree" => {
+                    tree_count += 1;
+                    // Use the style asset contract range when present (GIS /
+                    // authored trees may legitimately differ from the
+                    // procedural default), else fall back to defaults.
+                    let (w_lo, w_hi, h_lo, h_hi) = contract_limits(contracts, "tree", 2.0, 5.5, 4.0, 9.0);
+                    if !(w_lo..=w_hi).contains(&entity.width_m)
+                        || !(h_lo..=h_hi).contains(&entity.height_m)
+                    {
+                        failures.push(format!(
+                            "{} tree dimensions {:.2}x{:.2}x{:.2}m outside range",
+                            entity.entity_id, entity.width_m, entity.depth_m, entity.height_m
+                        ));
+                    }
+                }
+                "building" => {
+                    // Real footprints (GIS) span far wider than the procedural
+                    // default; honour the style asset contract when declared.
+                    let (w_lo, w_hi, h_lo, h_hi) = contract_limits(contracts, "building", 8.0, 30.0, 8.0, 24.0);
+                    if !(w_lo..=w_hi).contains(&entity.width_m)
+                        || !(h_lo..=h_hi).contains(&entity.height_m)
+                    {
+                        failures.push(format!(
+                            "{} building dimensions {:.2}x{:.2}x{:.2}m outside range",
+                            entity.entity_id, entity.width_m, entity.depth_m, entity.height_m
+                        ));
+                    }
+                }
+                "road" => {
+                    // Only procedurally generated roads must sit on the ground
+                    // heightfield. GIS/landmark roads carry author-specified
+                    // heights (bridges, viaducts) and are exempt.
+                    if entity.entity_id.starts_with("generated.") {
+                        if let Some(ground_y) =
+                            scene_height_at(&root, &scene, entity.world_x, entity.world_z)
+                        {
+                            if entity.world_y < ground_y {
+                                failures.push(format!(
+                                    "{} road y={} is below ground y={}",
+                                    entity.entity_id, entity.world_y, ground_y
+                                ));
+                            }
+                        } else {
+                            failures.push(format!(
+                                "{} road center is outside baked heightfield",
+                                entity.entity_id
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for landmark in &scene.landmarks {
+            if landmark.entity_type == "lake" && landmark.world_y != 0 {
+                failures.push(format!(
+                    "{} lake is not on local horizontal datum",
+                    landmark.entity_id
+                ));
+            }
+        }
+    }
+    let report = serde_json::json!({
+        "format": "glyphweave.scale-audit",
+        "version": 1,
+        "status": if failures.is_empty() { "pass" } else { "fail" },
+        "worldRevision": world.revision,
+        "auditedEntities": audited_entities,
+        "treeCount": tree_count,
+        "chunkCoverage": {
+            "scenes": world.scenes.len(),
+            "expectedChunks": expected_chunk_total,
+            "actualChunks": actual_chunk_total
+        },
+        "continuity": { "maxBoundaryHeightStepQuarterM": max_boundary_step },
+        "failures": failures,
+    });
+    fs::write(
+        root.join("scale-audit.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if report["status"] == "fail" {
+        return Err("scale audit failed".into());
+    }
+    Ok(())
+}
+
+fn scene_height_at(
+    root: &Path,
+    scene: &glyphweave_core::worldgen::SceneIndex,
+    world_x: i32,
+    world_z: i32,
+) -> Option<i32> {
+    let chunk = scene.chunks.iter().find(|chunk| {
+        world_x >= chunk.world_x
+            && world_x < chunk.world_x + chunk.valid_width_m as i32
+            && world_z >= chunk.world_z
+            && world_z < chunk.world_z + chunk.valid_depth_m as i32
+    })?;
+    let width = chunk.valid_width_m as usize;
+    let x = (world_x - chunk.world_x) as usize;
+    let z = (world_z - chunk.world_z) as usize;
+    let bytes = fs::read(
+        root.join("scenes")
+            .join(&scene.scene_id)
+            .join(&chunk.height_file),
+    )
+    .ok()?;
+    let offset = (z * width + x) * 2;
+    let value = i16::from_le_bytes([*bytes.get(offset)?, *bytes.get(offset + 1)?]);
+    Some(i32::from(value) / 4)
 }
 
 fn convert_command(args: &[String]) -> CliResult<()> {
@@ -654,7 +1361,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
     );
 }
 

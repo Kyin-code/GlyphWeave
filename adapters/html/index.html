@@ -4,21 +4,47 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>GlyphWeave World Preview</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2318201d'/%3E%3Cpath d='M7 23 16 6l9 17-9-5z' fill='%23a6c27a'/%3E%3C/svg%3E">
   <style>
     :root { color-scheme: dark; font: 14px system-ui, sans-serif; }
     body { margin: 0; background: #101413; color: #d7dfd8; overflow: hidden; }
-    header { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: #18201d; border-bottom: 1px solid #33403a; }
-    button, select { background: #202b26; color: inherit; border: 1px solid #52645a; padding: 6px 9px; }
-    #viewport { position: fixed; inset: 43px 0 0; }
+    header { height: 68px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: #18201d; border-bottom: 1px solid #33403a; }
+    button, select { background: #202b26; color: inherit; border: 1px solid #52645a; border-radius: 5px; min-height: 48px; padding: 11px 20px; font-size: 16px; font-weight: 600; cursor: pointer; }
+    button:hover, select:hover { background: #2b3a33; border-color: #8da88f; }
+    button:active { transform: translateY(1px); }
+    #viewport { position: fixed; inset: 69px 0 0; }
+    #viewport canvas { cursor: grab; }
+    #viewport canvas:active { cursor: grabbing; }
     canvas { display: block; width: 100%; height: 100%; }
+    .chunk-nav { position: fixed; z-index: 10; width: 46px; height: 46px; border-radius: 8px; font-size: 20px; font-weight: 800; background: rgba(26,38,34,.72); border: 1px solid #52645a; color: #cfe3cf; cursor: pointer; display: none; align-items: center; justify-content: center; user-select: none; }
+    .chunk-nav:hover { background: rgba(43,58,51,.92); border-color: #8da88f; }
+    .chunk-nav.near { display: flex; }
+    #chunk-up { left: calc(50% - 23px); top: 82px; }
+    #chunk-down { left: calc(50% - 23px); bottom: 24px; }
+    #chunk-left { left: 20px; top: calc(50% - 23px); }
+    #chunk-right { right: 20px; top: calc(50% - 23px); }
+    #chunk-label { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; background: rgba(20,30,26,.8); border: 1px solid #3a4a42; border-radius: 6px; padding: 5px 12px; font-family: monospace; font-size: 12px; color: #9eafa3; display: none; z-index: 10; white-space: nowrap; }
+    #chunk-label.near { display: block; }
     #info { margin-left: auto; font-family: monospace; color: #9eafa3; }
+    #help { color: #8fa197; font-size: 12px; white-space: nowrap; }
     :fullscreen header { display: none; }
     :fullscreen #viewport { inset: 0; }
+    @media (max-width: 720px) {
+      header { height: auto; min-height: 68px; flex-wrap: wrap; padding: 8px 10px; }
+      #viewport { inset: 101px 0 0; }
+      #help { display: none; }
+      #info { width: 100%; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
   </style>
 </head>
 <body>
-  <header><strong id="title">GlyphWeave World</strong><button id="strategic">战略图</button><button id="close">2.5D 近景</button><button id="fullscreen">全屏</button><select id="scene"></select><span id="info"></span></header>
+  <header><strong id="title">GlyphWeave World</strong><button id="strategic">战略图</button><button id="skyline">天际线全景</button><button id="close">2.5D 近景</button><button id="street">沿街街景</button><button id="bridgehead">桥头堡近景</button><button id="explore">第一人称探索</button><button id="fullscreen">全屏</button><select id="scene"></select><span id="help">2.5D: 左键平移 · Alt+左键旋转 · 探索: WASD移动 · 拖拽环视</span><span id="info"></span></header>
   <main id="viewport"><canvas id="map"></canvas></main>
+  <button id="chunk-up" class="chunk-nav" title="相邻 chunk 上方">▲</button>
+  <button id="chunk-down" class="chunk-nav" title="相邻 chunk 下方">▼</button>
+  <button id="chunk-left" class="chunk-nav" title="相邻 chunk 左方">◀</button>
+  <button id="chunk-right" class="chunk-nav" title="相邻 chunk 右方">▶</button>
+  <span id="chunk-label"></span>
   <script type="importmap">
     {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js"}}
   </script>

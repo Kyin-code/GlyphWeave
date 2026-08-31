@@ -1,0 +1,112 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "香港维多利亚港体素数字沙盘",
+    "seed": 20260829,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "hong-kong-victoria-harbour-core",
+      "widthM": 6000,
+      "depthM": 4000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "voxel-digital-twin-cinematic-harbour",
+    "terrain": "continuous-heightfield-with-voxel-detail",
+    "layoutReference": "Victoria Harbour core corridor: Hong Kong Island south shore and Kowloon north shore",
+    "palette": "blue-hour-glass-steel-neon-harbour",
+    "verticalDatum": "local-harbour-surface-0m",
+    "referenceData": {
+      "sources": [
+        "https://www.tpb.gov.hk/sc/resources/planning_for_victoria_harbour.html",
+        "https://www.discoverhongkong.com/eng/attractions/the-best-vantage-points-for-viewing-the-iconic-skyline.html",
+        "https://www.discoverhongkong.com/eng/attractions/scenic-victoria-harbour-walk.html",
+        "https://www.discoverhongkong.com/eng/place-to-go/travel.guide-star-ferry-pier.html",
+        "https://www.bochk.com/tc/aboutus/corpprofile/boctower.html",
+        "https://global.ctbuh.org/resources/papers/2916-Pg510_Tang.pdf",
+        "https://www.harbourfront.org.hk/eng/content_page/doc/HPG_draft_tc.pdf"
+      ],
+      "retrievedAt": "2026-08-29",
+      "harbourWidthM": 1800,
+      "harbourCorridorLengthM": 4000,
+      "waterfrontLengthReferenceM": 73000,
+      "ifc2HeightM": 415.8,
+      "iccHeightM": 484,
+      "bankOfChinaHeightM": 367.4,
+      "centralPlazaHeightM": 374,
+      "hongKongObservationWheelHeightM": 60,
+      "tamarParkAreaM2": 17600,
+      "starFerryCrossingMinutes": 11,
+      "symphonyOfLightsBuildingCount": 44,
+      "crop": "6000m x 4000m core harbour window from Central/Admiralty and Wan Chai to Tsim Sha Tsui/West Kowloon; not the full 73km waterfront",
+      "inferenceReason": "The crop preserves the Central-Tsim Sha Tsui sightline while leaving enough land behind both shores for stepped skyline and first-person exploration."
+    },
+    "scaleContract": {
+      "logicalCellM": 1,
+      "heightPrecisionM": 0.25,
+      "waterLevelM": 0,
+      "harbourAxis": "world_z",
+      "shoreAxis": "world_x",
+      "skylineHeightRangeM": [12, 484],
+      "nearDetailTexelM": 0.33,
+      "lodTexelM": 4,
+      "inferred": true
+    },
+    "water": {
+      "waterType": "river",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "flowDirection": "world_z",
+      "flowSpeedMps": 0.35,
+      "shoreProfile": { "transitionWidthM": 90, "shallowBandM": 40, "navigationDepthM": 8 },
+      "waveModel": { "preset": "harbour-wind-reflection", "amplitudeM": 0.12, "wavelengthM": 18, "direction": "world_z", "roughness": 0.22 },
+      "footprint": { "shape": "band", "centerXM": 3000, "halfWidthM": 900, "axis": "world_z" }
+    },
+    "assetContracts": {
+      "river": { "type": "water", "placement": "water-surface", "allowedSurfaces": ["water"], "forbiddenSurfaces": ["underground"], "minWidthM": 1500, "maxWidthM": 2100, "minDepthM": 3000, "maxDepthM": 5000, "minHeightM": 1, "maxHeightM": 1 },
+      "road": { "type": "road", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 500, "maxWidthM": 5000, "minDepthM": 6, "maxDepthM": 30, "minHeightM": 0.1, "maxHeightM": 1 },
+      "sidewalk": { "type": "pedestrian-pavement", "placement": "surface-grounded", "allowedSurfaces": ["stone", "shore", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 500, "maxWidthM": 5000, "minDepthM": 3, "maxDepthM": 8, "minHeightM": 0.1, "maxHeightM": 1 },
+      "building": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 8, "maxWidthM": 40, "minDepthM": 8, "maxDepthM": 40, "minHeightM": 4, "maxHeightM": 30 },
+      "urban_building": { "type": "building-block", "placement": "surface-grounded", "allowedSurfaces": ["stone", "soil", "grass"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 18, "maxWidthM": 40, "minDepthM": 16, "maxDepthM": 32, "minHeightM": 8, "maxHeightM": 30 },
+      "storefront": { "type": "street-front", "placement": "surface-grounded", "allowedSurfaces": ["stone", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 8, "maxWidthM": 24, "minDepthM": 6, "maxDepthM": 20, "minHeightM": 4, "maxHeightM": 14 },
+      "building_tower": { "type": "building", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 16, "maxWidthM": 80, "minDepthM": 16, "maxDepthM": 80, "minHeightM": 24, "maxHeightM": 500 },
+      "tree": { "type": "tree", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 2, "maxWidthM": 5.5, "minDepthM": 2, "maxDepthM": 5.5, "minHeightM": 4, "maxHeightM": 9 },
+      "bush": { "type": "bush", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.5, "maxWidthM": 3, "minDepthM": 0.5, "maxDepthM": 3, "minHeightM": 0.3, "maxHeightM": 3 },
+      "rock": { "type": "rock", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 4, "minDepthM": 0.2, "maxDepthM": 4, "minHeightM": 0.1, "maxHeightM": 4 },
+      "reed": { "type": "reed", "placement": "surface-grounded", "allowedSurfaces": ["shore", "wetland"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 1, "minDepthM": 0.2, "maxDepthM": 1, "minHeightM": 1, "maxHeightM": 5 },
+      "grass_clump": { "type": "grass", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.5, "maxWidthM": 3, "minDepthM": 0.5, "maxDepthM": 3, "minHeightM": 0.2, "maxHeightM": 4 },
+      "bench": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 2, "maxWidthM": 5, "minDepthM": 0.5, "maxDepthM": 2, "minHeightM": 0.4, "maxHeightM": 2 },
+      "lamp": { "type": "street-furniture", "placement": "surface-grounded", "allowedSurfaces": ["grass", "shore", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.2, "maxWidthM": 1, "minDepthM": 0.2, "maxDepthM": 1, "minHeightM": 2, "maxHeightM": 7 },
+      "fallen_log": { "type": "fallen-log", "placement": "surface-grounded", "allowedSurfaces": ["grass", "forest", "soil", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 1, "maxWidthM": 6, "minDepthM": 0.3, "maxDepthM": 2, "minHeightM": 0.2, "maxHeightM": 2 },
+      "park": { "type": "park", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "shore"], "forbiddenSurfaces": ["deep_water", "underground"], "minWidthM": 50, "maxWidthM": 800, "minDepthM": 50, "maxDepthM": 800, "minHeightM": 0.5, "maxHeightM": 20 },
+      "station": { "type": "station", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 40, "maxWidthM": 400, "minDepthM": 20, "maxDepthM": 160, "minHeightM": 8, "maxHeightM": 80 },
+      "ferris_wheel": { "type": "attraction", "placement": "surface-grounded", "allowedSurfaces": ["grass", "soil", "stone"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 20, "maxWidthM": 80, "minDepthM": 20, "maxDepthM": 80, "minHeightM": 50, "maxHeightM": 140 },
+      "boat": { "type": "vessel", "placement": "water-surface", "allowedSurfaces": ["water"], "forbiddenSurfaces": ["land", "underground"], "minWidthM": 20, "maxWidthM": 140, "minDepthM": 5, "maxDepthM": 30, "minHeightM": 3, "maxHeightM": 30 },
+      "car": { "type": "vehicle", "placement": "road-surface", "allowedSurfaces": ["road", "bridge"], "forbiddenSurfaces": ["water", "grass", "underground"], "minWidthM": 4, "maxWidthM": 6, "minDepthM": 1.6, "maxDepthM": 2.4, "minHeightM": 1.2, "maxHeightM": 2 }
+      ,"pedestrian": { "type": "pedestrian", "placement": "sidewalk-surface", "allowedSurfaces": ["stone", "shore"], "forbiddenSurfaces": ["water", "deep_water", "underground"], "minWidthM": 0.4, "maxWidthM": 1.2, "minDepthM": 0.4, "maxDepthM": 1.2, "minHeightM": 1.4, "maxHeightM": 2.2 }
+    }
+  },
+  "landmarks": [
+    { "entityId": "landmark.victoria-harbour", "name": "维多利亚港", "type": "river", "purpose": "港岛与九龙之间的深水海港", "description": "香港城市核心港湾，兼具国际港口、渡轮交通和海滨公共空间。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 3000, "worldZ": 2000, "worldY": 0, "widthM": 1800, "depthM": 4000, "heightM": 1, "assetId": "water.victoria-harbour" },
+    { "entityId": "landmark.ifc-two", "name": "国际金融中心二期 IFC 2", "type": "building_tower", "purpose": "香港岛中环海滨地标", "description": "415.8m来源值按416m体素几何表达，88层玻璃幕墙塔楼。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1500, "worldZ": 1550, "worldY": 5, "widthM": 70, "depthM": 70, "heightM": 416, "assetId": "landmark.ifc-two" },
+    { "entityId": "landmark.bank-of-china", "name": "中银大厦", "type": "building_tower", "purpose": "香港岛中环花园道地标", "description": "367.4m来源值按367m体素几何表达，70层棱柱状玻璃铝幕墙。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1250, "worldZ": 1420, "worldY": 5, "widthM": 60, "depthM": 60, "heightM": 367, "assetId": "landmark.bank-of-china" },
+    { "entityId": "landmark.central-plaza", "name": "中环广场", "type": "building_tower", "purpose": "湾仔北高层地标", "description": "374m、78层，三角形/六角形平面。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1380, "worldZ": 2250, "worldY": 5, "widthM": 64, "depthM": 64, "heightM": 374, "assetId": "landmark.central-plaza" },
+    { "entityId": "landmark.hkcec", "name": "香港会议展览中心", "type": "station", "purpose": "湾仔海滨会展地标", "description": "临海大型会展中心，玻璃幕墙与飞鸟展翅屋顶。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1700, "worldZ": 2350, "worldY": 3, "widthM": 260, "depthM": 130, "heightM": 55, "assetId": "landmark.hkcec" },
+    { "entityId": "landmark.tamar-park", "name": "添马公园", "type": "park", "purpose": "中环海滨绿化公共空间", "description": "约1.76公顷，草坪、特色水景、观景台。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1720, "worldZ": 1350, "worldY": 1, "widthM": 180, "depthM": 100, "heightM": 1, "assetId": "landmark.tamar-park" },
+    { "entityId": "landmark.hk-wheel", "name": "香港摩天轮", "type": "ferris_wheel", "purpose": "中环海滨摩天轮", "description": "60m高、42个车厢，位于中环码头附近。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1500, "worldZ": 1220, "worldY": 2, "widthM": 44, "depthM": 44, "heightM": 60, "assetId": "landmark.hk-wheel" },
+    { "entityId": "landmark.central-piers", "name": "中环码头及天星码头", "type": "station", "purpose": "跨港海上交通节点", "description": "连接中环与尖沙咀/湾仔的渡轮码头。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 1600, "worldZ": 1120, "worldY": 1, "widthM": 180, "depthM": 55, "heightM": 18, "assetId": "landmark.central-piers" },
+    { "entityId": "landmark.tst-waterfront", "name": "尖沙咀海滨与钟楼", "type": "park", "purpose": "九龙侧经典观景廊", "description": "尖沙咀海滨花园、星光大道、钟楼和文化中心。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 4500, "worldZ": 1450, "worldY": 1, "widthM": 420, "depthM": 85, "heightM": 12, "assetId": "landmark.tst-waterfront" },
+    { "entityId": "landmark.icc", "name": "环球贸易广场 ICC", "type": "building_tower", "purpose": "西九龙最高地标", "description": "约484m、118层玻璃幕墙塔楼，与IFC构成海港门户。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 4380, "worldZ": 620, "worldY": 5, "widthM": 78, "depthM": 78, "heightM": 484, "assetId": "landmark.icc" },
+    { "entityId": "landmark.ocean-terminal", "name": "海运大厦及海港城", "type": "station", "purpose": "尖沙咀邮轮与商业海滨", "description": "海运大厦、海港城和海滨观景平台。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 4380, "worldZ": 1200, "worldY": 4, "widthM": 360, "depthM": 100, "heightM": 48, "assetId": "landmark.ocean-terminal" },
+    { "entityId": "landmark.west-kowloon", "name": "西九文化区", "type": "park", "purpose": "西九龙滨水文化公共空间", "description": "博物馆、演艺、草坪和连续滨水步道。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 4300, "worldZ": 320, "worldY": 1, "widthM": 500, "depthM": 260, "heightM": 2, "assetId": "landmark.west-kowloon" },
+    { "entityId": "landmark.star-ferry", "name": "天星小轮", "type": "boat", "purpose": "中环—尖沙咀跨港渡轮", "description": "绿色白色双层渡轮，约11分钟横渡维港。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 3000, "worldZ": 1350, "worldY": 1, "widthM": 35, "depthM": 10, "heightM": 12, "assetId": "prop.star-ferry" },
+    { "entityId": "landmark.harbour-freighter", "name": "维港货轮", "type": "boat", "purpose": "国际港口货运船舶", "description": "维港客运、物流和休闲水上活动的参照物。", "sceneId": "hong-kong-victoria-harbour-core", "worldX": 3300, "worldZ": 2850, "worldY": 1, "widthM": 110, "depthM": 18, "heightM": 18, "assetId": "prop.harbour-freighter" }
+  ],
+  "sceneGraph": { "transitions": [] }
+}

@@ -2574,6 +2574,7 @@ dependencies = [
 name = "glyphweave-cli"
 version = "0.2.0"
 dependencies = [
+ "blake3",
  "glyphweave-core",
  "serde_json",
 ]

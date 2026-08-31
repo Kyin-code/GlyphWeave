@@ -13,11 +13,11 @@ pub use command::{
     BuildBlueprint, BuildKind, CommandDispatcher, CommandEnvelope, CommandError, CommandReceipt,
     CommandSource, CommandSourceKind, GameCommand, RuleBasedTextCommandSource,
 };
-pub use snapshot::{GAMEPLAY_METADATA_KEY, decode_snapshot, encode_snapshot};
 pub use sim::{
     SimulationConfig, TickResult, build_cost, is_choppable, is_gameplay_passable, is_mineable,
     is_passable, rendered_tile_at, resource_from_chop, resource_from_mine, tick_gameplay,
 };
+pub use snapshot::{GAMEPLAY_METADATA_KEY, decode_snapshot, encode_snapshot};
 pub use state::{
     ChallengeGoals, ChallengeKind, ChallengeScore, ChallengeState, ChallengeStatus, CoreStorehouse,
     EntityId, FloodFortressState, FloodStats, FogMemory, GameEvent, GameState, GameTime, Inventory,

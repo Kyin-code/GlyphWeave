@@ -1,0 +1,306 @@
+请继续处理项目，不要从头开始，也不要回退或清理已有未提交修改。
+
+【项目目录】
+G:\difyllmwiki\GlyphWeave
+
+工作区状态：
+- 当前 Git 工作树是 dirty，包含用户和前序 Agent 的修改。
+- 不要执行 git reset --hard、git checkout -- 或整体回退。
+- 只修改与当前目标直接相关的文件。
+- 生成测试产物位于：
+  G:\difyllmwiki\artifacts\modern-6000x10000-v5
+
+【原始需求】
+将 GlyphWeave 重构为现代社会随机大陆地图生成器：
+
+1. 基于中国、欧洲、美国各12个、具有公开城市规划或空间布局资料的城市，研究：
+   - 人口密度梯度
+   - 道路与路网
+   - 绿化和公园
+   - 停车场
+   - 娱乐中心
+   - 商业中心
+   - 学校
+   - 住宅区
+   - 水渠
+   - 农田
+   - 山地林场
+   - 宗教建筑
+   - 牧场
+   - 自然保护区
+   - 这些地块与地形、水系、坡度和交通的关系
+
+2. 将研究结果抽象为可复用的：
+   - 城市地块参数
+   - 乡村地块参数
+   - 自然地块参数
+   - 人口/建筑密度梯度
+   - 地块相对位置逻辑
+   - 主题参数和比例参数
+
+3. 由 Rust Core 进行确定性生成，目标类似文明6/饥荒的现代社会大陆。
+   - 生成结果只由 Manifest、seed、主题和规则决定。
+   - 普通地块、道路、建筑、植被和装饰不得依赖 Agent 反复手工修改。
+   - Agent 只允许选择宏观主题、少量剧情主体和宏观约束。
+
+4. 修复6km×10km场景实际只生成或显示约1km×1km的问题。
+   - 完整生成6km×10km。
+   - 使用512m分块。
+   - 分块覆盖完整。
+   - 高度场跨chunk连续。
+   - HTML流式加载与Rust生成结果一致。
+
+5. 提升HTML 2.5D近景质量，至少达到类似Minecraft的可辨识程度。
+   - 树木
+   - 草地
+   - 道路
+   - 建筑
+   - 停车场
+   - 商业、学校、住宅等近景实体
+   - 必要时同步Godot，但HTML必须可用。
+
+【核心设计思想】
+- Rust Core 是地图生成唯一真源。
+- Manifest 描述世界大小、seed、主题、地标和土地利用 profile。
+- 生成顺序应为：
+  1. 大陆边界、地形、高程、坡度
+  2. 河流、湖泊、水渠和排水网络
+  3. 生态敏感度、可建设性和交通可达性
+  4. 自然区、农田、牧场、林场和保护区
+  5. 交通节点、城市核心、次中心、郊区和乡村聚落
+  6. 主干路、支路、桥梁和绿廊
+  7. 住宅、学校、商业、娱乐和停车场
+  8. 树、灌木、草、路灯、车辆等细节
+  9. footprint、水体、坡度、chunk覆盖和边界连续性审计
+- 所有结果必须可由同一seed重复生成。
+- HTML/Godot只是读取和展示烘焙后的Rust数据，不得各自重新生成另一套地图。
+- 512m chunk、surface.bin、height数据和near-view流式加载必须使用同一世界坐标体系。
+- 水体和地标不能依赖固定城市坐标；应从Manifest地标或主题参数推导。
+
+【已完成的代码和功能】
+1. Rust CLI新增：
+   generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED]
+
+   示例：
+   cargo run --quiet --manifest-path bevy\Cargo.toml -p glyphweave-cli -- generate-procedural-world ..\artifacts\modern-6000x10000-v5 6000 10000 20260829
+
+2. Rust Core已有确定性现代地块生成：
+   - 道路网
+   - 商业中心
+   - 娱乐中心
+   - 学校
+   - 住宅区
+   - 停车场
+   - 绿地
+   - 水渠
+   - 农田
+   - 山地林场
+   - 牧场
+   - 寺庙
+   - 教堂
+   - 自然保护区
+
+3. `landUseProfile`已经加入默认 Manifest，并且Rust会读取：
+   - urbanCoreRatio
+   - suburbanRatio
+   - greenRatio
+   - farmRatio
+   - forestRatio
+   - pastureRatio
+   - reserveRatio
+
+4. 已加入 `style.assetContracts`。
+   - 各实体拥有允许尺寸范围。
+   - 审计会检查实体尺寸是否符合contract。
+   - 会检查实体footprint是否进入水体。
+
+5. 已新增现代地块类别测试：
+   `modern_profile_generates_reusable_landuse_categories`
+
+6. 已加入大场景审计：
+   - 512m chunk数量
+   - chunk坐标覆盖
+   - chunk文件存在
+   - chunk hash
+   - 高程跨chunk边界连续性
+   - 实体尺寸和footprint约束
+
+7. HTML适配器已经改进：
+   - strategic map从surface.bin采样
+   - near view按焦点chunk加载周边chunk
+   - 支持3×3焦点chunk附近流式加载
+   - 树木使用体素风格树冠
+   - 山地林场和自然保护区使用树群
+   - 现代地块使用不同颜色
+   - 道路区分横向和纵向方向
+   - HTML页面显示世界大小和chunk数量
+
+【重要文件】
+- `bevy/crates/core/src/worldgen.rs`
+  - 世界Manifest
+  - 地形和水体
+  - 实体生成
+  - landUseProfile
+  - assetContracts
+  - chunk生成
+  - footprint和连续性相关逻辑
+  - 现代地块生成函数 `append_modern_landuse_content`
+
+- `bevy/crates/cli/src/main.rs`
+  - CLI命令
+  - `generate-procedural-world`
+  - `scale-audit`
+  - `quality-report`
+  - `preview`
+
+- `adapters/html/app.js`
+  - HTML strategic map
+  - 2.5D near view
+  - chunk流式加载
+  - 树木、道路、地块和近景实体渲染
+
+- `adapters/html/index.html`
+  - HTML预览页面
+
+- `docs/modern-mainland-morphology.zh-CN.md`
+  - 36个城市的研究样本
+  - 公开资料入口
+  - 城市/乡村/自然地块比例基线
+  - 生成顺序和主题参数
+
+- `docs/procedural-world-generator.zh-CN.md`
+  - Rust生成器、审计和验证说明
+
+- `examples/hong-kong-victoria-harbour.manifest.json`
+  - 6000m×4000m水体样例
+
+- `examples/nanjing-yangtze-bridge.manifest.json`
+  - 桥梁、河流和大场景样例
+
+- `examples/west-lake-1km.manifest.json`
+  - 小场景湖泊样例
+
+【已验证证据】
+最新产物：
+`G:\difyllmwiki\artifacts\modern-6000x10000-v5`
+
+生成报告：
+- 场景大小：6000m × 10000m
+- chunk数量：240
+- 实体数量：99340
+- render mode：2.5d
+- seed：20260829
+
+scale-audit：
+- expected chunks：240
+- actual chunks：240
+- failures：[]
+- 最大边界高度跳变：1 quarter-meter
+- status：pass
+
+quality-report：
+- status：pass
+- scaleAudit.status：pass
+- warnings：[]
+- 现代地块类别已出现在实体统计中：
+  - road：29
+  - commercial_center：1
+  - entertainment_center：1
+  - school：1
+  - residential_block：506
+  - parking_lot：92
+  - green_space：93
+  - canal：1
+  - farmland：1218
+  - mountain_forest：654
+  - pasture：2088
+  - temple：1
+  - church：1
+  - nature_reserve：1
+
+Rust测试：
+- app：44 passed
+- cli：4 passed
+- core：128 passed
+- 总计：176 passed，0 failed
+
+其他检查：
+- `cargo fmt --manifest-path bevy\Cargo.toml --all -- --check` 已通过
+- `node --check adapters\html\app.js` 已通过
+- 已用Chrome DevTools实际打开HTML预览并查看6km×10km场景
+- 页面显示 `6000m × 10000m 12×20 chunks`
+- 已保存近景截图：
+  - `G:\difyllmwiki\modern-v4-near.png`
+  - 截图可见连续地形、树群、道路和现代地块
+
+【当前仍未完成】
+1. 36个城市目前有研究样本和资料入口，但还没有全部转化为独立、可调、可测试的城市profile。
+   - 需要至少抽象出中国/欧洲/美国或城市形态类型的参数差异。
+   - 例如高密度核心、河网城市、滨海城市、山地城市、低密度郊区、网格型城市等。
+
+2. 当前土地利用比例是启发式阈值和概率生成，不是严格面积配额。
+   - 需要增加面积统计。
+   - 需要验证生成面积是否接近profile目标区间。
+   - 需要处理城市/乡村/自然三大区域的面积分区，而不只是实体数量统计。
+
+3. 当前默认生成仍有大量旧的generic building/tree/bush实体。
+   - `append_generic_land_content`和现代profile生成逻辑叠加。
+   - 需要决定是否保留旧generic内容，或让现代profile完全接管普通陆地场景。
+   - 不能破坏已有水体样例和旧测试。
+
+4. HTML近景仍未达到Minecraft级视觉质量。
+   - 建筑目前主要是基础几何体。
+   - 道路、住宅、商业中心、学校缺少更明显的结构、屋顶、门窗、停车位、绿化边界和人行空间。
+   - 截图虽然已经可用，但仍有较强的程序化方块感。
+   - 应优先改善近景实体辨识度，而不是继续增加数量。
+
+5. `quality-report`目前只读取已经存在的`scale-audit.json`。
+   - 运行顺序必须先执行`scale-audit`，再执行`quality-report`。
+   - 并行执行两个命令会导致quality report暂时显示`scaleAudit: null`。
+
+6. 前端依赖仍不完整：
+   - `pnpm`不存在。
+   - `npm test`曾因`vitest`不可用失败。
+   - `npm run typecheck`曾因缺少`react-i18next`、`@ai-sdk/react`、`ai`等依赖失败。
+   - `npm run build`曾因`@ai-sdk/openai-compatible`、`ai`等依赖失败。
+   - 不要把这些前端依赖问题误判为Rust Core问题。
+
+7. Rust仍有两个未使用函数警告：
+   - `lake_radius`
+   - `surface_kind`
+   需要确认是否是旧兼容逻辑；不要未经检查直接删除。
+
+【新一轮开始时的建议顺序】
+1. 先读取当前工作树和相关文件，确认前序修改没有变化。
+2. 执行：
+   cargo fmt --manifest-path bevy\Cargo.toml --all -- --check
+   cargo check --manifest-path bevy\Cargo.toml --workspace
+   cargo test --manifest-path bevy\Cargo.toml --workspace
+3. 检查`worldgen.rs`的现代profile、assetContracts和旧generic生成是否叠加合理。
+4. 增加地块面积统计和profile区间审计，不要只统计实体数量。
+5. 设计并接入城市形态profile：
+   - `dense_core`
+   - `river_delta`
+   - `coastal_bay`
+   - `mountain_valley`
+   - `temperate_plain`
+   - `low_density_suburban`
+6. 对每个profile增加确定性测试：
+   - 同seed结果相同
+   - 每类地块存在
+   - 面积比例在容差内
+   - 道路连接核心与组团
+   - 学校靠近住宅
+   - 商业/娱乐靠近主干路
+   - 农田靠近平原和水渠
+   - 林场/保护区靠近高坡度或生态边缘
+7. 再改善HTML近景：
+   - 先做住宅、学校、商业中心、停车场、道路和绿地的结构化低模
+   - 再补树木、草地、道路边线、人行道和停车位
+   - 保持near view只加载焦点chunk周边，避免一次性创建全部实体
+8. 重新生成新的6km×10km产物，并依次执行：
+   generate-procedural-world
+   scale-audit
+   quality-report
+   node --check adapters\html\app.js
+9. 使用Chrome DevTools实际打开新产物并截图，确认HTML不是只在报告中“通过”。

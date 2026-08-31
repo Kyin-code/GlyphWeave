@@ -21,8 +21,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use glyphweave_core::gameplay::{
-    BuildKind, ChallengeStatus, CommandReceipt, GameCommand, GameState, MedalTier, ResourceKind,
-    TileCoord, GAMEPLAY_METADATA_KEY, decode_snapshot, encode_snapshot,
+    BuildKind, ChallengeStatus, CommandReceipt, GAMEPLAY_METADATA_KEY, GameCommand, GameState,
+    MedalTier, ResourceKind, TileCoord, decode_snapshot, encode_snapshot,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use glyphweave_core::migration::{MigrationMode, MigrationReport, migrate_legacy_json};
@@ -32,9 +32,9 @@ use glyphweave_core::storage::archive::ArchiveLimits;
 use glyphweave_core::storage::codec::{decode_world_with_metadata, encode_world_with_metadata};
 use glyphweave_core::tile::TileKind;
 use glyphweave_core::voxel::VoxelWorld;
+use std::collections::BTreeMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
@@ -2178,10 +2178,7 @@ fn load_editor_path(
     }
     decode_world_with_metadata(&bytes, ArchiveLimits::default())
         .map(|decoded| {
-            let snapshot = decoded
-                .metadata
-                .as_ref()
-                .and_then(decode_snapshot);
+            let snapshot = decoded.metadata.as_ref().and_then(decode_snapshot);
             (decoded.world, None, snapshot)
         })
         .map_err(|error| error.to_string())
@@ -2206,9 +2203,8 @@ fn save_to_path(
     target: &Path,
     status: &mut String,
 ) {
-    let metadata = gameplay.map(|state| {
-        BTreeMap::from([(GAMEPLAY_METADATA_KEY.to_owned(), encode_snapshot(state))])
-    });
+    let metadata = gameplay
+        .map(|state| BTreeMap::from([(GAMEPLAY_METADATA_KEY.to_owned(), encode_snapshot(state))]));
     let result = encode_world_with_metadata(world, metadata)
         .map_err(|error| error.to_string())
         .and_then(|bytes| atomic_replace(target, &bytes).map_err(|error| error.to_string()));
