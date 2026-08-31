@@ -1,4 +1,4 @@
-import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
+﻿import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
 import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
 import { createPostFX } from './render/postfx.js'
@@ -118,7 +118,7 @@ function resize() {
 // residential block rather than a handful of small cottages.
 
 // American-style detached home on its own lot, with a front yard and a single
-// family house — low-rise and spread out, distinct from the dense core.
+// family house 鈥?low-rise and spread out, distinct from the dense core.
 
 // Waterfront holiday resort lodge in the Shenzhen Bay / OCT Happy Harbour
 // idiom. Now declarative: the CGA rule set CGA_RESORT produces the white
@@ -147,7 +147,7 @@ function resize() {
 // ground centre of the lot) and sized with fractions of the entity, absolute
 // metres, or a small expression language. Blocks may repeat along Y (floors),
 // mirror across an axis, or gate on a condition, so a single rule set adapts
-// to any lot size — the same idea as symbios' Split / Extrude / Comp grammar,
+// to any lot size 鈥?the same idea as symbios' Split / Extrude / Comp grammar,
 // without the runtime parser.
 //
 // Block fields:
@@ -158,7 +158,7 @@ function resize() {
 //   x/z/y: local offsets (same unit rules as w/d/h).
 //   rotY, tiltZ: optional rotation (radians).
 //   cond:  optional "floors>1" / "width>15" style gate.
-//   part:  for repeatY — the block repeated each floor.
+//   part:  for repeatY 鈥?the block repeated each floor.
 // ---------------------------------------------------------------------------
 
 
@@ -185,7 +185,7 @@ function resize() {
 
 
 
-// Street-corner food stall (街角小吃摊): a shaded cart with a stove, a small
+// Street-corner food stall (琛楄灏忓悆鎽?: a shaded cart with a stove, a small
 // seating area, a tiled apron underfoot, planted greenery and a shade tree.
 // This is a self-contained micro-scene that reads as a lived-in corner even
 // though every part is primitive geometry.
@@ -373,13 +373,17 @@ async function drawNear() {
     window.__steppe = steppe
     nearScene.background = makeSkyTexture(THREE)
     if (steppe) {
-      nearScene.fog = new THREE.Fog(0xe8d9b8, 900, 5200)
-      nearScene.add(new THREE.HemisphereLight(0xfff3d6, 0x8a7a52, 1.15))
-      const sun = new THREE.DirectionalLight(0xffd9a0, 2.2)
+      // Natural daylight: cool-ish white sun + pale sky, so the grass-green
+      // vertex colour reads true instead of being tinted yellow by warm fog.
+      // The fog is a soft grass-green (not straw-yellow) so distant ground
+      // stays green and blends toward the sky rather than turning tan.
+      nearScene.fog = new THREE.Fog(0xa8c48a, 3500, 8000)
+      nearScene.add(new THREE.HemisphereLight(0xeaf4ff, 0x5a8a4a, .85))
+      const sun = new THREE.DirectionalLight(0xffffff, .95)
       sun.position.set(-300, 600, 200)
       sun.castShadow = false
       nearScene.add(sun)
-      nearScene.add(new THREE.AmbientLight(0xffe6c8, .55))
+      nearScene.add(new THREE.AmbientLight(0xffffff, .28))
     } else {
       nearScene.fog = new THREE.Fog('#294658', 900, 3600)
       nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
@@ -539,7 +543,9 @@ async function drawNear() {
       // texture map). Urban: the existing noise-mapped terrain.
       if (window.__steppe) {
         const geometry = makeMCTerrain(heightView, width, depth, meshStep, THREE)
-        const material = makeSteppeGroundMaterial(THREE)
+        // MeshStandardMaterial handles vertex-color colour management correctly
+        // (Lambert can wash the greens toward tan under these lights).
+        const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })
         mesh = new THREE.Mesh(geometry, material)
       } else {
         const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
@@ -569,9 +575,11 @@ async function drawNear() {
   }
   // Steppe grass: GPU-instanced curved blades with wind + backlight over the
   // focused chunk (Journey/Flower style). Density concentrates near the camera
-  // so the visible foreground reads lush. Only for natural scenes.
-  if (window.__steppe && focusChunk) {
-    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 500000, 7, focusX, focusZ)
+  // so the visible foreground reads lush. Skyline (whole-world view) gets a
+  // higher count + wider core so the distant plain stays grassy.
+  if (window.__steppe && focusChunk && !new URLSearchParams(location.search).has('nograss')) {
+    const sky = isSkyline
+    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, sky ? 1200000 : 900000, 7, focusX, focusZ, { focusR: sky ? 480 : 320, farR: sky ? 900 : 700 })
     grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
     group.add(grass.mesh)
     window.__steppeGrass = grass
@@ -650,7 +658,7 @@ async function drawNear() {
       const park = new THREE.Group()
       // Paved square core: real stone/brick paving with a paver grid texture,
       // not bare lawn. The eye should read a hardscaped plaza with planting,
-      // like an urban bayfront park — grass patches are inset beds, the ground
+      // like an urban bayfront park 鈥?grass patches are inset beds, the ground
       // is paver.
       const paverTex = (() => {
         const c = document.createElement('canvas')
@@ -1173,12 +1181,14 @@ async function drawNear() {
   // Cinematic post-processing (DoF opt-in for street/explore, bloom + film
   // grade always on). Fall back to a plain render if the composer fails.
   let nearFx = null
-  try {
-    nearFx = createPostFX({ THREE, addons: postAddons, renderer: nearRenderer, scene: nearScene, camera: nearCamera })
-    if (window.__steppe) nearFx.bloom.strength = .2
-    window.__nearFx = nearFx
-  } catch (error) {
-    console.warn('postfx unavailable, falling back to direct render', error)
+  if (!new URLSearchParams(location.search).has('nofx')) {
+    try {
+      nearFx = createPostFX({ THREE, addons: postAddons, renderer: nearRenderer, scene: nearScene, camera: nearCamera })
+      if (window.__steppe) nearFx.bloom.strength = .2
+      window.__nearFx = nearFx
+    } catch (error) {
+      console.warn('postfx unavailable, falling back to direct render', error)
+    }
   }
   nearRenderer.render(nearScene, nearCamera)
   window.glyphweaveFeedback.visualChecks.highDetailChunk = focusChunk ? `${focusChunk.chunkX},${focusChunk.chunkZ}` : null
@@ -1288,7 +1298,7 @@ function draw() {
       nearCanvasReady: mode === 'near' ? Boolean(webglCanvas?.width && webglCanvas?.height) : null,
     },
   }
-  info.textContent = `${scene.sceneId}  ${scene.widthM}m × ${scene.depthM}m  ${scene.chunkCountX}×${scene.chunkCountZ} chunks`
+  info.textContent = `${scene.sceneId}  ${scene.widthM}m 脳 ${scene.depthM}m  ${scene.chunkCountX}脳${scene.chunkCountZ} chunks`
   const isNearMode = mode === 'near'
   for (const id of ['chunk-up', 'chunk-down', 'chunk-left', 'chunk-right', 'chunk-label']) {
     const el = document.getElementById(id)
@@ -1310,3 +1320,5 @@ document.querySelector('#chunk-right').onclick = () => { if (window.__chunkNav) 
 sceneSelect.onchange = loadScene
 window.onresize = resize
 fetch('../world.json').then(response => response.json()).then(async data => { world = data; title.textContent = data.name; for (const path of data.scenes) { const option = document.createElement('option'); option.textContent = path.split('/')[1]; sceneSelect.append(option) } await loadScene(); resize() })
+
+

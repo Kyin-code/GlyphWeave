@@ -334,9 +334,27 @@ export function makeMCTerrain(heightView, width, depth, meshStep, THREE) {
     // Steppe palette: deep grass in dips -> dry gold on rises.
     const t = (h - minH) / range
     let r, g, b
-    if (t < .35) { const s = t / .35; r = 84; g = 116; b = 62; }
-    else if (t < .75) { const s = (t - .35) / .4; r = 84 + (156 - 84) * s; g = 116 + (140 - 116) * s; b = 62 + (86 - 62) * s; }
-    else { const s = (t - .75) / .25; r = 156 + (182 - 156) * s; g = 140 + (150 - 140) * s; b = 86 + (98 - 86) * s; }
+    // Steppe palette — the GROUND IS THE GRASS. Dye it grass-green (spring/summer):
+    // deep green in damp hollows, fresh green on slopes, yellowish-green where
+    // drier. The 3D blades on top only add dynamic motion, not colour.
+    if (t < .35) { const s = t / .35; r = 66 + (88 - 66) * s; g = 118 + (132 - 118) * s; b = 52 + (60 - 52) * s; }
+    else if (t < .75) { const s = (t - .35) / .4; r = 88 + (132 - 88) * s; g = 132 + (148 - 132) * s; b = 60 + (70 - 60) * s; }
+    else { const s = (t - .75) / .25; r = 132 + (150 - 132) * s; g = 148 + (140 - 148) * s; b = 70 + (64 - 70) * s; }
+    // Large-scale tonal patches + patchy moss/meadow, baked into the vertex
+    // colour (deterministic, CPU side — matches the removed onBeforeCompile
+    // steppe material). Damp hollows get a deeper green, drier rises a yellower
+    // tone, and a moss mask lays a fresher green carpet over patches.
+    const tonal = 1 + (fractalNoise(x * .0035 + 2, z * .0035 + 7) - .5) * .18
+    r *= tonal; g *= tonal; b *= tonal
+    const warmN = fractalNoise(x * .006 + 9, z * .006 + 3)
+    if (warmN > .2) { r *= 1 + (warmN - .2) * .22; g *= 1 + (warmN - .2) * .1; b *= .98 }
+    const mossN = fractalNoise(x * .0028 + 4, z * .0028 + 6)
+    const moss = Math.max(0, Math.min(1, (mossN * .5 + .5 - .38) / .14))
+    if (moss > 0) {
+      r = r * (1 - moss * .6) + 70 * moss
+      g = g * (1 - moss * .6) + 130 * moss
+      b = b * (1 - moss * .6) + 50 * moss
+    }
     // Subtle per-cell block variance (Minecraft-ish) from position hash.
     const v = ((x * 31 + z * 17) % 13) / 13 - .5
     colors[i * 3] = r / 255 + v * .02
@@ -373,8 +391,8 @@ export function makeSteppeGroundMaterial(THREE, baseColorTop, baseColorBottom) {
     uMossSeed: { value: new THREE.Vector2(4.2, 6.6) },
     uMossCoverage: { value: .38 },
     uMossEdge: { value: .14 },
-    uMossColor: { value: new THREE.Color(baseColorTop ?? '#8fae5a') },
-    uMossStrength: { value: .6 },
+    uMossColor: { value: new THREE.Color(baseColorTop ?? '#5a8a3e') },
+    uMossStrength: { value: .55 },
     uTime: { value: 0 },
   }
   material.onBeforeCompile = (shader) => {
@@ -448,18 +466,22 @@ export function makeSteppeGroundMaterial(THREE, baseColorTop, baseColorBottom) {
         `
       )
       .replace(
-        '#include <color_fragment>',
-        /* glsl */ `#include <color_fragment>
+        '#include <roughnessmap_fragment>',
+        /* glsl */ `
+        // Runs AFTER the standard color_fragment (which applied the baked MC
+        // vertex-color grass palette). Layer tonal / warm-cool / moss variation
+        // on top so the ground reads as living grass with light & shade.
         vec2 sXZ = vWorldPosition.xz;
         // Large-scale tonal variation (hundreds of metres): soft painted
         // regions, so the plain reads as a painted field rather than speckle.
         float tone = fbm(sXZ * uVarScale + uVarSeed) * 0.5 + 0.5;
         float tonal = mix(1.0 - uVarAmount, 1.0 + uVarAmount, tone);
-        // Journey-style warm/cool colour bands: broad regions drift toward warm
-        // rust-gold or stay cool sage, so the plain is not one flat green.
+        // Journey-style warm/cool colour bands: broad regions drift between
+        // sunlit yellow-green and shadowed blue-green, so the grass reads as a
+        // living field with light and shade rather than one flat tone.
         float warmN = fbm(sXZ * uWarmScale + uWarmSeed) * 0.5 + 0.5;
-        vec3 warmTint = vec3(0.98, 0.86, 0.62);
-        vec3 coolTint = vec3(0.82, 0.9, 0.74);
+        vec3 warmTint = vec3(1.05, 1.0, 0.66);
+        vec3 coolTint = vec3(0.72, 0.92, 0.6);
         vec3 warmMix = mix(coolTint, warmTint, warmN);
         diffuseColor.rgb *= mix(vec3(1.0), warmMix, uWarmAmount);
         diffuseColor.rgb *= tonal;
@@ -473,6 +495,6 @@ export function makeSteppeGroundMaterial(THREE, baseColorTop, baseColorBottom) {
         `
       )
   }
-  material.customProgramCacheKey = () => 'steppe-ground-v2'
+  material.customProgramCacheKey = () => 'steppe-ground-v3'
   return material
 }

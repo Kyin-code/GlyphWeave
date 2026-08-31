@@ -14,7 +14,7 @@ const lowPres = { bladeHeight: 0.2, bladeWidth: 0.02, curl: 0.25 }
 const midPres = { bladeHeight: 0.78, bladeWidth: 0.042, curl: 0.48 }
 const highPres = { bladeHeight: 1.54, bladeWidth: 0.05, curl: 0.73 }
 
-export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, count, salt, focusX, focusZ) {
+export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, count, salt, focusX, focusZ, options = {}) {
   const segments = 5
   const maxCount = Math.max(200, count)
   const positions = []
@@ -56,10 +56,8 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
   let guard = 0
   const fx = focusX ?? (worldX + width / 2), fz = focusZ ?? (worldZ + depth / 2)
   const maxR = Math.max(width, depth) * .55
-  const focusR = Math.min(maxR, 55) // dense core radius around the camera
-  // Outside the core, blades fall off with squared distance so the transition
-  // to the sparse distance is gentle (avoids a hard grass circle).
-  const farR = Math.min(maxR, 220)
+  const focusR = Math.min(options.focusR ?? 55, maxR) // dense core radius
+  const farR = Math.min(options.farR ?? 220, maxR)     // sparse transition edge
   // Blade-height zones by terrain height: sample the range once so the layering
   // is consistent across the whole field.
   let hMin = Infinity, hMax = -Infinity
@@ -89,10 +87,14 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     // Height zone from terrain elevation: low in hollows, high on rises, with a
     // deterministic per-blade jitter so the boundaries stay soft.
     const elev = (gy - hMin) / hRange
-    const jitter = rnd(guard, 9, salt) * .18
+    const jitter = rnd(guard, 9, salt) * .3
     const zone = elev + jitter
-    const pres = zone < .35 ? lowPres : zone < .75 ? midPres : highPres
-    const varScale = .82 + rnd(guard, 2, salt) * .36 // ±18% per-blade
+    // Broad layering so all three heights appear: lows in hollows, mids on the
+    // flats (the steppe's dominant cover), highs scattered on rises and damp
+    // patches. The thresholds give each tier a fair share.
+    const pres = zone < .3 ? lowPres : zone < .78 ? midPres : highPres
+    // High grass gets a bigger height scatter so it pokes through as tufts.
+    const varScale = pres === highPres ? .7 + rnd(guard, 2, salt) * .9 : .85 + rnd(guard, 2, salt) * .3
     iHeight[placed] = pres.bladeHeight * varScale
     iWidth[placed] = pres.bladeWidth * (1.2 - rnd(guard, 3, salt) * .4)
     iPhase[placed] = rnd(guard, 5, salt) * Math.PI * 2
@@ -132,9 +134,9 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     uSkyColor: { value: new THREE.Color('#fff3d6') },
     uGroundColor: { value: new THREE.Color('#8a7a52') },
     uCameraPos: { value: new THREE.Vector3() },
-    fogColor: { value: new THREE.Color('#e8d9b8') },
-    fogNear: { value: 900 },
-    fogFar: { value: 5200 },
+    fogColor: { value: new THREE.Color('#9cb28c') },
+    fogNear: { value: 1400 },
+    fogFar: { value: 6000 },
   }
 
   const material = new THREE.ShaderMaterial({
