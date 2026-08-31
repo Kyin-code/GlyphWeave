@@ -1,8 +1,10 @@
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
-import { makeWaterTexture, makeRiverGeometry } from './render/water.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial } from './render/terrain.js'
+import { makeGrassBlades } from './render/grass.js'
+import { createPostFX } from './render/postfx.js'
+import { makeWaterTexture, makeRiverGeometry, makeWaterMaterial } from './render/water.js'
 import { makeSkyTexture } from './render/sky.js'
-import { makeVoxelTree, buildTreeInstances, makeMangrove, makeForestPatch } from './render/vegetation.js'
+import { makeVoxelTree, buildTreeInstances, makeMangrove, makeForestPatch, buildRockInstances } from './render/vegetation.js'
 import { makeWaterWell, makeRoadSign, makeStreetLamp, makePedestrian, makeFoodStall } from './render/props.js'
 import { fitAssetToEntity, addBridgeBeam, makeBridgeStructure, makeHongKongTower, applySlopeFoundation, makeResidentialBlock, makeResidentialTower, makeResidentialHome, makeResortLodge, makeSchool, makeCommercialCenter, makeEntertainmentCenter, makeParkingLot, makeTemple, makeChurch, makeFarmland, makePasture, makeCanal, makeTownHall, makeMarket, makeIndustrial, makeStorefront } from './render/buildings.js'
 
@@ -14,12 +16,15 @@ const sceneSelect = document.querySelector('#scene')
 let world
 let scene
 let mode = 'strategic'
+let nearPreset = 'harbour'
+// URL presets: ?view=near|skyline|street|explore opens straight into a 3D view.
+const urlView = new URLSearchParams(location.search).get('view')
+if (urlView) { mode = 'near'; nearPreset = ['skyline', 'street', 'explore'].includes(urlView) ? urlView : 'harbour' }
 let webglCanvas
 let nearRenderer
 let nearScene
 let nearCamera
 let nearControls
-let nearPreset = 'harbour'
 let exploreKeys = new Set()
 let exploreInputCleanup
 const chunkDataCache = new Map()
@@ -73,6 +78,9 @@ function resize() {
   canvas.width = canvas.clientWidth * devicePixelRatio
   canvas.height = canvas.clientHeight * devicePixelRatio
   context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+  if (window.__nearFx) {
+    window.__nearFx.setSize(window.innerWidth, window.innerHeight)
+  }
   if (scene) draw()
 }
 
@@ -261,10 +269,18 @@ function drawStrategic() {
 }
 
 async function drawNear() {
-  const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/build/three.module.js')
-  const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/GLTFLoader.js')
-  const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/controls/OrbitControls.js')
-  const { OBJLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.178.0/examples/jsm/loaders/OBJLoader.js')
+  const THREE = await import('three')
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+  const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
+  const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js')
+  const postAddons = await Promise.all([
+    import('three/addons/postprocessing/EffectComposer.js'),
+    import('three/addons/postprocessing/RenderPass.js'),
+    import('three/addons/postprocessing/BokehPass.js'),
+    import('three/addons/postprocessing/UnrealBloomPass.js'),
+    import('three/addons/postprocessing/ShaderPass.js'),
+    import('three/addons/postprocessing/OutputPass.js'),
+  ]).then(modules => ({ EffectComposer: modules[0].EffectComposer, RenderPass: modules[1].RenderPass, BokehPass: modules[2].BokehPass, UnrealBloomPass: modules[3].UnrealBloomPass, ShaderPass: modules[4].ShaderPass, OutputPass: modules[5].OutputPass }))
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -483,6 +499,7 @@ async function drawNear() {
   const heightFields = []
   const waterTextures = []
   const animatedActors = []
+  const animatedWater = []
   const sceneCacheKey = scene.sceneId
   for (const chunk of activeChunks) {
     const cacheKey = `${sceneCacheKey}/${chunk.chunkX}/${chunk.chunkZ}`
@@ -522,7 +539,7 @@ async function drawNear() {
       // texture map). Urban: the existing noise-mapped terrain.
       if (window.__steppe) {
         const geometry = makeMCTerrain(heightView, width, depth, meshStep, THREE)
-        const material = new THREE.MeshLambertMaterial({ vertexColors: true })
+        const material = makeSteppeGroundMaterial(THREE)
         mesh = new THREE.Mesh(geometry, material)
       } else {
         const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
@@ -550,10 +567,12 @@ async function drawNear() {
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
     return field.heightView.getInt16((z * field.width + x) * 2, true) / 4
   }
-  // Steppe grass: wind-animated billboard blades over the focused chunk for a
-  // living field (Journey/Flower style). Only for natural scenes.
+  // Steppe grass: GPU-instanced curved blades with wind + backlight over the
+  // focused chunk (Journey/Flower style). Density concentrates near the camera
+  // so the visible foreground reads lush. Only for natural scenes.
   if (window.__steppe && focusChunk) {
-    const grass = makeSteppeGrass(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 15000, 7)
+    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 160000, 7, focusX, focusZ)
+    grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
     group.add(grass.mesh)
     window.__steppeGrass = grass
   }
@@ -815,19 +834,32 @@ async function drawNear() {
       : new THREE.BoxGeometry(1, 1, 1)
     const waterMaps = isWater ? makeWaterTexture(THREE, type === 'river') : null
     if (waterMaps) waterTextures.push(waterMaps)
-    const material = new THREE.MeshStandardMaterial({
-      color: isWater ? '#326b78' : type === 'causeway' ? '#b38b5a' : type === 'pavilion' ? '#c84f3f' : '#6f8557',
-      map: waterMaps?.texture ?? null,
-      normalMap: waterMaps?.normalTexture ?? null,
-      normalScale: waterMaps ? new THREE.Vector2(.7, .7) : new THREE.Vector2(0, 0),
-      roughness: isWater ? .12 : .9,
-      metalness: isWater ? .28 : 0,
-      envMapIntensity: isWater ? 1.25 : .35,
-      transparent: isWater,
-      opacity: isWater ? .82 : 1,
-      depthWrite: !isWater,
-      side: isWater ? THREE.DoubleSide : THREE.FrontSide,
-    })
+    let waterUniforms = null
+    let material
+    if (isWater) {
+      const wm = makeWaterMaterial(THREE, type === 'river')
+      material = wm.material
+      waterUniforms = wm.uniforms
+      waterUniforms.uTime.value = waterUniforms.uTime.value
+      animatedWater.push(wm.uniforms)
+      material.map = waterMaps?.texture ?? null
+      material.normalMap = waterMaps?.normalTexture ?? null
+      material.normalScale = new THREE.Vector2(.7, .7)
+    } else {
+      material = new THREE.MeshStandardMaterial({
+        color: type === 'causeway' ? '#b38b5a' : type === 'pavilion' ? '#c84f3f' : '#6f8557',
+        map: waterMaps?.texture ?? null,
+        normalMap: waterMaps?.normalTexture ?? null,
+        normalScale: new THREE.Vector2(0, 0),
+        roughness: .9,
+        metalness: 0,
+        envMapIntensity: .35,
+        transparent: false,
+        opacity: 1,
+        depthWrite: true,
+        side: THREE.FrontSide,
+      })
+    }
     const marker = new THREE.Mesh(geometry, material)
     if (type === 'island_hill') marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
     else if (type === 'ridge') marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
@@ -1091,6 +1123,20 @@ async function drawNear() {
     }
     inst.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
     group.add(inst)
+    if (inst.userData?.wind) window.__treeWind = inst.userData.wind
+  }
+  // Rocks are instanced per scene so a field of boulders costs one draw call
+  // (the LOD-filtered set already keeps the visible count reasonable).
+  const activeRocks = (scene.entities ?? []).filter(entity => entity.kind === 'rock' && activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM))
+  if (activeRocks.length) {
+    const rockCacheKey = `rocks:${scene.sceneId}`
+    let rockInst = entityMeshCache.get(rockCacheKey)
+    if (!rockInst) {
+      rockInst = buildRockInstances(activeRocks, THREE)
+      entityMeshCache.set(rockCacheKey, rockInst)
+    }
+    rockInst.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
+    group.add(rockInst)
   }
   for (const entity of focusEntities) {
     if (entity.kind === 'tree') continue
@@ -1124,6 +1170,16 @@ async function drawNear() {
     object.receiveShadow = !isVegetation
     object.castShadow = !isVegetation
   })
+  // Cinematic post-processing (DoF opt-in for street/explore, bloom + film
+  // grade always on). Fall back to a plain render if the composer fails.
+  let nearFx = null
+  try {
+    nearFx = createPostFX({ THREE, addons: postAddons, renderer: nearRenderer, scene: nearScene, camera: nearCamera })
+    if (window.__steppe) nearFx.bloom.strength = .2
+    window.__nearFx = nearFx
+  } catch (error) {
+    console.warn('postfx unavailable, falling back to direct render', error)
+  }
   nearRenderer.render(nearScene, nearCamera)
   window.glyphweaveFeedback.visualChecks.highDetailChunk = focusChunk ? `${focusChunk.chunkX},${focusChunk.chunkZ}` : null
   window.glyphweaveFeedback.visualChecks.loadedChunks = activeChunks.map(chunk => `${chunk.chunkX},${chunk.chunkZ}`)
@@ -1131,7 +1187,11 @@ async function drawNear() {
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   nearRenderer.setAnimationLoop(() => {
     const now = performance.now() * .001
-    if (window.__steppeGrass) window.__steppeGrass.update(now)
+    if (window.__steppeGrass) {
+      window.__steppeGrass.update(now)
+      window.__steppeGrass.uniforms.uCameraPos.value.copy(nearCamera.position)
+    }
+    if (window.__treeWind) window.__treeWind.uTime.value = now
     for (const actor of animatedActors) {
       actor.object.position.z = actor.baseZ + Math.sin(now * actor.speed + actor.phase) * (actor.object.userData.actorKind === 'car' ? 8 : 3)
     }
@@ -1141,6 +1201,7 @@ async function drawNear() {
       maps.normalTexture.offset.x = (maps.normalTexture.offset.x + .00025) % 1
       maps.normalTexture.offset.y = (maps.normalTexture.offset.y + .00055) % 1
     }
+    for (const wu of animatedWater) wu.uTime.value = now
     if (edgePointer) {
       const edge = 54
       const speed = 1.8
@@ -1184,7 +1245,9 @@ async function drawNear() {
     // explore/street (perspective, need smooth motion) keep full frame rate.
     const frameMs = performance.now()
     if (isExplore || isStreet || frameMs - lastRenderMs >= 120) {
-      nearControls.update(); nearRenderer.render(nearScene, nearCamera)
+      nearControls.update()
+      if (nearFx) nearFx.render(1 / 60)
+      else nearRenderer.render(nearScene, nearCamera)
       lastRenderMs = frameMs
     }
   })

@@ -75,3 +75,68 @@ export function makeRiverGeometry(landmark, THREE) {
   geometry.computeVertexNormals()
   return geometry
 }
+
+// Stylized water material with Fresnel-driven transparency + animated normal
+// shimmer. The base color deepens toward the horizon (view angle), and the
+// roughness/metallic read gives it a glassy, reflective surface — Journey-like
+// calm water rather than flat paint. `opacity` here is the min opacity (viewed
+// straight down); grazing angles become near-opaque so the shore reads solid.
+export function makeWaterMaterial(THREE, isRiver, baseColor) {
+  const material = new THREE.MeshStandardMaterial({
+    color: baseColor ?? (isRiver ? '#2e5f6e' : '#326b78'),
+    roughness: .18,
+    metalness: .35,
+    transparent: true,
+    opacity: .86,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.4,
+  })
+  const uniforms = {
+    uTime: { value: 0 },
+  }
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms)
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        /* glsl */ `#include <common>
+        varying vec3 vWorldPos;
+        varying vec3 vWorldNormal;
+        uniform float uTime;
+        `
+      )
+      .replace(
+        '#include <begin_vertex>',
+        /* glsl */ `#include <begin_vertex>
+        vec4 wp = modelMatrix * vec4(transformed, 1.0);
+        vWorldPos = wp.xyz;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        // Gentle animated vertex ripple so the surface is never flat.
+        float wave = sin(vWorldPos.x * .35 + uTime * 1.4) * .04
+                   + sin(vWorldPos.z * .29 - uTime * 1.1) * .035;
+        transformed.y += wave;
+        `
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        /* glsl */ `#include <common>
+        varying vec3 vWorldPos;
+        varying vec3 vWorldNormal;
+        uniform float uTime;
+        `
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        /* glsl */ `#include <opaque_fragment>
+        // Fresnel: grazing angles become opaque, straight-down stays translucent.
+        vec3 V = normalize(cameraPosition - vWorldPos);
+        float fres = pow(1.0 - max(dot(normalize(vWorldNormal), V), 0.0), 2.5);
+        gl_FragColor.a = mix(0.82, 1.0, clamp(fres * 1.6, 0.0, 1.0));
+        `
+      )
+  }
+  material.customProgramCacheKey = () => 'water-fresnel-v1'
+  return { material, uniforms }
+}

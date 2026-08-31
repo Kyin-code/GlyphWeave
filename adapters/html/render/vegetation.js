@@ -31,6 +31,8 @@ export function makeVoxelTree(entity, THREE) {
 // of one THREE.Group per tree. Each tree keeps its own scale / position /
 // tint. The canopy is stacked from two offset Dodecahedra per tree so it reads
 // as a dense, shading mass rather than a single lollipop sphere.
+// Canopy shaders get a Journey-style wind sway (circular-arc bend + travelling
+// gust + tip flutter) so the forest ripples in the wind; trunks stay rigid.
 export function buildTreeInstances(treeEntities, THREE) {
   const group = new THREE.Group()
   if (!treeEntities.length) return group
@@ -40,9 +42,77 @@ export function buildTreeInstances(treeEntities, THREE) {
   const foliageGeoHigh = new THREE.DodecahedronGeometry(1, 0)
   const trunkMat = new THREE.MeshStandardMaterial({ color: '#5d4330', roughness: .97 })
   const foliageMat = new THREE.MeshStandardMaterial({ color: '#3d6b44', roughness: .94 })
+  // Shared wind uniforms for the canopy sway.
+  const wind = {
+    uTime: { value: 0 },
+    uWindStrength: { value: .5 },
+    uWindSpeed: { value: 1.6 },
+    uWindScale: { value: .22 },
+    uGust: { value: .6 },
+  }
+  const windVertexChunk = /* glsl */ `
+    uniform float uTime;
+    uniform float uWindStrength;
+    uniform float uWindSpeed;
+    uniform float uWindScale;
+    uniform float uGust;
+    varying vec3 vWorldPos;
+  `
+  const windVertexBody = /* glsl */ `
+    // World position of this instance's origin (for the travelling gust).
+    vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    vec3 base = wp.xyz;
+    // Normalized height along the canopy (0 base .. 1 tip), used to weight the
+    // bend so the crown arcs over while the trunk stays stiff.
+    float t = clamp(position.y, 0.0, 1.0);
+    // Travelling gust front sweeping downwind (world XZ sampled at base).
+    float along = base.x * 0.7071 + base.z * 0.7071;
+    float gustPhase = along * uWindScale - uTime * uWindSpeed * 0.6;
+    float gust = pow(sin(gustPhase) * 0.5 + 0.5, 1.6);
+    float chop = sin(along * uWindScale * 2.7 - uTime * uWindSpeed * 1.3) * 0.5 + 0.5;
+    float intensity = 0.25 + gust * 0.85 + chop * 0.18;
+    // Per-instance phase desync so trees don't all sway in lockstep.
+    float seed = fract(sin(base.x * 127.1 + base.z * 311.7) * 43758.5453);
+    float bladePhase = seed * 6.28318;
+    float ampVar = 0.65 + fract(sin((seed * 100.0) * 127.1 + 311.7) * 43758.5453) * 0.7;
+    // Circular-arc bend angle (radians), weighted toward the tip.
+    float shaped = pow(t, 1.5);
+    float phi = clamp(uWindStrength * intensity * ampVar * 3.0, 0.0, 1.4);
+    float a = phi * shaped;
+    float safePhi = max(phi, 1e-3);
+    float R = CANOPY_RADIUS / safePhi;
+    float u = R * (1.0 - cos(a));
+    float dv = R * sin(a) - position.y;
+    // Tip flutter (perpendicular shimmer, upper canopy only).
+    float flutterMask = smoothstep(0.5, 1.0, t);
+    float flutterAmt = sin(uTime * 10.0 + bladePhase * 3.0 + along * 0.8) * uGust * 0.08 * flutterMask;
+    vec2 windDir = vec2(0.7071, 0.7071);
+    vec2 perpDir = vec2(-windDir.y, windDir.x);
+    vec3 sway = vec3(windDir.x * u + perpDir.x * flutterAmt, dv, windDir.y * u + perpDir.y * flutterAmt);
+    transformed += sway;
+    vec4 wpos = instanceMatrix * vec4(transformed, 1.0);
+    vWorldPos = wpos.xyz;
+  `
+  const applyWind = (mat, amount) => {
+    const floatLit = Number.isInteger(amount) ? `${amount}.0` : String(amount)
+    const body = windVertexBody.replace('CANOPY_RADIUS', floatLit)
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, wind)
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${windVertexChunk}`)
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>\n${body}`
+        )
+    }
+    mat.customProgramCacheKey = () => `tree-wind-v${amount}`
+  }
+  applyWind(foliageMat, 7.0)
+  const foliageMat2 = new THREE.MeshStandardMaterial({ color: '#4d7a45', roughness: .93 })
+  applyWind(foliageMat2, 9.0)
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, count)
   const foliageLow = new THREE.InstancedMesh(foliageGeoLow, foliageMat, count)
-  const foliageHigh = new THREE.InstancedMesh(foliageGeoHigh, foliageMat, count)
+  const foliageHigh = new THREE.InstancedMesh(foliageGeoHigh, foliageMat2, count)
   const m = new THREE.Matrix4()
   const q = new THREE.Quaternion()
   const s = new THREE.Vector3()
@@ -85,6 +155,7 @@ export function buildTreeInstances(treeEntities, THREE) {
   group.add(trunks)
   group.add(foliageLow)
   group.add(foliageHigh)
+  group.userData.wind = wind
   return group
 }
 
@@ -155,4 +226,51 @@ export function makeForestPatch(entity, THREE, reserve = false) {
   }
   patch.position.set(entity.worldX, entity.worldY, entity.worldZ)
   return patch
+}
+
+// Instanced low-poly rocks with per-vertex noise displacement — a handful of
+// draw calls for a whole field of boulders. Each rock gets a random yaw, scale
+// and tone, and the shared geometry is displaced by world-position noise so no
+// two rocks read identical even when the base mesh is the same.
+export function buildRockInstances(rockEntities, THREE) {
+  const group = new THREE.Group()
+  if (!rockEntities.length) return group
+  const count = rockEntities.length
+  const baseGeo = new THREE.IcosahedronGeometry(1, 1)
+  const pos = baseGeo.attributes.position
+  // Displace vertices by deterministic noise for an organic, uneven surface.
+  const displaced = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+    const n = 0.12 + Math.sin(x * 3.1 + y * 2.3 + z * 1.7) * .06 + Math.sin(x * 7.7 - z * 5.3) * .04
+    displaced[i * 3] = x * (1 + n)
+    displaced[i * 3 + 1] = y * (1 + n)
+    displaced[i * 3 + 2] = z * (1 + n)
+  }
+  pos.array = displaced
+  baseGeo.computeVertexNormals()
+  const rockMat = new THREE.MeshStandardMaterial({ color: '#7a7468', roughness: .95, flatShading: true })
+  const rocks = new THREE.InstancedMesh(baseGeo, rockMat, count)
+  const m = new THREE.Matrix4()
+  const q = new THREE.Quaternion()
+  const s = new THREE.Vector3()
+  const p = new THREE.Vector3()
+  const color = new THREE.Color()
+  const rand = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v) }
+  for (let i = 0; i < count; i++) {
+    const e = rockEntities[i]
+    const size = Math.max(e.widthM, e.depthM) * (1.5 + rand(e.worldX, e.worldZ) * 1.8)
+    p.set(e.worldX, e.worldY + size * .45, e.worldZ)
+    s.set(size, size * (.7 + rand(e.worldX * 3, e.worldZ * 5) * .6), size)
+    q.setFromEuler(new THREE.Euler(rand(e.worldX * 7, e.worldZ * 11) * .35, rand(e.worldX * 13, e.worldZ * 17) * Math.PI * 2, rand(e.worldX * 19, e.worldZ * 23) * .35))
+    m.compose(p, q, s)
+    rocks.setMatrixAt(i, m)
+    const shade = .55 + rand(e.worldX * 29, e.worldZ * 31) * .25
+    color.setRGB(shade, shade * .97, shade * .92)
+    rocks.setColorAt(i, color)
+  }
+  rocks.instanceMatrix.needsUpdate = true
+  rocks.instanceColor.needsUpdate = true
+  group.add(rocks)
+  return group
 }
