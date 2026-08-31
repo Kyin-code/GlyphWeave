@@ -1,5 +1,5 @@
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry } from './render/terrain.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
 import { makeWaterTexture, makeRiverGeometry } from './render/water.js'
 import { makeSkyTexture } from './render/sky.js'
 import { makeVoxelTree, buildTreeInstances, makeMangrove, makeForestPatch } from './render/vegetation.js'
@@ -348,13 +348,30 @@ async function drawNear() {
   } else {
     nearScene = new THREE.Scene()
     window.__nearScene = nearScene
+    // Natural / artistic scenes (pure steppe, no urban fabric) get a warm,
+    // painterly look inspired by Journey / Flower: a soft warm key light, a
+    // gentle distance haze, and no hard shadows. Urban scenes keep the cool
+    // clinical look.
+    const urban = (scene.entities ?? []).some(e => ['storefront', 'residential_block', 'residential_tower', 'building_tower'].includes(e.kind))
+    const steppe = !urban
+    window.__steppe = steppe
     nearScene.background = makeSkyTexture(THREE)
-    nearScene.fog = new THREE.Fog('#294658', 900, 3600)
-    nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
-    const sun = new THREE.DirectionalLight(0xffe6b0, 2.8)
-    sun.position.set(-500, 900, 420)
-    sun.castShadow = false
-    nearScene.add(sun)
+    if (steppe) {
+      nearScene.fog = new THREE.Fog(0xe8d9b8, 900, 5200)
+      nearScene.add(new THREE.HemisphereLight(0xfff3d6, 0x8a7a52, 1.15))
+      const sun = new THREE.DirectionalLight(0xffd9a0, 2.2)
+      sun.position.set(-300, 600, 200)
+      sun.castShadow = false
+      nearScene.add(sun)
+      nearScene.add(new THREE.AmbientLight(0xffe6c8, .55))
+    } else {
+      nearScene.fog = new THREE.Fog('#294658', 900, 3600)
+      nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
+      const sun = new THREE.DirectionalLight(0xffe6b0, 2.8)
+      sun.position.set(-500, 900, 420)
+      sun.castShadow = false
+      nearScene.add(sun)
+    }
   }
   nearControls = new OrbitControls(nearCamera, webglCanvas)
   nearControls.target.set(focusX, isExplore ? focusY + 26 : isStreet ? focusY + 9 : focusTargetY, focusTargetZ)
@@ -501,10 +518,19 @@ async function drawNear() {
     const meshCacheKey = `${cacheKey}/step${meshStep}`
     let mesh = entityMeshCache.get(meshCacheKey)
     if (!mesh) {
-      const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
-      const positions = geometry.attributes.position
-      for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); positions.setY(i, heightView.getInt16((z * width + x) * 2, true) / 4) }
-      geometry.computeVertexNormals(); const material = meshStep <= 2 ? (() => { const surfaceMaps = makeSurfaceTexture(surface, width, depth, THREE); surfaceMaps.texture.anisotropy = Math.min(8, nearRenderer.capabilities.getMaxAnisotropy()); surfaceMaps.normalTexture.anisotropy = surfaceMaps.texture.anisotropy; return new THREE.MeshStandardMaterial({ map: surfaceMaps.texture, normalMap: surfaceMaps.normalTexture, normalScale: new THREE.Vector2(.45, .45), roughness: .92 }) })() : new THREE.MeshStandardMaterial({ map: makeLodTexture(surface, width, depth, THREE), roughness: 1 }); mesh = new THREE.Mesh(geometry, material); entityMeshCache.set(meshCacheKey, mesh)
+      // Steppe: flat vertex colours graded by height (MC / Journey style, no
+      // texture map). Urban: the existing noise-mapped terrain.
+      if (window.__steppe) {
+        const geometry = makeMCTerrain(heightView, width, depth, meshStep, THREE)
+        const material = new THREE.MeshLambertMaterial({ vertexColors: true })
+        mesh = new THREE.Mesh(geometry, material)
+      } else {
+        const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
+        const positions = geometry.attributes.position
+        for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); positions.setY(i, heightView.getInt16((z * width + x) * 2, true) / 4) }
+        geometry.computeVertexNormals(); const material2 = meshStep <= 2 ? (() => { const surfaceMaps = makeSurfaceTexture(surface, width, depth, THREE); surfaceMaps.texture.anisotropy = Math.min(8, nearRenderer.capabilities.getMaxAnisotropy()); surfaceMaps.normalTexture.anisotropy = surfaceMaps.texture.anisotropy; return new THREE.MeshStandardMaterial({ map: surfaceMaps.texture, normalMap: surfaceMaps.normalTexture, normalScale: new THREE.Vector2(.45, .45), roughness: .92 }) })() : new THREE.MeshStandardMaterial({ map: makeLodTexture(surface, width, depth, THREE), roughness: 1 }); mesh = new THREE.Mesh(geometry, material2)
+      }
+      entityMeshCache.set(meshCacheKey, mesh)
     }
     const meshClone = mesh.clone()
     meshClone.position.set(chunk.worldX - scene.originX + width / 2, 0, chunk.worldZ - scene.originZ + depth / 2)
@@ -523,6 +549,13 @@ async function drawNear() {
     const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
     return field.heightView.getInt16((z * field.width + x) * 2, true) / 4
+  }
+  // Steppe grass: wind-animated billboard blades over the focused chunk for a
+  // living field (Journey/Flower style). Only for natural scenes.
+  if (window.__steppe && focusChunk) {
+    const grass = makeSteppeGrass(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, 15000, 7)
+    group.add(grass.mesh)
+    window.__steppeGrass = grass
   }
   for (const landmark of scene.landmarks) {
     const groundedLandmark = { ...landmark, worldY: heightAt(landmark.worldX, landmark.worldZ) }
@@ -1098,6 +1131,7 @@ async function drawNear() {
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   nearRenderer.setAnimationLoop(() => {
     const now = performance.now() * .001
+    if (window.__steppeGrass) window.__steppeGrass.update(now)
     for (const actor of animatedActors) {
       actor.object.position.z = actor.baseZ + Math.sin(now * actor.speed + actor.phase) * (actor.object.userData.actorKind === 'car' ? 8 : 3)
     }

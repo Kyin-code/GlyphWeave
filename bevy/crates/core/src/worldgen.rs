@@ -39,6 +39,9 @@ struct WaterGeometry {
     /// landform bands without threading extra scene state through the API.
     scene_width_m: u32,
     scene_depth_m: u32,
+    /// Smooth-rolling terrain (steppe / prairie): soft rolling hills instead
+    /// of sharp ridges, matching wgen's "Hills" hemispheric generator.
+    smooth_rolling: bool,
 }
 
 /// A terrain carve: a flat rectangular pad under a road or building footprint.
@@ -664,7 +667,12 @@ fn water_kind(style: &serde_json::Value) -> WaterKind {
     }
 }
 
-fn water_geometry(kind: WaterKind, landmarks: &[LandmarkSpec], scene: &SceneSpec) -> WaterGeometry {
+fn water_geometry(
+    kind: WaterKind,
+    landmarks: &[LandmarkSpec],
+    scene: &SceneSpec,
+    style: &serde_json::Value,
+) -> WaterGeometry {
     let landmark = landmarks.iter().find(|item| match kind {
         WaterKind::Lake => item.entity_type == "lake",
         WaterKind::River => item.entity_type == "river",
@@ -688,6 +696,13 @@ fn water_geometry(kind: WaterKind, landmarks: &[LandmarkSpec], scene: &SceneSpec
             )
         },
     );
+    // "steppe" / "prairie" / "grassland" terrainProfile -> soft rolling hills
+    // (wgen Hills style) instead of sharp mountain ridges.
+    let smooth_rolling = style
+        .get("terrainProfile")
+        .and_then(serde_json::Value::as_str)
+        .map(|s| matches!(s, "steppe" | "prairie" | "grassland" | "plains"))
+        .unwrap_or(false);
     WaterGeometry {
         kind,
         center_x,
@@ -696,6 +711,7 @@ fn water_geometry(kind: WaterKind, landmarks: &[LandmarkSpec], scene: &SceneSpec
         half_depth,
         scene_width_m: scene.width_m,
         scene_depth_m: scene.depth_m,
+        smooth_rolling,
     }
 }
 
@@ -714,6 +730,7 @@ fn legacy_water_geometry(
             half_depth: f64::from(scene_depth) * 0.26,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            smooth_rolling: false,
         },
         WaterKind::River => WaterGeometry {
             kind,
@@ -723,6 +740,7 @@ fn legacy_water_geometry(
             half_depth: f64::from(scene_depth) * 0.5,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            smooth_rolling: false,
         },
         WaterKind::None => WaterGeometry {
             kind,
@@ -732,6 +750,7 @@ fn legacy_water_geometry(
             half_depth: 0.0,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            smooth_rolling: false,
         },
     }
 }
@@ -874,7 +893,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             .filter(|item| item.scene_id == scene.scene_id)
             .cloned()
             .collect();
-        let water = water_geometry(water_kind(&manifest.style), &landmarks, scene);
+        let water = water_geometry(water_kind(&manifest.style), &landmarks, scene, &manifest.style);
         let entities = generate_entities_with_profile(
             manifest.world.seed ^ scene.seed_offset,
             scene,
@@ -1388,6 +1407,47 @@ fn mountain_skeleton(seed: u64, x: i32, z: i32) -> f64 {
     ridge.clamp(0.0, 1.0)
 }
 
+/// Steppe rolling hills (wgen "Hills" style): a deterministic field of stacked
+/// hemispherical paraboloids. Each hill contributes height*(1 - dist²/r²)
+/// inside its radius, so adjacent bumps blend into smooth rounded terrain —
+/// a grassy plain with gentle swells instead of sharp ridges.
+fn steppe_hills_field(seed: u64, xf: f64, zf: f64) -> f64 {
+    const CELL: f64 = 240.0;
+    const NEIGHBORS: [(i64, i64); 9] = [
+        (-1, -1), (0, -1), (1, -1),
+        (-1, 0), (0, 0), (1, 0),
+        (-1, 1), (0, 1), (1, 1),
+    ];
+    let cx = (xf / CELL).floor();
+    let cz = (zf / CELL).floor();
+    let mut h = 0.0;
+    for (ox, oz) in NEIGHBORS {
+        let gx = cx + ox as f64;
+        let gz = cz + oz as f64;
+        // Hill centre with strong random offset so hills are irregularly
+        // scattered, not a neat grid (wgen scatters them randomly).
+        let rx = value_noise2d(seed, gx * 0.31, gz * 0.23);
+        let rz = value_noise2d(seed.wrapping_add(0x517c_c1b7), gx * 0.19, gz * 0.11);
+        let hx = (gx + rx * 1.4) * CELL;
+        let hz = (gz + rz * 1.4) * CELL;
+        let rh = value_noise2d(seed.wrapping_add(0x6a09_e667), gx * 0.41, gz * 0.37);
+        let radius = 120.0 + rh * 110.0;
+        let hv = value_noise2d(seed.wrapping_add(0xbb67_ae85), gx * 0.53, gz * 0.47);
+        let height = 6.0 + hv * 12.0;
+        let dx = xf - hx;
+        let dz = zf - hz;
+        let d2 = dx * dx + dz * dz;
+        let r2 = radius * radius;
+        if d2 < r2 {
+            // Smooth rounded hill (paraboloid crown): quadratic falloff keeps
+            // the crest round and eases to zero at the edge.
+            let t = 1.0 - d2 / r2;
+            h += height * t * t;
+        }
+    }
+    h - 2.0 // start below datum so the plain can dip to shallow low spots
+}
+
 /// Continuous landform field in world space. Returns a scalar that rises
 /// smoothly from valley floors through plains and hills into mountains, so
 /// the terrain elevation is a continuous function with no banding artifacts
@@ -1407,16 +1467,25 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let dx = ((xf - cx) / scale).abs().min(1.0);
     let dz = ((zf - cz) / scale).abs().min(1.0);
     let radial = (dx * dx + dz * dz).sqrt();
-    // Terrain skeleton: mountain peaks are distinct rounded high points from
-    // the Worley distance field, then a fractal disturbance adds ridges and
-    // valleys. A coastal skirt pulls the outer edge down toward the water so
-    // land rises from the shore instead of starting mid-plateau.
-    let skeleton = mountain_skeleton(seed, x, z);
-    let ridges = fbm2d(seed, xf, zf) * 0.5 + fbm2d(seed.wrapping_add(0x33ab_1103), xf * 2.3, zf * 2.3) * 0.25;
-    // 0 at a peak core, rising to ~1 far from peaks; blend skeleton with the
-    // fractal so both structure and texture are present.
-    let rugged = skeleton * 0.72 + (1.0 - skeleton) * (0.5 + ridges) * 0.28;
-    rugged.mul_add(60.0, -16.0) + radial * radial * 90.0
+    if water.smooth_rolling {
+        // Steppe / prairie: soft rolling hills (wgen "Hills" generator).
+        // Random hemispherical bumps (paraboloids) are stacked, each adding
+        // height*(1 - dist²/radius²) inside its footprint, so the terrain is a
+        // smooth field of rounded swells — exactly wgen's approach. No sharp
+        // ridges, low amplitude so it stays a grassy plain.
+        steppe_hills_field(seed, xf, zf) + radial * radial * 20.0
+    } else {
+        // Terrain skeleton: mountain peaks are distinct rounded high points from
+        // the Worley distance field, then a fractal disturbance adds ridges and
+        // valleys. A coastal skirt pulls the outer edge down toward the water so
+        // land rises from the shore instead of starting mid-plateau.
+        let skeleton = mountain_skeleton(seed, x, z);
+        let ridges = fbm2d(seed, xf, zf) * 0.5 + fbm2d(seed.wrapping_add(0x33ab_1103), xf * 2.3, zf * 2.3) * 0.25;
+        // 0 at a peak core, rising to ~1 far from peaks; blend skeleton with the
+        // fractal so both structure and texture are present.
+        let rugged = skeleton * 0.72 + (1.0 - skeleton) * (0.5 + ridges) * 0.28;
+        rugged.mul_add(60.0, -16.0) + radial * radial * 90.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -2167,13 +2236,76 @@ fn generate_entities_with_profile(
         || !footprint_intersects_water(entity, geometry, 1.0)
     });
     if geometry.kind == WaterKind::None {
-        if style.get("landUseProfile").is_some() {
-            append_modern_landuse_content(seed, scene, &mut entities, style);
+        // naturalOnly: a pure wild scene (steppe / nature) — skip urban land-use
+        // generation entirely, keep only the natural entities (pasture, trees,
+        // rocks, grass) so the world stays a wild plain with no city fabric.
+        let natural_only = style
+            .get("naturalOnly")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !natural_only {
+            if style.get("landUseProfile").is_some() {
+                append_modern_landuse_content(seed, scene, &mut entities, style);
+            } else {
+                append_generic_land_content(seed, scene, &mut entities);
+            }
         } else {
-            append_generic_land_content(seed, scene, &mut entities);
+            append_natural_content(seed, scene, &mut entities);
         }
     }
     entities
+}
+
+/// Natural-only filler for wild scenes (steppe / nature): sparse trees,
+/// bushes, rocks and grass clumps over a deterministic grid, with jitter.
+/// No roads, no buildings, no paths — just open wild land.
+fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>) {
+    let mut serial = 0_u32;
+    for z in (20..scene.depth_m.saturating_sub(8)).step_by(16) {
+        for x in (20..scene.width_m.saturating_sub(8)).step_by(16) {
+            let jx = signed_noise(seed.rotate_left(211), x as i32, z as i32);
+            let jz = signed_noise(seed.rotate_left(223), x as i32, z as i32);
+            let wx = scene.origin_x + x as i32 + (jx.rem_euclid(19) - 9);
+            let wz = scene.origin_z + z as i32 + (jz.rem_euclid(19) - 9);
+            let world_y = i32::from(terrain_height(seed, wx, wz, WaterKind::None, scene.width_m, scene.depth_m, 0.0)) / 4;
+            let roll = signed_noise(seed.rotate_left(239), wx, wz);
+            // Steppe: grass dominant, sparse trees, occasional rocks/bushes.
+            let kind = if roll < -84 {
+                "tree"
+            } else if roll < -52 {
+                "bush"
+            } else if roll > 88 {
+                "rock"
+            } else {
+                "grass_clump"
+            };
+            let w = match kind {
+                "tree" => 2.5 + (roll.rem_euclid(20) as f32) / 10.0,
+                "bush" => 1.2 + (roll.rem_euclid(14) as f32) / 10.0,
+                "rock" => 0.8 + (roll.rem_euclid(18) as f32) / 10.0,
+                _ => 1.0 + (roll.rem_euclid(16) as f32) / 10.0,
+            };
+            let h = match kind {
+                "tree" => 4.0 + (roll.rem_euclid(26) as f32) / 10.0,
+                "bush" => 0.6 + (roll.rem_euclid(14) as f32) / 10.0,
+                "rock" => 0.5 + (roll.rem_euclid(18) as f32) / 10.0,
+                _ => 0.5 + (roll.rem_euclid(12) as f32) / 10.0,
+            };
+            entities.push(EntityInstance {
+                entity_id: format!("generated.natural.{serial}"),
+                asset_id: format!("prop.{kind}"),
+                kind: kind.to_owned(),
+                world_x: wx,
+                world_z: wz,
+                world_y,
+                scale: 1.0,
+                width_m: w,
+                depth_m: w,
+                height_m: h,
+            });
+            serial += 1;
+        }
+    }
 }
 
 fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>) {
@@ -2743,6 +2875,7 @@ fn append_modern_landuse_content(
                     half_depth: 0.0,
                     scene_width_m: scene.width_m,
                     scene_depth_m: scene.depth_m,
+                    smooth_rolling: false,
                 },
                 urban_scale,
             );
@@ -3972,7 +4105,7 @@ mod tests {
             height_m: 1,
             asset_id: "water.lake".to_owned(),
         };
-        let geometry = water_geometry(WaterKind::Lake, &[lake], &scene);
+        let geometry = water_geometry(WaterKind::Lake, &[lake], &scene, &serde_json::Value::Null);
         assert_eq!((geometry.center_x, geometry.center_z), (210.0, 760.0));
         assert_eq!((geometry.half_width, geometry.half_depth), (150.0, 90.0));
         assert!(lake_radius_at(210.0, 760.0, geometry) < 1.0);
@@ -4365,6 +4498,7 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 6_000,
             scene_depth_m: 10_000,
+            smooth_rolling: false,
         };
         let mut max_step = 0_i16;
         // Walk across a chunk seam at x=512 and confirm heights stay continuous.
@@ -4393,6 +4527,7 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 6_000,
             scene_depth_m: 10_000,
+            smooth_rolling: false,
         };
         let mut zones = BTreeSet::new();
         for z in (500..9_500).step_by(400) {
@@ -4453,6 +4588,7 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 3_000,
             scene_depth_m: 3_000,
+            smooth_rolling: false,
         };
         let mut farmland_on_mountain = 0_usize;
         let mut farmland_total = 0_usize;
@@ -4516,6 +4652,7 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: width,
             scene_depth_m: depth,
+            smooth_rolling: false,
         }
     }
 

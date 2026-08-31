@@ -175,3 +175,175 @@ export function makeStripGeometry(entity, halfWidth, centerZ, heightAt, THREE, l
   geometry.computeVertexNormals()
   return geometry
 }
+
+// Artistic steppe ground — painterly, Journey/Flower-style colour field.
+// Instead of per-cell noise texture, the ground is a soft gradient across a
+// warm steppe palette: dry grass yellow-greens on high ground, richer green
+// in dips, warm earth along waterlines. Large-scale noise drives broad tonal
+// regions, so it reads as a painted plain rather than a pixel-noise smear.
+export function makeArtisticGroundTexture(surface, width, depth, THREE) {
+  const c = document.createElement('canvas')
+  const scale = 2
+  c.width = width * scale
+  c.height = depth * scale
+  const g = c.getContext('2d')
+  const img = g.createImageData(c.width, c.height)
+  // Steppe palette (base rgb per surface id: 0 grass,1 light,2 rock,3 water,
+  // 4 mud,5 soil,6 forest,7 dry).
+  const P = [
+    [164, 178, 110], [186, 188, 126], [150, 138, 120], [110, 160, 168],
+    [150, 132, 92],  [172, 158, 108],  [118, 140, 96], [172, 160, 112],
+  ]
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const cellX = Math.min(width - 1, Math.floor(x / scale))
+      const cellZ = Math.min(depth - 1, Math.floor(y / scale))
+      const m = surface[cellZ * width + cellX]
+      const base = P[m] ?? P[0]
+      // Broad tonal region (hundreds of metres) so the plain has soft painting
+      // patches, not speckle.
+      const region = fractalNoise(x * .004 + m * 9, y * .004 - m * 5)
+      // Fine grass strand variance for a living field.
+      const strand = smoothNoise(x * .06, y * .06)
+      const tonal = region * 26 + strand * 10
+      let r = base[0] + tonal
+      let gg = base[1] + tonal
+      let b = base[2] + tonal * .55
+      // Warm light on sunny slopes via a broad NW-SE gradient.
+      const sun = (x + y) / (c.width + c.height) * 18
+      r += sun; gg += sun * .9; b += sun * .5
+      const i = (y * c.width + x) * 4
+      img.data[i] = Math.max(0, Math.min(255, r))
+      img.data[i + 1] = Math.max(0, Math.min(255, gg))
+      img.data[i + 2] = Math.max(0, Math.min(255, b))
+      img.data[i + 3] = 255
+    }
+  }
+  g.putImageData(img, 0, 0)
+  const texture = new THREE.CanvasTexture(c)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  return texture
+}
+
+// Wind-animated steppe grass: thousands of billboard grass blades swaying in a
+// travelling wind (Journey/Flower style). Built with InstancedMesh + a vertex
+// shader that bends each blade by a wind sine, so the whole field ripples.
+export function makeSteppeGrass(THREE, worldX, worldZ, width, depth, heightAt, count, salt) {
+  const n = Math.max(200, count)
+  // Thin tapered blade: two base verts + one tip, so it reads as a blade of
+  // grass rather than a flat square (the main reason it looked like dots).
+  const geo = new THREE.InstancedBufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, 0, 0, 1, 0, 0, 0, 1, 0]), 3))
+  const inst = new THREE.InstancedMesh(geo, null, n)
+  const dummy = new THREE.Object3D()
+  const tints = new Float32Array(n * 3)
+  const rnd = (a, b, s) => { let h = Math.imul(a + s * 1013904223, 2654435761) ^ Math.imul(b + s * 340573321, 1597334677); h = (h ^ (h >> 13)) * 1274126177; h = h ^ (h >> 16); return ((h >>> 0) % 100000) / 100000 }
+  let placed = 0
+  let guard = 0
+  let x = 0, z = 0, gy = 0
+  while (placed < n && guard < n * 40) {
+    guard++
+    x = worldX + rnd(placed, 0, salt) * width
+    z = worldZ + rnd(placed, 1, salt) * depth
+    gy = heightAt(x, z)
+    const h = .45 + rnd(placed, 2, salt) * .75
+    const tilt = (rnd(placed, 3, salt) - .5) * .35
+    dummy.position.set(x, gy, z)
+    dummy.rotation.set(tilt, rnd(placed, 4, salt) * Math.PI * 2, 0)
+    dummy.scale.set(.12, h, 1)
+    dummy.updateMatrix()
+    inst.setMatrixAt(placed, dummy.matrix)
+    const tt = rnd(placed, 5, salt)
+    tints[placed * 3] = .45 + tt * .25
+    tints[placed * 3 + 1] = .55 + tt * .22
+    tints[placed * 3 + 2] = .22 + tt * .14
+    placed++
+  }
+  if (placed < n) inst.count = placed
+  inst.instanceMatrix.needsUpdate = true
+  geo.setAttribute('tint', new THREE.InstancedBufferAttribute(tints, 3))
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      time: { value: 0 },
+      fogColor: { value: new THREE.Color(0xe8d9b8) },
+      fogNear: { value: 800 },
+      fogFar: { value: 5000 },
+    },
+    vertexShader: `
+      attribute vec3 tint;
+      varying vec3 vColor;
+      varying float vDepth;
+      uniform float time;
+      void main() {
+        vColor = tint;
+        vec3 p = position;
+        float sway = sin(time * 1.5 + instanceMatrix[3][0] * .02 + instanceMatrix[3][2] * .03) * .35;
+        p.x += position.y * sway;
+        p.z += position.y * sway * .5;
+        vec4 mv = modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+        vDepth = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vColor;
+      varying float vDepth;
+      uniform vec3 fogColor;
+      uniform float fogNear;
+      uniform float fogFar;
+      void main() {
+        float fog = clamp((vDepth - fogNear) / (fogFar - fogNear), 0.0, 1.0);
+        vec3 c = mix(vColor, fogColor, fog);
+        gl_FragColor = vec4(c, 1.0);
+      }
+    `,
+    side: THREE.DoubleSide,
+  })
+  inst.material = mat
+  inst.frustumCulled = false
+  return { mesh: inst, update: t => { mat.uniforms.time.value = t } }
+}
+
+
+// Minecraft / Journey-style terrain: no texture map, just flat vertex colours
+// graded by height and slope, lit by a simple Lambert light. This gives the
+// clean "painted blocks" look instead of a noisy photoreal smear.
+export function makeMCTerrain(heightView, width, depth, meshStep, THREE) {
+  const geo = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep)))
+  geo.rotateX(-Math.PI / 2)
+  const pos = geo.attributes.position
+  const colors = new Float32Array(pos.count * 3)
+  let minH = Infinity, maxH = -Infinity
+  for (let i = 0; i < pos.count; i++) {
+    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
+    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
+    const h = heightView.getInt16((z * width + x) * 2, true) / 4
+    pos.setY(i, h)
+    if (h < minH) minH = h
+    if (h > maxH) maxH = h
+  }
+  // Store height for grading (re-read from positions after set).
+  const range = Math.max(1, maxH - minH)
+  for (let i = 0; i < pos.count; i++) {
+    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
+    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
+    const h = heightView.getInt16((z * width + x) * 2, true) / 4
+    // Steppe palette: deep grass in dips -> dry gold on rises.
+    const t = (h - minH) / range
+    let r, g, b
+    if (t < .35) { const s = t / .35; r = 84; g = 116; b = 62; }
+    else if (t < .75) { const s = (t - .35) / .4; r = 84 + (156 - 84) * s; g = 116 + (140 - 116) * s; b = 62 + (86 - 62) * s; }
+    else { const s = (t - .75) / .25; r = 156 + (182 - 156) * s; g = 140 + (150 - 140) * s; b = 86 + (98 - 86) * s; }
+    // Subtle per-cell block variance (Minecraft-ish) from position hash.
+    const v = ((x * 31 + z * 17) % 13) / 13 - .5
+    colors[i * 3] = r / 255 + v * .02
+    colors[i * 3 + 1] = g / 255 + v * .02
+    colors[i * 3 + 2] = b / 255 + v * .02
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geo.computeVertexNormals()
+  return geo
+}

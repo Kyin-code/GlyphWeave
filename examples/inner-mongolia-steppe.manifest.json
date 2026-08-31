@@ -1,0 +1,337 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "内蒙草原",
+    "seed": 20260831,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "grassland",
+      "widthM": 2000,
+      "depthM": 2000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-steppe",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "steppe",
+    "layoutReference": "Inner Mongolia steppe: a wide, gently rolling grassland plain with soft hills, seasonal grass tones, scattered herds and a distant low horizon. No city, no buildings.",
+    "referenceData": {
+      "sources": [
+        "https://www.openstreetmap.org/"
+      ],
+      "retrievedAt": "2026-08-31",
+      "inferenceReason": "Synthetic steppe scene: gently rolling terrain, sparse pasture, one small lake.",
+      "crop": "2000m x 2000m synthetic Inner Mongolia steppe window"
+    },
+    "landUseProfile": {
+      "theme": "steppe-grassland",
+      "urbanCoreRatio": 0,
+      "suburbanRatio": 0,
+      "greenRatio": 0.55,
+      "farmRatio": 0.1,
+      "forestRatio": 0.02,
+      "pastureRatio": 0.3,
+      "reserveRatio": 0.03
+    },
+    "assetContracts": {
+      "lake": {
+        "type": "water",
+        "placement": "water-surface",
+        "allowedSurfaces": [
+          "water"
+        ],
+        "forbiddenSurfaces": [
+          "underground"
+        ],
+        "minWidthM": 40,
+        "maxWidthM": 300,
+        "minDepthM": 40,
+        "maxDepthM": 300,
+        "minHeightM": 1,
+        "maxHeightM": 1
+      },
+      "pasture": {
+        "type": "pasture",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 60,
+        "maxWidthM": 600,
+        "minDepthM": 60,
+        "maxDepthM": 600,
+        "minHeightM": 0.1,
+        "maxHeightM": 4
+      },
+      "farmland": {
+        "type": "farmland",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 60,
+        "maxWidthM": 400,
+        "minDepthM": 60,
+        "maxDepthM": 400,
+        "minHeightM": 0.1,
+        "maxHeightM": 3
+      },
+      "tree": {
+        "type": "tree",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 2,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "maxDepthM": 5.5,
+        "minHeightM": 4,
+        "maxHeightM": 9
+      },
+      "bush": {
+        "type": "bush",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 0.5,
+        "maxWidthM": 3,
+        "minDepthM": 0.5,
+        "maxDepthM": 3,
+        "minHeightM": 0.3,
+        "maxHeightM": 3
+      },
+      "grass_clump": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 0.5,
+        "maxWidthM": 3,
+        "minDepthM": 0.5,
+        "maxDepthM": 3,
+        "minHeightM": 0.2,
+        "maxHeightM": 4
+      },
+      "rock": {
+        "type": "rock",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 0.2,
+        "maxWidthM": 4,
+        "minDepthM": 0.2,
+        "maxDepthM": 4,
+        "minHeightM": 0.1,
+        "maxHeightM": 4
+      },
+      "road": {
+        "type": "road",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 200,
+        "maxWidthM": 2500,
+        "minDepthM": 4,
+        "maxDepthM": 20,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "bridge": {
+        "type": "bridge",
+        "placement": "bridge-deck",
+        "allowedSurfaces": [
+          "water",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "underground"
+        ],
+        "minWidthM": 20,
+        "maxWidthM": 200,
+        "minDepthM": 5,
+        "maxDepthM": 40,
+        "minHeightM": 5,
+        "maxHeightM": 20
+      },
+      "building_cluster": {
+        "type": "building",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 8,
+        "maxWidthM": 200,
+        "minDepthM": 8,
+        "maxDepthM": 200,
+        "minHeightM": 3,
+        "maxHeightM": 40
+      },
+      "building": {
+        "type": "building",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 4,
+        "maxWidthM": 80,
+        "minDepthM": 4,
+        "maxDepthM": 80,
+        "minHeightM": 3,
+        "maxHeightM": 30
+      },
+      "reed": {
+        "type": "reed",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "shore",
+          "wetland"
+        ],
+        "forbiddenSurfaces": [
+          "deep_water",
+          "underground"
+        ],
+        "minWidthM": 0.2,
+        "maxWidthM": 1,
+        "minDepthM": 0.2,
+        "maxDepthM": 1,
+        "minHeightM": 1,
+        "maxHeightM": 5
+      },
+      "bench": {
+        "type": "street-furniture",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "shore",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 2,
+        "maxWidthM": 5,
+        "minDepthM": 0.5,
+        "maxDepthM": 2,
+        "minHeightM": 0.4,
+        "maxHeightM": 2
+      },
+      "lamp": {
+        "type": "street-furniture",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "shore",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 0.2,
+        "maxWidthM": 1,
+        "minDepthM": 0.2,
+        "maxDepthM": 1,
+        "minHeightM": 2,
+        "maxHeightM": 7
+      },
+      "grass_clump2": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 0.5,
+        "maxWidthM": 3,
+        "minDepthM": 0.5,
+        "maxDepthM": 3,
+        "minHeightM": 0.2,
+        "maxHeightM": 4
+      },
+      "fallen_log": {
+        "type": "fallen-log",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "soil"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "underground"
+        ],
+        "minWidthM": 1,
+        "maxWidthM": 6,
+        "minDepthM": 0.3,
+        "maxDepthM": 2,
+        "minHeightM": 0.2,
+        "maxHeightM": 2
+      }
+    },
+    "naturalOnly": true
+  },
+  "landmarks": [],
+  "sceneGraph": {
+    "transitions": []
+  }
+}
