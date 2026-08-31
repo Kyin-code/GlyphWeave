@@ -18,7 +18,7 @@ pub const STREAM_CHUNK_METERS: u32 = 512;
 pub const MIN_SCENE_METERS: u32 = 512;
 pub const MAX_SCENE_WIDTH_METERS: u32 = 6_000;
 pub const MAX_SCENE_DEPTH_METERS: u32 = 10_000;
-const SHORE_RADIUS: f64 = 1.25;
+const SHORE_RADIUS: f64 = 1.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WaterKind {
@@ -1371,6 +1371,25 @@ fn erosion_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     -(strength * low_ground * wild * 26.0)
 }
 
+/// Deterministic terrain skeleton (peak / valley structure) in world space.
+///
+/// A plain fractal smear gives no structure; a Worley peak field is
+/// discontinuous at Voronoi edges. The robust choice for a pure function is
+/// ridge noise: `|fbm|` inverted so low fbm = ridge (high ground) and high
+/// fbm = basin (low ground), producing continuous, branching ridge-and-valley
+/// structure like real fold mountains. It is chunk-continuous because it only
+/// depends on world coordinates and the seed.
+fn mountain_skeleton(seed: u64, x: i32, z: i32) -> f64 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    // Broad mountain-scale folds.
+    let base = fbm2d(seed.wrapping_add(0x3c6e_f372), xf / 480.0, zf / 480.0);
+    let mid = fbm2d(seed.wrapping_add(0xa54f_f53a), xf / 200.0, zf / 200.0);
+    // Ridge: |fbm| so folds create sharp ridge lines; invert so low = peak.
+    let ridge = (1.0 - base.abs()) * 0.7 + (1.0 - mid.abs()) * 0.3;
+    ridge.clamp(0.0, 1.0)
+}
+
 /// Continuous landform field in world space. Returns a scalar that rises
 /// smoothly from valley floors through plains and hills into mountains, so
 /// the terrain elevation is a continuous function with no banding artifacts
@@ -1382,13 +1401,24 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let depth = f64::from(water.scene_depth_m.max(1));
     let cx = width * 0.5;
     let cz = depth * 0.5;
-    // Radial skirt is intentionally gentle: `max(width, depth)` normalises the
-    // distance so even a 1000m test scene keeps its centre on a plain and only
-    // the far corners climb. The noise term provides most of the character.
+    // Radial skirt: normalised distance from the scene centre, but the term is
+    // an even function that reaches its max at the scene edge and does NOT
+    // grow outside it (terrain_height is sampled past the edge by continuity
+    // checks, and an unbounded quadratic there would create fake cliffs).
     let scale = width.max(depth) * 0.62;
-    let radial = (((xf - cx) / scale).powi(2) + ((zf - cz) / scale).powi(2)).sqrt();
-    let large = fbm2d(seed, xf, zf);
-    large * 34.0 + radial * radial * 90.0
+    let dx = ((xf - cx) / scale).abs().min(1.0);
+    let dz = ((zf - cz) / scale).abs().min(1.0);
+    let radial = (dx * dx + dz * dz).sqrt();
+    // Terrain skeleton: mountain peaks are distinct rounded high points from
+    // the Worley distance field, then a fractal disturbance adds ridges and
+    // valleys. A coastal skirt pulls the outer edge down toward the water so
+    // land rises from the shore instead of starting mid-plateau.
+    let skeleton = mountain_skeleton(seed, x, z);
+    let ridges = fbm2d(seed, xf, zf) * 0.5 + fbm2d(seed.wrapping_add(0x33ab_1103), xf * 2.3, zf * 2.3) * 0.25;
+    // 0 at a peak core, rising to ~1 far from peaks; blend skeleton with the
+    // fractal so both structure and texture are present.
+    let rugged = skeleton * 0.72 + (1.0 - skeleton) * (0.5 + ridges) * 0.28;
+    rugged.mul_add(60.0, -16.0) + radial * radial * 90.0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1402,11 +1432,11 @@ enum Landform {
 impl Landform {
     fn classify(seed: u64, x: i32, z: i32, water: WaterGeometry) -> Landform {
         let elevation = landform_field(seed, x, z, water);
-        if elevation < -6.0 {
+        if elevation < -10.0 {
             Landform::Valley
-        } else if elevation < 34.0 {
+        } else if elevation < 52.0 {
             Landform::Plain
-        } else if elevation < 78.0 {
+        } else if elevation < 82.0 {
             Landform::Hill
         } else {
             Landform::Mountain
@@ -1719,7 +1749,20 @@ fn terrain_height_with_geometry_carved(
     let mut terrain = match water.kind {
         WaterKind::Lake => {
             let radius = lake_radius_at(xf, zf, water);
-            let shore_target = natural.max(1.5);
+            // The natural height is capped near the waterline so a steep
+            // mountain-backed bank can't form a cliff at the lake edge: the
+            // shore stays low and wide, then climbs back to full natural
+            // height well away from the water.
+            let low_shore = natural.min(10.0).max(1.5);
+            let shore_target = if radius < SHORE_RADIUS {
+                low_shore
+            } else if radius < SHORE_RADIUS + 3.0 {
+                let t = ((radius - SHORE_RADIUS) / 3.0).clamp(0.0, 1.0);
+                let s = t * t * (3.0 - 2.0 * t);
+                low_shore + (natural - low_shore) * s
+            } else {
+                natural
+            };
             if radius < 1.0 {
                 let depth = (-5.0 + radius * 4.0).max(-7.0);
                 depth.min(shore_target * 0.2)
@@ -3578,7 +3621,7 @@ mod tests {
             let radius = dx * dx + dz * dz;
             if entity.kind == "reed" {
                 assert!(
-                    radius > 0.9 && radius < 1.32,
+                    radius > 0.9 && radius < SHORE_RADIUS + 0.05,
                     "{} left the shoreline",
                     entity.entity_id
                 );
