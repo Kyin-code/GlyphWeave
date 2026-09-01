@@ -1397,6 +1397,15 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             println!("validated {} object(s) in {dir}", registry.len());
             Ok(())
         }
+        // glyphweave rules check-assets DIR ASSET_ROOT
+        // Verify every non-empty `asset` path in the descriptors exists.
+        "check-assets" => {
+            let dir = args.get(1).ok_or("rules check-assets requires DIR")?;
+            let root = args.get(2).ok_or("rules check-assets requires ASSET_ROOT")?;
+            let registry = ObjectRegistry::load_dir_with_assets(Path::new(dir), Path::new(root))?;
+            println!("validated {} object(s) with assets under {root}", registry.descriptors.len());
+            Ok(())
+        }
         // glyphweave rules audit WORLD_DIR [--rules DIR] [--report PATH]
         // Audits an existing baked world against the object rules, writing a
         // JSON report. Ground height is read from the BAKED heightfield so the

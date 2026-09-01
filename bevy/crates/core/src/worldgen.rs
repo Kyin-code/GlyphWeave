@@ -2344,6 +2344,34 @@ pub fn audit_scene(
             scene.origin_z + scene.depth_m as i32,
         ),
         grounding_tolerance: 0.5,
+        // Biome from the same humidity field the surface classification uses.
+        biome_at: Some(&|x, z| {
+            let h = humidity_field(seed, x, z, water);
+            if h > 0.55 {
+                crate::rules::Biome::Forest
+            } else if h < -0.2 {
+                crate::rules::Biome::Desert
+            } else {
+                crate::rules::Biome::Grassland
+            }
+        }),
+        // Hazard: very steep ground = cliff (reuse the slope query).
+        hazard_at: Some(&|x, z| {
+            let s = local_slope(
+                seed,
+                x,
+                z,
+                scene.width_m,
+                scene.depth_m,
+                slope_half.0,
+                slope_half.1,
+            );
+            if s > 30.0 {
+                vec![crate::rules::HazardKind::Cliff]
+            } else {
+                Vec::new()
+            }
+        }),
     };
     Ok(crate::rules::audit_entities(entities, &registry, &ctx, seed))
 }

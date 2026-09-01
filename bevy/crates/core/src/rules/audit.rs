@@ -1,4 +1,4 @@
-//! Audit mode: run the rules engine over already-generated entities without
+﻿//! Audit mode: run the rules engine over already-generated entities without
 //! changing their placement. Produces a `ValidationReport` so the generator
 //! can surface violations without yet switching to rule-driven placement.
 //!
@@ -15,7 +15,7 @@ use super::validator::{check_hard, Footprint, PlacementContext, PlacedKind};
 use crate::worldgen::EntityInstance;
 
 /// Convert an existing entity into the rules engine's placed-item shape.
-/// Uses the entity's own kind string → ItemKind (best effort; unknown kinds
+/// Uses the entity's own kind string 鈫?ItemKind (best effort; unknown kinds
 /// become `Other` and are skipped by audits that only care about real items).
 pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
     PlacedKind {
@@ -29,6 +29,7 @@ pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
         cz: e.world_z as f32,
         half_w: e.width_m * 0.5 + e.height_m * 0.0, // footprint half-width
         half_d: e.depth_m * 0.5,
+        tags: Vec::new(),
     }
 }
 
@@ -61,7 +62,7 @@ pub fn kind_from_str(kind: &str) -> super::schema::ItemKind {
 
 /// Run an audit over a full entity list. Each entity is checked against the
 /// descriptor for its kind (if one exists); violations are aggregated into a
-/// `ValidationReport`. `descriptors` may be empty → nothing is checked and the
+/// `ValidationReport`. `descriptors` may be empty 鈫?nothing is checked and the
 /// report is all zeros (the caller can decide to skip).
 pub fn audit_entities(
     entities: &[EntityInstance],
@@ -81,7 +82,7 @@ pub fn audit_entities(
     for (idx, e) in entities.iter().enumerate() {
         // Find a descriptor for this entity's kind string.
         let Some(desc) = descriptor_for(descriptors, e) else {
-            // No rule governs this kind — record it as "unruled" so the report
+            // No rule governs this kind 鈥?record it as "unruled" so the report
             // can show coverage gaps instead of silently skipping.
             if !e.kind.is_empty() {
                 report.unruled_items.push(e.kind.clone());
@@ -142,7 +143,7 @@ pub fn audit_entities(
 /// the **exact kind string** (TOML `kind = "building"` matches entity
 /// `kind == "building"`). Entities whose kind string has no descriptor (e.g.
 /// `commercial_center`) are skipped rather than force-fitted onto another
-/// building descriptor — a mis-fitting rule would report false violations.
+/// building descriptor 鈥?a mis-fitting rule would report false violations.
 fn descriptor_for<'a>(
     registry: &'a ObjectRegistry,
     e: &EntityInstance,
@@ -168,7 +169,7 @@ mod tests {
             slope_at: slope,
             bounds,
             grounding_tolerance: 0.5,
-        }
+        biome_at: None,        hazard_at: None,        }
     }
 
     #[test]
@@ -190,3 +191,4 @@ mod tests {
         assert!(r.geometry_collisions == 0);
     }
 }
+

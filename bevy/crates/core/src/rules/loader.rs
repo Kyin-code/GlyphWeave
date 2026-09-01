@@ -90,11 +90,11 @@ pub fn validate_descriptor(d: &ObjectDescriptor) -> Vec<String> {
     if d.placement.attempts == 0 {
         problems.push("placement.attempts must be >= 1".into());
     }
-    // MVP only implements fallback = skip; move/shrink are accepted by the
-    // schema but silently do nothing today, so reject them loudly.
-    if d.placement.fallback != Fallback::Skip {
+    // MVP implements fallback = skip (default) and move (wider search ring).
+    // shrink is not implemented, so reject it loudly rather than no-op.
+    if d.placement.fallback == Fallback::Shrink {
         problems.push(
-            "placement.fallback: only 'skip' is implemented in the MVP; move/shrink are rejected to avoid silent no-ops"
+            "placement.fallback: only 'skip' and 'move' are implemented in the MVP; shrink is rejected to avoid silent no-ops"
                 .into(),
         );
     }
@@ -187,6 +187,28 @@ impl ObjectRegistry {
         Ok(Self {
             descriptors: load_dir(dir)?,
         })
+    }
+
+    /// Load a rules dir AND verify every non-empty `asset` path exists under
+    /// `asset_root`. A descriptor referencing a missing asset is an error.
+    pub fn load_dir_with_assets(
+        dir: &Path,
+        asset_root: &Path,
+    ) -> Result<Self, RuleLoadError> {
+        let descriptors = load_dir(dir)?;
+        for (id, d) in &descriptors {
+            if d.asset.is_empty() {
+                continue;
+            }
+            let asset_path = asset_root.join(&d.asset);
+            if !asset_path.exists() {
+                return Err(RuleLoadError::Schema {
+                    id: id.clone(),
+                    message: format!("asset '{}' not found at {}", d.asset, asset_path.display()),
+                });
+            }
+        }
+        Ok(Self { descriptors })
     }
 
     pub fn get(&self, id: &str) -> Option<&ObjectDescriptor> {

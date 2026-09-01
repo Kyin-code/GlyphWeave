@@ -35,7 +35,11 @@ pub enum RejectReason {
     /// slope in metres/100m, max in metres/100m.
     SlopeTooHigh { slope: f32, max: f32 },
     ReservationConflict,
-    GeometryCollision { conflict_kind: ItemKind },
+    GeometryCollision {
+        conflict_kind: ItemKind,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        conflict_id: Option<String>,
+    },
     MissingRequiredRelation { kind: ItemKind },
     BlockedEntrance { anchor: String },
     NotGrounded,
@@ -60,8 +64,15 @@ impl std::fmt::Display for RejectReason {
                 write!(f, "slope {slope}% > max {max}%")
             }
             RejectReason::ReservationConflict => write!(f, "reservation conflict"),
-            RejectReason::GeometryCollision { conflict_kind } => {
-                write!(f, "geometry collision with {conflict_kind:?}")
+            RejectReason::GeometryCollision {
+                conflict_kind,
+                conflict_id,
+            } => {
+                if let Some(id) = conflict_id {
+                    write!(f, "geometry collision with {conflict_kind:?} ({id})")
+                } else {
+                    write!(f, "geometry collision with {conflict_kind:?}")
+                }
             }
             RejectReason::MissingRequiredRelation { kind } => {
                 write!(f, "missing required relation near {kind:?}")
