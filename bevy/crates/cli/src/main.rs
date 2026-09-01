@@ -18,8 +18,8 @@ use glyphweave_core::voxel::{
     CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
 };
 use glyphweave_core::worldgen::{
-    LandUseProfile, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch, bake_world,
-    write_demo_manifest,
+    LandUseProfile, SceneIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
+    audit_scene, bake_world, water_geometry, write_demo_manifest,
 };
 use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
 
@@ -1395,6 +1395,84 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             let dir = args.get(1).ok_or("rules check-dir requires DIR")?;
             let registry = load_dir(Path::new(dir))?;
             println!("validated {} object(s) in {dir}", registry.len());
+            Ok(())
+        }
+        // glyphweave rules audit WORLD_DIR [--rules DIR] [--report PATH]
+        // Audits an existing baked world against the object rules, writing a
+        // JSON report. Environment queries reuse the bake's terrain functions.
+        "audit" => {
+            let world_dir = args.get(1).ok_or("rules audit requires WORLD_DIR")?;
+            let world_dir = Path::new(world_dir);
+            let rules_dir = args
+                .iter()
+                .position(|a| a == "--rules")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .unwrap_or_else(|_| PathBuf::from("."))
+                        .join("assets")
+                        .join("objects")
+                });
+            let report_path = args
+                .iter()
+                .position(|a| a == "--report")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| world_dir.join("rules-audit.json"));
+            let manifest_path = world_dir.join("glyphweave.manifest.json");
+            let manifest: WorldManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+
+            let mut total = glyphweave_core::rules::ValidationReport::default();
+            for scene in &manifest.scenes {
+                let scene_json = world_dir.join("scenes").join(&scene.scene_id).join("scene.json");
+                let index: SceneIndex = serde_json::from_slice(&fs::read(&scene_json)?)?;
+                let landmarks: Vec<_> = manifest
+                    .landmarks
+                    .iter()
+                    .filter(|l| l.scene_id == scene.scene_id)
+                    .cloned()
+                    .collect();
+                let water = water_geometry(
+                    glyphweave_core::worldgen::water_kind(&manifest.style),
+                    &landmarks,
+                    scene,
+                    &manifest.style,
+                );
+                let report = audit_scene(
+                    manifest.world.seed ^ scene.seed_offset,
+                    scene,
+                    &landmarks,
+                    &index.entities,
+                    water,
+                    &rules_dir,
+                );
+                total.buildings += report.buildings;
+                total.roads += report.roads;
+                total.floating_items += report.floating_items;
+                total.submerged_items += report.submerged_items;
+                total.blocked_entrances += report.blocked_entrances;
+                total.geometry_collisions += report.geometry_collisions;
+                total.disconnected_roads += report.disconnected_roads;
+                total.rejects.extend(report.rejects);
+            }
+            total.seed = manifest.world.seed;
+            fs::write(
+                &report_path,
+                serde_json::to_vec_pretty(&total)?,
+            )?;
+            println!(
+                "audited {} scene(s); buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={}; report={}",
+                manifest.scenes.len(),
+                total.buildings,
+                total.roads,
+                total.floating_items,
+                total.submerged_items,
+                total.blocked_entrances,
+                total.geometry_collisions,
+                total.disconnected_roads,
+                report_path.display(),
+            );
             Ok(())
         }
         other => Err(format!("unknown rules subcommand {other:?}").into()),

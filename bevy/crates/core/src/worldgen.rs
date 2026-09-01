@@ -11,7 +11,6 @@ use crate::storage::codec::encode_world_with_metadata;
 use crate::voxel::{VoxelCoord, VoxelWorld};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
 pub const WORLD_FORMAT: &str = "glyphweave-world";
 pub const WORLD_VERSION: u32 = 1;
 pub const STREAM_CHUNK_METERS: u32 = 512;
@@ -21,14 +20,14 @@ pub const MAX_SCENE_DEPTH_METERS: u32 = 10_000;
 const SHORE_RADIUS: f64 = 1.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WaterKind {
+pub enum WaterKind {
     None,
     Lake,
     River,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct WaterGeometry {
+pub struct WaterGeometry {
     kind: WaterKind,
     center_x: f64,
     center_z: f64,
@@ -649,7 +648,7 @@ fn default_asset_contracts() -> serde_json::Value {
     serde_json::Value::Object(contracts)
 }
 
-fn water_kind(style: &serde_json::Value) -> WaterKind {
+pub fn water_kind(style: &serde_json::Value) -> WaterKind {
     let Some(water) = style.get("water").and_then(serde_json::Value::as_object) else {
         return WaterKind::None;
     };
@@ -667,7 +666,7 @@ fn water_kind(style: &serde_json::Value) -> WaterKind {
     }
 }
 
-fn water_geometry(
+pub fn water_geometry(
     kind: WaterKind,
     landmarks: &[LandmarkSpec],
     scene: &SceneSpec,
@@ -2254,6 +2253,75 @@ fn generate_entities_with_profile(
         }
     }
     entities
+}
+
+/// Audit already-generated entities against the declarative rules engine
+/// (`rules::audit_entities`) without changing their placement. Environment
+/// queries (height / water / slope) use this module's own terrain functions
+/// so the audit matches what the bake actually produced.
+///
+/// Returns a `rules::ValidationReport`. `rules_dir` points at a directory of
+/// `*.object.toml` descriptors; if it is empty/missing, the report is all
+/// zeros (nothing to check against).
+pub fn audit_scene(
+    seed: u64,
+    scene: &SceneSpec,
+    _landmarks: &[LandmarkSpec],
+    entities: &[EntityInstance],
+    water: WaterGeometry,
+    rules_dir: &Path,
+) -> crate::rules::ValidationReport {
+    let registry = crate::rules::ObjectRegistry::load_dir(rules_dir).unwrap_or_default();
+    let ctx = crate::rules::PlacementContext {
+        height_at: &|x, z| {
+            terrain_height(seed, x, z, WaterKind::None, scene.width_m, scene.depth_m, 0.0) as f32
+                / 4.0
+        },
+        water_level: &|x, z| match water.kind {
+            WaterKind::None => None,
+            // A point "in water" means its surface kind is water (lake radius
+            // < 1.0 or within the river half-width). Report a very high water
+            // level so the rules engine's height<=water test fires.
+            WaterKind::Lake => {
+                if lake_radius_at(x as f64, z as f64, water) < 1.0 {
+                    Some(f32::MAX)
+                } else {
+                    None
+                }
+            }
+            WaterKind::River => {
+                let half_width = river_half_width_at(
+                    z as f64 - water.center_z + water.half_depth,
+                    (water.half_depth * 2.0) as u32,
+                    water.half_width,
+                );
+                if (x as f64 - water.center_x).abs() < half_width {
+                    Some(f32::MAX)
+                } else {
+                    None
+                }
+            }
+        },
+        slope_at: &|x, z| {
+            local_slope(
+                seed,
+                x,
+                z,
+                scene.width_m,
+                scene.depth_m,
+                8,
+                8,
+            ) as f32
+        },
+        bounds: (
+            scene.origin_x,
+            scene.origin_z,
+            scene.origin_x + scene.width_m as i32,
+            scene.origin_z + scene.depth_m as i32,
+        ),
+        grounding_tolerance: 0.5,
+    };
+    crate::rules::audit_entities(entities, &registry, &ctx, seed)
 }
 
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,

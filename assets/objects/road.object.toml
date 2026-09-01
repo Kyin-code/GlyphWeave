@@ -11,7 +11,10 @@ height = 0.5
 clearance = 2.0             # 道路安全区（路肩 + 净空）
 
 [environment]
-on_ground = true
+# Roads are elevated above the natural ground by their roadbed, so they are
+# NOT "on ground" in the on_ground sense — on_ground stays false here.
+on_ground = false
+not_in_water = false
 max_slope = 8
 
 [placement]

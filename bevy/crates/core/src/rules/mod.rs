@@ -13,6 +13,7 @@
 //! - `placement`  — unified placement pipeline
 //! - `errors`     — load errors + RejectReason + reports
 
+pub mod audit;
 pub mod constraint;
 pub mod errors;
 pub mod loader;
@@ -20,6 +21,7 @@ pub mod placement;
 pub mod schema;
 pub mod validator;
 
+pub use audit::{audit_entities, entity_to_placed, kind_from_str};
 pub use errors::{PlacementOutcome, RejectReason, RejectRecord, RuleLoadError, ValidationReport};
 pub use loader::{load_descriptor, load_dir, ObjectRegistry};
 pub use schema::{Biome, ItemKind, ObjectDescriptor};

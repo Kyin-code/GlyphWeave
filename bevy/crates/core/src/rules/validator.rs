@@ -7,7 +7,28 @@
 
 use super::constraint::Constraint;
 use super::errors::RejectReason;
-use super::schema::ObjectDescriptor;
+use super::schema::{ItemKind, ObjectDescriptor};
+
+/// ItemKind → canonical string (used for must_face matching).
+pub fn kind_name(kind: ItemKind) -> &'static str {
+    match kind {
+        ItemKind::Road => "road",
+        ItemKind::Railway => "railway",
+        ItemKind::Building => "building",
+        ItemKind::Storefront => "storefront",
+        ItemKind::Tree => "tree",
+        ItemKind::Rock => "rock",
+        ItemKind::Water => "water",
+        ItemKind::Bridge => "bridge",
+        ItemKind::Park => "park",
+        ItemKind::Sidewalk => "sidewalk",
+        ItemKind::Lamp => "lamp",
+        ItemKind::Bench => "bench",
+        ItemKind::BusStop => "bus_stop",
+        ItemKind::FoodStall => "food_stall",
+        ItemKind::Other => "other",
+    }
+}
 
 /// Geometry of a candidate placement (footprint expanded by clearance).
 #[derive(Debug, Clone, Copy)]
@@ -155,13 +176,15 @@ pub fn check_hard(
                     return Err(RejectReason::MissingRequiredRelation { kind: *kind });
                 }
             }
-            Constraint::ClearAnchor { anchor, radius } => {
+            Constraint::ClearAnchor { anchor, side, radius, must_face } => {
                 let r = *radius;
-                // Anchor sits on a footprint edge, projected outward; any hard
-                // placed entity inside the anchor radius 鈬?blocked entrance.
+                let side = side.as_str();
+                // Anchor sits on a footprint edge, projected outward; ANY placed
+                // entity (hard or soft: a tree can block a doorway too) inside
+                // the anchor radius blocks the entrance.
                 let a_hw = fp.half_w - desc.geometry.clearance;
                 let a_hd = fp.half_d - desc.geometry.clearance;
-                let (ax, az) = match anchor.as_str() {
+                let (ax, az) = match side {
                     "front" | "north" => (fp.cx, fp.cz - a_hd - r * 0.5),
                     "back" | "south" => (fp.cx, fp.cz + a_hd + r * 0.5),
                     "left" | "west" => (fp.cx - a_hw - r * 0.5, fp.cz),
@@ -169,11 +192,47 @@ pub fn check_hard(
                     _ => (fp.cx, fp.cz - a_hd - r * 0.5),
                 };
                 let blocked = placed.iter().any(|p| {
-                    p.kind.is_hard()
+                    // The entity the anchor must face is NOT a blocker (it's the
+                    // desired frontage, e.g. a road); anything else in the zone is.
+                    let is_target = must_face
+                        .as_deref()
+                        .map(|t| kind_name(p.kind) == t)
+                        .unwrap_or(false);
+                    !is_target
                         && ((p.cx - ax).powi(2) + (p.cz - az).powi(2)).sqrt() <= r
                 });
                 if blocked {
                     return Err(RejectReason::BlockedEntrance { anchor: anchor.clone() });
+                }
+                // must_face: the anchor direction must point at a placed entity
+                // whose kind/tag matches the target string (e.g. "road").
+                if let Some(target) = must_face {
+                    let mut dir_x = 0.0_f32;
+                    let mut dir_z = 0.0_f32;
+                    match side {
+                        "front" | "north" => dir_z = -1.0,
+                        "back" | "south" => dir_z = 1.0,
+                        "left" | "west" => dir_x = -1.0,
+                        "right" | "east" => dir_x = 1.0,
+                        _ => dir_z = -1.0,
+                    }
+                    // Look along the facing ray up to `r` metres for a matching
+                    // entity (kind string or tag), measured from the anchor point.
+                    let faces_target = placed.iter().any(|p| {
+                        let rel_x = p.cx - ax;
+                        let rel_z = p.cz - az;
+                        // Dot with facing direction must be positive (ahead) and
+                        // within the anchor radius.
+                        let ahead = rel_x * dir_x + rel_z * dir_z;
+                        ahead >= 0.0
+                            && ahead <= r
+                            && (kind_name(p.kind) == target.as_str())
+                    });
+                    if !faces_target {
+                        return Err(RejectReason::BlockedEntrance {
+                            anchor: anchor.clone(),
+                        });
+                    }
                 }
             }
             _ => {}
@@ -314,6 +373,86 @@ phase = "vegetation"
         let c = ctx(vec![(5, 5, 0.0)], vec![], vec![(5, 5, 5.0)], (0, 0, 100, 100));
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         assert!(check_hard(&desc, &fp, &c, &hard, &[]).is_ok());
+    }
+
+    /// A tree must not block a storefront's public-access anchor (front).
+    fn storefront_desc() -> ObjectDescriptor {
+        toml::from_str(
+            r#"
+id = "storefront"
+kind = "storefront"
+
+[geometry]
+footprint = [8.0, 6.0]
+height = 4.0
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 8
+
+[[relations.require]]
+kind = "road"
+distance = 8.0
+
+[[anchors]]
+id = "front"
+side = "front"
+kind = "public_access"
+clear_radius = 3.0
+must_face = "road"
+
+[placement]
+phase = "functional"
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn soft_object_blocks_public_access() {
+        let desc = storefront_desc();
+        let (hard, _) = compile(&desc);
+        let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
+        // A road ahead (satisfies require), but a TREE sits in the front zone.
+        let placed = vec![
+            PlacedKind { kind: ItemKind::Road, cx: 50.0, cz: 44.0, half_w: 4.0, half_d: 4.0 },
+            PlacedKind { kind: ItemKind::Tree, cx: 50.0, cz: 48.0, half_w: 2.0, half_d: 2.0 },
+        ];
+        let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
+        let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
+        assert!(matches!(r, RejectReason::BlockedEntrance { .. }));
+    }
+
+    #[test]
+    fn storefront_front_must_face_road() {
+        let desc = storefront_desc();
+        let (hard, _) = compile(&desc);
+        let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
+        // Road is behind (south), require passes but front must_face fails.
+        let placed = vec![
+            PlacedKind { kind: ItemKind::Road, cx: 50.0, cz: 58.0, half_w: 4.0, half_d: 4.0 },
+        ];
+        let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
+        let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
+        assert!(matches!(r, RejectReason::BlockedEntrance { .. }));
+    }
+
+    #[test]
+    fn storefront_front_faces_road_ok() {
+        let desc = storefront_desc();
+        let (hard, _) = compile(&desc);
+        let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
+        // Road placed ahead (north) of the front anchor → passes.
+        let placed = vec![PlacedKind {
+            kind: ItemKind::Road,
+            cx: 50.0,
+            cz: 44.0,
+            half_w: 4.0,
+            half_d: 4.0,
+        }];
+        let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
+        assert!(check_hard(&desc, &fp, &c, &hard, &placed).is_ok());
     }
 }
 

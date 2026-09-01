@@ -42,6 +42,14 @@ pub enum RejectReason {
     DisconnectedAccess,
 }
 
+impl RejectReason {
+    /// Short, human-readable string (used in the JSON report so `reason` is a
+    /// plain string rather than an object).
+    pub fn as_str(&self) -> String {
+        format!("{self}")
+    }
+}
+
 impl std::fmt::Display for RejectReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -73,7 +81,8 @@ pub struct RejectRecord {
     pub item_id: String,
     pub candidate_x: i32,
     pub candidate_z: i32,
-    pub reason: RejectReason,
+    /// Human-readable reason string (e.g. "in water", "slope 40% > max 30%").
+    pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict_with: Option<String>,
     #[serde(default)]
@@ -93,8 +102,18 @@ impl PlacementOutcome {
     pub fn is_clean(&self) -> bool {
         self.rejected
             .iter()
-            .all(|r| !matches!(r.reason, RejectReason::InWater | RejectReason::NotGrounded | RejectReason::GeometryCollision { .. } | RejectReason::BlockedEntrance { .. }))
+            .all(|r| !is_severe_reason(&r.reason))
     }
+}
+
+/// True if a reason string represents a hard violation (floating / submerged /
+/// collision / blocked entrance). Diagnostic-only reasons (slope, bounds,
+/// missing relation) are not "severe" for a clean check.
+pub fn is_severe_reason(reason: &str) -> bool {
+    reason.starts_with("in water")
+        || reason.starts_with("not grounded")
+        || reason.starts_with("geometry collision")
+        || reason.starts_with("entrance ")
 }
 
 /// Aggregate validation report for a whole map (serialisable).
@@ -109,6 +128,23 @@ pub struct ValidationReport {
     pub geometry_collisions: usize,
     pub disconnected_roads: usize,
     /// Full reject list (may be large — serialise to file, not stdout).
-    #[serde(skip)]
     pub rejects: Vec<RejectRecord>,
+}
+
+impl ValidationReport {
+    /// Increment the matching counter for a reject reason.
+    pub fn count_reason(&mut self, reason: &RejectReason) {
+        match reason {
+            RejectReason::InWater | RejectReason::ForbiddenHazard => self.submerged_items += 1,
+            RejectReason::NotGrounded => self.floating_items += 1,
+            RejectReason::BlockedEntrance { .. } => self.blocked_entrances += 1,
+            RejectReason::GeometryCollision { .. } | RejectReason::ReservationConflict => {
+                self.geometry_collisions += 1;
+            }
+            RejectReason::DisconnectedAccess => self.disconnected_roads += 1,
+            RejectReason::OutOfBounds
+            | RejectReason::SlopeTooHigh { .. }
+            | RejectReason::MissingRequiredRelation { .. } => {}
+        }
+    }
 }

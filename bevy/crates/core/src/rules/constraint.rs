@@ -13,7 +13,8 @@ pub enum Constraint {
     AvoidKind { kind: ItemKind, distance: f32 },
     AvoidTag { tag: String, distance: f32 },
     RequireNear { kind: ItemKind, distance: f32 },
-    ClearAnchor { anchor: String, radius: f32 },
+    /// A public-access anchor that must keep a clear zone and face a target.
+    ClearAnchor { anchor: String, side: String, radius: f32, must_face: Option<String> },
     /// Soft scoring term (never rejects).
     PreferNear { kind: ItemKind, distance: f32, weight: f32 },
 }
@@ -49,7 +50,9 @@ pub fn compile(desc: &ObjectDescriptor) -> (Vec<Constraint>, Vec<Constraint>) {
         if a.clear_radius > 0.0 {
             hard.push(Constraint::ClearAnchor {
                 anchor: a.id.clone(),
+                side: a.side.clone(),
                 radius: a.clear_radius,
+                must_face: a.must_face.clone(),
             });
         }
     }
@@ -137,7 +140,9 @@ phase = "vegetation"
         }));
         assert!(hard.contains(&Constraint::ClearAnchor {
             anchor: "front".into(),
+            side: "front".into(),
             radius: 2.0,
+            must_face: None,
         }));
         assert!(soft.contains(&Constraint::PreferNear {
             kind: ItemKind::Park,

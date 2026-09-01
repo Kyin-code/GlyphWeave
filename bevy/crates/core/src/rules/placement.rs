@@ -73,7 +73,7 @@ pub fn place_one(
                         item_id: desc.id.clone(),
                         candidate_x: cand.x,
                         candidate_z: cand.z,
-                        reason,
+                        reason: reason.to_string(),
                         conflict_with: None,
                         rule: "hard".into(),
                     });
