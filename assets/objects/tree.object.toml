@@ -1,0 +1,43 @@
+# 树（Tree）— 基准对象 1
+# 规则引擎 MVP 的验证对象之一。见 docs/rules-engine-mvp.zh-CN.md
+
+id = "tree_common"
+kind = "tree"
+tags = ["vegetation", "flammable"]
+asset = "assets/vegetation/tree_common.glb"
+
+[geometry]
+footprint = [4.0, 4.0]      # 树冠直径 ~4m
+height = 8.0
+clearance = 0.5
+pivot = "bottom"
+rotations = "any"
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 30              # 树可稍陡
+allowed_biomes = ["grassland", "forest", "urban_green"]
+
+[[relations.avoid]]
+kind = "building"
+distance = 1.0
+
+[[relations.avoid]]
+kind = "storefront"
+distance = 3.0              # 门前净空（防止挡门）
+
+[[relations.avoid]]
+kind = "road"
+distance = 1.5
+
+[[relations.avoid]]
+kind = "railway"
+distance = 15.0
+
+[placement]
+phase = "vegetation"
+priority = 50
+attempts = 12
+allow_rotate = true
+fallback = "skip"

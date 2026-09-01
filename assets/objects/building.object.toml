@@ -1,0 +1,45 @@
+# 普通住宅（Building）— 基准对象 2
+
+id = "residential_house"
+kind = "building"
+tags = ["residential", "has_entrance"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 0.5
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 12              # 建筑坡度上限 12%
+
+[[relations.avoid]]
+kind = "building"
+distance = 0.0              # 不重叠即可
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0              # 可贴边，不压路
+
+[[relations.avoid]]
+kind = "water"
+distance = 5.0
+
+[[relations.avoid]]
+kind = "railway"
+distance = 20.0
+
+[[anchors]]
+id = "front"
+side = "front"
+kind = "public_access"
+clear_radius = 3.0
+must_face = "road"
+
+[placement]
+phase = "building"
+priority = 30
+attempts = 8
+allow_rotate = true
+fallback = "skip"

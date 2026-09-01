@@ -8,6 +8,7 @@ pub mod gameplay;
 mod gemap;
 pub mod layer;
 pub mod migration;
+pub mod rules;
 pub mod storage;
 pub mod tile;
 pub mod voxel;

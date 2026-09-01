@@ -1,0 +1,46 @@
+# 小卖部/沿街商铺（Storefront）— 基准对象 3
+
+id = "storefront"
+kind = "storefront"
+tags = ["commercial", "public_access", "has_entrance"]
+
+[geometry]
+footprint = [8.0, 6.0]
+height = 4.0
+clearance = 0.5
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 8               # 商铺要更平
+
+[[relations.avoid]]
+kind = "building"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "railway"
+distance = 25.0
+
+[[relations.require]]
+kind = "road"
+distance = 8.0
+
+[[anchors]]
+id = "front"
+side = "front"
+kind = "public_access"
+clear_radius = 3.0          # 门前 3m 净空
+must_face = "road"
+
+[[relations.prefer]]
+kind = "storefront"
+distance = 20.0
+weight = 0.4                # 喜欢扎堆成街
+
+[placement]
+phase = "functional"
+priority = 40
+attempts = 10
+allow_rotate = true
+fallback = "skip"

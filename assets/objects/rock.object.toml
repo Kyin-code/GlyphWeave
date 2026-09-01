@@ -1,0 +1,34 @@
+# 石头（Rock）— 基准对象 4
+
+id = "rock_round"
+kind = "rock"
+tags = ["decoration"]
+
+[geometry]
+footprint = [2.0, 2.0]
+height = 1.2
+clearance = 0.2
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 40
+
+[[relations.avoid]]
+kind = "road"
+distance = 1.0              # 石头不上马路
+
+[[relations.avoid]]
+kind = "building"
+distance = 0.5
+
+[[relations.avoid]]
+kind = "storefront"
+distance = 2.0
+
+[placement]
+phase = "vegetation"
+priority = 60
+attempts = 8
+allow_rotate = true
+fallback = "skip"

@@ -21,6 +21,7 @@ use glyphweave_core::worldgen::{
     LandUseProfile, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch, bake_world,
     write_demo_manifest,
 };
+use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
 const DEFAULT_DUMP_LIMIT: usize = 64;
@@ -80,6 +81,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "dump-chunk" => dump_chunk_command(&args[1..]),
         "inspect" => inspect_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
+        "rules" => rules_command(&args[1..]),
         "compact" => compact_command(&args[1..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -1361,8 +1363,42 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave compact FILE"
     );
+}
+
+/// `rules` subcommands: load/validate the declarative object rules.
+///   glyphweave rules list DIR                — list objects in a rules dir
+///   glyphweave rules validate FILE           — validate one .object.toml
+///   glyphweave rules check-dir DIR           — load + validate a whole dir
+fn rules_command(args: &[String]) -> CliResult<()> {
+    let Some(sub) = args.first().map(String::as_str) else {
+        return Err("rules requires a subcommand: list | validate | check-dir".into());
+    };
+    match sub {
+        "list" => {
+            let dir = args.get(1).ok_or("rules list requires DIR")?;
+            let registry = ObjectRegistry::load_dir(Path::new(dir))?;
+            for (id, desc) in &registry.descriptors {
+                println!("{id:<20} kind={:?} phase={:?} p={}", desc.kind, desc.placement.phase, desc.placement.priority);
+            }
+            println!("total: {}", registry.descriptors.len());
+            Ok(())
+        }
+        "validate" => {
+            let file = args.get(1).ok_or("rules validate requires FILE")?;
+            let desc = load_descriptor(Path::new(file))?;
+            println!("OK {}", desc.id);
+            Ok(())
+        }
+        "check-dir" => {
+            let dir = args.get(1).ok_or("rules check-dir requires DIR")?;
+            let registry = load_dir(Path::new(dir))?;
+            println!("validated {} object(s) in {dir}", registry.len());
+            Ok(())
+        }
+        other => Err(format!("unknown rules subcommand {other:?}").into()),
+    }
 }
 
 #[cfg(test)]

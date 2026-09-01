@@ -1,0 +1,22 @@
+# 道路（Road）— 基准对象 5（占位）
+# 道路由专用 RoadGenerator 生成（会修改地形 + 连接道路图），
+# 此文件仅声明 footprint/约束，供统一验证器复用其参数。
+
+id = "road"
+kind = "road"
+
+[geometry]
+footprint = [8.0, 8.0]      # 路面宽 ~8m
+height = 0.5
+clearance = 2.0             # 道路安全区（路肩 + 净空）
+
+[environment]
+on_ground = true
+max_slope = 8
+
+[placement]
+phase = "road"
+priority = 10
+attempts = 4
+allow_rotate = false
+fallback = "skip"
