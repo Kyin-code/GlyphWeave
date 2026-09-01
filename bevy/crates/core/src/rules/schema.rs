@@ -1,6 +1,6 @@
-//! Strongly-typed object descriptor schema (TOML/JSON → Rust).
+﻿//! Strongly-typed object descriptor schema (TOML/JSON 鈫?Rust).
 //!
-//! Design doc: docs/rules-engine-mvp.zh-CN.md §3.
+//! Design doc: docs/rules-engine-mvp.zh-CN.md 搂3.
 //! Every object in the world is described declaratively; the placement
 //! engine validates candidates against these specs instead of bespoke
 //! per-kind logic.
@@ -70,7 +70,7 @@ pub enum RotationMode {
     AlignToTarget,
 }
 
-/// Biome membership (subset — extend as the generator grows).
+/// Biome membership (subset 鈥?extend as the generator grows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Biome {
@@ -101,7 +101,7 @@ pub enum AnchorKind {
     Maintenance,
 }
 
-/// Generation phase: smaller = generated earlier. Matches the plan §2.3.
+/// Generation phase: smaller = generated earlier. Matches the plan 搂2.3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PlacementPhase {
@@ -129,6 +129,7 @@ pub enum Fallback {
 
 /// Footprint + height + clearance of an object.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeometrySpec {
     /// [width, depth] in metres.
     pub footprint: [f32; 2],
@@ -150,6 +151,7 @@ fn default_clearance() -> f32 {
 
 /// Environment constraints (ground, water, slope, biome).
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct EnvironmentSpec {
     /// Bottom must touch the ground (4-corner height test).
     #[serde(default)]
@@ -168,6 +170,7 @@ pub struct EnvironmentSpec {
 
 /// A "must keep away from kind X by distance D" relation.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationAvoid {
     pub kind: ItemKind,
     #[serde(default)]
@@ -176,6 +179,7 @@ pub struct RelationAvoid {
 
 /// A "must / like to be near kind X within distance D" relation.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationNear {
     pub kind: ItemKind,
     pub distance: f32,
@@ -185,6 +189,7 @@ pub struct RelationNear {
 
 /// Relations to other objects (hard avoid/require + soft prefer).
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RelationSpec {
     #[serde(default)]
     pub avoid: Vec<RelationAvoid>,
@@ -196,6 +201,7 @@ pub struct RelationSpec {
 
 /// Anchor: an entrance / service point on a side of the footprint.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnchorSpec {
     pub id: String,
     #[serde(default)]
@@ -212,6 +218,7 @@ pub struct AnchorSpec {
 
 /// Placement strategy.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlacementSpec {
     pub phase: PlacementPhase,
     #[serde(default = "default_priority")]
@@ -269,7 +276,7 @@ impl ObjectDescriptor {
     }
 }
 
-/// ItemKind → canonical entity kind string (used for matching + reporting).
+/// ItemKind 鈫?canonical entity kind string (used for matching + reporting).
 pub fn descriptor_kind_str(kind: ItemKind) -> Option<&'static str> {
     Some(match kind {
         ItemKind::Road => "road",
@@ -385,3 +392,6 @@ priority = 30
         assert!(!ItemKind::Rock.is_hard());
     }
 }
+
+
+

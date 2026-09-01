@@ -1443,6 +1443,15 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     let hfile = world_dir.join("scenes").join(&scene.scene_id).join(&chunk.height_file);
                     let bytes = fs::read(&hfile)?;
                     let width = chunk.valid_width_m as usize;
+                    let depth = chunk.valid_depth_m as usize;
+                    let expected = width * depth * 2;
+                    if bytes.len() != expected {
+                        return Err(format!(
+                            "heightfield {} has {} bytes, expected {expected} ({}x{}x2); refusing to audit with possibly missing terrain",
+                            chunk.height_file, bytes.len(), width, depth
+                        )
+                        .into());
+                    }
                     for (i, pair) in bytes.chunks_exact(2).enumerate() {
                         let raw = i16::from_le_bytes([pair[0], pair[1]]);
                         let lx = i as i32 % width as i32;
@@ -1450,6 +1459,18 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                         let wx = chunk.world_x + lx;
                         let wz = chunk.world_z + lz;
                         baked.insert(i64::from(wx) << 32 | (wz as u32 as i64), raw);
+                    }
+                }
+                // Verify every entity's centre has a baked height sample; a
+                // missing point must be an error, not a silent height-0.
+                for e in &index.entities {
+                    let key = (i64::from(e.world_x) << 32) | (e.world_z as u32 as i64);
+                    if !baked.contains_key(&key) {
+                        return Err(format!(
+                            "entity {} at ({},{}) has no baked height sample; refusing to audit",
+                            e.entity_id, e.world_x, e.world_z
+                        )
+                        .into());
                     }
                 }
                 let height_at = |x: i32, z: i32| -> f32 {
@@ -1480,18 +1501,24 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 total.disconnected_roads += report.disconnected_roads;
                 total.rejects.extend(report.rejects);
                 checked += report.checked_items;
+                total.checked_items += report.checked_items;
+                total.passed_items += report.passed_items;
+                total.rejected_items += report.rejected_items;
                 unruled.extend(report.unruled_items.iter().cloned());
-                total.unruled_items.extend(report.unruled_items);
             }
             total.seed = manifest.world.seed;
+            total.checked_items = checked;
+            total.unruled_items = unruled.clone();
             fs::write(
                 &report_path,
                 serde_json::to_vec_pretty(&total)?,
             )?;
             println!(
-                "audited {} scene(s); checked={} buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={} unruled={}; report={}",
+                "audited {} scene(s); checked={} passed={} rejected={} buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={} unruled={}; report={}",
                 manifest.scenes.len(),
                 checked,
+                total.passed_items,
+                total.rejected_items,
                 total.buildings,
                 total.roads,
                 total.floating_items,

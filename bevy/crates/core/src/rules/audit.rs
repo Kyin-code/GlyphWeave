@@ -90,6 +90,14 @@ pub fn audit_entities(
         };
         let (hard, _soft) = compile(desc);
         report.checked_items += 1;
+        // Count buildings/roads as the number of entities whose kind has a
+        // matching descriptor (matched BEFORE pass/fail), so the report field
+        // reflects "how many buildings were audited", not "how many passed".
+        match desc.kind {
+            ItemKind::Building | ItemKind::Storefront => report.buildings += 1,
+            ItemKind::Road => report.roads += 1,
+            _ => {}
+        }
 
         // Treat the entity's centre as a candidate; check its real footprint.
         let fp = Footprint {
@@ -112,6 +120,7 @@ pub fn audit_entities(
             .collect();
 
         if let Err(reason) = check_hard(desc, &fp, ctx, &hard, &others) {
+            report.rejected_items += 1;
             report.count_reason(&reason);
             report.rejects.push(RejectRecord {
                 item_id: e.entity_id.clone(),
@@ -123,12 +132,7 @@ pub fn audit_entities(
             });
             continue;
         }
-        // Count by category for the summary (only kinds with a descriptor).
-        match desc.kind {
-            ItemKind::Building | ItemKind::Storefront => report.buildings += 1,
-            ItemKind::Road => report.roads += 1,
-            _ => {}
-        }
+        report.passed_items += 1;
     }
 
     report

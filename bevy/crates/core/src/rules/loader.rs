@@ -164,6 +164,15 @@ pub fn load_dir(dir: &Path) -> Result<HashMap<String, ObjectDescriptor>, RuleLoa
             out.insert(d.id.clone(), d);
         }
     }
+    if out.is_empty() {
+        return Err(RuleLoadError::Schema {
+            id: "<dir>".into(),
+            message: format!(
+                "no *.object.toml descriptors found in {} (empty rules directory)",
+                dir.display()
+            ),
+        });
+    }
     Ok(out)
 }
 

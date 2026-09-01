@@ -132,6 +132,12 @@ pub struct ValidationReport {
     /// Entities that were checked against a rule.
     #[serde(default)]
     pub checked_items: usize,
+    /// Entities that passed all hard constraints.
+    #[serde(default)]
+    pub passed_items: usize,
+    /// Entities that were rejected by at least one hard constraint.
+    #[serde(default)]
+    pub rejected_items: usize,
     /// Entity kind strings with no matching descriptor (coverage gaps).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unruled_items: Vec<String>,
