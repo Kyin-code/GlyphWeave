@@ -15,6 +15,10 @@ pub enum Constraint {
     RequireNear { kind: ItemKind, distance: f32 },
     /// A public-access anchor that must keep a clear zone and face a target.
     ClearAnchor { anchor: String, side: String, radius: f32, must_face: Option<String> },
+    /// Default geometry collision: an object must not overlap ANY other
+    /// placed object (compiled for every descriptor, not just when an
+    /// `avoid` rule is written). `avoid` adds extra distance margins.
+    NoGeometryCollision,
     /// Soft scoring term (never rejects).
     PreferNear { kind: ItemKind, distance: f32, weight: f32 },
 }
@@ -25,6 +29,8 @@ pub fn compile(desc: &ObjectDescriptor) -> (Vec<Constraint>, Vec<Constraint>) {
     let mut soft = Vec::new();
 
     hard.push(Constraint::InsideBounds);
+    // Default: never overlap any placed object (regardless of avoid rules).
+    hard.push(Constraint::NoGeometryCollision);
     if desc.environment.on_ground {
         hard.push(Constraint::OnGround);
     }

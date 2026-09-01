@@ -235,11 +235,17 @@ fn default_attempts() -> u32 {
 
 /// The top-level descriptor of one object type.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectDescriptor {
     pub id: String,
     pub kind: ItemKind,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Additional entity kind strings this descriptor governs (aliases). Audit
+    /// / placement matches an entity if its kind string equals `id`, the
+    /// canonical kind string, or any of `applies_to`.
+    #[serde(default)]
+    pub applies_to: Vec<String>,
     #[serde(default)]
     pub asset: String,
     #[serde(default)]
@@ -251,6 +257,37 @@ pub struct ObjectDescriptor {
     #[serde(default)]
     pub anchors: Vec<AnchorSpec>,
     pub placement: PlacementSpec,
+}
+
+impl ObjectDescriptor {
+    /// True if this descriptor should govern an entity whose kind string is
+    /// `entity_kind`.
+    pub fn matches_kind(&self, entity_kind: &str) -> bool {
+        entity_kind == self.id
+            || self.applies_to.iter().any(|a| a == entity_kind)
+            || descriptor_kind_str(self.kind).is_some_and(|k| k == entity_kind)
+    }
+}
+
+/// ItemKind → canonical entity kind string (used for matching + reporting).
+pub fn descriptor_kind_str(kind: ItemKind) -> Option<&'static str> {
+    Some(match kind {
+        ItemKind::Road => "road",
+        ItemKind::Railway => "railway",
+        ItemKind::Building => "building",
+        ItemKind::Storefront => "storefront",
+        ItemKind::Tree => "tree",
+        ItemKind::Rock => "rock",
+        ItemKind::Water => "water",
+        ItemKind::Bridge => "bridge",
+        ItemKind::Park => "park",
+        ItemKind::Sidewalk => "sidewalk",
+        ItemKind::Lamp => "lamp",
+        ItemKind::Bench => "bench",
+        ItemKind::BusStop => "bus_stop",
+        ItemKind::FoodStall => "food_stall",
+        ItemKind::Other => return None,
+    })
 }
 
 #[cfg(test)]

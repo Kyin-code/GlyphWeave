@@ -102,8 +102,10 @@ pub fn place_one(
         if !desc.kind.is_hard() {
             entity.world_y = ctx.height(cand.x, cand.z).round() as i32;
         }
+        let placed_id = entity.entity_id.clone();
         outcome.placed.push(entity);
         placed.push(PlacedKind {
+            id: Some(placed_id),
             kind: desc.kind,
             cx: cand.x as f32,
             cz: cand.z as f32,

@@ -2,6 +2,27 @@
 
 id = "residential_house"
 kind = "building"
+# 覆盖常见建筑 kind：住宅/商住/公共建筑共用同一套"贴地、不压路、不进水、
+# 不撞建筑"的硬约束。特殊建筑（商业中心/学校等）可另建 descriptor。
+applies_to = [
+    "building_tower",
+    "building_cluster",
+    "urban_building",
+    "residential_block",
+    "residential_tower",
+    "residential_home",
+    "resort_lodge",
+    "commercial_center",
+    "entertainment_center",
+    "school",
+    "town_hall",
+    "market",
+    "industrial",
+    "temple",
+    "church",
+    "parking_lot",
+    "green_space",
+]
 tags = ["residential", "has_entrance"]
 
 [geometry]

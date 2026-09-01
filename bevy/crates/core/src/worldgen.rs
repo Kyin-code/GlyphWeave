@@ -2263,6 +2263,24 @@ fn generate_entities_with_profile(
 /// Returns a `rules::ValidationReport`. `rules_dir` points at a directory of
 /// `*.object.toml` descriptors; if it is empty/missing, the report is all
 /// zeros (nothing to check against).
+/// Audit options: how the rules engine queries the world. `height_at` may be
+/// provided by the caller (e.g. reading the baked heightfield) so the audit
+/// matches what the bake actually produced; when `None` the natural terrain
+/// function is used (an approximation, not the carved heightfield).
+#[derive(Default)]
+pub struct AuditOptions<'a> {
+    /// Ground height in metres at (x, z). If None, natural (uncarved) terrain
+    /// is used.
+    pub height_at: Option<&'a dyn Fn(i32, i32) -> f32>,
+    /// Half-extents used for footprint-level slope sampling. When None, the
+    /// entity's own width/depth are used (falling back to 8m).
+    pub slope_half: Option<(i32, i32)>,
+}
+
+/// Audit already-generated entities against the declarative rules engine.
+/// Returns a `ValidationReport`, or an error if the rules directory cannot be
+/// loaded (missing / malformed / duplicate descriptors) — a missing rules dir
+/// must NOT silently produce an all-zero "clean" report.
 pub fn audit_scene(
     seed: u64,
     scene: &SceneSpec,
@@ -2270,13 +2288,19 @@ pub fn audit_scene(
     entities: &[EntityInstance],
     water: WaterGeometry,
     rules_dir: &Path,
-) -> crate::rules::ValidationReport {
-    let registry = crate::rules::ObjectRegistry::load_dir(rules_dir).unwrap_or_default();
+    opts: AuditOptions<'_>,
+) -> Result<crate::rules::ValidationReport, crate::rules::RuleLoadError> {
+    let registry = crate::rules::ObjectRegistry::load_dir(rules_dir)?;
+    // Default height: natural (uncarved) terrain — an approximation; callers
+    // that audit a baked world should pass the baked heightfield instead.
+    let natural_height = |x: i32, z: i32| {
+        terrain_height(seed, x, z, WaterKind::None, scene.width_m, scene.depth_m, 0.0) as f32
+            / 4.0
+    };
+    let height_at = opts.height_at.unwrap_or(&natural_height);
+    let slope_half = opts.slope_half.unwrap_or((8, 8));
     let ctx = crate::rules::PlacementContext {
-        height_at: &|x, z| {
-            terrain_height(seed, x, z, WaterKind::None, scene.width_m, scene.depth_m, 0.0) as f32
-                / 4.0
-        },
+        height_at,
         water_level: &|x, z| match water.kind {
             WaterKind::None => None,
             // A point "in water" means its surface kind is water (lake radius
@@ -2309,8 +2333,8 @@ pub fn audit_scene(
                 z,
                 scene.width_m,
                 scene.depth_m,
-                8,
-                8,
+                slope_half.0,
+                slope_half.1,
             ) as f32
         },
         bounds: (
@@ -2321,7 +2345,7 @@ pub fn audit_scene(
         ),
         grounding_tolerance: 0.5,
     };
-    crate::rules::audit_entities(entities, &registry, &ctx, seed)
+    Ok(crate::rules::audit_entities(entities, &registry, &ctx, seed))
 }
 
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,

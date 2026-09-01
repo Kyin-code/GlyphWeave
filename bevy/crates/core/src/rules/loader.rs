@@ -22,17 +22,65 @@ pub fn validate_descriptor(d: &ObjectDescriptor) -> Vec<String> {
     if d.geometry.clearance < 0.0 {
         problems.push("geometry.clearance must be >= 0".into());
     }
+    // Finite-value checks.
+    let finite = |v: f32| v.is_finite();
+    if !finite(d.geometry.footprint[0]) || !finite(d.geometry.footprint[1]) {
+        problems.push("geometry.footprint must be finite".into());
+    }
+    if !finite(d.geometry.height) {
+        problems.push("geometry.height must be finite".into());
+    }
+    if !finite(d.geometry.clearance) {
+        problems.push("geometry.clearance must be finite".into());
+    }
+    if !finite(d.environment.max_slope) {
+        problems.push("environment.max_slope must be finite".into());
+    }
+    // max_slope = 0 means "no slope limit" (any slope allowed), matching the
+    // compiler which only emits MaxSlope when max_slope > 0.
     if d.environment.max_slope < 0.0 {
         problems.push("environment.max_slope must be >= 0".into());
     }
+    // Relation distance / weight sanity.
     for r in &d.relations.avoid {
         if r.distance < 0.0 {
             problems.push(format!("relations.avoid {}: distance must be >= 0", r.kind as u8));
         }
+        if !finite(r.distance) {
+            problems.push(format!("relations.avoid {}: distance must be finite", r.kind as u8));
+        }
     }
+    for r in &d.relations.require {
+        if r.distance < 0.0 {
+            problems.push(format!("relations.require {}: distance must be >= 0", r.kind as u8));
+        }
+        if !finite(r.distance) {
+            problems.push(format!("relations.require {}: distance must be finite", r.kind as u8));
+        }
+    }
+    for r in &d.relations.prefer {
+        if r.distance < 0.0 {
+            problems.push(format!("relations.prefer {}: distance must be >= 0", r.kind as u8));
+        }
+        if !finite(r.distance) {
+            problems.push(format!("relations.prefer {}: distance must be finite", r.kind as u8));
+        }
+        if !finite(r.weight) || !(0.0..=10.0).contains(&r.weight) {
+            problems.push(format!("relations.prefer {}: weight must be finite and in [0,10]", r.kind as u8));
+        }
+    }
+    // Anchor sanity: non-empty id, valid side, no duplicate ids, finite radius.
+    let mut seen_anchors = std::collections::HashSet::new();
     for a in &d.anchors {
         if a.id.is_empty() {
             problems.push("anchor id must not be empty".into());
+        }
+        if !seen_anchors.insert(&a.id) {
+            problems.push(format!("duplicate anchor id '{}'", a.id));
+        }
+        match a.side.as_str() {
+            "front" | "back" | "left" | "right" | "north" | "south" | "east" | "west" => {}
+            _ => problems.push(format!("anchor '{}': invalid side '{}'", a.id, a.side)),
         }
         if a.clear_radius < 0.0 {
             problems.push(format!("anchor {}: clear_radius must be >= 0", a.id));
@@ -41,6 +89,14 @@ pub fn validate_descriptor(d: &ObjectDescriptor) -> Vec<String> {
     // Placement sanity.
     if d.placement.attempts == 0 {
         problems.push("placement.attempts must be >= 1".into());
+    }
+    // MVP only implements fallback = skip; move/shrink are accepted by the
+    // schema but silently do nothing today, so reject them loudly.
+    if d.placement.fallback != Fallback::Skip {
+        problems.push(
+            "placement.fallback: only 'skip' is implemented in the MVP; move/shrink are rejected to avoid silent no-ops"
+                .into(),
+        );
     }
     if d.placement.fallback == Fallback::Move && !d.placement.allow_rotate {
         problems.push("placement.fallback=move usually wants allow_rotate=true".into());
@@ -74,11 +130,19 @@ pub fn load_descriptor(path: &Path) -> Result<ObjectDescriptor, RuleLoadError> {
     parse_descriptor(&src, &path.display().to_string())
 }
 
-/// Load every `*.object.toml` in a directory.
+/// Load every `*.object.toml` in a directory. A missing directory or a
+/// directory with no descriptors is an error: the rules engine must never
+/// silently run with "no rules" (which would fake an all-clean report).
 pub fn load_dir(dir: &Path) -> Result<HashMap<String, ObjectDescriptor>, RuleLoadError> {
     let mut out = HashMap::new();
     if !dir.exists() {
-        return Ok(out);
+        return Err(RuleLoadError::Io {
+            path: dir.display().to_string(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "rules directory does not exist",
+            ),
+        });
     }
     for entry in std::fs::read_dir(dir).map_err(|e| RuleLoadError::Io {
         path: dir.display().to_string(),
@@ -186,8 +250,8 @@ phase = "vegetation"
     }
 
     #[test]
-    fn registry_load_dir_empty() {
-        let reg = ObjectRegistry::load_dir(Path::new("/nonexistent")).expect("ok");
-        assert!(reg.descriptors.is_empty());
+    fn registry_load_missing_dir_fails() {
+        let err = ObjectRegistry::load_dir(Path::new("/nonexistent")).unwrap_err();
+        assert!(matches!(err, RuleLoadError::Io { .. }));
     }
 }

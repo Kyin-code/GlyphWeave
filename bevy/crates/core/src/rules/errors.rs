@@ -129,9 +129,23 @@ pub struct ValidationReport {
     pub disconnected_roads: usize,
     /// Full reject list (may be large — serialise to file, not stdout).
     pub rejects: Vec<RejectRecord>,
+    /// Entities that were checked against a rule.
+    #[serde(default)]
+    pub checked_items: usize,
+    /// Entity kind strings with no matching descriptor (coverage gaps).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unruled_items: Vec<String>,
 }
 
 impl ValidationReport {
+    /// Number of distinct unruled kinds (coverage gap indicator).
+    pub fn unruled_count(&self) -> usize {
+        let mut set: Vec<&str> = self.unruled_items.iter().map(String::as_str).collect();
+        set.sort_unstable();
+        set.dedup();
+        set.len()
+    }
+
     /// Increment the matching counter for a reject reason.
     pub fn count_reason(&mut self, reason: &RejectReason) {
         match reason {

@@ -38,3 +38,6 @@ dist-ssr
 
 # Bevy / Rust build artifacts
 bevy/target/
+
+# Scratch / agent review output
+work/

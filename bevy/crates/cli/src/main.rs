@@ -1363,7 +1363,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave compact FILE"
     );
 }
 
@@ -1373,7 +1373,7 @@ fn print_usage() {
 ///   glyphweave rules check-dir DIR           — load + validate a whole dir
 fn rules_command(args: &[String]) -> CliResult<()> {
     let Some(sub) = args.first().map(String::as_str) else {
-        return Err("rules requires a subcommand: list | validate | check-dir".into());
+        return Err("rules requires a subcommand: list | validate | check-dir | audit".into());
     };
     match sub {
         "list" => {
@@ -1399,7 +1399,8 @@ fn rules_command(args: &[String]) -> CliResult<()> {
         }
         // glyphweave rules audit WORLD_DIR [--rules DIR] [--report PATH]
         // Audits an existing baked world against the object rules, writing a
-        // JSON report. Environment queries reuse the bake's terrain functions.
+        // JSON report. Ground height is read from the BAKED heightfield so the
+        // audit matches what was actually baked (carves included).
         "audit" => {
             let world_dir = args.get(1).ok_or("rules audit requires WORLD_DIR")?;
             let world_dir = Path::new(world_dir);
@@ -1408,12 +1409,7 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 .position(|a| a == "--rules")
                 .and_then(|i| args.get(i + 1))
                 .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    std::env::current_dir()
-                        .unwrap_or_else(|_| PathBuf::from("."))
-                        .join("assets")
-                        .join("objects")
-                });
+                .ok_or("rules audit requires --rules DIR")?;
             let report_path = args
                 .iter()
                 .position(|a| a == "--report")
@@ -1424,6 +1420,8 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             let manifest: WorldManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
 
             let mut total = glyphweave_core::rules::ValidationReport::default();
+            let mut unruled: Vec<String> = Vec::new();
+            let mut checked = 0usize;
             for scene in &manifest.scenes {
                 let scene_json = world_dir.join("scenes").join(&scene.scene_id).join("scene.json");
                 let index: SceneIndex = serde_json::from_slice(&fs::read(&scene_json)?)?;
@@ -1439,6 +1437,31 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     scene,
                     &manifest.style,
                 );
+                // Load the baked heightfield for this scene into a query map.
+                let mut baked = BTreeMap::<i64, i16>::new();
+                for chunk in &index.chunks {
+                    let hfile = world_dir.join("scenes").join(&scene.scene_id).join(&chunk.height_file);
+                    let bytes = fs::read(&hfile)?;
+                    let width = chunk.valid_width_m as usize;
+                    for (i, pair) in bytes.chunks_exact(2).enumerate() {
+                        let raw = i16::from_le_bytes([pair[0], pair[1]]);
+                        let lx = i as i32 % width as i32;
+                        let lz = i as i32 / width as i32;
+                        let wx = chunk.world_x + lx;
+                        let wz = chunk.world_z + lz;
+                        baked.insert(i64::from(wx) << 32 | (wz as u32 as i64), raw);
+                    }
+                }
+                let height_at = |x: i32, z: i32| -> f32 {
+                    baked
+                        .get(&((i64::from(x) << 32) | (z as u32 as i64)))
+                        .map(|v| f32::from(*v) / 4.0)
+                        .unwrap_or(0.0)
+                };
+                let opts = glyphweave_core::worldgen::AuditOptions {
+                    height_at: Some(&height_at),
+                    slope_half: Some((8, 8)),
+                };
                 let report = audit_scene(
                     manifest.world.seed ^ scene.seed_offset,
                     scene,
@@ -1446,7 +1469,8 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     &index.entities,
                     water,
                     &rules_dir,
-                );
+                    opts,
+                )?;
                 total.buildings += report.buildings;
                 total.roads += report.roads;
                 total.floating_items += report.floating_items;
@@ -1455,6 +1479,9 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 total.geometry_collisions += report.geometry_collisions;
                 total.disconnected_roads += report.disconnected_roads;
                 total.rejects.extend(report.rejects);
+                checked += report.checked_items;
+                unruled.extend(report.unruled_items.iter().cloned());
+                total.unruled_items.extend(report.unruled_items);
             }
             total.seed = manifest.world.seed;
             fs::write(
@@ -1462,8 +1489,9 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 serde_json::to_vec_pretty(&total)?,
             )?;
             println!(
-                "audited {} scene(s); buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={}; report={}",
+                "audited {} scene(s); checked={} buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={} unruled={}; report={}",
                 manifest.scenes.len(),
+                checked,
                 total.buildings,
                 total.roads,
                 total.floating_items,
@@ -1471,8 +1499,12 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 total.blocked_entrances,
                 total.geometry_collisions,
                 total.disconnected_roads,
+                unruled.len(),
                 report_path.display(),
             );
+            if !unruled.is_empty() {
+                eprintln!("warn: {} entities had no matching rule (unruled)", unruled.len());
+            }
             Ok(())
         }
         other => Err(format!("unknown rules subcommand {other:?}").into()),

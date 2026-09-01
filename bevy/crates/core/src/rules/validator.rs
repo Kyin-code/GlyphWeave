@@ -89,6 +89,7 @@ impl<'a> PlacementContext<'a> {
 /// A placed entity record the validator can consult for relation checks.
 #[derive(Debug, Clone)]
 pub struct PlacedKind {
+    pub id: Option<String>,
     pub kind: super::schema::ItemKind,
     pub cx: f32,
     pub cz: f32,
@@ -118,6 +119,21 @@ pub fn check_hard(
     for c in hard {
         match c {
             Constraint::InsideBounds => {}
+            Constraint::NoGeometryCollision => {
+                // Overlap with ANY other placed object of the SAME kind (a
+                // building cannot sit on another building, a road on a road).
+                // Cross-kind adjacency (storefront flush against a road) is
+                // governed by each descriptor's own `avoid` relations, so we
+                // only forbid same-kind overlap here. Self is excluded by the
+                // caller via stable ids.
+                if placed.iter().any(|p| {
+                    p.kind == desc.kind && fp.overlaps(p.cx, p.cz, p.half_w, p.half_d)
+                }) {
+                    return Err(RejectReason::GeometryCollision {
+                        conflict_kind: desc.kind,
+                    });
+                }
+            }
             Constraint::OnGround => {
                 // Sample ground under the 4 corners; max deviation must be <= tol.
                 let mut min_h = f32::MAX;
@@ -355,6 +371,7 @@ phase = "vegetation"
         let (hard, _) = compile(&desc);
         let c = ctx(vec![], vec![], vec![], (0, 0, 100, 100));
         let placed = vec![PlacedKind {
+            id: None,
             kind: ItemKind::Building,
             cx: 6.0,
             cz: 5.0,
@@ -415,9 +432,11 @@ phase = "functional"
         let (hard, _) = compile(&desc);
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // A road ahead (satisfies require), but a TREE sits in the front zone.
+        // The tree is just outside the storefront footprint (no geometry
+        // collision) but inside the front anchor's clear radius.
         let placed = vec![
-            PlacedKind { kind: ItemKind::Road, cx: 50.0, cz: 44.0, half_w: 4.0, half_d: 4.0 },
-            PlacedKind { kind: ItemKind::Tree, cx: 50.0, cz: 48.0, half_w: 2.0, half_d: 2.0 },
+            PlacedKind { id: None, kind: ItemKind::Road, cx: 50.0, cz: 44.0, half_w: 4.0, half_d: 4.0 },
+            PlacedKind { id: None, kind: ItemKind::Tree, cx: 50.0, cz: 43.0, half_w: 1.0, half_d: 1.0 },
         ];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
@@ -431,7 +450,7 @@ phase = "functional"
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // Road is behind (south), require passes but front must_face fails.
         let placed = vec![
-            PlacedKind { kind: ItemKind::Road, cx: 50.0, cz: 58.0, half_w: 4.0, half_d: 4.0 },
+            PlacedKind { id: None, kind: ItemKind::Road, cx: 50.0, cz: 58.0, half_w: 4.0, half_d: 4.0 },
         ];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
@@ -445,6 +464,7 @@ phase = "functional"
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // Road placed ahead (north) of the front anchor → passes.
         let placed = vec![PlacedKind {
+            id: None,
             kind: ItemKind::Road,
             cx: 50.0,
             cz: 44.0,
@@ -455,4 +475,6 @@ phase = "functional"
         assert!(check_hard(&desc, &fp, &c, &hard, &placed).is_ok());
     }
 }
+
+
 

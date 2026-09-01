@@ -19,6 +19,11 @@ use crate::worldgen::EntityInstance;
 /// become `Other` and are skipped by audits that only care about real items).
 pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
     PlacedKind {
+        id: if e.entity_id.is_empty() {
+            None
+        } else {
+            Some(e.entity_id.clone())
+        },
         kind: kind_from_str(&e.kind),
         cx: e.world_x as f32,
         cz: e.world_z as f32,
@@ -73,12 +78,18 @@ pub fn audit_entities(
     // Index placed entities by kind for relation queries.
     let all_placed = placed.clone();
 
-    for e in entities {
-        // Find a descriptor for this kind.
+    for (idx, e) in entities.iter().enumerate() {
+        // Find a descriptor for this entity's kind string.
         let Some(desc) = descriptor_for(descriptors, e) else {
+            // No rule governs this kind — record it as "unruled" so the report
+            // can show coverage gaps instead of silently skipping.
+            if !e.kind.is_empty() {
+                report.unruled_items.push(e.kind.clone());
+            }
             continue;
         };
         let (hard, _soft) = compile(desc);
+        report.checked_items += 1;
 
         // Treat the entity's centre as a candidate; check its real footprint.
         let fp = Footprint {
@@ -88,13 +99,16 @@ pub fn audit_entities(
             half_d: e.depth_m * 0.5 + desc.geometry.clearance,
         };
 
-        // Exclude the entity itself from collision checks.
+        // Exclude the entity itself by stable id / index (not float equality).
         let others: Vec<PlacedKind> = all_placed
             .iter()
-            .filter(|p| {
-                !(p.cx == fp.cx && p.cz == fp.cz && p.half_w == fp.half_w && p.half_d == fp.half_d)
+            .enumerate()
+            .filter(|(i, p)| {
+                *i != idx
+                    && !(p.id.is_some()
+                        && p.id.as_deref() == Some(e.entity_id.as_str()))
             })
-            .cloned()
+            .map(|(_, p)| p.clone())
             .collect();
 
         if let Err(reason) = check_hard(desc, &fp, ctx, &hard, &others) {
@@ -129,34 +143,10 @@ fn descriptor_for<'a>(
     registry: &'a ObjectRegistry,
     e: &EntityInstance,
 ) -> Option<&'a super::schema::ObjectDescriptor> {
-    registry.descriptors.values().find(|d| {
-        // Match the descriptor's kind against the entity kind string via the
-        // same string table, but only when the descriptor id == the kind string
-        // (i.e. the descriptor was written FOR this exact kind).
-        descriptor_kind_str(d) == Some(e.kind.as_str())
-    })
-}
-
-/// The canonical kind string a descriptor declares (its `kind` field, mapped
-/// back to the string form used in entity kinds).
-fn descriptor_kind_str(d: &super::schema::ObjectDescriptor) -> Option<&'static str> {
-    Some(match d.kind {
-        ItemKind::Road => "road",
-        ItemKind::Railway => "railway",
-        ItemKind::Building => "building",
-        ItemKind::Storefront => "storefront",
-        ItemKind::Tree => "tree",
-        ItemKind::Rock => "rock",
-        ItemKind::Water => "water",
-        ItemKind::Bridge => "bridge",
-        ItemKind::Park => "park",
-        ItemKind::Sidewalk => "sidewalk",
-        ItemKind::Lamp => "lamp",
-        ItemKind::Bench => "bench",
-        ItemKind::BusStop => "bus_stop",
-        ItemKind::FoodStall => "food_stall",
-        ItemKind::Other => return None,
-    })
+    registry
+        .descriptors
+        .values()
+        .find(|d| d.matches_kind(&e.kind))
 }
 
 #[cfg(test)]
