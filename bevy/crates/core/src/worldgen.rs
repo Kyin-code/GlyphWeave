@@ -2838,6 +2838,18 @@ fn generate_entities_with_profile(
     // front or a resort wall reads as clipping, not as street planting. We
     // collect every building footprint once, then drop any tree whose crown
     // reaches into one.
+    let road_footprints: Vec<(i32, i32, f64, f64)> = entities
+        .iter()
+        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk"))
+        .map(|entity| {
+            (
+                entity.world_x,
+                entity.world_z,
+                f64::from(entity.width_m) * 0.5 + 0.5,
+                f64::from(entity.depth_m) * 0.5 + 0.5,
+            )
+        })
+        .collect();
     let building_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
         .filter(|entity| {
@@ -2874,17 +2886,29 @@ fn generate_entities_with_profile(
         })
         .collect();
     entities.retain(|entity| {
-        // A tree growing out of a building wall is a placement error: the
-        // crown must clear every building footprint (roads are fine — street
-        // trees line the carriageway).
-        if entity.kind == "tree" {
-            let crown_r = f64::from(entity.width_m) * 0.5;
-            let overlaps_building = building_footprints.iter().any(|(bx, bz, bhx, bhz)| {
-                f64::from((entity.world_x - bx).abs()) < crown_r + bhx
-                    && f64::from((entity.world_z - bz).abs()) < crown_r + bhz
+        // Natural details must clear hard infrastructure. A tree crown on a
+        // carriageway is not a street tree; it is a collision. Trees may still
+        // sit beside roads once their full canopy clears the road footprint.
+        if matches!(
+            entity.kind.as_str(),
+            "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
+        ) {
+            let detail_r = f64::from(entity.width_m.max(entity.depth_m)) * 0.5;
+            let overlaps_road = road_footprints.iter().any(|(rx, rz, rhx, rhz)| {
+                f64::from((entity.world_x - rx).abs()) < detail_r + rhx
+                    && f64::from((entity.world_z - rz).abs()) < detail_r + rhz
             });
-            if overlaps_building {
+            if overlaps_road {
                 return false;
+            }
+            if entity.kind == "tree" {
+                let overlaps_building = building_footprints.iter().any(|(bx, bz, bhx, bhz)| {
+                    f64::from((entity.world_x - bx).abs()) < detail_r + bhx
+                        && f64::from((entity.world_z - bz).abs()) < detail_r + bhz
+                });
+                if overlaps_building {
+                    return false;
+                }
             }
         }
         // Only volumetric buildings must clear every bridge corridor: a house
@@ -2965,6 +2989,9 @@ fn generate_entities_with_profile(
         // on its derived banks/shoreline rather than using fixture coordinates.
         append_waterfront_intent_settlement(seed, scene, geometry, &mut entities, style);
     }
+    // Content planners run after the template retain pass, so enforce the
+    // final road/building clearance once all generated details exist.
+    sanitize_natural_detail_clearance(&mut entities);
     // rulesMode = "rules": the declarative rules engine drives final placement.
     // The template generator still proposes positions, but every proposed
     // entity is re-validated by place_all(): violations are retried (move /
@@ -2976,6 +3003,7 @@ fn generate_entities_with_profile(
         .unwrap_or("legacy");
     if rules_mode == "rules" {
         entities = apply_rules_mode(seed, scene, geometry, style, entities);
+        sanitize_natural_detail_clearance(&mut entities);
     }
     entities
 }
@@ -3268,6 +3296,53 @@ pub fn audit_scene(
     Ok(crate::rules::audit_entities(
         entities, &registry, &ctx, seed,
     ))
+}
+
+fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
+    let road_footprints: Vec<(i32, i32, f64, f64)> = entities
+        .iter()
+        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk"))
+        .map(|entity| {
+            (
+                entity.world_x,
+                entity.world_z,
+                f64::from(entity.width_m) * 0.5 + 0.5,
+                f64::from(entity.depth_m) * 0.5 + 0.5,
+            )
+        })
+        .collect();
+    let building_footprints: Vec<(i32, i32, f64, f64)> = entities
+        .iter()
+        .filter(|entity| is_building_kind(&entity.kind))
+        .map(|entity| {
+            (
+                entity.world_x,
+                entity.world_z,
+                f64::from(entity.width_m) * 0.5 + 0.5,
+                f64::from(entity.depth_m) * 0.5 + 0.5,
+            )
+        })
+        .collect();
+    entities.retain(|entity| {
+        if !matches!(
+            entity.kind.as_str(),
+            "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
+        ) {
+            return true;
+        }
+        let detail_r = f64::from(entity.width_m.max(entity.depth_m)) * 0.5;
+        let overlaps_road = road_footprints.iter().any(|(rx, rz, rhx, rhz)| {
+            f64::from((entity.world_x - rx).abs()) < detail_r + rhx
+                && f64::from((entity.world_z - rz).abs()) < detail_r + rhz
+        });
+        if overlaps_road {
+            return false;
+        }
+        !building_footprints.iter().any(|(bx, bz, bhx, bhz)| {
+            f64::from((entity.world_x - bx).abs()) < detail_r + bhx
+                && f64::from((entity.world_z - bz).abs()) < detail_r + bhz
+        })
+    });
 }
 
 fn generation_settlement(style: &serde_json::Value) -> Option<&str> {
@@ -5824,6 +5899,41 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(root).expect("test preview directory should be removable");
+    }
+
+    #[test]
+    fn generated_natural_details_clear_road_footprints() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 2_000,
+            depth_m: 1_600,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let entities = generate_entities(20260902, &scene, &[], WaterKind::River);
+        let roads: Vec<_> = entities
+            .iter()
+            .filter(|entity| entity.kind == "road")
+            .collect();
+        for detail in entities.iter().filter(|entity| {
+            matches!(
+                entity.kind.as_str(),
+                "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
+            )
+        }) {
+            let detail_r = f64::from(detail.width_m.max(detail.depth_m)) * 0.5;
+            assert!(
+                !roads.iter().any(|road| {
+                    f64::from((detail.world_x - road.world_x).abs())
+                        < detail_r + f64::from(road.width_m) * 0.5 + 0.5
+                        && f64::from((detail.world_z - road.world_z).abs())
+                            < detail_r + f64::from(road.depth_m) * 0.5 + 0.5
+                }),
+                "{} overlaps a road",
+                detail.entity_id
+            );
+        }
     }
 
     #[test]

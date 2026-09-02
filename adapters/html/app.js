@@ -448,6 +448,10 @@ async function drawNear() {
   }
   const group = new THREE.Group()
   if (!nearGroupRoot) { nearGroupRoot = new THREE.Group() }
+  // Terrain meshes are emitted in scene-local coordinates while entities keep
+  // authoritative world coordinates. Translate the shared root once so custom
+  // scene origins do not shift buildings and roads away from the terrain.
+  nearGroupRoot.position.set(-scene.originX, 0, -scene.originZ)
   if (!nearGroupRoot.parent) nearScene.add(nearGroupRoot)
   nearGroupRoot.add(group)
   const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
@@ -562,7 +566,7 @@ async function drawNear() {
   }
   const heightFieldMap = new Map()
   const heightAt = (worldX, worldZ) => {
-    const key = `${Math.floor(worldX / 512)},${Math.floor(worldZ / 512)}`
+    const key = `${Math.floor((worldX - scene.originX) / 512)},${Math.floor((worldZ - scene.originZ) / 512)}`
     let field = heightFieldMap.get(key)
     if (!field) {
       field = heightFields.find(item => worldX >= item.chunk.worldX && worldX < item.chunk.worldX + item.width && worldZ >= item.chunk.worldZ && worldZ < item.chunk.worldZ + item.depth)

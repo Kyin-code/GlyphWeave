@@ -228,16 +228,18 @@ export function applySlopeFoundation(group, entity, heightAt, THREE, plinthColor
   const minGround = Math.min(...groundLevels)
   const maxGround = Math.max(...groundLevels)
   const anchor = entity.worldY
-  // Building bottom sits at the anchor; terrain may be higher (sunk) or lower
-  // (floating). Add a plinth from the lowest ground up to the building bottom.
-  const top = anchor + .4
-  const bottom = minGround - .3
+  // The building helpers all use a group whose origin is the entity anchor.
+  // Keep the foundation in that local frame; writing world coordinates here
+  // would apply the entity position a second time and create apparent sinking
+  // or detached plinths.
+  const top = .4
+  const bottom = minGround - .3 - anchor
   if (top <= bottom + .4) return
   const plinth = new THREE.Mesh(
     new THREE.BoxGeometry(entity.widthM + .6, top - bottom, entity.depthM + .6),
     new THREE.MeshStandardMaterial({ color: plinthColor, roughness: 1 })
   )
-  plinth.position.set(entity.worldX, (top + bottom) / 2, entity.worldZ)
+  plinth.position.set(0, (top + bottom) / 2, 0)
   group.add(plinth)
   // Keep a reference so callers can tilt the whole block on steep ground.
   group.userData.plinth = plinth
