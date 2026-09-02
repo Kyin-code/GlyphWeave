@@ -1,11 +1,11 @@
-﻿//! Unified placement pipeline: generate deterministic candidates 鈫?hard
+//! Unified placement pipeline: generate deterministic candidates 鈫?hard
 //! constraint check 鈫?soft score 鈫?commit (mark occupancy + register placed).
 
 use super::constraint::compile;
-use super::errors::{PlacementOutcome, RejectRecord};
+use super::errors::{PlacementOutcome, RejectReason, RejectRecord};
 use super::loader::ObjectRegistry;
 use super::schema::ObjectDescriptor;
-use super::validator::{check_hard, score_soft, Footprint, PlacementContext, PlacedKind};
+use super::validator::{Footprint, PlacedKind, PlacementContext, check_hard, score_soft};
 use crate::worldgen::EntityInstance;
 
 /// A candidate position for one object.
@@ -34,13 +34,35 @@ pub fn generate_candidates(x: i32, z: i32, attempts: u32, seed: u64) -> Vec<Cand
                 // Jitter by seed for determinism.
                 let jx = ((x.wrapping_add(dx * 7) as u64).wrapping_mul(seed) % 5) as i32 - 2;
                 let jz = ((z.wrapping_add(dy * 13) as u64).wrapping_mul(seed) % 5) as i32 - 2;
-                out.push(Candidate { x: x + dx * 2 + jx, z: z + dy * 2 + jz });
+                out.push(Candidate {
+                    x: x + dx * 2 + jx,
+                    z: z + dy * 2 + jz,
+                });
             }
         }
         ring += 1;
     }
     out.truncate(attempts as usize);
     out
+}
+
+fn reject_record(
+    desc: &ObjectDescriptor,
+    candidate: Candidate,
+    reason: RejectReason,
+) -> RejectRecord {
+    let conflict_with = match &reason {
+        RejectReason::GeometryCollision { conflict_id, .. } => conflict_id.clone(),
+        _ => None,
+    };
+    RejectRecord {
+        item_id: desc.id.clone(),
+        candidate_x: candidate.x,
+        candidate_z: candidate.z,
+        reason: reason.to_string(),
+        conflict_with,
+        rule: "hard".into(),
+    }
 }
 
 /// Place one object: try candidates in order, first valid (hard constraints)
@@ -59,7 +81,7 @@ pub fn place_one(
     // A candidate is (position, rotated bool). Rotation only matters when
     // allow_rotate and the footprint is non-square.
     let mut best: Option<(f32, Candidate, bool)> = None;
-    let mut best_reject: Option<RejectRecord> = None;
+    let mut rejected_candidates: Vec<RejectRecord> = Vec::new();
     let rotations: &[bool] = if desc.placement.allow_rotate
         && (desc.geometry.footprint[0] - desc.geometry.footprint[1]).abs() > 0.1
     {
@@ -81,18 +103,7 @@ pub fn place_one(
                         best = Some((s, cand, rot));
                     }
                 }
-                Err(reason) => {
-                    if best_reject.is_none() {
-                        best_reject = Some(RejectRecord {
-                            item_id: desc.id.clone(),
-                            candidate_x: cand.x,
-                            candidate_z: cand.z,
-                            reason: reason.to_string(),
-                            conflict_with: None,
-                            rule: "hard".into(),
-                        });
-                    }
-                }
+                Err(reason) => rejected_candidates.push(reject_record(desc, cand, reason)),
             }
         }
     }
@@ -112,12 +123,19 @@ pub fn place_one(
                 if rot {
                     fp = fp.rotated();
                 }
-                if check_hard(desc, &fp, ctx, &hard, placed).is_ok() {
-                    let s = score_soft(&fp, &soft, placed);
-                    if best.as_ref().map(|(bs, _, _)| s > *bs).unwrap_or(true) {
-                        best = Some((s, cand, rot));
+                match check_hard(desc, &fp, ctx, &hard, placed) {
+                    Ok(()) => {
+                        let score = score_soft(&fp, &soft, placed);
+                        if best
+                            .as_ref()
+                            .map(|(best_score, _, _)| score > *best_score)
+                            .unwrap_or(true)
+                        {
+                            best = Some((score, cand, rot));
+                        }
+                        break;
                     }
-                    break;
+                    Err(reason) => rejected_candidates.push(reject_record(desc, cand, reason)),
                 }
             }
             if best.is_some() {
@@ -137,7 +155,11 @@ pub fn place_one(
         let entity_id = format!("{}_{}", desc.id, cand.x.abs() * 1000 + cand.z.abs());
         let mut entity = EntityInstance {
             entity_id,
-            asset_id: if desc.asset.is_empty() { desc.id.clone() } else { desc.asset.clone() },
+            asset_id: if desc.asset.is_empty() {
+                desc.id.clone()
+            } else {
+                desc.asset.clone()
+            },
             kind: kind_to_str(desc.kind),
             world_x: cand.x,
             world_z: cand.z,
@@ -171,8 +193,8 @@ pub fn place_one(
             half_d: fp.half_d,
             tags: desc.tags.clone(),
         });
-    } else if let Some(rec) = best_reject {
-        outcome.rejected.push(rec);
+    } else {
+        outcome.rejected.extend(rejected_candidates);
     }
 
     outcome
@@ -253,7 +275,13 @@ pub fn place_all(
         };
         let mut seed_rot = seed;
         for _ in 0..r.count {
-            let one = place_one(desc, Candidate { x: r.x, z: r.z }, ctx, &mut placed, seed_rot);
+            let one = place_one(
+                desc,
+                Candidate { x: r.x, z: r.z },
+                ctx,
+                &mut placed,
+                seed_rot,
+            );
             outcome.placed.extend(one.placed);
             outcome.rejected.extend(one.rejected);
             // Vary the seed per instance for deterministic-but-different jitter.
@@ -319,7 +347,9 @@ phase = "building"
             slope_at: &|_, _| 2.0,
             bounds: (0, 0, 200, 200),
             grounding_tolerance: 0.5,
-        biome_at: None,        hazard_at: None,        };
+            biome_at: None,
+            hazard_at: None,
+        };
         let mut placed: Vec<PlacedKind> = Vec::new();
         let out = place_one(&desc, Candidate { x: 100, z: 100 }, &c, &mut placed, 42);
         assert_eq!(out.placed.len(), 1, "should place on flat ground");
@@ -336,11 +366,12 @@ phase = "building"
             slope_at: &|_, _| 2.0,
             bounds: (0, 0, 200, 200),
             grounding_tolerance: 0.5,
-        biome_at: None,        hazard_at: None,        };
+            biome_at: None,
+            hazard_at: None,
+        };
         let mut placed: Vec<PlacedKind> = Vec::new();
         let out = place_one(&desc, Candidate { x: 100, z: 100 }, &c, &mut placed, 42);
         assert_eq!(out.placed.len(), 0, "should reject all in water");
         assert!(!out.rejected.is_empty());
     }
 }
-

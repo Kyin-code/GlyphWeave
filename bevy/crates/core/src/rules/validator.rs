@@ -1,4 +1,4 @@
-﻿//! Unified candidate validator: applies compiled `Constraint`s to a candidate
+//! Unified candidate validator: applies compiled `Constraint`s to a candidate
 //! position and returns the first reject reason, or Ok if all pass.
 //!
 //! The validator is deliberately decoupled from `worldgen` internals: it
@@ -45,7 +45,12 @@ impl Footprint {
     pub fn from_descriptor(desc: &ObjectDescriptor, cx: f32, cz: f32) -> Self {
         let hw = desc.geometry.footprint[0] * 0.5 + desc.geometry.clearance;
         let hd = desc.geometry.footprint[1] * 0.5 + desc.geometry.clearance;
-        Footprint { cx, cz, half_w: hw, half_d: hd }
+        Footprint {
+            cx,
+            cz,
+            half_w: hw,
+            half_d: hd,
+        }
     }
 
     /// Footprint with a 90° rotation applied (width/depth swap).
@@ -62,6 +67,27 @@ impl Footprint {
     pub fn overlaps(&self, ox: f32, oz: f32, o_half_w: f32, o_half_d: f32) -> bool {
         (self.cx - ox).abs() < self.half_w + o_half_w
             && (self.cz - oz).abs() < self.half_d + o_half_d
+    }
+
+    /// Centre, corners and edge midpoints for footprint-aware environment checks.
+    pub fn sample_points(&self) -> [(i32, i32); 9] {
+        let x0 = (self.cx - self.half_w).round() as i32;
+        let x1 = (self.cx + self.half_w).round() as i32;
+        let z0 = (self.cz - self.half_d).round() as i32;
+        let z1 = (self.cz + self.half_d).round() as i32;
+        let cx = self.cx.round() as i32;
+        let cz = self.cz.round() as i32;
+        [
+            (cx, cz),
+            (x0, z0),
+            (x1, z0),
+            (x0, z1),
+            (x1, z1),
+            (cx, z0),
+            (cx, z1),
+            (x0, cz),
+            (x1, cz),
+        ]
     }
 }
 
@@ -139,35 +165,17 @@ pub fn check_hard(
                 // No-op: the 4-corner bounds test above already covers this.
             }
             Constraint::NoGeometryCollision => {
-                // Universal collision: an object must not overlap anything that
-                // occupies space. Policy:
-                //   - hard kinds (building/storefront/railway/park) never
-                //     overlap ANY other hard kind (building-on-building,
-                //     building-through-road, ...). Roads/bridges are
-                //     "touchable" infrastructure: a storefront may sit flush
-                //     against a road, so road/bridge are excluded from the
-                //     hard-vs-hard overlap test and are governed by `avoid`.
-                //   - soft kinds (tree/rock/...) never overlap a hard object
-                //     nor another soft object of the same kind.
-                // Self is excluded by the caller via stable ids.
-                let candidate_hard = desc.kind.is_hard();
+                // Overlap policy is symmetric: inspecting A against B produces
+                // the same answer as inspecting B against A. Roads, bridges
+                // and sidewalks are the only explicit shared transport surface
+                // group; they may overlap one another at crossings, but no
+                // other pair shares footprint space by default.
+                let transport = |kind: ItemKind| {
+                    matches!(kind, ItemKind::Road | ItemKind::Bridge | ItemKind::Sidewalk)
+                };
                 let conflict = placed.iter().find(|p| {
-                    // Self is excluded by the caller (stable ids / index).
-                    let overlaps = fp.overlaps(p.cx, p.cz, p.half_w, p.half_d);
-                    if candidate_hard {
-                        // Hard candidate: forbid overlap with other hard kinds
-                        // (excluding road/bridge which are touchable).
-                        let p_touchable = matches!(
-                            p.kind,
-                            ItemKind::Road | ItemKind::Bridge | ItemKind::Sidewalk
-                        );
-                        p.kind.is_hard() && !p_touchable && overlaps
-                    } else {
-                        // Soft candidate: forbid overlap with hard objects OR
-                        // with soft objects of the same kind.
-                        p.kind.is_hard() && overlaps
-                            || (p.kind == desc.kind && overlaps)
-                    }
+                    fp.overlaps(p.cx, p.cz, p.half_w, p.half_d)
+                        && !(transport(desc.kind) || transport(p.kind))
                 });
                 if let Some(conflict) = conflict {
                     return Err(RejectReason::GeometryCollision {
@@ -177,11 +185,10 @@ pub fn check_hard(
                 }
             }
             Constraint::OnGround => {
-                // Sample ground under the 4 corners; max deviation must be <= tol.
                 let mut min_h = f32::MAX;
                 let mut max_h = f32::MIN;
-                for (x, z) in &corners {
-                    let h = ctx.height(x.round() as i32, z.round() as i32);
+                for (x, z) in fp.sample_points() {
+                    let h = ctx.height(x, z);
                     min_h = min_h.min(h);
                     max_h = max_h.max(h);
                 }
@@ -190,50 +197,58 @@ pub fn check_hard(
                 }
             }
             Constraint::NotInWater => {
-                // Any corner at/below water surface 鈬?in water.
-                for (x, z) in &corners {
-                    if let Some(w) = ctx.water(x.round() as i32, z.round() as i32) {
-                        if ctx.height(x.round() as i32, z.round() as i32) <= w {
+                for (x, z) in fp.sample_points() {
+                    if let Some(w) = ctx.water(x, z) {
+                        if ctx.height(x, z) <= w {
                             return Err(RejectReason::InWater);
                         }
                     }
                 }
             }
             Constraint::MaxSlope(max) => {
-                let s = ctx.slope(fp.cx.round() as i32, fp.cz.round() as i32);
+                let s = fp
+                    .sample_points()
+                    .into_iter()
+                    .map(|(x, z)| ctx.slope(x, z))
+                    .fold(0.0_f32, f32::max);
                 if s > *max {
-                    return Err(RejectReason::SlopeTooHigh { slope: s, max: *max });
+                    return Err(RejectReason::SlopeTooHigh {
+                        slope: s,
+                        max: *max,
+                    });
                 }
             }
             Constraint::AllowedBiome(allowed) => {
                 if let Some(biome_at) = ctx.biome_at {
-                    let b = biome_at(fp.cx.round() as i32, fp.cz.round() as i32);
-                    if !allowed.contains(&b) {
-                        return Err(RejectReason::ForbiddenHazard);
+                    for (x, z) in fp.sample_points() {
+                        let biome = biome_at(x, z);
+                        if !allowed.contains(&biome) {
+                            return Err(RejectReason::ForbiddenBiome { biome });
+                        }
                     }
                 }
             }
             Constraint::ForbiddenHazard(forbidden) => {
                 if let Some(hazard_at) = ctx.hazard_at {
-                    let h = hazard_at(fp.cx.round() as i32, fp.cz.round() as i32);
-                    if h.iter().any(|x| forbidden.contains(x)) {
-                        return Err(RejectReason::ForbiddenHazard);
+                    for (x, z) in fp.sample_points() {
+                        if let Some(hazard) = hazard_at(x, z)
+                            .into_iter()
+                            .find(|hazard| forbidden.contains(hazard))
+                        {
+                            return Err(RejectReason::ForbiddenHazard { hazard });
+                        }
                     }
                 }
             }
             Constraint::AvoidKind { kind, distance } => {
                 let d = *distance;
-                if placed.iter().any(|p| {
-                    p.kind == *kind && p.cx == fp.cx && p.cz == fp.cz && p.half_w == fp.half_w && p.half_d == fp.half_d
+                if let Some(conflict) = placed.iter().find(|p| {
+                    p.kind == *kind && fp.overlaps(p.cx, p.cz, p.half_w + d, p.half_d + d)
                 }) {
-                    return Err(RejectReason::GeometryCollision { conflict_kind: *kind, conflict_id: None });
-                }
-                // Full geometry overlap + expanded-distance check.
-                if placed.iter().any(|p| {
-                    p.kind == *kind
-                        && fp.overlaps(p.cx, p.cz, p.half_w + d, p.half_d + d)
-                }) {
-                    return Err(RejectReason::GeometryCollision { conflict_kind: *kind, conflict_id: None });
+                    return Err(RejectReason::GeometryCollision {
+                        conflict_kind: *kind,
+                        conflict_id: conflict.id.clone(),
+                    });
                 }
             }
             Constraint::AvoidTag { tag, distance } => {
@@ -258,14 +273,18 @@ pub fn check_hard(
             Constraint::RequireNear { kind, distance } => {
                 let d = *distance;
                 let ok = placed.iter().any(|p| {
-                    p.kind == *kind
-                        && ((p.cx - fp.cx).powi(2) + (p.cz - fp.cz).powi(2)).sqrt() <= d
+                    p.kind == *kind && ((p.cx - fp.cx).powi(2) + (p.cz - fp.cz).powi(2)).sqrt() <= d
                 });
                 if !ok {
                     return Err(RejectReason::MissingRequiredRelation { kind: *kind });
                 }
             }
-            Constraint::ClearAnchor { anchor, side, radius, must_face } => {
+            Constraint::ClearAnchor {
+                anchor,
+                side,
+                radius,
+                must_face,
+            } => {
                 let r = *radius;
                 let side = side.as_str();
                 // Anchor sits on a footprint edge, projected outward; ANY placed
@@ -287,11 +306,12 @@ pub fn check_hard(
                         .as_deref()
                         .map(|t| kind_name(p.kind) == t)
                         .unwrap_or(false);
-                    !is_target
-                        && ((p.cx - ax).powi(2) + (p.cz - az).powi(2)).sqrt() <= r
+                    !is_target && ((p.cx - ax).powi(2) + (p.cz - az).powi(2)).sqrt() <= r
                 });
                 if blocked {
-                    return Err(RejectReason::BlockedEntrance { anchor: anchor.clone() });
+                    return Err(RejectReason::BlockedEntrance {
+                        anchor: anchor.clone(),
+                    });
                 }
                 // must_face: the anchor direction must point at a placed entity
                 // whose kind/tag matches the target string (e.g. "road").
@@ -313,9 +333,7 @@ pub fn check_hard(
                         // Dot with facing direction must be positive (ahead) and
                         // within the anchor radius.
                         let ahead = rel_x * dir_x + rel_z * dir_z;
-                        ahead >= 0.0
-                            && ahead <= r
-                            && (kind_name(p.kind) == target.as_str())
+                        ahead >= 0.0 && ahead <= r && (kind_name(p.kind) == target.as_str())
                     });
                     if !faces_target {
                         return Err(RejectReason::BlockedEntrance {
@@ -335,7 +353,12 @@ pub fn check_hard(
 pub fn score_soft(fp: &Footprint, soft: &[Constraint], placed: &[PlacedKind]) -> f32 {
     let mut score = 0.0;
     for c in soft {
-        if let Constraint::PreferNear { kind, distance, weight } = c {
+        if let Constraint::PreferNear {
+            kind,
+            distance,
+            weight,
+        } = c
+        {
             let best = placed
                 .iter()
                 .filter(|p| p.kind == *kind)
@@ -361,13 +384,24 @@ mod tests {
         bounds: (i32, i32, i32, i32),
     ) -> PlacementContext<'static> {
         let height_at = move |x: i32, z: i32| {
-            heights.iter().find(|(hx, hz, _)| *hx == x && *hz == z).map(|(_, _, h)| *h).unwrap_or(0.0)
+            heights
+                .iter()
+                .find(|(hx, hz, _)| *hx == x && *hz == z)
+                .map(|(_, _, h)| *h)
+                .unwrap_or(0.0)
         };
         let water_level = move |x: i32, z: i32| {
-            waters.iter().find(|(wx, wz, _)| *wx == x && *wz == z).map(|(_, _, w)| *w)
+            waters
+                .iter()
+                .find(|(wx, wz, _)| *wx == x && *wz == z)
+                .map(|(_, _, w)| *w)
         };
         let slope_at = move |x: i32, z: i32| {
-            slopes.iter().find(|(sx, sz, _)| *sx == x && *sz == z).map(|(_, _, s)| *s).unwrap_or(0.0)
+            slopes
+                .iter()
+                .find(|(sx, sz, _)| *sx == x && *sz == z)
+                .map(|(_, _, s)| *s)
+                .unwrap_or(0.0)
         };
         // Box the closures so we can return a 'static context.
         let height_box: Box<dyn Fn(i32, i32) -> f32> = Box::new(height_at);
@@ -382,7 +416,9 @@ mod tests {
             slope_at: slope_leak,
             bounds,
             grounding_tolerance: 0.5,
-        biome_at: None,        hazard_at: None,        }
+            biome_at: None,
+            hazard_at: None,
+        }
     }
 
     fn tree_desc() -> ObjectDescriptor {
@@ -422,7 +458,9 @@ phase = "vegetation"
             slope_at: &|_, _| 0.0,
             bounds: (0, 0, 100, 100),
             grounding_tolerance: 0.5,
-        biome_at: None,        hazard_at: None,        };
+            biome_at: None,
+            hazard_at: None,
+        };
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         let r = check_hard(&desc, &fp, &c, &hard, &[]).unwrap_err();
         assert_eq!(r, RejectReason::InWater);
@@ -432,7 +470,12 @@ phase = "vegetation"
     fn reject_steep_slope() {
         let desc = tree_desc();
         let (hard, _) = compile(&desc);
-        let c = ctx(vec![(5, 5, 0.0)], vec![], vec![(5, 5, 40.0)], (0, 0, 100, 100));
+        let c = ctx(
+            vec![(5, 5, 0.0)],
+            vec![],
+            vec![(5, 5, 40.0)],
+            (0, 0, 100, 100),
+        );
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         let r = check_hard(&desc, &fp, &c, &hard, &[]).unwrap_err();
         assert!(matches!(r, RejectReason::SlopeTooHigh { .. }));
@@ -450,7 +493,7 @@ phase = "vegetation"
             cz: 5.0,
             half_w: 6.0,
             half_d: 5.0,
-        tags: vec![],
+            tags: vec![],
         }];
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
@@ -461,7 +504,12 @@ phase = "vegetation"
     fn accept_clear_position() {
         let desc = tree_desc();
         let (hard, _) = compile(&desc);
-        let c = ctx(vec![(5, 5, 0.0)], vec![], vec![(5, 5, 5.0)], (0, 0, 100, 100));
+        let c = ctx(
+            vec![(5, 5, 0.0)],
+            vec![],
+            vec![(5, 5, 5.0)],
+            (0, 0, 100, 100),
+        );
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         assert!(check_hard(&desc, &fp, &c, &hard, &[]).is_ok());
     }
@@ -509,8 +557,24 @@ phase = "functional"
         // The tree is just outside the storefront footprint (no geometry
         // collision) but inside the front anchor's clear radius.
         let placed = vec![
-            PlacedKind { id: None, kind: ItemKind::Road, cx: 50.0, cz: 44.0, half_w: 4.0, half_d: 4.0, tags: vec![] },
-            PlacedKind { id: None, kind: ItemKind::Tree, cx: 50.0, cz: 43.0, half_w: 1.0, half_d: 1.0, tags: vec![] },
+            PlacedKind {
+                id: None,
+                kind: ItemKind::Road,
+                cx: 50.0,
+                cz: 44.0,
+                half_w: 4.0,
+                half_d: 4.0,
+                tags: vec![],
+            },
+            PlacedKind {
+                id: None,
+                kind: ItemKind::Tree,
+                cx: 50.0,
+                cz: 43.0,
+                half_w: 1.0,
+                half_d: 1.0,
+                tags: vec![],
+            },
         ];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
@@ -523,12 +587,141 @@ phase = "functional"
         let (hard, _) = compile(&desc);
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // Road is behind (south), require passes but front must_face fails.
-        let placed = vec![
-            PlacedKind { id: None, kind: ItemKind::Road, cx: 50.0, cz: 58.0, half_w: 4.0, half_d: 4.0, tags: vec![] },
-        ];
+        let placed = vec![PlacedKind {
+            id: None,
+            kind: ItemKind::Road,
+            cx: 50.0,
+            cz: 58.0,
+            half_w: 4.0,
+            half_d: 4.0,
+            tags: vec![],
+        }];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
         assert!(matches!(r, RejectReason::BlockedEntrance { .. }));
+    }
+
+    #[test]
+    fn hard_and_soft_collision_is_symmetric() {
+        let building: ObjectDescriptor = toml::from_str(
+            r#"
+id = "building"
+kind = "building"
+[geometry]
+footprint = [8.0, 8.0]
+height = 4.0
+[placement]
+phase = "building"
+"#,
+        )
+        .unwrap();
+        let tree: ObjectDescriptor = toml::from_str(
+            r#"
+id = "tree"
+kind = "tree"
+[geometry]
+footprint = [4.0, 4.0]
+height = 8.0
+[placement]
+phase = "vegetation"
+"#,
+        )
+        .unwrap();
+        let ctx = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
+        let building_fp = Footprint::from_descriptor(&building, 50.0, 50.0);
+        let tree_fp = Footprint::from_descriptor(&tree, 50.0, 50.0);
+        let building_placed = PlacedKind {
+            id: Some("building-1".into()),
+            kind: ItemKind::Building,
+            cx: 50.0,
+            cz: 50.0,
+            half_w: building_fp.half_w,
+            half_d: building_fp.half_d,
+            tags: vec![],
+        };
+        let tree_placed = PlacedKind {
+            id: Some("tree-1".into()),
+            kind: ItemKind::Tree,
+            cx: 50.0,
+            cz: 50.0,
+            half_w: tree_fp.half_w,
+            half_d: tree_fp.half_d,
+            tags: vec!["flammable".into()],
+        };
+        let (building_hard, _) = compile(&building);
+        let (tree_hard, _) = compile(&tree);
+        assert!(matches!(
+            check_hard(&building, &building_fp, &ctx, &building_hard, &[tree_placed.clone()]),
+            Err(RejectReason::GeometryCollision { conflict_id: Some(id), .. }) if id == "tree-1"
+        ));
+        assert!(matches!(
+            check_hard(&tree, &tree_fp, &ctx, &tree_hard, &[building_placed]),
+            Err(RejectReason::GeometryCollision { conflict_id: Some(id), .. }) if id == "building-1"
+        ));
+    }
+
+    #[test]
+    fn avoid_tag_and_footprint_biome_are_enforced() {
+        let desc: ObjectDescriptor = toml::from_str(
+            r#"
+id = "tagged_tree"
+kind = "tree"
+[geometry]
+footprint = [4.0, 4.0]
+height = 8.0
+[environment]
+allowed_biomes = ["grassland"]
+[[relations.avoid_tag]]
+tag = "flammable"
+distance = 0.0
+[placement]
+phase = "vegetation"
+"#,
+        )
+        .unwrap();
+        let (hard, _) = compile(&desc);
+        let context = PlacementContext {
+            height_at: &|_, _| 0.0,
+            water_level: &|_, _| None,
+            slope_at: &|_, _| 0.0,
+            bounds: (0, 0, 100, 100),
+            grounding_tolerance: 0.5,
+            biome_at: Some(&|x, _| {
+                if x > 50 {
+                    super::super::schema::Biome::Desert
+                } else {
+                    super::super::schema::Biome::Grassland
+                }
+            }),
+            hazard_at: None,
+        };
+        let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
+        assert!(matches!(
+            check_hard(&desc, &fp, &context, &hard, &[]),
+            Err(RejectReason::ForbiddenBiome { .. })
+        ));
+        let safe_context = PlacementContext {
+            height_at: &|_, _| 0.0,
+            water_level: &|_, _| None,
+            slope_at: &|_, _| 0.0,
+            bounds: (0, 0, 100, 100),
+            grounding_tolerance: 0.5,
+            biome_at: Some(&|_, _| super::super::schema::Biome::Grassland),
+            hazard_at: None,
+        };
+        let tagged = PlacedKind {
+            id: Some("tree-2".into()),
+            kind: ItemKind::Tree,
+            cx: 50.0,
+            cz: 50.0,
+            half_w: 2.0,
+            half_d: 2.0,
+            tags: vec!["flammable".into()],
+        };
+        assert!(matches!(
+            check_hard(&desc, &fp, &safe_context, &hard, &[tagged]),
+            Err(RejectReason::GeometryCollision { conflict_id: Some(id), .. }) if id == "tree-2"
+        ));
     }
 
     #[test]
@@ -544,15 +737,9 @@ phase = "functional"
             cz: 44.0,
             half_w: 4.0,
             half_d: 4.0,
-        tags: vec![],
+            tags: vec![],
         }];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         assert!(check_hard(&desc, &fp, &c, &hard, &placed).is_ok());
     }
 }
-
-
-
-
-
-

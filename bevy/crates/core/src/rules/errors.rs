@@ -4,7 +4,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use super::schema::ItemKind;
+use super::schema::{Biome, HazardKind, ItemKind};
 
 /// Errors while loading / validating an object descriptor file.
 #[derive(Debug, Error)]
@@ -31,17 +31,29 @@ pub enum RuleLoadError {
 pub enum RejectReason {
     OutOfBounds,
     InWater,
-    ForbiddenHazard,
+    ForbiddenBiome {
+        biome: Biome,
+    },
+    ForbiddenHazard {
+        hazard: HazardKind,
+    },
     /// slope in metres/100m, max in metres/100m.
-    SlopeTooHigh { slope: f32, max: f32 },
+    SlopeTooHigh {
+        slope: f32,
+        max: f32,
+    },
     ReservationConflict,
     GeometryCollision {
         conflict_kind: ItemKind,
         #[serde(skip_serializing_if = "Option::is_none")]
         conflict_id: Option<String>,
     },
-    MissingRequiredRelation { kind: ItemKind },
-    BlockedEntrance { anchor: String },
+    MissingRequiredRelation {
+        kind: ItemKind,
+    },
+    BlockedEntrance {
+        anchor: String,
+    },
     NotGrounded,
     DisconnectedAccess,
 }
@@ -59,7 +71,8 @@ impl std::fmt::Display for RejectReason {
         match self {
             RejectReason::OutOfBounds => write!(f, "out of bounds"),
             RejectReason::InWater => write!(f, "in water"),
-            RejectReason::ForbiddenHazard => write!(f, "forbidden hazard"),
+            RejectReason::ForbiddenBiome { biome } => write!(f, "forbidden biome {biome:?}"),
+            RejectReason::ForbiddenHazard { hazard } => write!(f, "forbidden hazard {hazard:?}"),
             RejectReason::SlopeTooHigh { slope, max } => {
                 write!(f, "slope {slope}% > max {max}%")
             }
@@ -111,9 +124,7 @@ pub struct PlacementOutcome {
 
 impl PlacementOutcome {
     pub fn is_clean(&self) -> bool {
-        self.rejected
-            .iter()
-            .all(|r| !is_severe_reason(&r.reason))
+        self.rejected.iter().all(|r| !is_severe_reason(&r.reason))
     }
 }
 
@@ -135,6 +146,10 @@ pub struct ValidationReport {
     pub roads: usize,
     pub floating_items: usize,
     pub submerged_items: usize,
+    pub forbidden_biomes: usize,
+    pub forbidden_hazards: usize,
+    pub slope_too_high: usize,
+    pub out_of_bounds: usize,
     pub blocked_entrances: usize,
     pub geometry_collisions: usize,
     pub disconnected_roads: usize,
@@ -166,16 +181,18 @@ impl ValidationReport {
     /// Increment the matching counter for a reject reason.
     pub fn count_reason(&mut self, reason: &RejectReason) {
         match reason {
-            RejectReason::InWater | RejectReason::ForbiddenHazard => self.submerged_items += 1,
+            RejectReason::InWater => self.submerged_items += 1,
+            RejectReason::ForbiddenBiome { .. } => self.forbidden_biomes += 1,
+            RejectReason::ForbiddenHazard { .. } => self.forbidden_hazards += 1,
             RejectReason::NotGrounded => self.floating_items += 1,
             RejectReason::BlockedEntrance { .. } => self.blocked_entrances += 1,
             RejectReason::GeometryCollision { .. } | RejectReason::ReservationConflict => {
                 self.geometry_collisions += 1;
             }
             RejectReason::DisconnectedAccess => self.disconnected_roads += 1,
-            RejectReason::OutOfBounds
-            | RejectReason::SlopeTooHigh { .. }
-            | RejectReason::MissingRequiredRelation { .. } => {}
+            RejectReason::OutOfBounds => self.out_of_bounds += 1,
+            RejectReason::SlopeTooHigh { .. } => self.slope_too_high += 1,
+            RejectReason::MissingRequiredRelation { .. } => {}
         }
     }
 }

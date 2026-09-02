@@ -1,4 +1,4 @@
-﻿//! Audit mode: run the rules engine over already-generated entities without
+//! Audit mode: run the rules engine over already-generated entities without
 //! changing their placement. Produces a `ValidationReport` so the generator
 //! can surface violations without yet switching to rule-driven placement.
 //!
@@ -11,13 +11,21 @@ use super::constraint::compile;
 use super::errors::{RejectRecord, ValidationReport};
 use super::loader::ObjectRegistry;
 use super::schema::ItemKind;
-use super::validator::{check_hard, Footprint, PlacementContext, PlacedKind};
+use super::validator::{Footprint, PlacedKind, PlacementContext, check_hard};
 use crate::worldgen::EntityInstance;
 
 /// Convert an existing entity into the rules engine's placed-item shape.
 /// Uses the entity's own kind string 鈫?ItemKind (best effort; unknown kinds
 /// become `Other` and are skipped by audits that only care about real items).
 pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
+    entity_to_placed_with_descriptor(e, None)
+}
+
+fn entity_to_placed_with_descriptor(
+    e: &EntityInstance,
+    descriptor: Option<&super::schema::ObjectDescriptor>,
+) -> PlacedKind {
+    let clearance = descriptor.map(|d| d.geometry.clearance).unwrap_or(0.0);
     PlacedKind {
         id: if e.entity_id.is_empty() {
             None
@@ -27,9 +35,16 @@ pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
         kind: kind_from_str(&e.kind),
         cx: e.world_x as f32,
         cz: e.world_z as f32,
-        half_w: e.width_m * 0.5 + e.height_m * 0.0, // footprint half-width
-        half_d: e.depth_m * 0.5,
-        tags: Vec::new(),
+        half_w: e.width_m * 0.5 + clearance,
+        half_d: e.depth_m * 0.5 + clearance,
+        tags: descriptor.map(|d| d.tags.clone()).unwrap_or_default(),
+    }
+}
+
+fn conflict_id(reason: &super::errors::RejectReason) -> Option<String> {
+    match reason {
+        super::errors::RejectReason::GeometryCollision { conflict_id, .. } => conflict_id.clone(),
+        _ => None,
     }
 }
 
@@ -39,12 +54,24 @@ pub fn kind_from_str(kind: &str) -> super::schema::ItemKind {
     match kind {
         "road" => ItemKind::Road,
         "railway" => ItemKind::Railway,
-        "building" | "building_tower" | "building_cluster" | "urban_building"
-        | "residential_block" | "residential_tower" | "residential_home" | "resort_lodge"
-        | "commercial_center" | "entertainment_center" | "school" | "town_hall" | "market"
-        | "industrial" | "temple" | "church" | "parking_lot" | "green_space" => {
-            ItemKind::Building
-        }
+        "building"
+        | "building_tower"
+        | "building_cluster"
+        | "urban_building"
+        | "residential_block"
+        | "residential_tower"
+        | "residential_home"
+        | "resort_lodge"
+        | "commercial_center"
+        | "entertainment_center"
+        | "school"
+        | "town_hall"
+        | "market"
+        | "industrial"
+        | "temple"
+        | "church"
+        | "parking_lot"
+        | "green_space" => ItemKind::Building,
         "storefront" => ItemKind::Storefront,
         "tree" => ItemKind::Tree,
         "rock" => ItemKind::Rock,
@@ -73,10 +100,14 @@ pub fn audit_entities(
     let mut report = ValidationReport::default();
     report.seed = seed;
 
-    // Build the placed list once (all entities are "already placed").
-    let placed: Vec<PlacedKind> = entities.iter().map(entity_to_placed).collect();
+    // Build the placed list once (all entities are "already placed"). Each
+    // record inherits the matching descriptor's effective clearance and tags so
+    // audit mode evaluates AvoidTag and collision margins the same way as placement.
+    let placed: Vec<PlacedKind> = entities
+        .iter()
+        .map(|entity| entity_to_placed_with_descriptor(entity, descriptor_for(descriptors, entity)))
+        .collect();
 
-    // Index placed entities by kind for relation queries.
     let all_placed = placed.clone();
 
     for (idx, e) in entities.iter().enumerate() {
@@ -113,9 +144,7 @@ pub fn audit_entities(
             .iter()
             .enumerate()
             .filter(|(i, p)| {
-                *i != idx
-                    && !(p.id.is_some()
-                        && p.id.as_deref() == Some(e.entity_id.as_str()))
+                *i != idx && !(p.id.is_some() && p.id.as_deref() == Some(e.entity_id.as_str()))
             })
             .map(|(_, p)| p.clone())
             .collect();
@@ -128,7 +157,7 @@ pub fn audit_entities(
                 candidate_x: e.world_x,
                 candidate_z: e.world_z,
                 reason: reason.to_string(),
-                conflict_with: None,
+                conflict_with: conflict_id(&reason),
                 rule: format!("{}.object.toml", desc.id),
             });
             continue;
@@ -169,7 +198,9 @@ mod tests {
             slope_at: slope,
             bounds,
             grounding_tolerance: 0.5,
-        biome_at: None,        hazard_at: None,        }
+            biome_at: None,
+            hazard_at: None,
+        }
     }
 
     #[test]
@@ -191,4 +222,3 @@ mod tests {
         assert!(r.geometry_collisions == 0);
     }
 }
-

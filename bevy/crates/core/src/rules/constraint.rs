@@ -10,11 +10,25 @@ pub enum Constraint {
     OnGround,
     NotInWater,
     MaxSlope(f32),
-    AvoidKind { kind: ItemKind, distance: f32 },
-    AvoidTag { tag: String, distance: f32 },
-    RequireNear { kind: ItemKind, distance: f32 },
+    AvoidKind {
+        kind: ItemKind,
+        distance: f32,
+    },
+    AvoidTag {
+        tag: String,
+        distance: f32,
+    },
+    RequireNear {
+        kind: ItemKind,
+        distance: f32,
+    },
     /// A public-access anchor that must keep a clear zone and face a target.
-    ClearAnchor { anchor: String, side: String, radius: f32, must_face: Option<String> },
+    ClearAnchor {
+        anchor: String,
+        side: String,
+        radius: f32,
+        must_face: Option<String>,
+    },
     /// Default geometry collision: an object must not overlap ANY other
     /// placed object (compiled for every descriptor, not just when an
     /// `avoid` rule is written). `avoid` adds extra distance margins.
@@ -22,7 +36,11 @@ pub enum Constraint {
     AllowedBiome(Vec<super::schema::Biome>),
     ForbiddenHazard(Vec<super::schema::HazardKind>),
     /// Soft scoring term (never rejects).
-    PreferNear { kind: ItemKind, distance: f32, weight: f32 },
+    PreferNear {
+        kind: ItemKind,
+        distance: f32,
+        weight: f32,
+    },
 }
 
 /// Compile a descriptor into (hard constraints, soft preferences).
@@ -43,14 +61,24 @@ pub fn compile(desc: &ObjectDescriptor) -> (Vec<Constraint>, Vec<Constraint>) {
         hard.push(Constraint::MaxSlope(desc.environment.max_slope));
     }
     if !desc.environment.allowed_biomes.is_empty() {
-        hard.push(Constraint::AllowedBiome(desc.environment.allowed_biomes.clone()));
+        hard.push(Constraint::AllowedBiome(
+            desc.environment.allowed_biomes.clone(),
+        ));
     }
     if !desc.environment.forbidden_hazards.is_empty() {
-        hard.push(Constraint::ForbiddenHazard(desc.environment.forbidden_hazards.clone()));
+        hard.push(Constraint::ForbiddenHazard(
+            desc.environment.forbidden_hazards.clone(),
+        ));
     }
     for r in &desc.relations.avoid {
         hard.push(Constraint::AvoidKind {
             kind: r.kind,
+            distance: r.distance,
+        });
+    }
+    for r in &desc.relations.avoid_tags {
+        hard.push(Constraint::AvoidTag {
+            tag: r.tag.clone(),
             distance: r.distance,
         });
     }

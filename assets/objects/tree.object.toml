@@ -4,7 +4,7 @@
 id = "tree_common"
 kind = "tree"
 tags = ["vegetation", "flammable"]
-asset = "assets/vegetation/tree_common.glb"
+# Runtime vegetation is procedural in the current renderer; no standalone GLB is required.
 
 [geometry]
 footprint = [4.0, 4.0]      # 树冠直径 ~4m

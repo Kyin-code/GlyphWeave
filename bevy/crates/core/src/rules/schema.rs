@@ -1,4 +1,4 @@
-﻿//! Strongly-typed object descriptor schema (TOML/JSON 鈫?Rust).
+//! Strongly-typed object descriptor schema (TOML/JSON 鈫?Rust).
 //!
 //! Design doc: docs/rules-engine-mvp.zh-CN.md 搂3.
 //! Every object in the world is described declaratively; the placement
@@ -71,7 +71,7 @@ pub enum RotationMode {
 }
 
 /// Biome membership (subset 鈥?extend as the generator grows).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Biome {
     Grassland,
@@ -84,7 +84,7 @@ pub enum Biome {
 }
 
 /// Hazards that forbid placement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HazardKind {
     Cliff,
@@ -177,6 +177,15 @@ pub struct RelationAvoid {
     pub distance: f32,
 }
 
+/// A "must keep away from semantic tag X by distance D" relation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationAvoidTag {
+    pub tag: String,
+    #[serde(default)]
+    pub distance: f32,
+}
+
 /// A "must / like to be near kind X within distance D" relation.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -193,6 +202,10 @@ pub struct RelationNear {
 pub struct RelationSpec {
     #[serde(default)]
     pub avoid: Vec<RelationAvoid>,
+    /// Tag-level hard avoidance. Accept the singular table spelling too for
+    /// ergonomic TOML: [[relations.avoid_tag]].
+    #[serde(default, alias = "avoid_tag")]
+    pub avoid_tags: Vec<RelationAvoidTag>,
     #[serde(default)]
     pub require: Vec<RelationNear>,
     #[serde(default)]
@@ -392,6 +405,3 @@ priority = 30
         assert!(!ItemKind::Rock.is_hard());
     }
 }
-
-
-

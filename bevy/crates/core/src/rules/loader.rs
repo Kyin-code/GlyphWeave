@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::errors::RuleLoadError;
-use super::schema::{Fallback, ItemKind, ObjectDescriptor, PlacementPhase};
+use super::schema::{Fallback, ItemKind, ObjectDescriptor, PlacementPhase, descriptor_kind_str};
 
 /// Validate a parsed descriptor for schema-level sanity. Returns a list of
 /// human-readable problems (empty = valid).
@@ -44,29 +44,61 @@ pub fn validate_descriptor(d: &ObjectDescriptor) -> Vec<String> {
     // Relation distance / weight sanity.
     for r in &d.relations.avoid {
         if r.distance < 0.0 {
-            problems.push(format!("relations.avoid {}: distance must be >= 0", r.kind as u8));
+            problems.push(format!(
+                "relations.avoid {}: distance must be >= 0",
+                r.kind as u8
+            ));
         }
         if !finite(r.distance) {
-            problems.push(format!("relations.avoid {}: distance must be finite", r.kind as u8));
+            problems.push(format!(
+                "relations.avoid {}: distance must be finite",
+                r.kind as u8
+            ));
+        }
+    }
+    for r in &d.relations.avoid_tags {
+        if r.tag.trim().is_empty() {
+            problems.push("relations.avoid_tags: tag must not be empty".into());
+        }
+        if r.distance < 0.0 || !finite(r.distance) {
+            problems.push(format!(
+                "relations.avoid_tags {}: distance must be finite and >= 0",
+                r.tag
+            ));
         }
     }
     for r in &d.relations.require {
         if r.distance < 0.0 {
-            problems.push(format!("relations.require {}: distance must be >= 0", r.kind as u8));
+            problems.push(format!(
+                "relations.require {}: distance must be >= 0",
+                r.kind as u8
+            ));
         }
         if !finite(r.distance) {
-            problems.push(format!("relations.require {}: distance must be finite", r.kind as u8));
+            problems.push(format!(
+                "relations.require {}: distance must be finite",
+                r.kind as u8
+            ));
         }
     }
     for r in &d.relations.prefer {
         if r.distance < 0.0 {
-            problems.push(format!("relations.prefer {}: distance must be >= 0", r.kind as u8));
+            problems.push(format!(
+                "relations.prefer {}: distance must be >= 0",
+                r.kind as u8
+            ));
         }
         if !finite(r.distance) {
-            problems.push(format!("relations.prefer {}: distance must be finite", r.kind as u8));
+            problems.push(format!(
+                "relations.prefer {}: distance must be finite",
+                r.kind as u8
+            ));
         }
         if !finite(r.weight) || !(0.0..=10.0).contains(&r.weight) {
-            problems.push(format!("relations.prefer {}: weight must be finite and in [0,10]", r.kind as u8));
+            problems.push(format!(
+                "relations.prefer {}: weight must be finite and in [0,10]",
+                r.kind as u8
+            ));
         }
     }
     // Anchor sanity: non-empty id, valid side, no duplicate ids, finite radius.
@@ -106,11 +138,10 @@ pub fn validate_descriptor(d: &ObjectDescriptor) -> Vec<String> {
 
 /// Parse a descriptor from a TOML string and run schema validation.
 pub fn parse_descriptor(toml_str: &str, source: &str) -> Result<ObjectDescriptor, RuleLoadError> {
-    let d: ObjectDescriptor =
-        toml::from_str(toml_str).map_err(|e| RuleLoadError::Toml {
-            path: source.to_string(),
-            source: e,
-        })?;
+    let d: ObjectDescriptor = toml::from_str(toml_str).map_err(|e| RuleLoadError::Toml {
+        path: source.to_string(),
+        source: e,
+    })?;
     let problems = validate_descriptor(&d);
     if !problems.is_empty() {
         return Err(RuleLoadError::Schema {
@@ -153,7 +184,11 @@ pub fn load_dir(dir: &Path) -> Result<HashMap<String, ObjectDescriptor>, RuleLoa
             source: e,
         })?;
         let p = entry.path();
-        if p.extension().map(|e| e == "toml").unwrap_or(false) {
+        if p.file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.ends_with(".object.toml"))
+            .unwrap_or(false)
+        {
             let d = load_descriptor(&p)?;
             if out.contains_key(&d.id) {
                 return Err(RuleLoadError::Schema {
@@ -173,6 +208,26 @@ pub fn load_dir(dir: &Path) -> Result<HashMap<String, ObjectDescriptor>, RuleLoa
             ),
         });
     }
+    let mut owners: HashMap<String, String> = HashMap::new();
+    for descriptor in out.values() {
+        let mut targets = vec![descriptor.id.clone()];
+        if let Some(kind) = descriptor_kind_str(descriptor.kind) {
+            targets.push(kind.to_string());
+        }
+        targets.extend(descriptor.applies_to.iter().cloned());
+        for target in targets {
+            if let Some(previous) = owners.insert(target.clone(), descriptor.id.clone()) {
+                if previous != descriptor.id {
+                    return Err(RuleLoadError::Schema {
+                        id: descriptor.id.clone(),
+                        message: format!(
+                            "entity kind alias '{target}' is also claimed by descriptor '{previous}'"
+                        ),
+                    });
+                }
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -191,10 +246,7 @@ impl ObjectRegistry {
 
     /// Load a rules dir AND verify every non-empty `asset` path exists under
     /// `asset_root`. A descriptor referencing a missing asset is an error.
-    pub fn load_dir_with_assets(
-        dir: &Path,
-        asset_root: &Path,
-    ) -> Result<Self, RuleLoadError> {
+    pub fn load_dir_with_assets(dir: &Path, asset_root: &Path) -> Result<Self, RuleLoadError> {
         let descriptors = load_dir(dir)?;
         for (id, d) in &descriptors {
             if d.asset.is_empty() {

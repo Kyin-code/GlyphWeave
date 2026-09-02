@@ -7,6 +7,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
+use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
 use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
 use glyphweave_core::storage::bitpack::unpack_indices;
 use glyphweave_core::storage::canonical::chunk_id;
@@ -21,7 +22,6 @@ use glyphweave_core::worldgen::{
     LandUseProfile, SceneIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
     audit_scene, bake_world, water_geometry, write_demo_manifest,
 };
-use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
 const DEFAULT_DUMP_LIMIT: usize = 64;
@@ -825,7 +825,8 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                     // Use the style asset contract range when present (GIS /
                     // authored trees may legitimately differ from the
                     // procedural default), else fall back to defaults.
-                    let (w_lo, w_hi, h_lo, h_hi) = contract_limits(contracts, "tree", 2.0, 5.5, 4.0, 9.0);
+                    let (w_lo, w_hi, h_lo, h_hi) =
+                        contract_limits(contracts, "tree", 2.0, 5.5, 4.0, 9.0);
                     if !(w_lo..=w_hi).contains(&entity.width_m)
                         || !(h_lo..=h_hi).contains(&entity.height_m)
                     {
@@ -838,7 +839,8 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                 "building" => {
                     // Real footprints (GIS) span far wider than the procedural
                     // default; honour the style asset contract when declared.
-                    let (w_lo, w_hi, h_lo, h_hi) = contract_limits(contracts, "building", 8.0, 30.0, 8.0, 24.0);
+                    let (w_lo, w_hi, h_lo, h_hi) =
+                        contract_limits(contracts, "building", 8.0, 30.0, 8.0, 24.0);
                     if !(w_lo..=w_hi).contains(&entity.width_m)
                         || !(h_lo..=h_hi).contains(&entity.height_m)
                     {
@@ -1380,7 +1382,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             let dir = args.get(1).ok_or("rules list requires DIR")?;
             let registry = ObjectRegistry::load_dir(Path::new(dir))?;
             for (id, desc) in &registry.descriptors {
-                println!("{id:<20} kind={:?} phase={:?} p={}", desc.kind, desc.placement.phase, desc.placement.priority);
+                println!(
+                    "{id:<20} kind={:?} phase={:?} p={}",
+                    desc.kind, desc.placement.phase, desc.placement.priority
+                );
             }
             println!("total: {}", registry.descriptors.len());
             Ok(())
@@ -1401,9 +1406,14 @@ fn rules_command(args: &[String]) -> CliResult<()> {
         // Verify every non-empty `asset` path in the descriptors exists.
         "check-assets" => {
             let dir = args.get(1).ok_or("rules check-assets requires DIR")?;
-            let root = args.get(2).ok_or("rules check-assets requires ASSET_ROOT")?;
+            let root = args
+                .get(2)
+                .ok_or("rules check-assets requires ASSET_ROOT")?;
             let registry = ObjectRegistry::load_dir_with_assets(Path::new(dir), Path::new(root))?;
-            println!("validated {} object(s) with assets under {root}", registry.descriptors.len());
+            println!(
+                "validated {} object(s) with assets under {root}",
+                registry.descriptors.len()
+            );
             Ok(())
         }
         // glyphweave rules audit WORLD_DIR [--rules DIR] [--report PATH]
@@ -1432,7 +1442,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             let mut unruled: Vec<String> = Vec::new();
             let mut checked = 0usize;
             for scene in &manifest.scenes {
-                let scene_json = world_dir.join("scenes").join(&scene.scene_id).join("scene.json");
+                let scene_json = world_dir
+                    .join("scenes")
+                    .join(&scene.scene_id)
+                    .join("scene.json");
                 let index: SceneIndex = serde_json::from_slice(&fs::read(&scene_json)?)?;
                 let landmarks: Vec<_> = manifest
                     .landmarks
@@ -1449,7 +1462,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 // Load the baked heightfield for this scene into a query map.
                 let mut baked = BTreeMap::<i64, i16>::new();
                 for chunk in &index.chunks {
-                    let hfile = world_dir.join("scenes").join(&scene.scene_id).join(&chunk.height_file);
+                    let hfile = world_dir
+                        .join("scenes")
+                        .join(&scene.scene_id)
+                        .join(&chunk.height_file);
                     let bytes = fs::read(&hfile)?;
                     let width = chunk.valid_width_m as usize;
                     let depth = chunk.valid_depth_m as usize;
@@ -1505,6 +1521,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 total.roads += report.roads;
                 total.floating_items += report.floating_items;
                 total.submerged_items += report.submerged_items;
+                total.forbidden_biomes += report.forbidden_biomes;
+                total.forbidden_hazards += report.forbidden_hazards;
+                total.slope_too_high += report.slope_too_high;
+                total.out_of_bounds += report.out_of_bounds;
                 total.blocked_entrances += report.blocked_entrances;
                 total.geometry_collisions += report.geometry_collisions;
                 total.disconnected_roads += report.disconnected_roads;
@@ -1518,12 +1538,9 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             total.seed = manifest.world.seed;
             total.checked_items = checked;
             total.unruled_items = unruled.clone();
-            fs::write(
-                &report_path,
-                serde_json::to_vec_pretty(&total)?,
-            )?;
+            fs::write(&report_path, serde_json::to_vec_pretty(&total)?)?;
             println!(
-                "audited {} scene(s); checked={} passed={} rejected={} buildings={} roads={} floating={} submerged={} blocked_entrances={} collisions={} disconnected={} unruled={}; report={}",
+                "audited {} scene(s); checked={} passed={} rejected={} buildings={} roads={} floating={} submerged={} biome={} hazards={} slope={} out_of_bounds={} blocked_entrances={} collisions={} disconnected={} unruled={}; report={}",
                 manifest.scenes.len(),
                 checked,
                 total.passed_items,
@@ -1532,6 +1549,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 total.roads,
                 total.floating_items,
                 total.submerged_items,
+                total.forbidden_biomes,
+                total.forbidden_hazards,
+                total.slope_too_high,
+                total.out_of_bounds,
                 total.blocked_entrances,
                 total.geometry_collisions,
                 total.disconnected_roads,
@@ -1539,7 +1560,10 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                 report_path.display(),
             );
             if !unruled.is_empty() {
-                eprintln!("warn: {} entities had no matching rule (unruled)", unruled.len());
+                eprintln!(
+                    "warn: {} entities had no matching rule (unruled)",
+                    unruled.len()
+                );
             }
             Ok(())
         }
