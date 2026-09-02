@@ -1566,6 +1566,7 @@ fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
         preview.join("app.js"),
         include_str!("../../../../adapters/html/app.js"),
     )?;
+    write_html_preview_modules(&preview)?;
     fs::write(
         godot.join("project.godot"),
         include_str!("../../../../adapters/godot/project.godot"),
@@ -1579,6 +1580,183 @@ fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
         include_str!("../../../../adapters/godot/main.gd"),
     )?;
     write_preview_assets(output)?;
+    Ok(())
+}
+
+fn write_html_preview_modules(preview: &Path) -> WorldgenResult<()> {
+    // The generated preview is a standalone static adapter. Copy its complete
+    // ES-module dependency tree rather than only app.js; otherwise browsers
+    // load the shell but fail before rendering on missing ./core and ./render
+    // imports. Three.js is vendored so the exported world works offline.
+    let files: &[(&str, &[u8])] = &[
+        (
+            "core/camera.js",
+            include_bytes!("../../../../adapters/html/core/camera.js"),
+        ),
+        (
+            "core/shared.js",
+            include_bytes!("../../../../adapters/html/core/shared.js"),
+        ),
+        (
+            "core/state.js",
+            include_bytes!("../../../../adapters/html/core/state.js"),
+        ),
+        (
+            "core/three.js",
+            include_bytes!("../../../../adapters/html/core/three.js"),
+        ),
+        (
+            "core/world.js",
+            include_bytes!("../../../../adapters/html/core/world.js"),
+        ),
+        (
+            "render/buildings.js",
+            include_bytes!("../../../../adapters/html/render/buildings.js"),
+        ),
+        (
+            "render/grass.js",
+            include_bytes!("../../../../adapters/html/render/grass.js"),
+        ),
+        (
+            "render/postfx.js",
+            include_bytes!("../../../../adapters/html/render/postfx.js"),
+        ),
+        (
+            "render/props.js",
+            include_bytes!("../../../../adapters/html/render/props.js"),
+        ),
+        (
+            "render/sky.js",
+            include_bytes!("../../../../adapters/html/render/sky.js"),
+        ),
+        (
+            "render/terrain.js",
+            include_bytes!("../../../../adapters/html/render/terrain.js"),
+        ),
+        (
+            "render/vegetation.js",
+            include_bytes!("../../../../adapters/html/render/vegetation.js"),
+        ),
+        (
+            "render/water.js",
+            include_bytes!("../../../../adapters/html/render/water.js"),
+        ),
+        (
+            "render/presets/materials.js",
+            include_bytes!("../../../../adapters/html/render/presets/materials.js"),
+        ),
+        (
+            "vendor/three/build/three.core.js",
+            include_bytes!("../../../../adapters/html/vendor/three/build/three.core.js"),
+        ),
+        (
+            "vendor/three/build/three.module.js",
+            include_bytes!("../../../../adapters/html/vendor/three/build/three.module.js"),
+        ),
+        (
+            "vendor/three/examples/jsm/controls/OrbitControls.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/controls/OrbitControls.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/loaders/GLTFLoader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/loaders/GLTFLoader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/loaders/OBJLoader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/loaders/OBJLoader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/BokehPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/BokehPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/EffectComposer.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/EffectComposer.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/MaskPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/MaskPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/OutputPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/OutputPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/Pass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/Pass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/RenderPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/RenderPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/ShaderPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/ShaderPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/postprocessing/UnrealBloomPass.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/postprocessing/UnrealBloomPass.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/shaders/BokehShader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/shaders/BokehShader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/shaders/CopyShader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/shaders/CopyShader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/shaders/LuminosityHighPassShader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/shaders/LuminosityHighPassShader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/shaders/OutputShader.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/shaders/OutputShader.js"
+            ),
+        ),
+        (
+            "vendor/three/examples/jsm/utils/BufferGeometryUtils.js",
+            include_bytes!(
+                "../../../../adapters/html/vendor/three/examples/jsm/utils/BufferGeometryUtils.js"
+            ),
+        ),
+    ];
+    for (relative, data) in files {
+        let path = preview.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, data)?;
+    }
     Ok(())
 }
 
@@ -5624,6 +5802,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn exported_preview_contains_all_static_module_dependencies() {
+        let root =
+            std::env::temp_dir().join(format!("glyphweave-preview-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        write_adapter_templates(&root).expect("preview templates should export");
+        for relative in [
+            "preview/index.html",
+            "preview/app.js",
+            "preview/core/shared.js",
+            "preview/render/terrain.js",
+            "preview/vendor/three/build/three.module.js",
+            "preview/vendor/three/examples/jsm/loaders/GLTFLoader.js",
+        ] {
+            assert!(
+                root.join(relative).is_file(),
+                "missing preview file: {relative}"
+            );
+        }
+        std::fs::remove_dir_all(root).expect("test preview directory should be removable");
     }
 
     #[test]
