@@ -2252,7 +2252,156 @@ fn generate_entities_with_profile(
             append_natural_content(seed, scene, &mut entities);
         }
     }
+    // rulesMode = "rules": the declarative rules engine drives final placement.
+    // The template generator still proposes positions, but every proposed
+    // entity is re-validated by place_all(): violations are retried (move /
+    // rotation) or dropped, never force-placed. Legacy mode (default) keeps
+    // the existing post-hoc retain filters for A/B comparison.
+    let rules_mode = style
+        .get("rulesMode")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("legacy");
+    if rules_mode == "rules" {
+        entities = apply_rules_mode(seed, scene, geometry, style, entities);
+    }
     entities
+}
+
+/// Re-validate / re-place the template-generated entities through the rules
+/// engine. Each proposed entity becomes a PlacementRequest; `place_all` keeps
+/// only positions that pass every hard constraint (same-kind collision, water,
+/// slope, ground, entrance, biome/hazard), retrying with `move` when enabled.
+/// Returns the rule-accepted entities (the rule-clean subset).
+fn apply_rules_mode(
+    seed: u64,
+    scene: &SceneSpec,
+    water: WaterGeometry,
+    style: &serde_json::Value,
+    proposed: Vec<EntityInstance>,
+) -> Vec<EntityInstance> {
+    // Object rules location: <repo>/assets/objects (resolved from the caller).
+    let rules_dir = rules_dir_from_style(style);
+    let Ok(registry) = crate::rules::ObjectRegistry::load_dir(&rules_dir) else {
+        // No rules available → fall back to the proposed entities unchanged
+        // (audit already reports this gap; do not silently drop everything).
+        return proposed;
+    };
+
+    let ctx = rules_placement_context(seed, scene, water);
+    // Every proposed entity that has a matching descriptor becomes one request.
+    // Entities without a descriptor (landmarks, water bodies) pass through.
+    let mut requests = Vec::new();
+    let mut passthrough = Vec::new();
+    for e in proposed {
+        let desc = registry
+            .descriptors
+            .values()
+            .find(|d| d.matches_kind(&e.kind));
+        match desc {
+            Some(d) => requests.push(crate::rules::PlacementRequest {
+                descriptor_id: d.id.clone(),
+                x: e.world_x,
+                z: e.world_z,
+                count: 1,
+            }),
+            None => passthrough.push(e),
+        }
+    }
+
+    let outcome = crate::rules::place_all(&registry, &requests, &ctx, seed);
+    // Merge: rule-placed entities + descriptor-less passthrough.
+    let mut merged = outcome.placed;
+    merged.extend(passthrough);
+    merged
+}
+
+/// Resolve the object-rules directory: `style.rulesDir` if set, else the
+/// default `assets/objects` relative to the current directory.
+fn rules_dir_from_style(style: &serde_json::Value) -> std::path::PathBuf {
+    if let Some(dir) = style.get("rulesDir").and_then(serde_json::Value::as_str) {
+        return std::path::PathBuf::from(dir);
+    }
+    std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("assets")
+        .join("objects")
+}
+
+/// Build the rules PlacementContext for a scene (natural terrain queries).
+/// Closures are leaked to 'static so the context can be passed around freely
+/// (audit / place_all both take borrowed contexts).
+fn rules_placement_context(
+    seed: u64,
+    scene: &SceneSpec,
+    water: WaterGeometry,
+) -> crate::rules::PlacementContext<'static> {
+    let scene_w = scene.width_m;
+    let scene_d = scene.depth_m;
+    let natural_height = move |x: i32, z: i32| {
+        terrain_height(seed, x, z, WaterKind::None, scene_w, scene_d, 0.0) as f32 / 4.0
+    };
+    let height_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(natural_height));
+    let water_level = move |x: i32, z: i32| match water.kind {
+        WaterKind::None => None,
+        WaterKind::Lake => {
+            if lake_radius_at(x as f64, z as f64, water) < 1.0 {
+                Some(f32::MAX)
+            } else {
+                None
+            }
+        }
+        WaterKind::River => {
+            let half_width = river_half_width_at(
+                z as f64 - water.center_z + water.half_depth,
+                (water.half_depth * 2.0) as u32,
+                water.half_width,
+            );
+            if (x as f64 - water.center_x).abs() < half_width {
+                Some(f32::MAX)
+            } else {
+                None
+            }
+        }
+    };
+    let water_leak: &'static dyn Fn(i32, i32) -> Option<f32> = Box::leak(Box::new(water_level));
+    let slope_at = move |x: i32, z: i32| {
+        local_slope(seed, x, z, scene_w, scene_d, 8, 8) as f32
+    };
+    let slope_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(slope_at));
+    let biome_at = move |x: i32, z: i32| {
+        let h = humidity_field(seed, x, z, water);
+        if h > 0.55 {
+            crate::rules::Biome::Forest
+        } else if h < -0.2 {
+            crate::rules::Biome::Desert
+        } else {
+            crate::rules::Biome::Grassland
+        }
+    };
+    let biome_leak: &'static dyn Fn(i32, i32) -> crate::rules::Biome = Box::leak(Box::new(biome_at));
+    let hazard_at = move |x: i32, z: i32| {
+        if local_slope(seed, x, z, scene_w, scene_d, 8, 8) > 30.0 {
+            vec![crate::rules::HazardKind::Cliff]
+        } else {
+            Vec::new()
+        }
+    };
+    let hazard_leak: &'static dyn Fn(i32, i32) -> Vec<crate::rules::HazardKind> =
+        Box::leak(Box::new(hazard_at));
+    crate::rules::PlacementContext {
+        height_at: height_leak,
+        water_level: water_leak,
+        slope_at: slope_leak,
+        bounds: (
+            scene.origin_x,
+            scene.origin_z,
+            scene.origin_x + scene.width_m as i32,
+            scene.origin_z + scene.depth_m as i32,
+        ),
+        grounding_tolerance: 0.5,
+        biome_at: Some(biome_leak),
+        hazard_at: Some(hazard_leak),
+    }
 }
 
 /// Audit already-generated entities against the declarative rules engine
