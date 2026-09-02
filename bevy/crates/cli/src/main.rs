@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
+use glyphweave_core::intent::{IntentDraft, WorldIntent, draft_from_text};
 use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
 use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
 use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
@@ -84,6 +85,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "inspect" => inspect_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
         "rules" => rules_command(&args[1..]),
+        "intent" => intent_command(&args[1..]),
         "compact" => compact_command(&args[1..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -93,6 +95,77 @@ fn run(args: Vec<String>) -> CliResult<()> {
             print_usage();
             Err(format!("unknown command {other:?}").into())
         }
+    }
+}
+
+fn read_confirmed_intent(path: &Path) -> CliResult<WorldIntent> {
+    let bytes = fs::read(path)?;
+    if let Ok(draft) = serde_json::from_slice::<IntentDraft>(&bytes) {
+        if !draft.is_ready() {
+            return Err(format!(
+                "intent draft is incomplete: {}",
+                draft.missing_fields.join(", ")
+            )
+            .into());
+        }
+        return Ok(draft.intent.expect("ready draft has intent"));
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Deterministic intent tools are the contract boundary for an Agent: free
+/// text becomes a reviewable draft, then only a complete confirmed intent can
+/// compile into the generator's WorldManifest.
+fn intent_command(args: &[String]) -> CliResult<()> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err("intent requires draft | validate | compile".into());
+    };
+    match subcommand {
+        "draft" => {
+            if args.len() != 3 {
+                return Err("intent draft requires INPUT.txt OUTPUT.json".into());
+            }
+            let source = fs::read_to_string(&args[1])?;
+            let draft = draft_from_text(&source);
+            fs::write(&args[2], serde_json::to_vec_pretty(&draft)?)?;
+            println!(
+                "intent draft: ready={} recognized={} missing={}",
+                draft.is_ready(),
+                draft.recognized.len(),
+                draft.missing_fields.join(", ")
+            );
+            if !draft.is_ready() {
+                return Err(
+                    "intent draft is incomplete; resolve missingFields before compilation".into(),
+                );
+            }
+            Ok(())
+        }
+        "validate" => {
+            if args.len() != 2 {
+                return Err("intent validate requires INTENT.json".into());
+            }
+            let intent = read_confirmed_intent(Path::new(&args[1]))?;
+            let manifest = intent.compile_manifest();
+            manifest.validate()?;
+            println!(
+                "valid intent: {} {}x{}m",
+                intent.name, intent.scene.width_m, intent.scene.depth_m
+            );
+            Ok(())
+        }
+        "compile" => {
+            if args.len() != 3 {
+                return Err("intent compile requires INTENT.json MANIFEST.json".into());
+            }
+            let intent = read_confirmed_intent(Path::new(&args[1]))?;
+            let manifest = intent.compile_manifest();
+            manifest.validate()?;
+            fs::write(&args[2], serde_json::to_vec_pretty(&manifest)?)?;
+            println!("compiled intent into {}", args[2]);
+            Ok(())
+        }
+        _ => Err("intent requires draft | validate | compile".into()),
     }
 }
 

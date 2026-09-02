@@ -6,6 +6,7 @@ pub mod error;
 pub mod gameplay;
 #[cfg(test)]
 mod gemap;
+pub mod intent;
 pub mod layer;
 pub mod migration;
 pub mod rules;
