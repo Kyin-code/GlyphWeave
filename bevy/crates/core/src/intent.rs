@@ -6,12 +6,13 @@
 //! `WorldManifest` format consumed by the generator.
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::worldgen::{
     SceneGraph, SceneSpec, WORLD_FORMAT, WORLD_VERSION, WorldManifest, WorldSpec,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerrainIntent {
     Plain,
@@ -22,7 +23,7 @@ pub enum TerrainIntent {
     Mountain,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SettlementIntent {
     City,
@@ -31,7 +32,7 @@ pub enum SettlementIntent {
     Wilderness,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WaterIntent {
     None,
@@ -39,7 +40,7 @@ pub enum WaterIntent {
     Lake,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IntentScene {
     pub scene_id: String,
@@ -51,7 +52,7 @@ pub struct IntentScene {
     pub origin_z: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorldIntent {
     pub name: String,
@@ -62,7 +63,32 @@ pub struct WorldIntent {
     pub water: WaterIntent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum IntentValidationError {
+    #[error("intent name must not be empty")]
+    EmptyName,
+    #[error("intent scene_id must not be empty")]
+    EmptySceneId,
+    #[error(
+        "scene {scene_id:?} dimensions {width_m}x{depth_m}m are outside {min_m}m..{max_width_m}m by {min_m}m..{max_depth_m}m"
+    )]
+    InvalidSceneSize {
+        scene_id: String,
+        width_m: u32,
+        depth_m: u32,
+        min_m: u32,
+        max_width_m: u32,
+        max_depth_m: u32,
+    },
+    #[error("terrain {terrain:?} requires water intent {required:?}, got {actual:?}")]
+    WaterMismatch {
+        terrain: TerrainIntent,
+        required: WaterIntent,
+        actual: WaterIntent,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntentDraft {
     pub source_text: String,
@@ -254,6 +280,45 @@ pub fn draft_from_text(source_text: &str) -> IntentDraft {
 }
 
 impl WorldIntent {
+    /// Validate normalized intent before compiling it into a Manifest.
+    pub fn validate(&self) -> Result<(), IntentValidationError> {
+        if self.name.trim().is_empty() {
+            return Err(IntentValidationError::EmptyName);
+        }
+        if self.scene.scene_id.trim().is_empty() {
+            return Err(IntentValidationError::EmptySceneId);
+        }
+        if !(crate::worldgen::MIN_SCENE_METERS..=crate::worldgen::MAX_SCENE_WIDTH_METERS)
+            .contains(&self.scene.width_m)
+            || !(crate::worldgen::MIN_SCENE_METERS..=crate::worldgen::MAX_SCENE_DEPTH_METERS)
+                .contains(&self.scene.depth_m)
+        {
+            return Err(IntentValidationError::InvalidSceneSize {
+                scene_id: self.scene.scene_id.clone(),
+                width_m: self.scene.width_m,
+                depth_m: self.scene.depth_m,
+                min_m: crate::worldgen::MIN_SCENE_METERS,
+                max_width_m: crate::worldgen::MAX_SCENE_WIDTH_METERS,
+                max_depth_m: crate::worldgen::MAX_SCENE_DEPTH_METERS,
+            });
+        }
+        let required = match self.terrain {
+            TerrainIntent::River => Some(WaterIntent::River),
+            TerrainIntent::Lake => Some(WaterIntent::Lake),
+            _ => None,
+        };
+        if let Some(required) = required {
+            if self.water != required {
+                return Err(IntentValidationError::WaterMismatch {
+                    terrain: self.terrain.clone(),
+                    required,
+                    actual: self.water.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn compile_manifest(&self) -> WorldManifest {
         let (theme, natural_only, terrain_profile) = match (&self.terrain, &self.settlement) {
             (_, SettlementIntent::Wilderness) => ("temperate-plain", true, "grassland"),
@@ -337,6 +402,33 @@ mod tests {
         assert_eq!(manifest.world.name, "测试海湾");
         assert_eq!(manifest.scenes[0].width_m, 2_000);
         assert_eq!(manifest.style["water"]["waterType"], "river");
+    }
+
+    #[test]
+    fn intent_validation_rejects_out_of_bounds_or_incoherent_inputs() {
+        let mut intent = WorldIntent {
+            name: "bad".into(),
+            seed: 1,
+            scene: IntentScene {
+                scene_id: "scene-0".into(),
+                width_m: 500,
+                depth_m: 1_000,
+                origin_x: 0,
+                origin_z: 0,
+            },
+            terrain: TerrainIntent::River,
+            settlement: SettlementIntent::Town,
+            water: WaterIntent::None,
+        };
+        assert!(matches!(
+            intent.validate(),
+            Err(IntentValidationError::InvalidSceneSize { .. })
+        ));
+        intent.scene.width_m = 1_000;
+        assert!(matches!(
+            intent.validate(),
+            Err(IntentValidationError::WaterMismatch { .. })
+        ));
     }
 
     #[test]

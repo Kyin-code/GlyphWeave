@@ -146,6 +146,7 @@ fn intent_command(args: &[String]) -> CliResult<()> {
                 return Err("intent validate requires INTENT.json".into());
             }
             let intent = read_confirmed_intent(Path::new(&args[1]))?;
+            intent.validate()?;
             let manifest = intent.compile_manifest();
             manifest.validate()?;
             println!(
@@ -159,6 +160,7 @@ fn intent_command(args: &[String]) -> CliResult<()> {
                 return Err("intent compile requires INTENT.json MANIFEST.json".into());
             }
             let intent = read_confirmed_intent(Path::new(&args[1]))?;
+            intent.validate()?;
             let manifest = intent.compile_manifest();
             manifest.validate()?;
             fs::write(&args[2], serde_json::to_vec_pretty(&manifest)?)?;
