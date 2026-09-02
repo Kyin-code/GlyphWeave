@@ -4,7 +4,7 @@
   "id": "shenzhen-bay",
   "manifest": "examples/shenzhen-bay.manifest.json",
   "manifestSha256": "588b3da76d1dd53e26fbb2847221902e767c502cc355733a847299f482877882",
-  "worldRevision": "9378b3d8f77da3e56640eab5e314d9209bc79c7fd26c803a21cd4877ae8bffb1",
+  "worldRevision": "f33b4ef7958101d12af1ccda38c288d5d06e9218e50ac926454270108b8db9b4",
   "sidecarContract": {
     "format": "glyphweave-sidecar",
     "version": 1,
@@ -14,10 +14,10 @@
     "heightPrecisionM": 0.25
   },
   "qualityStatus": "warn",
+  "landUseProfileApplied": false,
   "warnings": [
     "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report",
-    "shenzhen-bay-core: urban area share 0.916 is outside profile target 0.255 ±0.25",
-    "shenzhen-bay-core: nature area share 0.084 is outside profile target 0.660 ±0.25"
+    "landUseProfile targets are not evaluated for structured-water scene: the current generator does not apply the profile-driven land-use pass"
   ],
   "scenes": [
     {

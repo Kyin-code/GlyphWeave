@@ -4,7 +4,7 @@
   "id": "west-lake",
   "manifest": "examples/west-lake-1km.manifest.json",
   "manifestSha256": "c99f3c4ae1ad54d0a0d1e7df9ea9ed1c056de4459fefcedef31fed02a5a32f24",
-  "worldRevision": "6537850768fe317b4392014083efefcdf217c51a25e8d857eac3c6b895f8940e",
+  "worldRevision": "dba184ca64bc35bb6f5192d2c4fb9a807979d95f35f2d3032b7aea5abe1ddda3",
   "sidecarContract": {
     "format": "glyphweave-sidecar",
     "version": 1,
@@ -14,6 +14,7 @@
     "heightPrecisionM": 0.25
   },
   "qualityStatus": "warn",
+  "landUseProfileApplied": false,
   "warnings": [
     "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report"
   ],

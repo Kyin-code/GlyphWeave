@@ -1044,9 +1044,15 @@ async function drawNear() {
       const material = new THREE.MeshStandardMaterial({ color: zoneColor ?? (entity.kind === 'road' ? '#786b5a' : entity.kind === 'sidewalk' ? '#b0a58f' : entity.kind === 'bridge' ? '#807664' : entity.kind === 'building_cluster' ? '#6c665d' : entity.kind === 'building_tower' ? '#7d8a94' : entity.kind === 'car' ? '#b8463a' : entity.kind === 'pedestrian' ? '#3e536b' : entity.kind === 'grass_clump' ? '#6d944f' : entity.kind === 'reed' ? '#718e45' : entity.kind === 'bench' ? '#756451' : entity.kind === 'lamp' ? '#6c675b' : entity.kind === 'fallen_log' ? '#70503a' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#746d63'), roughness: .95 })
     const prop = new THREE.Mesh(geometry, material)
      const baseHeight = zoneKinds.includes(entity.kind) ? entity.heightM / 2 : entity.kind === 'road' || entity.kind === 'sidewalk' ? 0 : entity.kind === 'bridge' ? 4 : entity.kind === 'building_cluster' ? 16       : entity.kind === 'building_tower' ? entity.heightM / 2 : entity.kind === 'car' ? .9 : entity.kind === 'pedestrian' ? .9 : entity.kind === 'building' ? 12 : entity.kind === 'grass_clump' ? 1.75 : entity.kind === 'reed' ? 1.9 : entity.kind === 'bench' ? .55 : entity.kind === 'lamp' ? 2.4 : entity.kind === 'fallen_log' ? .35 : entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10
-    prop.position.set(entity.worldX, entity.worldY + baseHeight, entity.worldZ)
+    // GroundingSpec owns the map/asset height contract. Old baked worlds omit
+    // it and retain the legacy bottom-pivot behaviour.
+    const grounding = entity.grounding ?? {}
+    const groundY = entity.worldY + (grounding.bottomOffsetM ?? 0) + (grounding.roadbedOffsetM ?? 0)
+    const renderY = grounding.pivot === 'center' ? groundY : groundY + baseHeight
+    prop.position.set(entity.worldX, renderY, entity.worldZ)
     if (entity.kind === 'fallen_log') prop.rotation.z = Math.PI / 2
-    if ((entity.kind === 'road' || entity.kind === 'sidewalk') && (entity.entityId.includes('road-ns') || entity.entityId.includes('north-south'))) prop.rotation.y = Math.PI / 2
+    if (Number.isFinite(entity.rotationYDeg) && entity.rotationYDeg !== 0) prop.rotation.y = THREE.MathUtils.degToRad(entity.rotationYDeg)
+    else if ((entity.kind === 'road' || entity.kind === 'sidewalk') && (entity.entityId.includes('road-ns') || entity.entityId.includes('north-south'))) prop.rotation.y = Math.PI / 2
     if (entity.kind === 'car') prop.rotation.y = Math.PI / 2
     prop.scale.setScalar(entity.scale * (entity.kind === 'bush' ? 1.4 : 1))
     if (entity.kind === 'road' || entity.kind === 'sidewalk') {

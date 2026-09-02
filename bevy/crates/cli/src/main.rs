@@ -544,6 +544,32 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
     let profile = LandUseProfile::from_style(&manifest.style);
+    // The current profile-driven land-use generator runs on land scenes only.
+    // Do not falsely grade a water template or naturalOnly scene against a
+    // profile that the generator intentionally did not execute; surface the
+    // applicability gap explicitly instead.
+    let natural_only = manifest
+        .style
+        .get("naturalOnly")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let has_structured_water = manifest
+        .style
+        .get("water")
+        .and_then(|water| water.get("waterType"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| matches!(kind, "lake" | "river"));
+    let profile_applied = profile.is_some() && !natural_only && !has_structured_water;
+    if profile.is_some() && !profile_applied {
+        let reason = if natural_only {
+            "naturalOnly scene"
+        } else {
+            "structured-water scene"
+        };
+        warnings.push(format!(
+            "landUseProfile targets are not evaluated for {reason}: the current generator does not apply the profile-driven land-use pass"
+        ));
+    }
     let mut area_reports = Vec::new();
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
@@ -567,7 +593,8 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         entities += scene.entities.len();
         landmarks += scene.landmarks.len();
         let areas = analyze_landuse_areas(&scene);
-        if let Some(profile) = &profile {
+        if profile_applied {
+            let profile = profile.as_ref().expect("profile_applied requires profile");
             // The profile ratios describe the intended land-use mix. Compare
             // the *normalized* shares (urban/rural/nature summing to 1) so a
             // sparse scene with large unassigned terrain still reports the
@@ -632,6 +659,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "warnings": warnings, "scenes": scene_reports,
+        "landUseProfileApplied": profile_applied,
         "landUseProfile": profile.map(|profile| serde_json::json!({
             "theme": profile.theme.as_str(),
             "urbanTarget": profile.urban_target(),

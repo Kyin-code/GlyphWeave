@@ -4,7 +4,7 @@
   "id": "shenzhen-bay-gis",
   "manifest": "examples/shenzhen-bay-gis.manifest.json",
   "manifestSha256": "4b6d6362009bd21789836c4325488e85f7d3b530f41fa7ab1d7cc281ca5369eb",
-  "worldRevision": "812b0aafba212e49cf84518b269935d5e35486a576f698dbd38ebc0cbb40ae52",
+  "worldRevision": "73dea367c4dd00bdc1ee5795dc713d0f58dd4b5af402114570ebdd20c3aa2c6e",
   "sidecarContract": {
     "format": "glyphweave-sidecar",
     "version": 1,
@@ -14,6 +14,7 @@
     "heightPrecisionM": 0.25
   },
   "qualityStatus": "warn",
+  "landUseProfileApplied": false,
   "warnings": [
     "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report"
   ],

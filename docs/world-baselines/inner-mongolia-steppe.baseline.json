@@ -14,10 +14,10 @@
     "heightPrecisionM": 0.25
   },
   "qualityStatus": "warn",
+  "landUseProfileApplied": false,
   "warnings": [
     "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report",
-    "grassland: rural area share 0.000 is outside profile target 0.400 ±0.25",
-    "grassland: nature area share 1.000 is outside profile target 0.600 ±0.25"
+    "landUseProfile targets are not evaluated for naturalOnly scene: the current generator does not apply the profile-driven land-use pass"
   ],
   "scenes": [
     {

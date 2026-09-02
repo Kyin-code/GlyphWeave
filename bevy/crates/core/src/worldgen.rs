@@ -937,8 +937,64 @@ impl EntityInstance {
     }
 
     pub fn normalize_spatial_semantics(&mut self) {
+        // The procedural road convention stores a long strip in width/depth,
+        // while historical generators used the entity id to distinguish the
+        // north/south variant. Normalize that legacy convention once into the
+        // explicit rotation field consumed by adapters and future assets.
+        if self.rotation_y_deg == 0.0
+            && (self.entity_id.contains("road-ns")
+                || self.entity_id.contains("north-south")
+                || self.entity_id.contains("sidewalk-ns"))
+        {
+            self.rotation_y_deg = 90.0;
+        }
         if self.bounds.is_none() {
             self.bounds = Some(self.computed_bounds());
+        }
+        // Buildings without an authored entrance still expose a deterministic
+        // front anchor. This is deliberately conservative: authored anchors
+        // always win, while generated anchors make road-access checks and
+        // renderer placement explicit instead of relying on model defaults.
+        let is_building = matches!(
+            self.kind.as_str(),
+            "building"
+                | "building_tower"
+                | "building_cluster"
+                | "urban_building"
+                | "residential_block"
+                | "residential_tower"
+                | "residential_home"
+                | "resort_lodge"
+                | "storefront"
+                | "commercial_center"
+                | "entertainment_center"
+                | "school"
+                | "town_hall"
+                | "market"
+                | "industrial"
+                | "temple"
+                | "church"
+        );
+        if is_building && self.anchors.is_empty() {
+            let (dx, dz) = match (self.rotation_y_deg.round() as i32).rem_euclid(360) {
+                90 => (self.width_m * 0.5 + 1.0, 0.0),
+                180 => (0.0, self.depth_m * 0.5 + 1.0),
+                270 => (-self.width_m * 0.5 - 1.0, 0.0),
+                _ => (0.0, -self.depth_m * 0.5 - 1.0),
+            };
+            self.anchors.push(SpatialAnchor {
+                id: "front".into(),
+                world_x: (self.world_x as f32 + dx).round() as i32,
+                world_z: (self.world_z as f32 + dz).round() as i32,
+                direction: match (self.rotation_y_deg.round() as i32).rem_euclid(360) {
+                    90 => "east",
+                    180 => "south",
+                    270 => "west",
+                    _ => "north",
+                }
+                .into(),
+                target: Some("road".into()),
+            });
         }
     }
 
@@ -4633,6 +4689,48 @@ mod tests {
         assert_eq!(entity.ground_height_m(), 4.0);
         entity.grounding.pivot = GroundingPivot::Center;
         assert_eq!(entity.ground_height_m(), -1.0);
+    }
+
+    #[test]
+    fn generated_spatial_semantics_infer_road_rotation_and_building_front() {
+        let mut road = EntityInstance {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "generated.landuse-road-ns.1".into(),
+            asset_id: "prop.road".into(),
+            kind: "road".into(),
+            world_x: 50,
+            world_z: 50,
+            world_y: 0,
+            scale: 1.0,
+            width_m: 80.0,
+            depth_m: 8.0,
+            height_m: 0.25,
+        };
+        road.normalize_spatial_semantics();
+        assert_eq!(road.rotation_y_deg, 90.0);
+
+        let mut building = EntityInstance {
+            rotation_y_deg: 90.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "generated.house.1".into(),
+            asset_id: "prop.house".into(),
+            kind: "building".into(),
+            world_x: 10,
+            world_z: 20,
+            world_y: 0,
+            scale: 1.0,
+            width_m: 12.0,
+            depth_m: 8.0,
+            height_m: 6.0,
+        };
+        building.normalize_spatial_semantics();
+        assert_eq!(building.anchors[0].direction, "east");
+        assert_eq!(building.anchors[0].target.as_deref(), Some("road"));
     }
 
     #[test]
