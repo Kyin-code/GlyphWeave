@@ -8,7 +8,7 @@
 //! as a candidate and checked against its descriptor's hard constraints.
 
 use super::constraint::compile;
-use super::errors::{RejectRecord, ValidationReport};
+use super::errors::{RejectReason, RejectRecord, ValidationReport};
 use super::loader::ObjectRegistry;
 use super::schema::ItemKind;
 use super::validator::{Footprint, PlacedKind, PlacementContext, check_hard};
@@ -149,6 +149,22 @@ pub fn audit_entities(
             .map(|(_, p)| p.clone())
             .collect();
 
+        let ground_delta = (ctx.height(e.world_x, e.world_z) - e.ground_height_m()).abs();
+        if desc.environment.on_ground
+            && ground_delta > ctx.grounding_tolerance.max(e.grounding.tolerance_m)
+        {
+            report.rejected_items += 1;
+            report.count_reason(&RejectReason::NotGrounded);
+            report.rejects.push(RejectRecord {
+                item_id: e.entity_id.clone(),
+                candidate_x: e.world_x,
+                candidate_z: e.world_z,
+                reason: RejectReason::NotGrounded.to_string(),
+                conflict_with: None,
+                rule: format!("{}.object.toml", desc.id),
+            });
+            continue;
+        }
         if let Err(reason) = check_hard(desc, &fp, ctx, &hard, &others) {
             report.rejected_items += 1;
             report.count_reason(&reason);
@@ -196,6 +212,7 @@ mod tests {
             height_at: height,
             water_level: water,
             slope_at: slope,
+            slope_at_footprint: None,
             bounds,
             grounding_tolerance: 0.5,
             biome_at: None,

@@ -4,6 +4,7 @@
 
 id = "road"
 kind = "road"
+applies_to = ["road"]
 
 [geometry]
 footprint = [8.0, 8.0]      # 路面宽 ~8m

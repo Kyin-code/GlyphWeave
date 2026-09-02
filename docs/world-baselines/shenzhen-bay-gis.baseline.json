@@ -1,0 +1,63 @@
+{
+  "format": "glyphweave.world-baseline",
+  "version": 1,
+  "id": "shenzhen-bay-gis",
+  "manifest": "examples/shenzhen-bay-gis.manifest.json",
+  "manifestSha256": "4b6d6362009bd21789836c4325488e85f7d3b530f41fa7ab1d7cc281ca5369eb",
+  "worldRevision": "812b0aafba212e49cf84518b269935d5e35486a576f698dbd38ebc0cbb40ae52",
+  "sidecarContract": {
+    "format": "glyphweave-sidecar",
+    "version": 1,
+    "authoritativeForTerrain": true,
+    "gemapRole": "identity-anchor",
+    "sceneIndexRoot": "scenes/",
+    "heightPrecisionM": 0.25
+  },
+  "qualityStatus": "warn",
+  "warnings": [
+    "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report"
+  ],
+  "scenes": [
+    {
+      "sceneId": "szbay-gis",
+      "sizeM": [
+        2000,
+        2000
+      ],
+      "chunkCount": 16,
+      "landmarkCount": 286,
+      "entityCount": 286,
+      "entityKinds": {
+        "lake": 6,
+        "river": 2,
+        "bridge": 1,
+        "building": 33,
+        "school": 9,
+        "storefront": 1,
+        "building_tower": 52,
+        "residential_home": 18,
+        "residential_block": 18,
+        "industrial": 1,
+        "road": 145
+      },
+      "chunkHashes": [
+        "80d4b697832a1cd0f8f7917ee7e18e536c4e8a2bbff611c7801564361191fba7",
+        "59e58c40dec0eec606c57eec41d9e88f3a80c72c36c4dfd80419198e7459a1c6",
+        "4ae1c0697eaf8767324afc1422d8e29bc82d711d23c086b2cf6251567ddb0790",
+        "c838893daec621a007f816376076f5435c394a0b94ce34a4844be2f072938ce1",
+        "5e7ce1ce536e7dfa2c0cc9a71e4e5691ddcee57b4fb8b57ff967152c4bb1fae6",
+        "87544f86a161f2933aec30f7cf9021a6220305f97c057fe4e96cf0a176fc7f04",
+        "07b96734326ca735034d55144a60b0b6afa5b57b6570e04e9cac30c4cedd96f7",
+        "3a54b3693ce67c6040aa4bef38731fad1fa6afb8197724244f814231055980d5",
+        "3322fbd77357fed61cb8b3ffeadb7a00766efb62b01b50046bf815d59735e689",
+        "349df00e82cc12e305ef33851ba9f409102eb8696bb8bdec861ed64a66fa5500",
+        "c4655e92f59c7ac5cc4e6a104b0af7abe189595d779808c7a23cce37f41fed94",
+        "ce05175a5106b406bc3ec400465611ef2328f8413586a4e050b04dc537691d8c",
+        "fce7db28e6ca5fda4291f5c7febf457f0096bbc5af506aa1e30b81795f037d6c",
+        "4f1968bd778e1526561f5352f7009479d292de761d83249925e11ddb37e32ec3",
+        "3538433dd5aac4d5da5eeb6e36b22b105e00dcec166bb34df9d4d4a7028840f5",
+        "78da9276339a2f2489bc26986ce5559624ee3a64ee6aef04aa7c10ccc39f4b86"
+      ]
+    }
+  ]
+}

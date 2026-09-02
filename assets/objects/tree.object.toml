@@ -3,6 +3,7 @@
 
 id = "tree_common"
 kind = "tree"
+applies_to = ["tree"]
 tags = ["vegetation", "flammable"]
 # Runtime vegetation is procedural in the current renderer; no standalone GLB is required.
 

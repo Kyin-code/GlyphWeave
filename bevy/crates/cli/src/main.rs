@@ -75,6 +75,8 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "generate-world" => generate_world_command(&args[1..]),
         "apply-patch" => apply_patch_command(&args[1..]),
         "quality-report" => quality_report_command(&args[1..]),
+        "validate-world" => validate_world_command(&args[1..]),
+        "check-baseline" => check_baseline_command(&args[1..]),
         "scale-audit" => scale_audit_command(&args[1..]),
         "preview" => preview_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
@@ -278,7 +280,20 @@ fn generate_world_command(args: &[String]) -> CliResult<()> {
     if args.len() != 2 {
         return Err("generate-world requires MANIFEST.json OUTPUT_DIR".into());
     }
-    let manifest: WorldManifest = serde_json::from_slice(&fs::read(&args[0])?)?;
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(&args[0])?)?;
+    let manifest_dir = Path::new(&args[0])
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    if let Some(rules_dir) = manifest
+        .style
+        .get("rulesDir")
+        .and_then(serde_json::Value::as_str)
+    {
+        let path = PathBuf::from(rules_dir);
+        if path.is_relative() {
+            manifest.style["rulesDir"] = serde_json::json!(manifest_dir.join(path));
+        }
+    }
     let output = Path::new(&args[1]);
     let index = bake_world(&manifest, output)?;
     write_generation_report(output, &index)
@@ -328,6 +343,163 @@ fn apply_patch_command(args: &[String]) -> CliResult<()> {
     let patched = apply_patch(&manifest, &patch)?;
     let index = bake_world(&patched, Path::new(&args[2]))?;
     println!("patched world revision: {}", index.revision);
+    Ok(())
+}
+
+fn validate_world_command(args: &[String]) -> CliResult<()> {
+    let root = Path::new(one_path("validate-world", args)?);
+    let world: glyphweave_core::worldgen::WorldIndex =
+        serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let sidecar: serde_json::Value = serde_json::from_slice(&fs::read(root.join("sidecar.json"))?)?;
+    let contract = sidecar
+        .get("contract")
+        .ok_or("sidecar.json missing contract")?;
+    if contract.get("format").and_then(serde_json::Value::as_str) != Some("glyphweave-sidecar")
+        || contract.get("version").and_then(serde_json::Value::as_u64) != Some(1)
+        || contract
+            .get("authoritativeForTerrain")
+            .and_then(serde_json::Value::as_bool)
+            != Some(true)
+        || contract
+            .get("gemapRole")
+            .and_then(serde_json::Value::as_str)
+            != Some("identity-anchor")
+    {
+        return Err("unsupported or incomplete sidecar contract".into());
+    }
+    if sidecar
+        .get("worldIndex")
+        .and_then(serde_json::Value::as_str)
+        != Some("world.json")
+    {
+        return Err("sidecar.json must reference world.json".into());
+    }
+    let expected_scenes: Vec<String> = serde_json::from_value(
+        sidecar
+            .get("scenes")
+            .cloned()
+            .ok_or("sidecar.json missing scenes")?,
+    )?;
+    if expected_scenes != world.scenes {
+        return Err("sidecar scene list does not match world.json".into());
+    }
+    let gemap = decode_world_with_metadata(
+        &fs::read(root.join("world.gemap"))?,
+        ArchiveLimits::default(),
+    )?;
+    let meta = gemap
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("world"))
+        .ok_or("world.gemap missing world metadata")?;
+    if meta.get("revision").and_then(serde_json::Value::as_str) != Some(world.revision.as_str())
+        || meta.get("sidecar").and_then(serde_json::Value::as_str) != Some("sidecar.json")
+        || meta.get("gemapRole").and_then(serde_json::Value::as_str) != Some("identity-anchor")
+    {
+        return Err("world.gemap metadata does not match sidecar contract".into());
+    }
+    for scene_path in &world.scenes {
+        let scene: SceneIndex = serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        for chunk in &scene.chunks {
+            for file in [&chunk.height_file, &chunk.surface_file, &chunk.lod2_file] {
+                if !root
+                    .join("scenes")
+                    .join(&scene.scene_id)
+                    .join(file)
+                    .is_file()
+                {
+                    return Err(
+                        format!("missing sidecar payload {}/{}", scene.scene_id, file).into(),
+                    );
+                }
+            }
+        }
+    }
+    println!(
+        "valid GlyphWeave world: {} scenes; gemap=identity-anchor; sidecar=terrain-authoritative",
+        world.scenes.len()
+    );
+    Ok(())
+}
+
+fn check_baseline_command(args: &[String]) -> CliResult<()> {
+    if args.len() != 2 {
+        return Err("check-baseline requires BASELINE.json WORLD_DIR".into());
+    }
+    let baseline: serde_json::Value = serde_json::from_slice(&fs::read(&args[0])?)?;
+    let root = Path::new(&args[1]);
+    let world: glyphweave_core::worldgen::WorldIndex =
+        serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let baseline_scenes = baseline
+        .get("scenes")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("baseline missing scenes")?;
+    if baseline_scenes.len() != world.scenes.len() {
+        return Err("baseline scene count does not match world".into());
+    }
+    for baseline_scene in baseline_scenes {
+        let id = baseline_scene
+            .get("sceneId")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("baseline scene missing sceneId")?;
+        let scene_path = world
+            .scenes
+            .iter()
+            .find(|path| path.split('/').nth(1) == Some(id))
+            .ok_or_else(|| format!("world missing baseline scene {id}"))?;
+        let scene: SceneIndex = serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        let expected_entities = baseline_scene
+            .get("entityCount")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or("baseline scene missing entityCount")? as usize;
+        if scene.entities.len() != expected_entities {
+            return Err(format!(
+                "{id}: entity count {} != baseline {expected_entities}",
+                scene.entities.len()
+            )
+            .into());
+        }
+        let expected_landmarks = baseline_scene
+            .get("landmarkCount")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or("baseline scene missing landmarkCount")?
+            as usize;
+        if scene.landmarks.len() != expected_landmarks {
+            return Err(format!(
+                "{id}: landmark count {} != baseline {expected_landmarks}",
+                scene.landmarks.len()
+            )
+            .into());
+        }
+        let mut kinds = BTreeMap::<String, usize>::new();
+        for entity in &scene.entities {
+            *kinds.entry(entity.kind.clone()).or_default() += 1;
+        }
+        let expected_kinds: BTreeMap<String, usize> = serde_json::from_value(
+            baseline_scene
+                .get("entityKinds")
+                .cloned()
+                .ok_or("baseline scene missing entityKinds")?,
+        )?;
+        if kinds != expected_kinds {
+            return Err(format!("{id}: entity kind distribution differs from baseline").into());
+        }
+        let expected_hashes: Vec<String> = serde_json::from_value(
+            baseline_scene
+                .get("chunkHashes")
+                .cloned()
+                .ok_or("baseline scene missing chunkHashes")?,
+        )?;
+        let hashes: Vec<String> = scene
+            .chunks
+            .iter()
+            .map(|chunk| chunk.hash.clone())
+            .collect();
+        if hashes != expected_hashes {
+            return Err(format!("{id}: chunk hashes differ from baseline").into());
+        }
+    }
+    println!("baseline matches {}", args[0]);
     Ok(())
 }
 

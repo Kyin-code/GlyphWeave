@@ -23,7 +23,7 @@ pub mod validator;
 
 pub use audit::{audit_entities, entity_to_placed, kind_from_str};
 pub use errors::{PlacementOutcome, RejectReason, RejectRecord, RuleLoadError, ValidationReport};
-pub use loader::{load_descriptor, load_dir, ObjectRegistry};
-pub use placement::{place_all, place_one, PlacementRequest};
+pub use loader::{ObjectRegistry, load_descriptor, load_dir};
+pub use placement::{PlacementIndex, PlacementRequest, PlacementSource, place_all, place_one};
 pub use schema::{Biome, HazardKind, ItemKind, ObjectDescriptor};
-pub use validator::{check_hard, score_soft, Footprint, PlacementContext, PlacedKind};
+pub use validator::{Footprint, PlacedKind, PlacementContext, check_hard, score_soft};

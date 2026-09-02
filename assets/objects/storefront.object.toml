@@ -2,6 +2,7 @@
 
 id = "storefront"
 kind = "storefront"
+applies_to = ["storefront"]
 tags = ["commercial", "public_access", "has_entrance"]
 
 [geometry]

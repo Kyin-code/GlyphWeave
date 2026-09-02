@@ -61,8 +61,111 @@ struct TerrainCarve {
     priority: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GroundingPivot {
+    #[default]
+    Bottom,
+    Center,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GroundingSpec {
+    #[serde(default)]
+    pub pivot: GroundingPivot,
+    #[serde(default)]
+    pub bottom_offset_m: f32,
+    #[serde(default)]
+    pub roadbed_offset_m: f32,
+    #[serde(default = "default_grounding_tolerance_m")]
+    pub tolerance_m: f32,
+}
+
+fn default_grounding_tolerance_m() -> f32 {
+    1.0
+}
+
+impl Default for GroundingSpec {
+    fn default() -> Self {
+        Self {
+            pivot: GroundingPivot::Bottom,
+            bottom_offset_m: 0.0,
+            roadbed_offset_m: 0.0,
+            tolerance_m: default_grounding_tolerance_m(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Bounds2d {
+    pub min_x: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_z: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpatialAnchor {
+    pub id: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    #[serde(default)]
+    pub direction: String,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SceneGraph {
+    #[serde(default)]
+    pub transitions: Vec<SceneTransition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SceneTransition {
+    pub id: String,
+    pub source_scene: String,
+    pub target_scene: String,
+    pub source_world_x: i32,
+    pub source_world_z: i32,
+    pub target_world_x: i32,
+    pub target_world_z: i32,
+    pub direction: String,
+    #[serde(default)]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SidecarContract {
+    pub format: String,
+    pub version: u32,
+    pub authoritative_for_terrain: bool,
+    pub gemap_role: String,
+    pub scene_index_root: String,
+    pub height_precision_m: f32,
+}
+
+impl Default for SidecarContract {
+    fn default() -> Self {
+        Self {
+            format: "glyphweave-sidecar".into(),
+            version: 1,
+            authoritative_for_terrain: true,
+            gemap_role: "identity-anchor".into(),
+            scene_index_root: "scenes/".into(),
+            height_precision_m: 0.25,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorldManifest {
     pub format: String,
     pub version: u32,
@@ -73,10 +176,12 @@ pub struct WorldManifest {
     pub style: serde_json::Value,
     #[serde(default)]
     pub landmarks: Vec<LandmarkSpec>,
+    #[serde(default)]
+    pub scene_graph: SceneGraph,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorldSpec {
     pub name: String,
     pub seed: u64,
@@ -85,7 +190,7 @@ pub struct WorldSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SceneSpec {
     pub scene_id: String,
     pub width_m: u32,
@@ -99,7 +204,7 @@ pub struct SceneSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LandmarkSpec {
     pub entity_id: String,
     pub name: String,
@@ -116,6 +221,14 @@ pub struct LandmarkSpec {
     pub depth_m: u32,
     pub height_m: u32,
     pub asset_id: String,
+    #[serde(default)]
+    pub rotation_y_deg: f32,
+    #[serde(default)]
+    pub grounding: GroundingSpec,
+    #[serde(default)]
+    pub anchors: Vec<SpatialAnchor>,
+    #[serde(default)]
+    pub bounds: Option<Bounds2d>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +275,14 @@ pub struct EntityInstance {
     pub width_m: f32,
     pub depth_m: f32,
     pub height_m: f32,
+    #[serde(default)]
+    pub rotation_y_deg: f32,
+    #[serde(default)]
+    pub grounding: GroundingSpec,
+    #[serde(default)]
+    pub anchors: Vec<SpatialAnchor>,
+    #[serde(default)]
+    pub bounds: Option<Bounds2d>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,10 +295,14 @@ pub struct WorldIndex {
     pub render_mode: String,
     pub revision: String,
     pub scenes: Vec<String>,
+    #[serde(default)]
+    pub scene_graph: SceneGraph,
+    #[serde(default)]
+    pub sidecar: SidecarContract,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorldPatch {
     pub format: String,
     pub version: u32,
@@ -208,6 +333,8 @@ pub enum WorldgenError {
     InvalidRenderMode(String),
     #[error("scene {0:?} has an invalid or duplicate ID")]
     InvalidSceneId(String),
+    #[error("invalid scene transition: {0}")]
+    InvalidTransition(String),
     #[error(
         "scene {scene_id:?} dimensions {width_m}x{depth_m}m are outside {MIN_SCENE_METERS}m..{MAX_SCENE_WIDTH_METERS}m by {MIN_SCENE_METERS}m..{MAX_SCENE_DEPTH_METERS}m"
     )]
@@ -224,6 +351,16 @@ pub enum WorldgenError {
     LandmarkOutsideScene { landmark: String, scene: String },
     #[error("output directory already contains files: {0}")]
     OutputNotEmpty(String),
+    #[error("rules mode could not load descriptors: {0}")]
+    InvalidRules(String),
+    #[error(
+        "rules-mode baked audit failed for scene {scene_id}: {rejected} of {checked} checked entities rejected"
+    )]
+    RulesAuditFailed {
+        scene_id: String,
+        checked: usize,
+        rejected: usize,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -754,6 +891,143 @@ fn legacy_water_geometry(
     }
 }
 
+impl GroundingSpec {
+    pub fn validate(&self, owner: &str) -> WorldgenResult<()> {
+        if !self.bottom_offset_m.is_finite()
+            || !self.roadbed_offset_m.is_finite()
+            || !self.tolerance_m.is_finite()
+            || self.tolerance_m < 0.0
+        {
+            return Err(WorldgenError::InvalidLandmark(owner.to_owned()));
+        }
+        Ok(())
+    }
+}
+
+impl Bounds2d {
+    pub fn from_center(x: f32, z: f32, width: f32, depth: f32) -> Self {
+        let half_w = width.max(0.0) * 0.5;
+        let half_d = depth.max(0.0) * 0.5;
+        Self {
+            min_x: x - half_w,
+            min_z: z - half_d,
+            max_x: x + half_w,
+            max_z: z + half_d,
+        }
+    }
+
+    pub fn is_finite_and_ordered(&self) -> bool {
+        self.min_x.is_finite()
+            && self.min_z.is_finite()
+            && self.max_x.is_finite()
+            && self.max_z.is_finite()
+            && self.min_x <= self.max_x
+            && self.min_z <= self.max_z
+    }
+}
+
+impl EntityInstance {
+    pub fn computed_bounds(&self) -> Bounds2d {
+        Bounds2d::from_center(
+            self.world_x as f32,
+            self.world_z as f32,
+            self.width_m,
+            self.depth_m,
+        )
+    }
+
+    pub fn normalize_spatial_semantics(&mut self) {
+        if self.bounds.is_none() {
+            self.bounds = Some(self.computed_bounds());
+        }
+    }
+
+    pub fn ground_height_m(&self) -> f32 {
+        let pivot_offset = match self.grounding.pivot {
+            GroundingPivot::Bottom => 0.0,
+            GroundingPivot::Center => -self.height_m * 0.5,
+        };
+        self.world_y as f32
+            + pivot_offset
+            + self.grounding.bottom_offset_m
+            + self.grounding.roadbed_offset_m
+    }
+}
+
+impl LandmarkSpec {
+    pub fn computed_bounds(&self) -> Bounds2d {
+        Bounds2d::from_center(
+            self.world_x as f32,
+            self.world_z as f32,
+            self.width_m as f32,
+            self.depth_m as f32,
+        )
+    }
+
+    pub fn normalize_spatial_semantics(&mut self) {
+        if self.bounds.is_none() {
+            self.bounds = Some(self.computed_bounds());
+        }
+    }
+}
+
+impl SceneGraph {
+    fn validate(&self, scenes: &[SceneSpec]) -> WorldgenResult<()> {
+        let mut ids = BTreeMap::new();
+        for transition in &self.transitions {
+            if transition.id.trim().is_empty() || ids.insert(&transition.id, true).is_some() {
+                return Err(WorldgenError::InvalidTransition(format!(
+                    "invalid or duplicate id {:?}",
+                    transition.id
+                )));
+            }
+            let source = scenes
+                .iter()
+                .find(|scene| scene.scene_id == transition.source_scene)
+                .ok_or_else(|| {
+                    WorldgenError::InvalidTransition(format!(
+                        "missing source scene {:?}",
+                        transition.source_scene
+                    ))
+                })?;
+            let target = scenes
+                .iter()
+                .find(|scene| scene.scene_id == transition.target_scene)
+                .ok_or_else(|| {
+                    WorldgenError::InvalidTransition(format!(
+                        "missing target scene {:?}",
+                        transition.target_scene
+                    ))
+                })?;
+            if transition.direction.trim().is_empty() {
+                return Err(WorldgenError::InvalidTransition(format!(
+                    "transition {:?} has empty direction",
+                    transition.id
+                )));
+            }
+            let in_scene = |scene: &SceneSpec, x: i32, z: i32| {
+                x >= scene.origin_x
+                    && x <= scene.origin_x + scene.width_m as i32
+                    && z >= scene.origin_z
+                    && z <= scene.origin_z + scene.depth_m as i32
+            };
+            if !in_scene(source, transition.source_world_x, transition.source_world_z) {
+                return Err(WorldgenError::InvalidTransition(format!(
+                    "{} source coordinate is outside {}",
+                    transition.id, source.scene_id
+                )));
+            }
+            if !in_scene(target, transition.target_world_x, transition.target_world_z) {
+                return Err(WorldgenError::InvalidTransition(format!(
+                    "{} target coordinate is outside {}",
+                    transition.id, target.scene_id
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl WorldManifest {
     pub fn default_demo() -> Self {
         Self {
@@ -788,6 +1062,7 @@ impl WorldManifest {
                 }
             }),
             landmarks: Vec::new(),
+            scene_graph: SceneGraph::default(),
         }
     }
 
@@ -822,6 +1097,7 @@ impl WorldManifest {
                 });
             }
         }
+        self.scene_graph.validate(&self.scenes)?;
         for landmark in &self.landmarks {
             if landmark.entity_id.trim().is_empty()
                 || landmark.name.trim().is_empty()
@@ -834,6 +1110,12 @@ impl WorldManifest {
                 || landmark.height_m == 0
             {
                 return Err(WorldgenError::InvalidLandmark(landmark.entity_id.clone()));
+            }
+            landmark.grounding.validate(&landmark.entity_id)?;
+            if let Some(bounds) = landmark.bounds {
+                if !bounds.is_finite_and_ordered() {
+                    return Err(WorldgenError::InvalidLandmark(landmark.entity_id.clone()));
+                }
             }
             let Some(scene) = self
                 .scenes
@@ -868,6 +1150,16 @@ impl WorldManifest {
 
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
     manifest.validate()?;
+    let rules_mode = manifest
+        .style
+        .get("rulesMode")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|mode| mode == "rules");
+    let rules_dir = rules_mode.then(|| rules_dir_from_style(&manifest.style));
+    if let Some(dir) = &rules_dir {
+        crate::rules::ObjectRegistry::load_dir(dir)
+            .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+    }
     if output.exists() && fs::read_dir(output)?.next().is_some() {
         return Err(WorldgenError::OutputNotEmpty(output.display().to_string()));
     }
@@ -876,6 +1168,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         .to_hex()
         .to_string();
     let mut scene_paths = Vec::new();
+    let mut baked_rules_report = crate::rules::ValidationReport::default();
     for scene in &manifest.scenes {
         let scene_dir = output.join("scenes").join(&scene.scene_id);
         fs::create_dir_all(&scene_dir)?;
@@ -891,8 +1184,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             .iter()
             .filter(|item| item.scene_id == scene.scene_id)
             .cloned()
+            .map(|mut landmark| {
+                landmark.normalize_spatial_semantics();
+                landmark
+            })
             .collect();
-        let water = water_geometry(water_kind(&manifest.style), &landmarks, scene, &manifest.style);
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &landmarks,
+            scene,
+            &manifest.style,
+        );
         let entities = generate_entities_with_profile(
             manifest.world.seed ^ scene.seed_offset,
             scene,
@@ -900,8 +1202,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             water,
             &manifest.style,
         );
+        let mut entities = entities;
+        for entity in &mut entities {
+            entity.normalize_spatial_semantics();
+        }
         let carves = plan_terrain_carves(&entities);
         let mut chunks = Vec::new();
+        let mut baked_samples = BTreeMap::<i64, f32>::new();
         for chunk_z in 0..chunk_count_z {
             for chunk_x in 0..chunk_count_x {
                 let valid_width_m =
@@ -925,6 +1232,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 );
                 fs::write(scene_dir.join(&height_file), &height)?;
                 fs::write(scene_dir.join(&surface_file), &surface)?;
+                for (i, pair) in height.chunks_exact(2).enumerate() {
+                    let raw = i16::from_le_bytes([pair[0], pair[1]]);
+                    let lx = i as i32 % valid_width_m as i32;
+                    let lz = i as i32 / valid_width_m as i32;
+                    let wx = base_x + lx;
+                    let wz = base_z + lz;
+                    let key = (i64::from(wx) << 32) | (wz as u32 as i64);
+                    baked_samples.insert(key, f32::from(raw) / 4.0);
+                }
                 fs::write(scene_dir.join(&lod2_file), &lod2)?;
                 let hash = blake3::hash(
                     &[height.as_slice(), surface.as_slice(), lod2.as_slice()].concat(),
@@ -950,6 +1266,52 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 chunks.push(descriptor);
             }
         }
+        if let Some(rules_dir) = &rules_dir {
+            // The generator validates candidates against natural terrain before
+            // carving. Re-run the same rules against the actual baked height
+            // samples so terrain-carve and placement semantics cannot drift.
+            for entity in &entities {
+                let key = (i64::from(entity.world_x) << 32) | (entity.world_z as u32 as i64);
+                if !baked_samples.contains_key(&key) {
+                    return Err(WorldgenError::InvalidRules(format!(
+                        "baked heightfield has no sample for entity {} at ({},{})",
+                        entity.entity_id, entity.world_x, entity.world_z
+                    )));
+                }
+            }
+            let height_query = |x: i32, z: i32| {
+                baked_samples
+                    .get(&((i64::from(x) << 32) | (z as u32 as i64)))
+                    .copied()
+                    .expect("validated baked entity/footprint sample")
+            };
+            let audit = audit_scene(
+                manifest.world.seed ^ scene.seed_offset,
+                scene,
+                &landmarks,
+                &entities,
+                water,
+                rules_dir,
+                AuditOptions {
+                    height_at: Some(&height_query),
+                    slope_half: None,
+                },
+            )
+            .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+            merge_validation_report(&mut baked_rules_report, &audit);
+            if audit.rejected_items > 0 {
+                let _ = fs::write(
+                    output.join("rules-audit.json"),
+                    serde_json::to_vec_pretty(&baked_rules_report)?,
+                );
+                return Err(WorldgenError::RulesAuditFailed {
+                    scene_id: scene.scene_id.clone(),
+                    checked: audit.checked_items,
+                    rejected: audit.rejected_items,
+                });
+            }
+        }
+
         let index = SceneIndex {
             scene_id: scene.scene_id.clone(),
             width_m: scene.width_m,
@@ -969,6 +1331,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         )?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
     }
+    if rules_mode {
+        fs::write(
+            output.join("rules-audit.json"),
+            serde_json::to_vec_pretty(&baked_rules_report)?,
+        )?;
+    }
     write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex {
         format: WORLD_FORMAT.to_owned(),
@@ -978,10 +1346,20 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         render_mode: manifest.world.render_mode.clone(),
         revision,
         scenes: scene_paths,
+        scene_graph: manifest.scene_graph.clone(),
+        sidecar: SidecarContract::default(),
     };
     fs::write(
         output.join("world.json"),
         serde_json::to_vec_pretty(&index)?,
+    )?;
+    fs::write(
+        output.join("sidecar.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "contract": index.sidecar,
+            "worldIndex": "world.json",
+            "scenes": index.scenes,
+        }))?,
     )?;
     fs::write(
         output.join("glyphweave.manifest.json"),
@@ -989,6 +1367,29 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     )?;
     write_adapter_templates(output)?;
     Ok(index)
+}
+
+fn merge_validation_report(
+    total: &mut crate::rules::ValidationReport,
+    report: &crate::rules::ValidationReport,
+) {
+    total.seed = report.seed;
+    total.buildings += report.buildings;
+    total.roads += report.roads;
+    total.floating_items += report.floating_items;
+    total.submerged_items += report.submerged_items;
+    total.forbidden_biomes += report.forbidden_biomes;
+    total.forbidden_hazards += report.forbidden_hazards;
+    total.slope_too_high += report.slope_too_high;
+    total.out_of_bounds += report.out_of_bounds;
+    total.blocked_entrances += report.blocked_entrances;
+    total.geometry_collisions += report.geometry_collisions;
+    total.disconnected_roads += report.disconnected_roads;
+    total.rejects.extend(report.rejects.clone());
+    total.checked_items += report.checked_items;
+    total.passed_items += report.passed_items;
+    total.rejected_items += report.rejected_items;
+    total.unruled_items.extend(report.unruled_items.clone());
 }
 
 fn write_gemap_anchor(
@@ -1005,7 +1406,12 @@ fn write_gemap_anchor(
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let metadata = BTreeMap::from([(
         "world".to_owned(),
-        serde_json::json!({"revision": revision, "sidecar": "world.json"}),
+        serde_json::json!({
+            "revision": revision,
+            "sidecar": "sidecar.json",
+            "gemapRole": "identity-anchor",
+            "terrainAuthority": "sidecar",
+        }),
     )]);
     let bytes = encode_world_with_metadata(&world, Some(metadata))
         .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -1250,7 +1656,8 @@ fn generate_chunk_with_geometry(
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let quarter_meters = terrain_height_with_geometry_carved(seed, world_x, world_z, water, carves);
+            let quarter_meters =
+                terrain_height_with_geometry_carved(seed, world_x, world_z, water, carves);
             let index = (z * width + x) as usize;
             samples[index] = quarter_meters;
             height.extend_from_slice(&quarter_meters.to_le_bytes());
@@ -1369,8 +1776,16 @@ fn erosion_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0) * 60.0;
     let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0) * 60.0;
     // Two river scales: major channels (broad valleys) + minor streams.
-    let major = value_noise2d(seed.wrapping_add(0x6a09_e667), (xf + warp_x) / 640.0, (zf + warp_z) / 640.0);
-    let minor = value_noise2d(seed.wrapping_add(0xbb67_ae85), (xf + warp_x * 1.4) / 190.0, (zf + warp_z * 1.4) / 190.0);
+    let major = value_noise2d(
+        seed.wrapping_add(0x6a09_e667),
+        (xf + warp_x) / 640.0,
+        (zf + warp_z) / 640.0,
+    );
+    let minor = value_noise2d(
+        seed.wrapping_add(0xbb67_ae85),
+        (xf + warp_x * 1.4) / 190.0,
+        (zf + warp_z * 1.4) / 190.0,
+    );
     // Distance to the nearest channel (field near zero) - closer = stronger flow.
     let d_major = (major.abs() * 640.0).min(90.0) / 90.0;
     let d_minor = (minor.abs() * 190.0).min(46.0) / 46.0;
@@ -1413,9 +1828,15 @@ fn mountain_skeleton(seed: u64, x: i32, z: i32) -> f64 {
 fn steppe_hills_field(seed: u64, xf: f64, zf: f64) -> f64 {
     const CELL: f64 = 240.0;
     const NEIGHBORS: [(i64, i64); 9] = [
-        (-1, -1), (0, -1), (1, -1),
-        (-1, 0), (0, 0), (1, 0),
-        (-1, 1), (0, 1), (1, 1),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+        (-1, 0),
+        (0, 0),
+        (1, 0),
+        (-1, 1),
+        (0, 1),
+        (1, 1),
     ];
     let cx = (xf / CELL).floor();
     let cz = (zf / CELL).floor();
@@ -1479,7 +1900,8 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
         // valleys. A coastal skirt pulls the outer edge down toward the water so
         // land rises from the shore instead of starting mid-plateau.
         let skeleton = mountain_skeleton(seed, x, z);
-        let ridges = fbm2d(seed, xf, zf) * 0.5 + fbm2d(seed.wrapping_add(0x33ab_1103), xf * 2.3, zf * 2.3) * 0.25;
+        let ridges = fbm2d(seed, xf, zf) * 0.5
+            + fbm2d(seed.wrapping_add(0x33ab_1103), xf * 2.3, zf * 2.3) * 0.25;
         // 0 at a peak core, rising to ~1 far from peaks; blend skeleton with the
         // fractal so both structure and texture are present.
         let rugged = skeleton * 0.72 + (1.0 - skeleton) * (0.5 + ridges) * 0.28;
@@ -1584,12 +2006,10 @@ impl RegionType {
 /// Cell size is a fixed 10m; each cell tracks a small bitmask of what has been
 /// placed there. This is order-independent, deterministic and cheap.
 struct OccupancyGrid {
-    /// Cell size in metres. Kept coarse so a 6km x 10km scene uses few cells.
-    cell: u32,
-    width_cells: u32,
-    depth_cells: u32,
-    /// Bit flags per cell: 1 = hard surface (road/building), 2 = soft (green).
-    cells: Vec<u8>,
+    /// The legacy generator and the rules placement pipeline share this
+    /// footprint index. The legacy path still uses a coarse policy (hard vs
+    /// soft), while the rules path can apply the full descriptor constraints.
+    index: crate::rules::PlacementIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1599,55 +2019,40 @@ enum OccLayer {
 }
 
 impl OccupancyGrid {
-    fn new(width_m: u32, depth_m: u32) -> OccupancyGrid {
-        let cell = 10_u32;
+    fn new(_width_m: u32, _depth_m: u32) -> OccupancyGrid {
         OccupancyGrid {
-            cell,
-            width_cells: width_m.div_ceil(cell),
-            depth_cells: depth_m.div_ceil(cell),
-            cells: vec![0_u8; (width_m.div_ceil(cell) * depth_m.div_ceil(cell)) as usize],
+            index: crate::rules::PlacementIndex::new(),
         }
     }
 
-    fn idx(&self, wx: i32, wz: i32) -> Option<usize> {
-        if wx < 0 || wz < 0 {
-            return None;
-        }
-        let cx = (wx as u32) / self.cell;
-        let cz = (wz as u32) / self.cell;
-        if cx >= self.width_cells || cz >= self.depth_cells {
-            return None;
-        }
-        Some((cz * self.width_cells + cx) as usize)
-    }
-
-    /// Mark a footprint (axis-aligned box) as occupied by `layer`.
+    /// Mark a footprint (axis-aligned box) as occupied by a layer.
     fn mark(&mut self, x: i32, z: i32, half_w: i32, half_d: i32, layer: OccLayer) {
-        let flag = match layer {
-            OccLayer::Hard => 1,
-            OccLayer::Soft => 2,
+        let kind = match layer {
+            OccLayer::Hard => crate::rules::ItemKind::Building,
+            OccLayer::Soft => crate::rules::ItemKind::Tree,
         };
-        for wz in (z - half_d)..=(z + half_d) {
-            for wx in (x - half_w)..=(x + half_w) {
-                if let Some(i) = self.idx(wx, wz) {
-                    self.cells[i] |= flag;
-                }
-            }
-        }
+        self.index.push(crate::rules::PlacedKind {
+            id: None,
+            kind,
+            cx: x as f32,
+            cz: z as f32,
+            half_w: half_w as f32,
+            half_d: half_d as f32,
+            tags: Vec::new(),
+        });
     }
 
-    /// True if the footprint touches a Hard (road / building) cell.
+    /// True if the footprint touches a hard (road / building) reservation.
     fn collides_hard(&self, x: i32, z: i32, half_w: i32, half_d: i32) -> bool {
-        for wz in (z - half_d)..=(z + half_d) {
-            for wx in (x - half_w)..=(x + half_w) {
-                if let Some(i) = self.idx(wx, wz) {
-                    if self.cells[i] & 1 != 0 {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        let fp = crate::rules::Footprint {
+            cx: x as f32,
+            cz: z as f32,
+            half_w: half_w as f32,
+            half_d: half_d as f32,
+        };
+        self.index.as_slice().iter().any(|placed| {
+            placed.kind.is_hard() && fp.overlaps(placed.cx, placed.cz, placed.half_w, placed.half_d)
+        })
     }
 }
 
@@ -1775,7 +2180,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             cz: f64::from(entity.world_z),
             half_w,
             half_d,
-            target_h_m: f64::from(entity.world_y),
+            target_h_m: f64::from(entity.ground_height_m()),
             blend_m: blend,
             priority: if is_road { 10 } else { 1 },
         });
@@ -1993,10 +2398,7 @@ fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: Wat
     // has cut the terrain down near the water datum and the flow is strong,
     // mark the channel as wet mud so rivers read as water courses on the
     // ground instead of grass grooves.
-    if water.kind != WaterKind::None
-        && height < 8
-        && erosion_carve(seed, x, z, water) < -14.0
-    {
+    if water.kind != WaterKind::None && height < 8 && erosion_carve(seed, x, z, water) < -14.0 {
         return 4;
     }
     if height < -12 {
@@ -2232,7 +2634,7 @@ fn generate_entities_with_profile(
             entity.kind.as_str(),
             "lake" | "river" | "bridge" | "causeway" | "reed"
         ) || entity.entity_id.starts_with("gis.")
-        || !footprint_intersects_water(entity, geometry, 1.0)
+            || !footprint_intersects_water(entity, geometry, 1.0)
     });
     if geometry.kind == WaterKind::None {
         // naturalOnly: a pure wild scene (steppe / nature) — skip urban land-use
@@ -2281,11 +2683,12 @@ fn apply_rules_mode(
 ) -> Vec<EntityInstance> {
     // Object rules location: <repo>/assets/objects (resolved from the caller).
     let rules_dir = rules_dir_from_style(style);
-    let Ok(registry) = crate::rules::ObjectRegistry::load_dir(&rules_dir) else {
-        // No rules available → fall back to the proposed entities unchanged
-        // (audit already reports this gap; do not silently drop everything).
-        return proposed;
-    };
+    // bake_world() validates the same directory before generation. Keep this
+    // second load fail-closed as well: a rules-mode generation must never
+    // silently downgrade to legacy placement if the registry changes or
+    // becomes unreadable between validation and use.
+    let registry = crate::rules::ObjectRegistry::load_dir(&rules_dir)
+        .unwrap_or_else(|error| panic!("rules mode registry became unavailable: {error}"));
 
     let ctx = rules_placement_context(seed, scene, water);
     // Every proposed entity that has a matching descriptor becomes one request.
@@ -2303,6 +2706,19 @@ fn apply_rules_mode(
                 x: e.world_x,
                 z: e.world_z,
                 count: 1,
+                source: Some(crate::rules::PlacementSource {
+                    entity_id: e.entity_id.clone(),
+                    asset_id: e.asset_id.clone(),
+                    kind: e.kind.clone(),
+                    width_m: e.width_m,
+                    depth_m: e.depth_m,
+                    height_m: e.height_m,
+                    scale: e.scale,
+                    rotation_y_deg: e.rotation_y_deg,
+                    grounding: e.grounding.clone(),
+                    anchors: e.anchors.clone(),
+                    bounds: e.bounds,
+                }),
             }),
             None => passthrough.push(e),
         }
@@ -2364,10 +2780,13 @@ fn rules_placement_context(
         }
     };
     let water_leak: &'static dyn Fn(i32, i32) -> Option<f32> = Box::leak(Box::new(water_level));
-    let slope_at = move |x: i32, z: i32| {
-        local_slope(seed, x, z, scene_w, scene_d, 8, 8) as f32
-    };
+    let slope_at = move |x: i32, z: i32| local_slope(seed, x, z, scene_w, scene_d, 8, 8) as f32;
     let slope_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(slope_at));
+    let slope_at_footprint = move |x: i32, z: i32, half_w: i32, half_d: i32| {
+        local_slope(seed, x, z, scene_w, scene_d, half_w, half_d) as f32
+    };
+    let slope_footprint_leak: &'static dyn Fn(i32, i32, i32, i32) -> f32 =
+        Box::leak(Box::new(slope_at_footprint));
     let biome_at = move |x: i32, z: i32| {
         let h = humidity_field(seed, x, z, water);
         if h > 0.55 {
@@ -2378,7 +2797,8 @@ fn rules_placement_context(
             crate::rules::Biome::Grassland
         }
     };
-    let biome_leak: &'static dyn Fn(i32, i32) -> crate::rules::Biome = Box::leak(Box::new(biome_at));
+    let biome_leak: &'static dyn Fn(i32, i32) -> crate::rules::Biome =
+        Box::leak(Box::new(biome_at));
     let hazard_at = move |x: i32, z: i32| {
         if local_slope(seed, x, z, scene_w, scene_d, 8, 8) > 30.0 {
             vec![crate::rules::HazardKind::Cliff]
@@ -2392,6 +2812,7 @@ fn rules_placement_context(
         height_at: height_leak,
         water_level: water_leak,
         slope_at: slope_leak,
+        slope_at_footprint: Some(slope_footprint_leak),
         bounds: (
             scene.origin_x,
             scene.origin_z,
@@ -2443,7 +2864,15 @@ pub fn audit_scene(
     // Default height: natural (uncarved) terrain — an approximation; callers
     // that audit a baked world should pass the baked heightfield instead.
     let natural_height = |x: i32, z: i32| {
-        terrain_height(seed, x, z, WaterKind::None, scene.width_m, scene.depth_m, 0.0) as f32
+        terrain_height(
+            seed,
+            x,
+            z,
+            WaterKind::None,
+            scene.width_m,
+            scene.depth_m,
+            0.0,
+        ) as f32
             / 4.0
     };
     let height_at = opts.height_at.unwrap_or(&natural_height);
@@ -2486,6 +2915,9 @@ pub fn audit_scene(
                 slope_half.1,
             ) as f32
         },
+        slope_at_footprint: Some(&|x, z, half_w, half_d| {
+            local_slope(seed, x, z, scene.width_m, scene.depth_m, half_w, half_d) as f32
+        }),
         bounds: (
             scene.origin_x,
             scene.origin_z,
@@ -2522,7 +2954,9 @@ pub fn audit_scene(
             }
         }),
     };
-    Ok(crate::rules::audit_entities(entities, &registry, &ctx, seed))
+    Ok(crate::rules::audit_entities(
+        entities, &registry, &ctx, seed,
+    ))
 }
 
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,
@@ -2536,7 +2970,15 @@ fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<Entit
             let jz = signed_noise(seed.rotate_left(223), x as i32, z as i32);
             let wx = scene.origin_x + x as i32 + (jx.rem_euclid(19) - 9);
             let wz = scene.origin_z + z as i32 + (jz.rem_euclid(19) - 9);
-            let world_y = i32::from(terrain_height(seed, wx, wz, WaterKind::None, scene.width_m, scene.depth_m, 0.0)) / 4;
+            let world_y = i32::from(terrain_height(
+                seed,
+                wx,
+                wz,
+                WaterKind::None,
+                scene.width_m,
+                scene.depth_m,
+                0.0,
+            )) / 4;
             let roll = signed_noise(seed.rotate_left(239), wx, wz);
             // Steppe: grass dominant, sparse trees, occasional rocks/bushes.
             let kind = if roll < -84 {
@@ -2561,6 +3003,10 @@ fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<Entit
                 _ => 0.5 + (roll.rem_euclid(12) as f32) / 10.0,
             };
             entities.push(EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: format!("generated.natural.{serial}"),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.to_owned(),
@@ -2590,6 +3036,10 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
         0.0,
     )) / 4;
     entities.push(EntityInstance {
+        rotation_y_deg: 0.0,
+        grounding: GroundingSpec::default(),
+        anchors: Vec::new(),
+        bounds: None,
         entity_id: "generated.auto-road-east-west".to_owned(),
         asset_id: "prop.road".to_owned(),
         kind: "road".to_owned(),
@@ -2602,6 +3052,10 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
         height_m: 0.24,
     });
     entities.push(EntityInstance {
+        rotation_y_deg: 0.0,
+        grounding: GroundingSpec::default(),
+        anchors: Vec::new(),
+        bounds: None,
         entity_id: "generated.auto-road-north-south".to_owned(),
         asset_id: "prop.road".to_owned(),
         kind: "road".to_owned(),
@@ -2655,6 +3109,10 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
                 0.0,
             )) / 4;
             entities.push(EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: format!("generated.auto-{kind}.{serial}"),
                 asset_id: asset_id.to_owned(),
                 kind: kind.to_owned(),
@@ -2832,6 +3290,10 @@ fn append_modern_landuse_content(
             0.0,
         )) / 4;
         entities.push(EntityInstance {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
             entity_id: format!("generated.landuse-{kind}.{serial}"),
             asset_id: format!("prop.{entity_kind}"),
             kind: entity_kind.to_owned(),
@@ -3287,6 +3749,10 @@ fn append_modern_landuse_content(
                 0.0,
             )) / 4;
             entities.push(EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: format!("generated.landuse-mountain_forest.{serial}"),
                 asset_id: "prop.mountain_forest".to_owned(),
                 kind: "mountain_forest".to_owned(),
@@ -3413,6 +3879,10 @@ fn generate_entities_template(
     let mut entities = Vec::new();
     for landmark in landmarks {
         entities.push(EntityInstance {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
             entity_id: landmark.entity_id.clone(),
             asset_id: landmark.asset_id.clone(),
             kind: landmark.entity_type.clone(),
@@ -3437,7 +3907,10 @@ fn generate_entities_template(
     // layer procedural towers onto the real footprints. Anything with an
     // authored `road`/`building` landmark is treated as data-driven.
     let has_real_city = landmarks.iter().any(|l| {
-        matches!(l.entity_type.as_str(), "road" | "building" | "building_tower" | "storefront")
+        matches!(
+            l.entity_type.as_str(),
+            "road" | "building" | "building_tower" | "storefront"
+        )
     });
     if has_real_city {
         return entities;
@@ -3461,6 +3934,10 @@ fn generate_entities_template(
         let village_z = (geometry.center_z - geometry.half_depth - 100.0).round() as i32;
         entities.extend([
             EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: "generated.north-shore-road".to_owned(),
                 asset_id: "prop.road".to_owned(),
                 kind: "road".to_owned(),
@@ -3478,6 +3955,10 @@ fn generate_entities_template(
                 height_m: 0.24,
             },
             EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: "generated.lake-bridge".to_owned(),
                 asset_id: "prop.bridge".to_owned(),
                 kind: "bridge".to_owned(),
@@ -3490,6 +3971,10 @@ fn generate_entities_template(
                 height_m: 8.0,
             },
             EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: "generated.west-village".to_owned(),
                 asset_id: "prop.building-cluster".to_owned(),
                 kind: "building_cluster".to_owned(),
@@ -3514,6 +3999,10 @@ fn generate_entities_template(
                 / 4)
             .max(1);
             entities.push(EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: format!("generated.riverbank-road-{index}"),
                 asset_id: "prop.road".to_owned(),
                 kind: "road".to_owned(),
@@ -3532,6 +4021,10 @@ fn generate_entities_template(
                 )) / 4)
                     .max(1);
                 entities.push(EntityInstance {
+                    rotation_y_deg: 0.0,
+                    grounding: GroundingSpec::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
                     entity_id: format!("generated.riverbank-sidewalk-{index}-{side}"),
                     asset_id: "prop.sidewalk".to_owned(),
                     kind: "sidewalk".to_owned(),
@@ -3570,7 +4063,8 @@ fn generate_entities_template(
                     }
                     // Skip the road corridor itself (road sits at
                     // centre ±(half_width + 130), half width 7m).
-                    let road_x = center_x + if band_lo < center_x { -1 } else { 1 } * (half_width as i32 + 130);
+                    let road_x = center_x
+                        + if band_lo < center_x { -1 } else { 1 } * (half_width as i32 + 130);
                     if (world_x - road_x).abs() < 24 {
                         continue;
                     }
@@ -3599,6 +4093,10 @@ fn generate_entities_template(
                         let lodge_w = 26.0 + roll.rem_euclid(18) as f32;
                         let lodge_h = 6.0 + roll.rem_euclid(10) as f32;
                         entities.push(EntityInstance {
+                            rotation_y_deg: 0.0,
+                            grounding: GroundingSpec::default(),
+                            anchors: Vec::new(),
+                            bounds: None,
                             entity_id: format!("generated.resort-lodge.{block_serial}"),
                             asset_id: "prop.resort-lodge".to_owned(),
                             kind: "resort_lodge".to_owned(),
@@ -3613,6 +4111,10 @@ fn generate_entities_template(
                     } else {
                         let tower_h = (24 + roll.rem_euclid(26)) as f32;
                         entities.push(EntityInstance {
+                            rotation_y_deg: 0.0,
+                            grounding: GroundingSpec::default(),
+                            anchors: Vec::new(),
+                            bounds: None,
                             entity_id: format!("generated.block-tower.{block_serial}"),
                             asset_id: "prop.building-tower".to_owned(),
                             kind: "building_tower".to_owned(),
@@ -3650,6 +4152,10 @@ fn generate_entities_template(
                 )) / 4)
                     .max(1);
                 entities.push(EntityInstance {
+                    rotation_y_deg: 0.0,
+                    grounding: GroundingSpec::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
                     entity_id: format!("generated.storefront.{frontage_serial}"),
                     asset_id: "prop.storefront".to_owned(),
                     kind: "storefront".to_owned(),
@@ -3685,6 +4191,10 @@ fn generate_entities_template(
                 )) / 4)
                     .max(1);
                 entities.push(EntityInstance {
+                    rotation_y_deg: 0.0,
+                    grounding: GroundingSpec::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
                     entity_id: format!("generated.street-tree.{tree_serial}"),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
@@ -3712,6 +4222,10 @@ fn generate_entities_template(
                 )) / 4)
                     .max(1);
                 entities.push(EntityInstance {
+                    rotation_y_deg: 0.0,
+                    grounding: GroundingSpec::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
                     entity_id: format!("generated.street-tree.{tree_serial}"),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
@@ -3745,6 +4259,10 @@ fn generate_entities_template(
                     )) / 4)
                         .max(1);
                     entities.push(EntityInstance {
+                        rotation_y_deg: 0.0,
+                        grounding: GroundingSpec::default(),
+                        anchors: Vec::new(),
+                        bounds: None,
                         entity_id: format!("generated.storefront.{frontage_serial}"),
                         asset_id: "prop.storefront".to_owned(),
                         kind: "storefront".to_owned(),
@@ -3764,11 +4282,7 @@ fn generate_entities_template(
             // bayfront resort lodges stay low near the water. The band runs
             // from the road edge to the scene boundary on each shore.
             let road_axis_x = center_x + side * (half_width + 130);
-            let urban_lo = if side < 0 {
-                40
-            } else {
-                road_axis_x + 30
-            };
+            let urban_lo = if side < 0 { 40 } else { road_axis_x + 30 };
             let urban_hi = if side < 0 {
                 road_axis_x - 30
             } else {
@@ -3804,6 +4318,10 @@ fn generate_entities_template(
                         )) / 4)
                             .max(1);
                         entities.push(EntityInstance {
+                            rotation_y_deg: 0.0,
+                            grounding: GroundingSpec::default(),
+                            anchors: Vec::new(),
+                            bounds: None,
                             entity_id: format!("generated.urban-building.{urban_serial}"),
                             asset_id: "prop.building".to_owned(),
                             kind: "urban_building".to_owned(),
@@ -3884,6 +4402,10 @@ fn generate_entities_template(
                 _ => (1.0, 1.0, 1.0),
             };
             entities.push(EntityInstance {
+                rotation_y_deg: 0.0,
+                grounding: GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
                 entity_id: format!("generated.{kind}.{serial}"),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.to_owned(),
@@ -3953,6 +4475,10 @@ fn generate_entities_template(
                     seed, world_x, world_z, geometry,
                 )) / 4;
                 entities.push(EntityInstance {
+                    rotation_y_deg: 0.0,
+                    grounding: GroundingSpec::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
                     entity_id: format!("generated.{kind}.{serial}"),
                     asset_id: format!("prop.{kind}"),
                     kind: kind.to_owned(),
@@ -4044,6 +4570,111 @@ mod tests {
             world.validate(),
             Err(WorldgenError::InvalidSceneSize { .. })
         ));
+    }
+
+    #[test]
+    fn scene_graph_transition_is_typed_and_validated() {
+        let mut world = WorldManifest::default_demo();
+        world.scenes.push(SceneSpec {
+            scene_id: "scene-1".into(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 1_000,
+            origin_z: 0,
+            seed_offset: 1,
+        });
+        world.scene_graph.transitions.push(SceneTransition {
+            id: "east-gate".into(),
+            source_scene: "scene-0".into(),
+            target_scene: "scene-1".into(),
+            source_world_x: 999,
+            source_world_z: 500,
+            target_world_x: 1_000,
+            target_world_z: 500,
+            direction: "east".into(),
+            kind: "road_exit".into(),
+        });
+        world.validate().unwrap();
+        let json = serde_json::to_value(&world).unwrap();
+        assert_eq!(
+            json["sceneGraph"]["transitions"][0]["targetScene"],
+            "scene-1"
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_top_level_fields() {
+        let mut json = serde_json::to_value(WorldManifest::default_demo()).unwrap();
+        json["unexpected"] = serde_json::json!(true);
+        let err = serde_json::from_value::<WorldManifest>(json).unwrap_err();
+        assert!(err.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn grounding_and_bounds_are_normalized_for_entities() {
+        let mut entity = EntityInstance {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "test".into(),
+            asset_id: "prop.test".into(),
+            kind: "building".into(),
+            world_x: 10,
+            world_z: 20,
+            world_y: 4,
+            scale: 1.0,
+            width_m: 8.0,
+            depth_m: 6.0,
+            height_m: 10.0,
+        };
+        entity.normalize_spatial_semantics();
+        assert_eq!(entity.bounds.unwrap().min_x, 6.0);
+        assert_eq!(entity.ground_height_m(), 4.0);
+        entity.grounding.pivot = GroundingPivot::Center;
+        assert_eq!(entity.ground_height_m(), -1.0);
+    }
+
+    #[test]
+    fn rules_mode_is_deterministic_across_seed_set() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 2_000,
+            depth_m: 2_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let rules_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join("assets/objects");
+        let style = serde_json::json!({
+            "rulesMode": "rules",
+            "rulesDir": rules_dir,
+            "landUseProfile": { "theme": "temperate-plain", "urbanCoreRatio": 0.3 }
+        });
+        for seed in [1_u64, 42, 99, 20260902] {
+            let a = generate_entities_with_profile(
+                seed,
+                &scene,
+                &[],
+                region_geometry(2_000, 2_000),
+                &style,
+            );
+            let b = generate_entities_with_profile(
+                seed,
+                &scene,
+                &[],
+                region_geometry(2_000, 2_000),
+                &style,
+            );
+            assert_eq!(
+                serde_json::to_vec(&a).unwrap(),
+                serde_json::to_vec(&b).unwrap()
+            );
+            let mut ids = std::collections::BTreeSet::new();
+            assert!(a.iter().all(|entity| ids.insert(entity.entity_id.clone())));
+        }
     }
 
     #[test]
@@ -4142,23 +4773,13 @@ mod tests {
             for x in 440..460 {
                 let here = terrain_height_with_geometry_carved(20260829, x, z, water, &[carve]);
                 max_step = max_step.max(
-                    (here - terrain_height_with_geometry_carved(
-                        20260829,
-                        x - 1,
-                        z,
-                        water,
-                        &[carve],
-                    ))
+                    (here
+                        - terrain_height_with_geometry_carved(20260829, x - 1, z, water, &[carve]))
                     .abs(),
                 );
                 max_step = max_step.max(
-                    (here - terrain_height_with_geometry_carved(
-                        20260829,
-                        x,
-                        z - 1,
-                        water,
-                        &[carve],
-                    ))
+                    (here
+                        - terrain_height_with_geometry_carved(20260829, x, z - 1, water, &[carve]))
                     .abs(),
                 );
             }
@@ -4207,7 +4828,11 @@ mod tests {
         // It carves somewhere in wild land (valleys exist off the centre).
         let wild_carved = (100..900)
             .step_by(7)
-            .flat_map(|z| (100..900).step_by(7).map(move |x| erosion_carve(20260829, x, z, water)))
+            .flat_map(|z| {
+                (100..900)
+                    .step_by(7)
+                    .map(move |x| erosion_carve(20260829, x, z, water))
+            })
             .filter(|c| *c < -2.0)
             .count();
         assert!(
@@ -4283,6 +4908,10 @@ mod tests {
             seed_offset: 0,
         };
         let river = LandmarkSpec {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
             entity_id: "landmark.yangtze-river".to_owned(),
             asset_id: "water.yangtze-river".to_owned(),
             entity_type: "river".to_owned(),
@@ -4360,6 +4989,10 @@ mod tests {
             seed_offset: 0,
         };
         let lake = LandmarkSpec {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
             entity_id: "landmark.lake".to_owned(),
             name: "Procedural lake".to_owned(),
             entity_type: "lake".to_owned(),
@@ -5007,4 +5640,3 @@ mod tests {
         let _ = seen;
     }
 }
-

@@ -262,8 +262,10 @@ pub struct ObjectDescriptor {
     #[serde(default)]
     pub tags: Vec<String>,
     /// Additional entity kind strings this descriptor governs (aliases). Audit
-    /// / placement matches an entity if its kind string equals `id`, the
-    /// canonical kind string, or any of `applies_to`.
+    /// / placement matches an entity if its kind string equals `id` or one of
+    /// the explicitly declared `applies_to` values. Canonical `kind` is not an
+    /// implicit alias: descriptors must opt in explicitly, which prevents two
+    /// specialised descriptors from silently claiming the same entity kind.
     #[serde(default)]
     pub applies_to: Vec<String>,
     #[serde(default)]
@@ -283,9 +285,7 @@ impl ObjectDescriptor {
     /// True if this descriptor should govern an entity whose kind string is
     /// `entity_kind`.
     pub fn matches_kind(&self, entity_kind: &str) -> bool {
-        entity_kind == self.id
-            || self.applies_to.iter().any(|a| a == entity_kind)
-            || descriptor_kind_str(self.kind).is_some_and(|k| k == entity_kind)
+        entity_kind == self.id || self.applies_to.iter().any(|a| a == entity_kind)
     }
 }
 
@@ -395,6 +395,27 @@ priority = 30
         assert_eq!(d.anchors[0].clear_radius, 3.0);
         assert_eq!(d.anchors[0].must_face.as_deref(), Some("road"));
         assert_eq!(d.placement.phase, PlacementPhase::Building);
+    }
+
+    #[test]
+    fn canonical_kind_requires_explicit_applies_to() {
+        let descriptor: ObjectDescriptor = toml::from_str(
+            r#"
+ id = "special_building"
+ kind = "building"
+ [geometry]
+ footprint = [10.0, 10.0]
+ height = 8.0
+ [placement]
+ phase = "building"
+ "#,
+        )
+        .expect("parse");
+        assert!(!descriptor.matches_kind("building"));
+
+        let mut explicit = descriptor.clone();
+        explicit.applies_to.push("building".into());
+        assert!(explicit.matches_kind("building"));
     }
 
     #[test]

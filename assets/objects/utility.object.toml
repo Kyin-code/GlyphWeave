@@ -1,0 +1,22 @@
+# 城市公共设施：井、路灯和路牌
+id = "urban_utility"
+kind = "other"
+applies_to = ["water_well", "street_lamp", "road_sign", "lamp", "bench", "bus_stop", "food_stall"]
+tags = ["utility"]
+
+[geometry]
+footprint = [1.0, 1.0]
+height = 3.0
+clearance = 0.25
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 25
+
+[placement]
+phase = "functional"
+priority = 70
+attempts = 8
+allow_rotate = true
+fallback = "move"

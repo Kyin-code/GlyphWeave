@@ -1,0 +1,55 @@
+# 大型公共/商业建筑（Civic building）
+# 这些对象保留 worldgen 提案的真实 footprint；本 descriptor 只提供
+# 适用于公共设施的规则，不把它们误判为普通住宅。
+
+id = "civic_building"
+kind = "building"
+applies_to = [
+    "commercial_center",
+    "entertainment_center",
+    "school",
+    "town_hall",
+    "market",
+    "industrial",
+    "temple",
+    "church",
+    "parking_lot",
+    "green_space",
+]
+tags = ["civic", "has_entrance"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 0.5
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 12
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 5.0
+
+[[relations.avoid]]
+kind = "railway"
+distance = 20.0
+
+[[anchors]]
+id = "front"
+side = "front"
+kind = "public_access"
+clear_radius = 3.0
+must_face = "road"
+
+[placement]
+phase = "building"
+priority = 30
+attempts = 12
+allow_rotate = true
+fallback = "move"

@@ -65,6 +65,128 @@ fn reject_record(
     }
 }
 
+fn footprint_for(
+    desc: &ObjectDescriptor,
+    source: Option<&PlacementSource>,
+    cx: f32,
+    cz: f32,
+) -> Footprint {
+    let (width, depth) = source
+        .map(|source| (source.width_m * source.scale, source.depth_m * source.scale))
+        .unwrap_or((desc.geometry.footprint[0], desc.geometry.footprint[1]));
+    Footprint {
+        cx,
+        cz,
+        half_w: width * 0.5 + desc.geometry.clearance,
+        half_d: depth * 0.5 + desc.geometry.clearance,
+    }
+}
+
+fn build_entity(
+    desc: &ObjectDescriptor,
+    source: Option<&PlacementSource>,
+    cand: Candidate,
+    rotated: bool,
+    world_y: i32,
+) -> EntityInstance {
+    let (entity_id, asset_id, kind, scale, width, depth, height) = source
+        .map(|source| {
+            (
+                source.entity_id.clone(),
+                source.asset_id.clone(),
+                source.kind.clone(),
+                source.scale,
+                source.width_m,
+                source.depth_m,
+                source.height_m,
+            )
+        })
+        .unwrap_or_else(|| {
+            (
+                format!("{}_{}", desc.id, cand.x.abs() * 1000 + cand.z.abs()),
+                if desc.asset.is_empty() {
+                    desc.id.clone()
+                } else {
+                    desc.asset.clone()
+                },
+                kind_to_str(desc.kind),
+                1.0,
+                desc.geometry.footprint[0],
+                desc.geometry.footprint[1],
+                desc.geometry.height,
+            )
+        });
+    EntityInstance {
+        entity_id,
+        asset_id,
+        kind,
+        world_x: cand.x,
+        world_z: cand.z,
+        world_y,
+        scale,
+        width_m: if rotated { depth } else { width },
+        depth_m: if rotated { width } else { depth },
+        height_m: height,
+        rotation_y_deg: source.map(|source| source.rotation_y_deg).unwrap_or(0.0)
+            + if rotated { 90.0 } else { 0.0 },
+        grounding: source
+            .map(|source| source.grounding.clone())
+            .unwrap_or_default(),
+        anchors: source
+            .map(|source| source.anchors.clone())
+            .unwrap_or_default(),
+        bounds: source.and_then(|source| source.bounds),
+    }
+}
+
+/// Shared committed occupancy index for the rule placement pipeline.
+///
+/// The index is intentionally independent of the renderer: it stores the same
+/// footprint records used by hard constraints and provides a checkpoint API so
+/// speculative placement can be rolled back without leaving stale occupancy.
+#[derive(Debug, Clone, Default)]
+pub struct PlacementIndex {
+    entries: Vec<PlacedKind>,
+}
+
+impl PlacementIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_entries(entries: Vec<PlacedKind>) -> Self {
+        Self { entries }
+    }
+
+    pub fn as_slice(&self) -> &[PlacedKind] {
+        &self.entries
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn push(&mut self, placed: PlacedKind) {
+        self.entries.push(placed);
+    }
+
+    pub fn into_entries(self) -> Vec<PlacedKind> {
+        self.entries
+    }
+
+    pub fn checkpoint(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn rollback(&mut self, checkpoint: usize) {
+        self.entries.truncate(checkpoint.min(self.entries.len()));
+    }
+}
+
 /// Place one object: try candidates in order, first valid (hard constraints)
 /// with the highest soft score wins. Returns placed entity or reject records.
 pub fn place_one(
@@ -74,7 +196,22 @@ pub fn place_one(
     placed: &mut Vec<PlacedKind>,
     seed: u64,
 ) -> PlacementOutcome {
+    let mut index = PlacementIndex::from_entries(std::mem::take(placed));
+    let outcome = place_one_with_source(desc, centre, ctx, &mut index, seed, None);
+    *placed = index.into_entries();
+    outcome
+}
+
+fn place_one_with_source(
+    desc: &ObjectDescriptor,
+    centre: Candidate,
+    ctx: &PlacementContext<'_>,
+    placed: &mut PlacementIndex,
+    seed: u64,
+    source: Option<&PlacementSource>,
+) -> PlacementOutcome {
     let mut outcome = PlacementOutcome::default();
+    let checkpoint = placed.checkpoint();
     let (hard, soft) = compile(desc);
     let candidates = generate_candidates(centre.x, centre.z, desc.placement.attempts, seed);
 
@@ -92,13 +229,13 @@ pub fn place_one(
 
     for cand in candidates {
         for &rot in rotations {
-            let mut fp = Footprint::from_descriptor(desc, cand.x as f32, cand.z as f32);
+            let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
             if rot {
                 fp = fp.rotated();
             }
-            match check_hard(desc, &fp, ctx, &hard, placed) {
+            match check_hard(desc, &fp, ctx, &hard, placed.as_slice()) {
                 Ok(()) => {
-                    let s = score_soft(&fp, &soft, placed);
+                    let s = score_soft(&fp, &soft, placed.as_slice());
                     if best.as_ref().map(|(bs, _, _)| s > *bs).unwrap_or(true) {
                         best = Some((s, cand, rot));
                     }
@@ -119,13 +256,13 @@ pub fn place_one(
         );
         for cand in wider {
             for &rot in rotations {
-                let mut fp = Footprint::from_descriptor(desc, cand.x as f32, cand.z as f32);
+                let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
                 if rot {
                     fp = fp.rotated();
                 }
-                match check_hard(desc, &fp, ctx, &hard, placed) {
+                match check_hard(desc, &fp, ctx, &hard, placed.as_slice()) {
                     Ok(()) => {
-                        let score = score_soft(&fp, &soft, placed);
+                        let score = score_soft(&fp, &soft, placed.as_slice());
                         if best
                             .as_ref()
                             .map(|(best_score, _, _)| score > *best_score)
@@ -147,46 +284,31 @@ pub fn place_one(
     if let Some((_, cand, rot)) = best {
         // Commit: register into placed list (occupancy is tracked by caller
         // via PlacedKind). Build the EntityInstance for the map.
-        let mut fp = Footprint::from_descriptor(desc, cand.x as f32, cand.z as f32);
+        let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
         if rot {
             fp = fp.rotated();
         }
-        // Build the entity BEFORE moving `entity` into outcome.placed.
-        let entity_id = format!("{}_{}", desc.id, cand.x.abs() * 1000 + cand.z.abs());
-        let mut entity = EntityInstance {
-            entity_id,
-            asset_id: if desc.asset.is_empty() {
-                desc.id.clone()
-            } else {
-                desc.asset.clone()
-            },
-            kind: kind_to_str(desc.kind),
-            world_x: cand.x,
-            world_z: cand.z,
-            world_y: ctx.height(cand.x, cand.z).round() as i32,
-            scale: 1.0,
-            // A 90掳 rotation swaps width/depth in the footprint.
-            width_m: if rot {
-                desc.geometry.footprint[1]
-            } else {
-                desc.geometry.footprint[0]
-            },
-            depth_m: if rot {
-                desc.geometry.footprint[0]
-            } else {
-                desc.geometry.footprint[1]
-            },
-            height_m: desc.geometry.height,
-        };
-        // Surface-anchored kinds (not road) sit on the ground.
-        if !desc.kind.is_hard() {
-            entity.world_y = ctx.height(cand.x, cand.z).round() as i32;
-        }
+        // Preserve the source entity's identity, asset and geometry while
+        // applying the descriptor's placement constraints. The descriptor is a
+        // rule/constraint source, not an implicit geometry replacement.
+        let entity = build_entity(
+            desc,
+            source,
+            cand,
+            rot,
+            ctx.height(cand.x, cand.z).round() as i32,
+        );
         let placed_id = entity.entity_id.clone();
         outcome.placed.push(entity);
         placed.push(PlacedKind {
             id: Some(placed_id),
-            kind: desc.kind,
+            // Relations/collision are based on the runtime entity kind, not
+            // the descriptor's category. This matters for specialised
+            // descriptors such as civic_building, which govern several
+            // concrete building kinds while retaining the source identity.
+            kind: source
+                .map(|source| super::audit::kind_from_str(&source.kind))
+                .unwrap_or(desc.kind),
             cx: cand.x as f32,
             cz: cand.z as f32,
             half_w: fp.half_w,
@@ -194,6 +316,7 @@ pub fn place_one(
             tags: desc.tags.clone(),
         });
     } else {
+        placed.rollback(checkpoint);
         outcome.rejected.extend(rejected_candidates);
     }
 
@@ -221,6 +344,22 @@ pub fn kind_to_str(kind: super::schema::ItemKind) -> String {
     }
 }
 
+/// Source geometry and render identity carried through a rule re-placement.
+#[derive(Debug, Clone)]
+pub struct PlacementSource {
+    pub entity_id: String,
+    pub asset_id: String,
+    pub kind: String,
+    pub width_m: f32,
+    pub depth_m: f32,
+    pub height_m: f32,
+    pub scale: f32,
+    pub rotation_y_deg: f32,
+    pub grounding: crate::worldgen::GroundingSpec,
+    pub anchors: Vec<crate::worldgen::SpatialAnchor>,
+    pub bounds: Option<crate::worldgen::Bounds2d>,
+}
+
 /// A batch placement request: place `count` instances of the object whose
 /// descriptor id is `descriptor_id`, centred near (x, z).
 #[derive(Debug, Clone)]
@@ -229,6 +368,7 @@ pub struct PlacementRequest {
     pub x: i32,
     pub z: i32,
     pub count: u32,
+    pub source: Option<PlacementSource>,
 }
 
 /// Batch placement with a stable order: phase 鈫?priority 鈫?descriptor id 鈫?/// request index. This is the entry point the generator uses to drive
@@ -244,7 +384,7 @@ pub fn place_all(
     seed: u64,
 ) -> PlacementOutcome {
     let mut outcome = PlacementOutcome::default();
-    let mut placed: Vec<PlacedKind> = Vec::new();
+    let mut placed = PlacementIndex::new();
 
     // Stable order: phase 鈫?priority 鈫?descriptor id 鈫?request index.
     let mut order: Vec<(u8, u32, &str, usize)> = requests
@@ -275,12 +415,13 @@ pub fn place_all(
         };
         let mut seed_rot = seed;
         for _ in 0..r.count {
-            let one = place_one(
+            let one = place_one_with_source(
                 desc,
                 Candidate { x: r.x, z: r.z },
                 ctx,
                 &mut placed,
                 seed_rot,
+                r.source.as_ref(),
             );
             outcome.placed.extend(one.placed);
             outcome.rejected.extend(one.rejected);
@@ -331,6 +472,33 @@ phase = "building"
     }
 
     #[test]
+    fn placement_index_checkpoint_rolls_back_speculative_entries() {
+        let mut index = PlacementIndex::new();
+        index.push(PlacedKind {
+            id: Some("committed".into()),
+            kind: super::super::schema::ItemKind::Building,
+            cx: 10.0,
+            cz: 10.0,
+            half_w: 2.0,
+            half_d: 2.0,
+            tags: vec![],
+        });
+        let checkpoint = index.checkpoint();
+        index.push(PlacedKind {
+            id: Some("speculative".into()),
+            kind: super::super::schema::ItemKind::Tree,
+            cx: 10.0,
+            cz: 10.0,
+            half_w: 1.0,
+            half_d: 1.0,
+            tags: vec![],
+        });
+        index.rollback(checkpoint);
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.as_slice()[0].id.as_deref(), Some("committed"));
+    }
+
+    #[test]
     fn candidates_deterministic() {
         let a = generate_candidates(50, 50, 12, 12345);
         let b = generate_candidates(50, 50, 12, 12345);
@@ -345,6 +513,7 @@ phase = "building"
             height_at: &|_, _| 0.0,
             water_level: &|_, _| None,
             slope_at: &|_, _| 2.0,
+            slope_at_footprint: None,
             bounds: (0, 0, 200, 200),
             grounding_tolerance: 0.5,
             biome_at: None,
@@ -358,12 +527,59 @@ phase = "building"
     }
 
     #[test]
+    fn place_all_preserves_source_entity_geometry_and_identity() {
+        let desc = building_desc();
+        let mut registry = ObjectRegistry::default();
+        registry.descriptors.insert(desc.id.clone(), desc.clone());
+        let ctx = PlacementContext {
+            height_at: &|_, _| 3.0,
+            water_level: &|_, _| None,
+            slope_at: &|_, _| 0.0,
+            slope_at_footprint: None,
+            bounds: (0, 0, 500, 500),
+            grounding_tolerance: 0.5,
+            biome_at: None,
+            hazard_at: None,
+        };
+        let request = PlacementRequest {
+            descriptor_id: desc.id.clone(),
+            x: 100,
+            z: 100,
+            count: 1,
+            source: Some(PlacementSource {
+                entity_id: "generated.school.7".into(),
+                asset_id: "prop.school".into(),
+                kind: "school".into(),
+                width_m: 80.0,
+                depth_m: 60.0,
+                height_m: 10.0,
+                scale: 1.25,
+                rotation_y_deg: 0.0,
+                grounding: crate::worldgen::GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
+            }),
+        };
+        let outcome = place_all(&registry, &[request], &ctx, 7);
+        assert_eq!(outcome.placed.len(), 1);
+        let entity = &outcome.placed[0];
+        assert_eq!(entity.entity_id, "generated.school.7");
+        assert_eq!(entity.asset_id, "prop.school");
+        assert_eq!(entity.kind, "school");
+        assert_eq!(entity.width_m, 80.0);
+        assert_eq!(entity.depth_m, 60.0);
+        assert_eq!(entity.height_m, 10.0);
+        assert_eq!(entity.scale, 1.25);
+    }
+
+    #[test]
     fn place_rejects_water() {
         let desc = building_desc();
         let c = PlacementContext {
             height_at: &|_, _| 0.0,
             water_level: &|_, _| Some(1.0), // everything underwater
             slope_at: &|_, _| 2.0,
+            slope_at_footprint: None,
             bounds: (0, 0, 200, 200),
             grounding_tolerance: 0.5,
             biome_at: None,

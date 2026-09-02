@@ -1,0 +1,21 @@
+# 水边附属物：芦苇等允许进入水域的对象
+id = "water_edge_detail"
+kind = "other"
+applies_to = ["reed"]
+tags = ["water_edge"]
+
+[geometry]
+footprint = [2.0, 2.0]
+height = 1.5
+clearance = 0.0
+
+[environment]
+on_ground = false
+not_in_water = false
+
+[placement]
+phase = "vegetation"
+priority = 90
+attempts = 6
+allow_rotate = true
+fallback = "move"

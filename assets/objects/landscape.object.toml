@@ -1,0 +1,21 @@
+# 农田、牧场、林地和自然保护地
+id = "landscape_area"
+kind = "other"
+applies_to = ["farmland", "pasture", "mountain_forest", "nature_reserve", "bush", "grass_clump", "fallen_log"]
+tags = ["landscape"]
+
+[geometry]
+footprint = [8.0, 8.0]
+height = 1.0
+clearance = 0.0
+
+[environment]
+on_ground = true
+not_in_water = true
+
+[placement]
+phase = "vegetation"
+priority = 80
+attempts = 8
+allow_rotate = true
+fallback = "move"

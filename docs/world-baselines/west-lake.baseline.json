@@ -1,0 +1,55 @@
+{
+  "format": "glyphweave.world-baseline",
+  "version": 1,
+  "id": "west-lake",
+  "manifest": "examples/west-lake-1km.manifest.json",
+  "manifestSha256": "c99f3c4ae1ad54d0a0d1e7df9ea9ed1c056de4459fefcedef31fed02a5a32f24",
+  "worldRevision": "6537850768fe317b4392014083efefcdf217c51a25e8d857eac3c6b895f8940e",
+  "sidecarContract": {
+    "format": "glyphweave-sidecar",
+    "version": 1,
+    "authoritativeForTerrain": true,
+    "gemapRole": "identity-anchor",
+    "sceneIndexRoot": "scenes/",
+    "heightPrecisionM": 0.25
+  },
+  "qualityStatus": "warn",
+  "warnings": [
+    "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report"
+  ],
+  "scenes": [
+    {
+      "sceneId": "west-lake-northwest",
+      "sizeM": [
+        1000,
+        1000
+      ],
+      "chunkCount": 4,
+      "landmarkCount": 5,
+      "entityCount": 968,
+      "entityKinds": {
+        "lake": 1,
+        "causeway": 1,
+        "ridge": 1,
+        "road": 1,
+        "bridge": 1,
+        "building_cluster": 1,
+        "building": 35,
+        "tree": 161,
+        "bush": 110,
+        "rock": 25,
+        "grass_clump": 40,
+        "lamp": 25,
+        "fallen_log": 46,
+        "bench": 27,
+        "reed": 493
+      },
+      "chunkHashes": [
+        "7f21e415cf92b219512019043073ab7efdc95ff4e3c85b5cb4be0b6b1dbf1709",
+        "4f8a3ab6e4bf3d5bbd631d059a0bd99f77f6f1b3d0a8796c24a1653f0fb40882",
+        "1999a8d4dda3dc34145e09ec9bda66245a27f2aa214c5e59315563b6d3cc828f",
+        "2a3c94cd78502ffed6b9c63cb53ba0ae406b7cd787e9eaf89384ba3fae736648"
+      ]
+    }
+  ]
+}

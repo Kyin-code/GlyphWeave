@@ -2,6 +2,7 @@
 
 id = "rock_round"
 kind = "rock"
+applies_to = ["rock"]
 tags = ["decoration"]
 
 [geometry]

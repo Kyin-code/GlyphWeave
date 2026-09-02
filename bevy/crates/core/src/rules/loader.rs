@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::errors::RuleLoadError;
-use super::schema::{Fallback, ItemKind, ObjectDescriptor, PlacementPhase, descriptor_kind_str};
+use super::schema::{Fallback, ItemKind, ObjectDescriptor, PlacementPhase};
 
 /// Validate a parsed descriptor for schema-level sanity. Returns a list of
 /// human-readable problems (empty = valid).
@@ -210,10 +210,11 @@ pub fn load_dir(dir: &Path) -> Result<HashMap<String, ObjectDescriptor>, RuleLoa
     }
     let mut owners: HashMap<String, String> = HashMap::new();
     for descriptor in out.values() {
+        // Only explicit ids/aliases claim entity kinds. The descriptor's
+        // canonical ItemKind is intentionally not an implicit alias; this
+        // allows specialised descriptors (for example civic buildings) to
+        // coexist with the generic building descriptor without ambiguity.
         let mut targets = vec![descriptor.id.clone()];
-        if let Some(kind) = descriptor_kind_str(descriptor.kind) {
-            targets.push(kind.to_string());
-        }
         targets.extend(descriptor.applies_to.iter().cloned());
         for target in targets {
             if let Some(previous) = owners.insert(target.clone(), descriptor.id.clone()) {

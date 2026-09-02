@@ -98,8 +98,13 @@ pub struct PlacementContext<'a> {
     pub height_at: &'a dyn Fn(i32, i32) -> f32,
     /// Water surface height in metres; None = no water body nearby.
     pub water_level: &'a dyn Fn(i32, i32) -> Option<f32>,
-    /// Local slope in metres per 100m at (x, z).
+    /// Local slope in metres per 100m at (x, z), used as a fallback when
+    /// no footprint-aware query is supplied.
     pub slope_at: &'a dyn Fn(i32, i32) -> f32,
+    /// Optional slope query receiving the candidate's actual half extents.
+    /// This keeps large/rotated source entities from being judged by a fixed
+    /// 8m sampling window.
+    pub slope_at_footprint: Option<&'a dyn Fn(i32, i32, i32, i32) -> f32>,
     /// Map bounds (min_x, min_z, max_x, max_z).
     pub bounds: (i32, i32, i32, i32),
     /// Grounding tolerance (m) for the 4-corner height test.
@@ -119,6 +124,21 @@ impl<'a> PlacementContext<'a> {
     }
     pub fn slope(&self, x: i32, z: i32) -> f32 {
         (self.slope_at)(x, z)
+    }
+    pub fn slope_for(&self, fp: &Footprint) -> f32 {
+        if let Some(query) = self.slope_at_footprint {
+            query(
+                fp.cx.round() as i32,
+                fp.cz.round() as i32,
+                fp.half_w.round().max(1.0) as i32,
+                fp.half_d.round().max(1.0) as i32,
+            )
+        } else {
+            fp.sample_points()
+                .into_iter()
+                .map(|(x, z)| self.slope(x, z))
+                .fold(0.0_f32, f32::max)
+        }
     }
     pub fn in_bounds(&self, x: f32, z: f32) -> bool {
         let (min_x, min_z, max_x, max_z) = self.bounds;
@@ -206,11 +226,7 @@ pub fn check_hard(
                 }
             }
             Constraint::MaxSlope(max) => {
-                let s = fp
-                    .sample_points()
-                    .into_iter()
-                    .map(|(x, z)| ctx.slope(x, z))
-                    .fold(0.0_f32, f32::max);
+                let s = ctx.slope_for(fp);
                 if s > *max {
                     return Err(RejectReason::SlopeTooHigh {
                         slope: s,
@@ -414,6 +430,7 @@ mod tests {
             height_at: height_leak,
             water_level: water_leak,
             slope_at: slope_leak,
+            slope_at_footprint: None,
             bounds,
             grounding_tolerance: 0.5,
             biome_at: None,
@@ -456,6 +473,7 @@ phase = "vegetation"
             height_at: &|_, _| 0.0,
             water_level: &|_, _| Some(1.0),
             slope_at: &|_, _| 0.0,
+            slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
             grounding_tolerance: 0.5,
             biome_at: None,
@@ -464,6 +482,28 @@ phase = "vegetation"
         let fp = Footprint::from_descriptor(&desc, 5.0, 5.0);
         let r = check_hard(&desc, &fp, &c, &hard, &[]).unwrap_err();
         assert_eq!(r, RejectReason::InWater);
+    }
+
+    #[test]
+    fn footprint_slope_uses_actual_candidate_extents() {
+        let mut desc = tree_desc();
+        desc.geometry.footprint = [40.0, 20.0];
+        let (hard, _) = compile(&desc);
+        let c = PlacementContext {
+            height_at: &|_, _| 0.0,
+            water_level: &|_, _| None,
+            slope_at: &|_, _| 0.0,
+            slope_at_footprint: Some(&|_, _, half_w, _| {
+                if half_w >= 20 { 45.0 } else { 0.0 }
+            }),
+            bounds: (0, 0, 100, 100),
+            grounding_tolerance: 0.5,
+            biome_at: None,
+            hazard_at: None,
+        };
+        let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
+        let r = check_hard(&desc, &fp, &c, &hard, &[]).unwrap_err();
+        assert!(matches!(r, RejectReason::SlopeTooHigh { .. }));
     }
 
     #[test]
@@ -684,6 +724,7 @@ phase = "vegetation"
             height_at: &|_, _| 0.0,
             water_level: &|_, _| None,
             slope_at: &|_, _| 0.0,
+            slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
             grounding_tolerance: 0.5,
             biome_at: Some(&|x, _| {
@@ -704,6 +745,7 @@ phase = "vegetation"
             height_at: &|_, _| 0.0,
             water_level: &|_, _| None,
             slope_at: &|_, _| 0.0,
+            slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
             grounding_tolerance: 0.5,
             biome_at: Some(&|_, _| super::super::schema::Biome::Grassland),

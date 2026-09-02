@@ -1,0 +1,58 @@
+{
+  "format": "glyphweave.world-baseline",
+  "version": 1,
+  "id": "inner-mongolia-steppe",
+  "manifest": "examples/inner-mongolia-steppe.manifest.json",
+  "manifestSha256": "b51e04d8705d4e248e96f4dada97abd0a3f0646cc5d3ca7f2a59b3e1b6bdfbce",
+  "worldRevision": "c2efb9cf10bab3dbc0647344bbd9a0296b7aebd635e6d5dfcfe28776923501c4",
+  "sidecarContract": {
+    "format": "glyphweave-sidecar",
+    "version": 1,
+    "authoritativeForTerrain": true,
+    "gemapRole": "identity-anchor",
+    "sceneIndexRoot": "scenes/",
+    "heightPrecisionM": 0.25
+  },
+  "qualityStatus": "warn",
+  "warnings": [
+    "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report",
+    "grassland: rural area share 0.000 is outside profile target 0.400 ±0.25",
+    "grassland: nature area share 1.000 is outside profile target 0.600 ±0.25"
+  ],
+  "scenes": [
+    {
+      "sceneId": "grassland",
+      "sizeM": [
+        2000,
+        2000
+      ],
+      "chunkCount": 16,
+      "landmarkCount": 0,
+      "entityCount": 15376,
+      "entityKinds": {
+        "rock": 2310,
+        "bush": 1929,
+        "tree": 2618,
+        "grass_clump": 8519
+      },
+      "chunkHashes": [
+        "cd5b074f42384e494253a5d41d84b3283301a234dfbbf2b5b2abdd74218567f3",
+        "58a1c4b26588a4e16512bd5b63b686db0afa372bde1222a7cd63866e25dd4aa8",
+        "d5b0ba884ae640836b62943740c914fe41cccb2eb32033ce433e73058d136711",
+        "ec46de54182cef2ba646fdbb010d83b40c10d0f0665751a4eb04f0fd201844f3",
+        "4d87251520d9803a4f648bff5d3f7f695d138425bb0d4ccb9f8927ae44326780",
+        "0ca0af28cfdda70b4ecbc27afee66760f87cec6cb6e72b36e9dd871287a31181",
+        "f34672987b9149a25335e5ecc759a9306162fa9b579c171e1e14d84b41043c71",
+        "5cf612b8337d5cb2458f93b87b002176df4713a1c2d712636a4b31bdfc21e8ef",
+        "8597f2f04fac6ab7c88fa1f2446e55a87dc70d40539f7b608f8abd8b83ee9856",
+        "d054f7d89a879ab81a2d80d93ac0e2e3b316e3491df52be87481bc07241511b5",
+        "8894e2e848121a4faccbd3927998c82766e10be912eba4e292abe8cc65f0fadb",
+        "d18c4be313be38ab83140c71288bc2ae4744d20a2d449b09d16a0409db74db63",
+        "1204f0bd3c8d9653b9c02d29b2a41fdab06eb468742e8ea44856d1a33e9f239b",
+        "61969aa1864ac563dcdbb0268bc49eb64391fd77943ac518e2bb07939ca84f90",
+        "492351b1fd61464885050bcd533a068f1195a3b50c86d4b15293c38b364df066",
+        "ba9a71cb3ee61644597a2e793c63ea02742cbf0886766423121ad12889ea1aa8"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "format": "glyphweave.world-baseline",
+  "version": 1,
+  "id": "shenzhen-bay",
+  "manifest": "examples/shenzhen-bay.manifest.json",
+  "manifestSha256": "588b3da76d1dd53e26fbb2847221902e767c502cc355733a847299f482877882",
+  "worldRevision": "9378b3d8f77da3e56640eab5e314d9209bc79c7fd26c803a21cd4877ae8bffb1",
+  "sidecarContract": {
+    "format": "glyphweave-sidecar",
+    "version": 1,
+    "authoritativeForTerrain": true,
+    "gemapRole": "identity-anchor",
+    "sceneIndexRoot": "scenes/",
+    "heightPrecisionM": 0.25
+  },
+  "qualityStatus": "warn",
+  "warnings": [
+    "scale-audit.json missing: run `glyphweave scale-audit WORLD_DIR` before this report",
+    "shenzhen-bay-core: urban area share 0.916 is outside profile target 0.255 ±0.25",
+    "shenzhen-bay-core: nature area share 0.084 is outside profile target 0.660 ±0.25"
+  ],
+  "scenes": [
+    {
+      "sceneId": "shenzhen-bay-core",
+      "sizeM": [
+        1000,
+        2000
+      ],
+      "chunkCount": 8,
+      "landmarkCount": 7,
+      "entityCount": 2062,
+      "entityKinds": {
+        "river": 1,
+        "bridge": 1,
+        "food_stall": 1,
+        "road": 2,
+        "sidewalk": 4,
+        "resort_lodge": 21,
+        "storefront": 160,
+        "tree": 454,
+        "urban_building": 71,
+        "rock": 70,
+        "bush": 298,
+        "fallen_log": 31,
+        "reed": 834,
+        "grass_clump": 45,
+        "bench": 37,
+        "lamp": 32
+      },
+      "chunkHashes": [
+        "5c55d74fab939ed8ee4c81ea68674b7593deb9c8c73ff15096dcb60cc61e71ef",
+        "57701bf666a394d00bc4f187ec70faa881c4c1d89d44fafd5ae33eaea07d0431",
+        "56d9d7d91c1e364cc0059bd2d4f76e65f42923599ebdf0430240c64b612435b2",
+        "5841f976982ff4c89c3aab3cf25cc8d34dd94973792d9da0add3c5be98c62967",
+        "44b44b45a0d03250a006752ce0209bee1ed1f21494d3269dd1dd764a30e973ab",
+        "f37bcd8ce7d61bb2346d7f101a1bb06f6a27a430ed1f1fa8d6cd4da885fdabe0",
+        "feb99909eeb77213822c75b6fcb6b4d14214dee4c9452068aaf5a072daaa1f39",
+        "f40e190acb24480b3ec10e883ebac53d573e910e764cca9600ede260541d756e"
+      ]
+    }
+  ]
+}
