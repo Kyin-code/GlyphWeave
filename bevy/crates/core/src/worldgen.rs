@@ -642,7 +642,7 @@ pub fn analyze_landuse_areas(scene: &SceneIndex) -> LandUseAreaReport {
     }
 }
 
-fn default_asset_contracts() -> serde_json::Value {
+pub(crate) fn default_asset_contracts() -> serde_json::Value {
     let mut contracts = serde_json::Map::new();
     let entries = [
         ("road", "road", 8.0, 10000.0, 6.0, 32.0, 0.1, 1.0),
@@ -762,6 +762,44 @@ fn default_asset_contracts() -> serde_json::Value {
             4.0,
         ),
         ("sidewalk", "pavement", 2.0, 10000.0, 2.0, 10.0, 0.1, 1.0),
+        ("bench", "street-furniture", 0.2, 6.0, 0.2, 6.0, 0.1, 4.0),
+        ("lamp", "street-furniture", 0.2, 3.0, 0.2, 3.0, 0.5, 10.0),
+        ("reed", "vegetation", 0.1, 2.0, 0.1, 2.0, 0.1, 4.0),
+        ("grass_clump", "vegetation", 0.1, 3.0, 0.1, 3.0, 0.1, 4.0),
+        ("fallen_log", "vegetation", 0.2, 8.0, 0.2, 4.0, 0.1, 3.0),
+        ("bridge", "bridge", 6.0, 10000.0, 6.0, 200.0, 0.1, 80.0),
+        (
+            "building_cluster",
+            "building",
+            20.0,
+            500.0,
+            20.0,
+            500.0,
+            1.0,
+            100.0,
+        ),
+        (
+            "urban_building",
+            "building",
+            8.0,
+            300.0,
+            8.0,
+            300.0,
+            2.0,
+            100.0,
+        ),
+        (
+            "resort_lodge",
+            "building",
+            8.0,
+            120.0,
+            8.0,
+            120.0,
+            2.0,
+            40.0,
+        ),
+        ("storefront", "commercial", 6.0, 120.0, 6.0, 80.0, 2.0, 30.0),
+        ("road_exit", "road", 2.0, 10000.0, 2.0, 32.0, 0.1, 2.0),
     ];
     for (kind, contract_type, min_width, max_width, min_depth, max_depth, min_height, max_height) in
         entries
@@ -2580,6 +2618,17 @@ fn generate_entities_with_profile(
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
     let mut entities = generate_entities_template(seed, scene, landmarks, geometry);
+    // When a normalized settlement intent is present for a water scene, the
+    // generic intent planner owns ordinary buildings. Remove only the legacy
+    // generated building filler; authored/GIS landmarks and water/transport
+    // infrastructure remain authoritative inputs.
+    if geometry.kind != WaterKind::None
+        && matches!(generation_settlement(style), Some("city" | "town"))
+    {
+        entities.retain(|entity| {
+            !(entity.entity_id.starts_with("generated.") && is_building_kind(&entity.kind))
+        });
+    }
     // Apply the final footprint test after all deterministic jitter and template placement.
     // This is deliberately independent of the renderer, so a bad placement cannot be hidden.
     // Bridges claim their full span: any generated building or roadside prop that
@@ -2692,23 +2741,40 @@ fn generate_entities_with_profile(
         ) || entity.entity_id.starts_with("gis.")
             || !footprint_intersects_water(entity, geometry, 1.0)
     });
+    let explicit_settlement = generation_settlement(style);
     if geometry.kind == WaterKind::None {
-        // naturalOnly: a pure wild scene (steppe / nature) — skip urban land-use
-        // generation entirely, keep only the natural entities (pasture, trees,
-        // rocks, grass) so the world stays a wild plain with no city fabric.
-        let natural_only = style
-            .get("naturalOnly")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        if !natural_only {
-            if style.get("landUseProfile").is_some() {
-                append_modern_landuse_content(seed, scene, &mut entities, style);
-            } else {
-                append_generic_land_content(seed, scene, &mut entities);
+        // An explicit intent selects a generic planner. Fixture-free generation
+        // is important here: the planner consumes normalized intent/profile
+        // fields and never branches on a place name.
+        match explicit_settlement {
+            Some("wilderness") => append_natural_content(seed, scene, &mut entities),
+            Some("pastoral") => append_pastoral_intent_content(seed, scene, &mut entities),
+            Some("city" | "town") if style.get("landUseProfile").is_some() => {
+                append_modern_landuse_content(seed, scene, &mut entities, style)
             }
-        } else {
-            append_natural_content(seed, scene, &mut entities);
+            Some("city" | "town") => append_generic_land_content(seed, scene, &mut entities),
+            Some(_) => append_generic_land_content(seed, scene, &mut entities),
+            None => {
+                // Legacy manifests retain their established behavior.
+                let natural_only = style
+                    .get("naturalOnly")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                if !natural_only {
+                    if style.get("landUseProfile").is_some() {
+                        append_modern_landuse_content(seed, scene, &mut entities, style);
+                    } else {
+                        append_generic_land_content(seed, scene, &mut entities);
+                    }
+                } else {
+                    append_natural_content(seed, scene, &mut entities);
+                }
+            }
         }
+    } else if matches!(explicit_settlement, Some("city" | "town")) {
+        // Water geometry is already present in the template. Add the settlement
+        // on its derived banks/shoreline rather than using fixture coordinates.
+        append_waterfront_intent_settlement(seed, scene, geometry, &mut entities, style);
     }
     // rulesMode = "rules": the declarative rules engine drives final placement.
     // The template generator still proposes positions, but every proposed
@@ -3013,6 +3079,384 @@ pub fn audit_scene(
     Ok(crate::rules::audit_entities(
         entities, &registry, &ctx, seed,
     ))
+}
+
+fn generation_settlement(style: &serde_json::Value) -> Option<&str> {
+    style
+        .get("generationIntent")
+        .and_then(|intent| intent.get("settlement"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn generated_intent_entity(
+    id: String,
+    kind: &str,
+    x: i32,
+    z: i32,
+    y: i32,
+    width_m: f32,
+    depth_m: f32,
+    height_m: f32,
+) -> EntityInstance {
+    EntityInstance {
+        rotation_y_deg: if id.contains("road-ns") { 90.0 } else { 0.0 },
+        grounding: GroundingSpec::default(),
+        anchors: Vec::new(),
+        bounds: None,
+        entity_id: id,
+        asset_id: format!("prop.{kind}"),
+        kind: kind.into(),
+        world_x: x,
+        world_z: z,
+        world_y: y,
+        scale: 1.0,
+        width_m,
+        depth_m,
+        height_m,
+    }
+}
+
+fn is_building_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "building"
+            | "building_tower"
+            | "building_cluster"
+            | "urban_building"
+            | "residential_block"
+            | "residential_tower"
+            | "residential_home"
+            | "resort_lodge"
+            | "storefront"
+            | "commercial_center"
+            | "entertainment_center"
+            | "school"
+            | "town_hall"
+            | "market"
+            | "industrial"
+            | "temple"
+            | "church"
+            | "parking_lot"
+            | "green_space"
+    )
+}
+
+fn intent_candidate_is_free(
+    scene: &SceneSpec,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+    x: i32,
+    z: i32,
+    width_m: f32,
+    depth_m: f32,
+    kind: &str,
+) -> bool {
+    let half_w = width_m as f64 * 0.5;
+    let half_d = depth_m as f64 * 0.5;
+    if x as f64 - half_w < scene.origin_x as f64
+        || x as f64 + half_w >= (scene.origin_x + scene.width_m as i32) as f64
+        || z as f64 - half_d < scene.origin_z as f64
+        || z as f64 + half_d >= (scene.origin_z + scene.depth_m as i32) as f64
+    {
+        return false;
+    }
+    let candidate = EntityInstance {
+        rotation_y_deg: 0.0,
+        grounding: GroundingSpec::default(),
+        anchors: Vec::new(),
+        bounds: None,
+        entity_id: "candidate".into(),
+        asset_id: "candidate".into(),
+        kind: kind.into(),
+        world_x: x,
+        world_z: z,
+        world_y: 0,
+        scale: 1.0,
+        width_m,
+        depth_m,
+        height_m: 1.0,
+    };
+    if footprint_intersects_water(&candidate, water, 1.0) {
+        return false;
+    }
+    if !is_building_kind(kind) {
+        return true;
+    }
+    !entities
+        .iter()
+        .filter(|entity| is_building_kind(&entity.kind))
+        .any(|entity| {
+            ((entity.world_x - x).abs() as f64) < entity.width_m as f64 * 0.5 + half_w
+                && ((entity.world_z - z).abs() as f64) < entity.depth_m as f64 * 0.5 + half_d
+        })
+}
+
+/// Generic settlement planner for confirmed city/town intents beside a river
+/// or lake. It derives cores from WaterGeometry and scene bounds; it never
+/// reads a scenario name or a fixture-specific coordinate.
+fn append_waterfront_intent_settlement(
+    seed: u64,
+    scene: &SceneSpec,
+    water: WaterGeometry,
+    entities: &mut Vec<EntityInstance>,
+    style: &serde_json::Value,
+) {
+    let Some(settlement) = generation_settlement(style) else {
+        return;
+    };
+    if !matches!(settlement, "city" | "town") || water.kind == WaterKind::None {
+        return;
+    }
+    let profile = LandUseProfile::from_style(style).unwrap_or_else(LandUseProfile::default_demo);
+    let density = (profile.urban_target() + 0.15).clamp(0.25, 0.75);
+    let inset = 110_i32;
+    let mut cores: Vec<(i32, i32, bool)> = match water.kind {
+        WaterKind::River => {
+            let shore = water.half_width.ceil() as i32 + inset;
+            vec![
+                (
+                    water.center_x.round() as i32 - shore,
+                    scene.origin_z + scene.depth_m as i32 / 3,
+                    false,
+                ),
+                (
+                    water.center_x.round() as i32 + shore,
+                    scene.origin_z + scene.depth_m as i32 * 2 / 3,
+                    true,
+                ),
+            ]
+        }
+        WaterKind::Lake => {
+            let shore = water.half_depth.ceil() as i32 + inset;
+            vec![
+                (
+                    scene.origin_x + scene.width_m as i32 / 2,
+                    water.center_z.round() as i32 - shore,
+                    false,
+                ),
+                (
+                    scene.origin_x + scene.width_m as i32 / 2,
+                    water.center_z.round() as i32 + shore,
+                    true,
+                ),
+            ]
+        }
+        WaterKind::None => Vec::new(),
+    };
+    cores.retain(|(x, z, _)| {
+        intent_candidate_is_free(
+            scene,
+            water,
+            entities,
+            *x,
+            *z,
+            80.0,
+            60.0,
+            "commercial_center",
+        )
+    });
+    for (core_index, (core_x, core_z, positive_bank)) in cores.into_iter().enumerate() {
+        let serial = 700_000_u32 + core_index as u32 * 100;
+        let road_is_vertical = water.kind == WaterKind::River;
+        let (road_w, road_d, road_id) = if road_is_vertical {
+            (
+                (scene.depth_m.saturating_sub(80)) as f32,
+                10.0,
+                format!("generated.intent-road-ns.{serial}"),
+            )
+        } else {
+            (
+                (scene.width_m.saturating_sub(80)) as f32,
+                10.0,
+                format!("generated.intent-road-ew.{serial}"),
+            )
+        };
+        let road_y = i32::from(terrain_height(
+            seed,
+            core_x,
+            core_z,
+            WaterKind::None,
+            scene.width_m,
+            scene.depth_m,
+            0.0,
+        )) / 4;
+        entities.push(generated_intent_entity(
+            road_id, "road", core_x, core_z, road_y, road_w, road_d, 0.24,
+        ));
+        let buildings = [
+            ("commercial_center", 80.0, 60.0, 18.0, 0_i32, 0_i32),
+            ("school", 60.0, 48.0, 10.0, 105_i32, 20_i32),
+            ("green_space", 30.0, 30.0, 0.2, -90_i32, 35_i32),
+        ];
+        for (offset, (kind, width, depth, height, ox, oz)) in buildings.into_iter().enumerate() {
+            let x = core_x + ox;
+            let z = core_z + oz;
+            if !intent_candidate_is_free(scene, water, entities, x, z, width, depth, kind) {
+                continue;
+            }
+            let y = i32::from(terrain_height(
+                seed,
+                x,
+                z,
+                WaterKind::None,
+                scene.width_m,
+                scene.depth_m,
+                0.0,
+            )) / 4;
+            entities.push(generated_intent_entity(
+                format!("generated.intent-{kind}.{}", serial + offset as u32),
+                kind,
+                x,
+                z,
+                y,
+                width,
+                depth,
+                height,
+            ));
+        }
+        let bank_sign = if positive_bank { 1 } else { -1 };
+        let homes = (density * 10.0).round() as i32;
+        for row in 0..homes {
+            let lateral = bank_sign * (150 + row * 36);
+            let along = (row % 3 - 1) * 65;
+            let (x, z) = if road_is_vertical {
+                (core_x + lateral, core_z + along)
+            } else {
+                (core_x + along, core_z + lateral)
+            };
+            if !intent_candidate_is_free(
+                scene,
+                water,
+                entities,
+                x,
+                z,
+                30.0,
+                24.0,
+                "residential_block",
+            ) {
+                continue;
+            }
+            let y = i32::from(terrain_height(
+                seed,
+                x,
+                z,
+                WaterKind::None,
+                scene.width_m,
+                scene.depth_m,
+                0.0,
+            )) / 4;
+            entities.push(generated_intent_entity(
+                format!("generated.intent-residential.{}", serial + 20 + row as u32),
+                "residential_block",
+                x,
+                z,
+                y,
+                30.0,
+                24.0,
+                12.0,
+            ));
+        }
+    }
+}
+
+/// Generic pastoral planner. Unlike wilderness it deliberately creates rural
+/// land-use, access and service objects; it is driven by SettlementIntent,
+/// not by a named steppe fixture.
+fn append_pastoral_intent_content(
+    seed: u64,
+    scene: &SceneSpec,
+    entities: &mut Vec<EntityInstance>,
+) {
+    let land = WaterGeometry {
+        kind: WaterKind::None,
+        center_x: 0.0,
+        center_z: 0.0,
+        half_width: 0.0,
+        half_depth: 0.0,
+        scene_width_m: scene.width_m,
+        scene_depth_m: scene.depth_m,
+        smooth_rolling: false,
+    };
+    let mut serial = 750_000_u32;
+    for z in (scene.origin_z + 140..scene.origin_z + scene.depth_m as i32 - 140).step_by(180) {
+        for x in (scene.origin_x + 140..scene.origin_x + scene.width_m as i32 - 140).step_by(180) {
+            let kind = if signed_noise(seed.rotate_left(301), x, z) > 0 {
+                "pasture"
+            } else {
+                "farmland"
+            };
+            if intent_candidate_is_free(scene, land, entities, x, z, 100.0, 80.0, kind) {
+                let y = i32::from(terrain_height(
+                    seed,
+                    x,
+                    z,
+                    WaterKind::None,
+                    scene.width_m,
+                    scene.depth_m,
+                    0.0,
+                )) / 4;
+                entities.push(generated_intent_entity(
+                    format!("generated.intent-rural.{serial}"),
+                    kind,
+                    x,
+                    z,
+                    y,
+                    100.0,
+                    80.0,
+                    0.2,
+                ));
+                if serial % 3 == 0 {
+                    let well_x = x + 35;
+                    let well_z = z + 25;
+                    if intent_candidate_is_free(
+                        scene,
+                        land,
+                        entities,
+                        well_x,
+                        well_z,
+                        5.0,
+                        5.0,
+                        "water_well",
+                    ) {
+                        entities.push(generated_intent_entity(
+                            format!("generated.intent-well.{serial}"),
+                            "water_well",
+                            well_x,
+                            well_z,
+                            y,
+                            5.0,
+                            5.0,
+                            2.4,
+                        ));
+                    }
+                    let home_x = x - 35;
+                    let home_z = z - 20;
+                    if intent_candidate_is_free(
+                        scene,
+                        land,
+                        entities,
+                        home_x,
+                        home_z,
+                        24.0,
+                        20.0,
+                        "residential_home",
+                    ) {
+                        entities.push(generated_intent_entity(
+                            format!("generated.intent-home.{serial}"),
+                            "residential_home",
+                            home_x,
+                            home_z,
+                            y,
+                            24.0,
+                            20.0,
+                            6.0,
+                        ));
+                    }
+                }
+            }
+            serial += 1;
+        }
+    }
 }
 
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,
@@ -4773,6 +5217,98 @@ mod tests {
             let mut ids = std::collections::BTreeSet::new();
             assert!(a.iter().all(|entity| ids.insert(entity.entity_id.clone())));
         }
+    }
+
+    #[test]
+    fn explicit_intent_uses_generic_settlement_planners() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 2_000,
+            depth_m: 1_600,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let river_style = serde_json::json!({
+            "terrainProfile": "plains",
+            "water": { "waterType": "river", "levelPolicy": "horizontal-datum", "levelM": 0 },
+            "generationIntent": { "terrain": "river", "settlement": "city", "water": "river" },
+            "landUseProfile": { "theme": "river-delta", "urbanCoreRatio": 0.4 }
+        });
+        let river_geometry = water_geometry(WaterKind::River, &[], &scene, &river_style);
+        let river_entities =
+            generate_entities_with_profile(7, &scene, &[], river_geometry, &river_style);
+        eprintln!(
+            "river entities: {:?}",
+            river_entities
+                .iter()
+                .map(|entity| (&entity.kind, entity.world_x, entity.world_z))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            river_entities
+                .iter()
+                .any(|entity| entity.kind == "commercial_center")
+        );
+        assert!(
+            river_entities
+                .iter()
+                .any(|entity| entity.entity_id.starts_with("generated.intent-"))
+        );
+
+        let pastoral_style = serde_json::json!({
+            "terrainProfile": "steppe",
+            "generationIntent": { "terrain": "steppe", "settlement": "pastoral", "water": "none" }
+        });
+        let pastoral_entities = generate_entities_with_profile(
+            7,
+            &scene,
+            &[],
+            legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.0),
+            &pastoral_style,
+        );
+        assert!(
+            pastoral_entities
+                .iter()
+                .any(|entity| entity.kind == "pasture")
+        );
+        assert!(
+            pastoral_entities
+                .iter()
+                .any(|entity| entity.kind == "farmland")
+        );
+        assert!(
+            pastoral_entities
+                .iter()
+                .any(|entity| entity.kind == "residential_home")
+        );
+    }
+
+    #[test]
+    fn explicit_wilderness_intent_does_not_add_urban_fabric() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "terrainProfile": "grassland",
+            "naturalOnly": true,
+            "generationIntent": { "terrain": "plain", "settlement": "wilderness", "water": "none" }
+        });
+        let entities = generate_entities_with_profile(
+            11,
+            &scene,
+            &[],
+            legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.0),
+            &style,
+        );
+        assert!(!entities.iter().any(|entity| is_building_kind(&entity.kind)));
+        assert!(!entities.iter().any(|entity| entity.kind == "road"));
+        assert!(entities.iter().any(|entity| entity.kind == "grass_clump"));
     }
 
     #[test]

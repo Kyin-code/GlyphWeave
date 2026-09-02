@@ -632,12 +632,19 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         .and_then(|water| water.get("waterType"))
         .and_then(serde_json::Value::as_str)
         .is_some_and(|kind| matches!(kind, "lake" | "river"));
-    let profile_applied = profile.is_some() && !natural_only && !has_structured_water;
+    let intent_settlement = manifest
+        .style
+        .get("generationIntent")
+        .and_then(|intent| intent.get("settlement"))
+        .and_then(serde_json::Value::as_str);
+    let intent_planner_applied = matches!(intent_settlement, Some("city" | "town" | "pastoral"));
+    let profile_applied =
+        profile.is_some() && !natural_only && (!has_structured_water || intent_planner_applied);
     if profile.is_some() && !profile_applied {
         let reason = if natural_only {
             "naturalOnly scene"
         } else {
-            "structured-water scene"
+            "structured-water scene without an explicit settlement planner"
         };
         warnings.push(format!(
             "landUseProfile targets are not evaluated for {reason}: the current generator does not apply the profile-driven land-use pass"
@@ -666,7 +673,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         entities += scene.entities.len();
         landmarks += scene.landmarks.len();
         let areas = analyze_landuse_areas(&scene);
-        if profile_applied {
+        if profile_applied && !has_structured_water {
             let profile = profile.as_ref().expect("profile_applied requires profile");
             // The profile ratios describe the intended land-use mix. Compare
             // the *normalized* shares (urban/rural/nature summing to 1) so a
@@ -1638,7 +1645,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
     );
 }
 

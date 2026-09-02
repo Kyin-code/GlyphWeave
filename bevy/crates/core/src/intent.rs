@@ -113,15 +113,22 @@ fn parse_named_value(text: &str, markers: &[&str]) -> Option<String> {
 }
 
 fn parse_dimension_token(token: &str) -> Option<u32> {
-    let digits: String = token.chars().filter(char::is_ascii_digit).collect();
-    let value: u32 = digits.parse().ok()?;
-    if token.contains("km") || token.contains("公里") || token.contains("千米") {
-        Some(value.saturating_mul(1_000))
+    let numeric: String = token
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '.')
+        .collect();
+    let value: f64 = numeric.parse().ok()?;
+    let meters = if token.contains("km") || token.contains("公里") || token.contains("千米") {
+        value * 1_000.0
     } else if token.contains('m') || token.contains('米') {
-        Some(value)
+        value
     } else {
-        None
+        return None;
+    };
+    if !meters.is_finite() || meters <= 0.0 || meters > f64::from(u32::MAX) {
+        return None;
     }
+    Some(meters.round() as u32)
 }
 
 fn parse_dimension_m(text: &str) -> Option<(u32, u32)> {
@@ -133,14 +140,18 @@ fn parse_dimension_m(text: &str) -> Option<(u32, u32)> {
         let left: String = compact[..index]
             .chars()
             .rev()
-            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '公' | '里' | '千' | '米'))
+            .take_while(|ch| {
+                ch.is_ascii_alphanumeric() || *ch == '.' || matches!(ch, '公' | '里' | '千' | '米')
+            })
             .collect::<String>()
             .chars()
             .rev()
             .collect();
         let right: String = compact[index + ch.len_utf8()..]
             .chars()
-            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '公' | '里' | '千' | '米'))
+            .take_while(|ch| {
+                ch.is_ascii_alphanumeric() || *ch == '.' || matches!(ch, '公' | '里' | '千' | '米')
+            })
             .collect();
         if let (Some(width), Some(depth)) =
             (parse_dimension_token(&left), parse_dimension_token(&right))
@@ -271,10 +282,17 @@ impl WorldIntent {
                 "water": self.water.clone(),
             },
             "landUseProfile": { "theme": theme },
+            "assetContracts": crate::worldgen::default_asset_contracts(),
             "naturalOnly": natural_only,
         });
         if let Some(water_type) = water_type {
-            style["water"] = serde_json::json!({ "waterType": water_type, "levelPolicy": "horizontal-datum", "levelM": 0 });
+            style["water"] = serde_json::json!({
+                "waterType": water_type,
+                "levelPolicy": "horizontal-datum",
+                "levelM": 0,
+                "shoreProfile": "banked",
+                "waveModel": "calm"
+            });
         }
         WorldManifest {
             format: WORLD_FORMAT.into(),
