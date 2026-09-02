@@ -854,12 +854,23 @@ pub fn water_geometry(
     });
     let fallback_x = f64::from(scene.origin_x) + f64::from(scene.width_m) * 0.5;
     let fallback_z = f64::from(scene.origin_z) + f64::from(scene.depth_m) * 0.5;
+    let (fallback_half_width, fallback_half_depth) = match kind {
+        WaterKind::Lake => (
+            f64::from(scene.width_m) * 0.38,
+            f64::from(scene.depth_m) * 0.26,
+        ),
+        WaterKind::River => (
+            f64::from(scene.width_m) * 0.14,
+            f64::from(scene.depth_m) * 0.5,
+        ),
+        WaterKind::None => (0.0, 0.0),
+    };
     let (center_x, center_z, half_width, half_depth) = landmark.map_or(
         (
             fallback_x,
             fallback_z,
-            f64::from(scene.width_m) * 0.14,
-            f64::from(scene.depth_m) * 0.5,
+            fallback_half_width,
+            fallback_half_depth,
         ),
         |item| {
             (
@@ -3438,7 +3449,7 @@ fn append_pastoral_intent_content(
                         home_x,
                         home_z,
                         24.0,
-                        20.0,
+                        24.0,
                         "residential_home",
                     ) {
                         entities.push(generated_intent_entity(
@@ -3448,7 +3459,7 @@ fn append_pastoral_intent_content(
                             home_z,
                             y,
                             24.0,
-                            20.0,
+                            24.0,
                             6.0,
                         ));
                     }
@@ -4443,12 +4454,13 @@ fn generate_entities_template(
                 kind: "road".to_owned(),
                 world_x: lake_x,
                 world_z: north_shore_z,
-                world_y: i32::from(terrain_height_with_geometry(
+                world_y: (i32::from(terrain_height_with_geometry(
                     seed,
                     lake_x,
                     north_shore_z,
                     geometry,
-                )) / 4,
+                )) / 4)
+                    .max(1),
                 scale: 1.0,
                 width_m: (geometry.half_width * 2.0 + 90.0) as f32,
                 depth_m: 14.0,
@@ -5285,6 +5297,36 @@ mod tests {
     }
 
     #[test]
+    fn fallback_lake_geometry_keeps_shore_roads_inside_scene() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 1_500,
+            depth_m: 1_200,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "terrainProfile": "plains",
+            "water": { "waterType": "lake", "levelPolicy": "horizontal-datum" }
+        });
+        let geometry = water_geometry(WaterKind::Lake, &[], &scene, &style);
+        assert!(geometry.center_z - geometry.half_depth > scene.origin_z as f64);
+        assert!(
+            geometry.center_z + geometry.half_depth
+                < (scene.origin_z + scene.depth_m as i32) as f64
+        );
+        let entities = generate_entities_with_profile(5, &scene, &[], geometry, &style);
+        let road = entities
+            .iter()
+            .find(|entity| entity.entity_id == "generated.north-shore-road")
+            .expect("lake template should provide a shore road");
+        assert!(road.world_z >= scene.origin_z);
+        assert!(road.world_z < scene.origin_z + scene.depth_m as i32);
+        assert!(road.world_y >= 1);
+    }
+
+    #[test]
     fn explicit_wilderness_intent_does_not_add_urban_fabric() {
         let scene = SceneSpec {
             scene_id: "scene-0".into(),
@@ -5600,7 +5642,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             road.world_y,
-            i32::from(terrain_height(
+            (i32::from(terrain_height(
                 1208,
                 road.world_x,
                 road.world_z,
@@ -5608,7 +5650,8 @@ mod tests {
                 1_000,
                 1_000,
                 0.0
-            )) / 4
+            )) / 4)
+                .max(1)
         );
     }
 

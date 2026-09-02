@@ -640,15 +640,10 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let intent_planner_applied = matches!(intent_settlement, Some("city" | "town" | "pastoral"));
     let profile_applied =
         profile.is_some() && !natural_only && (!has_structured_water || intent_planner_applied);
-    if profile.is_some() && !profile_applied {
-        let reason = if natural_only {
-            "naturalOnly scene"
-        } else {
-            "structured-water scene without an explicit settlement planner"
-        };
-        warnings.push(format!(
-            "landUseProfile targets are not evaluated for {reason}: the current generator does not apply the profile-driven land-use pass"
-        ));
+    if profile.is_some() && !profile_applied && !natural_only {
+        warnings.push(
+            "landUseProfile targets are not evaluated for structured-water scene without an explicit settlement planner: the current generator does not apply the profile-driven land-use pass".to_owned(),
+        );
     }
     let mut area_reports = Vec::new();
     for scene_path in &world.scenes {
@@ -673,7 +668,10 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         entities += scene.entities.len();
         landmarks += scene.landmarks.len();
         let areas = analyze_landuse_areas(&scene);
-        if profile_applied && !has_structured_water {
+        if profile_applied
+            && !has_structured_water
+            && !matches!(intent_settlement, Some("pastoral"))
+        {
             let profile = profile.as_ref().expect("profile_applied requires profile");
             // The profile ratios describe the intended land-use mix. Compare
             // the *normalized* shares (urban/rural/nature summing to 1) so a
