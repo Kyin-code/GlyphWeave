@@ -1691,6 +1691,10 @@ fn write_html_preview_modules(preview: &Path) -> WorldgenResult<()> {
             include_bytes!("../../../../adapters/html/render/vegetation.js"),
         ),
         (
+            "render/wind.js",
+            include_bytes!("../../../../adapters/html/render/wind.js"),
+        ),
+        (
             "render/water.js",
             include_bytes!("../../../../adapters/html/render/water.js"),
         ),
@@ -2632,7 +2636,11 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                 (width * 0.5 + 4.0, depth * 0.5 + 1.5, 6.0)
             }
         } else {
-            (width * 0.5 + 1.0, depth * 0.5 + 1.0, 6.0)
+            // Buildings keep local width/depth in the entity contract; rotate
+            // those dimensions into world axes before baking their support pad.
+            let (half_w, half_d) =
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+            (half_w + 1.0, half_d + 1.0, 6.0)
         };
         carves.push(TerrainCarve {
             cx: f64::from(entity.world_x),
@@ -3521,8 +3529,10 @@ pub fn audit_scene(
 /// must not excavate the high side merely to match the centre sample or the
 /// water datum.
 fn footprint_surface_ceiling_m(seed: u64, entity: &EntityInstance, water: WaterGeometry) -> i32 {
-    let half_w = (f64::from(entity.width_m) * 0.5).ceil().max(0.0) as i32;
-    let half_d = (f64::from(entity.depth_m) * 0.5).ceil().max(0.0) as i32;
+    let (half_w, half_d) =
+        spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+    let half_w = half_w.ceil().max(0.0) as i32;
+    let half_d = half_d.ceil().max(0.0) as i32;
     let mut ceiling_m = f64::NEG_INFINITY;
     for dz in -half_d..=half_d {
         for dx in -half_w..=half_w {
@@ -3683,7 +3693,7 @@ fn generated_intent_entity(
     }
 }
 
-fn spatial_half_extents(width_m: f32, depth_m: f32, rotation_y_deg: f32) -> (f64, f64) {
+pub(crate) fn spatial_half_extents(width_m: f32, depth_m: f32, rotation_y_deg: f32) -> (f64, f64) {
     let quarter_turn = (rotation_y_deg.round() as i32).rem_euclid(180) == 90;
     if quarter_turn {
         (f64::from(depth_m) * 0.5, f64::from(width_m) * 0.5)
@@ -6014,6 +6024,53 @@ mod tests {
     }
 
     #[test]
+    fn rotated_building_uses_world_footprint_for_grounding_and_pad() {
+        let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
+        let mut entity = EntityInstance {
+            rotation_y_deg: 90.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "test.rotated-building".into(),
+            asset_id: "prop.building".into(),
+            kind: "building".into(),
+            world_x: 400,
+            world_z: 400,
+            world_y: -50,
+            scale: 1.0,
+            width_m: 80.0,
+            depth_m: 20.0,
+            height_m: 12.0,
+        };
+        let mut expected = f64::NEG_INFINITY;
+        for dz in -40..=40 {
+            for dx in -10..=10 {
+                expected = expected.max(
+                    f64::from(terrain_height_with_geometry(
+                        20260903,
+                        entity.world_x + dx,
+                        entity.world_z + dz,
+                        water,
+                    )) / 4.0,
+                );
+            }
+        }
+        rebase_buildings_to_surface(20260903, water, std::slice::from_mut(&mut entity));
+        assert_eq!(entity.world_y, expected.ceil() as i32);
+        let carves = plan_terrain_carves(&[entity.clone()]);
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260903, 400, 439, water, &carves),
+            entity.world_y as i16 * 4,
+            "rotated building pad did not extend along world Z"
+        );
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260903, 439, 400, water, &carves),
+            terrain_height_with_geometry_carved(20260903, 439, 400, water, &[]),
+            "rotated building pad incorrectly extended along world X"
+        );
+    }
+
+    #[test]
     fn terrain_semantics_match_the_baked_raster_contract() {
         let water = legacy_water_geometry(WaterKind::None, 128, 128, 0.0);
         let carve = TerrainCarve {
@@ -6328,6 +6385,7 @@ mod tests {
             "preview/app.js",
             "preview/core/shared.js",
             "preview/render/terrain.js",
+            "preview/render/wind.js",
             "preview/render/presets/materials.js",
             "preview/vendor/three/build/three.module.js",
             "preview/vendor/three/examples/jsm/loaders/GLTFLoader.js",

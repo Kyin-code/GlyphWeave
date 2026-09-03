@@ -124,8 +124,10 @@ fn build_entity(
         world_z: cand.z,
         world_y,
         scale,
-        width_m: if rotated { depth } else { width },
-        depth_m: if rotated { width } else { depth },
+        // width/depth are local asset dimensions. Rotation changes their
+        // world-space footprint, not the stored local geometry contract.
+        width_m: width,
+        depth_m: depth,
         height_m: height,
         rotation_y_deg: source.map(|source| source.rotation_y_deg).unwrap_or(0.0)
             + if rotated { 90.0 } else { 0.0 },

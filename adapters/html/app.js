@@ -1,6 +1,7 @@
-﻿import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial } from './render/terrain.js'
+import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial, makeTerrainPbrMaps } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
+import { createWorldWind } from './render/wind.js'
 import { createPostFX } from './render/postfx.js'
 import { makeWaterTexture, makeRiverGeometry, makeWaterMaterial } from './render/water.js'
 import { makeSkyTexture } from './render/sky.js'
@@ -26,6 +27,7 @@ let nearScene
 let nearCamera
 let nearControls
 let exploreKeys = new Set()
+let worldWind
 let exploreInputCleanup
 const chunkDataCache = new Map()
 const entityMeshCache = new Map()
@@ -531,7 +533,7 @@ async function drawNear() {
       chunkDataCache.set(cacheKey, { heightView, surface, terrain })
     }
     const width = chunk.validWidthM; const depth = chunk.validDepthM
-    heightFields.push({ chunk, heightView, width, depth })
+    heightFields.push({ chunk, heightView, surface, terrain, width, depth })
     // Only the focus chunk renders at 1m terrain detail; its immediate
     // neighbours use a finer 2m mesh (with a matching finer texture) so the
     // ground stays readable when panning. The outer ring keeps a coarse 8m
@@ -552,9 +554,17 @@ async function drawNear() {
       // texture map). Urban: the existing noise-mapped terrain.
       if (window.__steppe) {
         const geometry = makeMCTerrain(heightView, surface, terrain, width, depth, meshStep, THREE)
-        // MeshStandardMaterial handles vertex-color colour management correctly
-        // (Lambert can wash the greens toward tan under these lights).
-        const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })
+        // Exact-height normal + roughness maps add PBR light response without
+        // any visual displacement. The renderer therefore cannot create a
+        // second ground surface that breaks road/building grounding.
+        const maps = makeTerrainPbrMaps(heightView, surface, terrain, width, depth, THREE)
+        const material = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: .88,
+          normalMap: maps.normalTexture,
+          normalScale: new THREE.Vector2(.34, .34),
+          roughnessMap: maps.roughnessTexture,
+        })
         mesh = new THREE.Mesh(geometry, material)
       } else {
         const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
@@ -582,13 +592,46 @@ async function drawNear() {
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
     return field.heightView.getInt16((z * field.width + x) * 2, true) / 4
   }
-  // Steppe grass: GPU-instanced curved blades with wind + backlight over the
+  const terrainFieldMap = new Map()
+  const terrainAt = (worldX, worldZ) => {
+    const key = `${Math.floor((worldX - scene.originX) / 512)},${Math.floor((worldZ - scene.originZ) / 512)}`
+    let field = terrainFieldMap.get(key)
+    if (!field) {
+      field = heightFields.find(item => worldX >= item.chunk.worldX && worldX < item.chunk.worldX + item.width && worldZ >= item.chunk.worldZ && worldZ < item.chunk.worldZ + item.depth)
+      terrainFieldMap.set(key, field ?? null)
+    }
+    if (!field) return { slope: 0, curvature: 0, wetness: .5, disturbance: 0, surface: 0 }
+    const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
+    const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
+    const index = z * field.width + x
+    const offset = index * 4
+    return {
+      slope: field.terrain ? field.terrain[offset] / 255 : 0,
+      curvature: (field.terrain ? field.terrain[offset + 1] / 255 : .5) * 4 - 2,
+      wetness: field.terrain ? field.terrain[offset + 2] / 255 : .5,
+      disturbance: field.terrain ? field.terrain[offset + 3] / 255 : 0,
+      surface: field.surface?.[index] ?? 0,
+    }
+  }
+  if (!worldWind) worldWind = createWorldWind(THREE)
+  // The generated terrain raster is the one ecological contract for all
+  // visible natural detail. Disturbance means a road/building/pad; surface 3
+  // is open water. Species then consume the same slope and wetness channels
+  // with different, intentionally broad habitat windows.
+  const vegetationFitsTerrain = entity => {
+    const terrain = terrainAt(entity.worldX, entity.worldZ)
+    if (terrain.disturbance > .04 || terrain.surface === 3) return false
+    if (entity.kind === 'tree') return terrain.slope < .78 && terrain.wetness > .12
+    if (entity.kind === 'bush') return terrain.slope < .7 && terrain.wetness > .18 && terrain.wetness < .96 && terrain.surface !== 2
+    if (entity.kind === 'grass_clump') return terrain.slope < .9 && terrain.wetness > .06 && terrain.surface !== 2
+    return true
+  }  // Steppe grass: GPU-instanced curved blades with wind + backlight over the
   // focused chunk (Journey/Flower style). Density concentrates near the camera
   // so the visible foreground reads lush. Skyline (whole-world view) gets a
-  // higher count + wider core so the distant plain stays grassy.
+  // wider but bounded cover so four-theme previews stay responsive on an integrated GPU.
   if (window.__steppe && focusChunk && !new URLSearchParams(location.search).has('nograss')) {
     const sky = isSkyline
-    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, sky ? 1200000 : 900000, 7, focusX, focusZ, { focusR: sky ? 480 : 320, farR: sky ? 900 : 700 })
+    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, terrainAt, worldWind, sky ? 220000 : 150000, 7, focusX, focusZ, { focusR: sky ? 360 : 230, farR: sky ? 720 : 520 })
     grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
     group.add(grass.mesh)
     window.__steppeGrass = grass
@@ -896,7 +939,7 @@ async function drawNear() {
         || entity.kind === 'storefront'
         || entity.kind === 'pedestrian'
         || ['residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
-        || (['tree', 'bush', 'rock', 'grass_clump'].includes(entity.kind) && shouldRenderVegetation(entity, 7))
+        || (['tree', 'bush', 'rock', 'grass_clump'].includes(entity.kind) && shouldRenderVegetation(entity, 7) && vegetationFitsTerrain(entity))
       )
   for (const entity of focusEntities) {
     if (entity.kind === 'storefront') {
@@ -1129,7 +1172,7 @@ async function drawNear() {
   // complete across navigations.
   const treeGroups = new Map()
   for (const entity of scene.entities ?? []) {
-    if (entity.kind !== 'tree') continue
+    if (entity.kind !== 'tree' || !vegetationFitsTerrain(entity)) continue
     const inActive = activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM)
     if (!inActive) continue
     const key = `${Math.floor(entity.worldX / 512)},${Math.floor(entity.worldZ / 512)}`
@@ -1141,7 +1184,7 @@ async function drawNear() {
     const cacheKey = `trees:${scene.sceneId}/${key}`
     let inst = entityMeshCache.get(cacheKey)
     if (!inst) {
-      inst = buildTreeInstances(list, THREE)
+      inst = buildTreeInstances(list, THREE, terrainAt, worldWind)
       entityMeshCache.set(cacheKey, inst)
     }
     inst.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
@@ -1164,6 +1207,7 @@ async function drawNear() {
   for (const entity of focusEntities) {
     if (entity.kind === 'tree') continue
     if (entity.kind === 'storefront') continue
+    if (['bush', 'grass_clump'].includes(entity.kind) && !vegetationFitsTerrain(entity)) continue
     const prototype = prototypes.get(entity.kind)
     if (['building', 'urban_building'].includes(entity.kind) && (buildingPrototype || buildingVariants.length)) {
       const source = [buildingPrototype, ...buildingVariants].filter(Boolean)[Math.abs(entity.worldX + entity.worldZ) % (buildingVariants.length + 1)]
@@ -1216,7 +1260,7 @@ async function drawNear() {
       window.__steppeGrass.update(now)
       window.__steppeGrass.uniforms.uCameraPos.value.copy(nearCamera.position)
     }
-    if (window.__treeWind) window.__treeWind.uTime.value = now
+    if (worldWind) worldWind.uTime.value = now
     for (const actor of animatedActors) {
       actor.object.position.z = actor.baseZ + Math.sin(now * actor.speed + actor.phase) * (actor.object.userData.actorKind === 'car' ? 8 : 3)
     }

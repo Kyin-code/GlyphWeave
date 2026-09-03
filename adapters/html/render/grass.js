@@ -6,15 +6,14 @@
 // family as the terrain texture. One InstancedBufferGeometry = one draw call
 // per field.
 //
-// Blade-height presets are Kyin-tuned in Soil Studio (02-grass-system) and
-// mirrored from render/presets/materials.js (grassPresets) — keep in sync.
+import { grassLook, grassPresets } from './presets/materials.js'
 
-// 浅草 / 中草 / 高草 (Kyin, 2026-08-31)
-const lowPres = { bladeHeight: 0.2, bladeWidth: 0.02, curl: 0.25 }
-const midPres = { bladeHeight: 0.78, bladeWidth: 0.042, curl: 0.48 }
-const highPres = { bladeHeight: 1.54, bladeWidth: 0.05, curl: 0.73 }
+// All visual tuning comes from the shared material preset.
+const lowPres = grassPresets.low
+const midPres = grassPresets.mid
+const highPres = grassPresets.high
 
-export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, count, salt, focusX, focusZ, options = {}) {
+export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, terrainAt, wind, count, salt, focusX, focusZ, options = {}) {
   const segments = 5
   const maxCount = Math.max(200, count)
   const positions = []
@@ -73,8 +72,14 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     guard++
     const x = worldX + rnd(guard, 0, salt) * width
     const z = worldZ + rnd(guard, 1, salt) * depth
+    const terrain = terrainAt?.(x, z) ?? { slope: 0, curvature: 0, wetness: .5, disturbance: 0, surface: 0 }
+    // Do not repaint roads/lots or water with ornamental grass. Slope and
+    // wetness affect growth density; this is the same semantic raster used by
+    // the ground material, not a second random placement policy.
+    if (terrain.disturbance > .04 || [2, 3, 4, 7].includes(terrain.surface)) continue
     const cover = fallbackFractal(x * .0022 + salt * .013, z * .0022 - salt * .017) * .5 + .5
-    if (cover < .3) continue
+    const growth = (0.3 + terrain.wetness * .7) * Math.max(.12, 1 - terrain.slope * .82)
+    if (cover * growth < .3) continue
     // Distance falloff: dense within focusR, gentle square falloff out to farR.
     const d = Math.hypot(x - fx, z - fz)
     const keep = d < focusR ? 1 : d < farR ? Math.pow((farR - d) / (farR - focusR), 2) : 0
@@ -92,7 +97,8 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     // Broad layering so all three heights appear: lows in hollows, mids on the
     // flats (the steppe's dominant cover), highs scattered on rises and damp
     // patches. The thresholds give each tier a fair share.
-    const pres = zone < .3 ? lowPres : zone < .78 ? midPres : highPres
+    const wetValley = terrain.wetness > .62 && terrain.curvature > .08
+    const pres = wetValley ? highPres : zone < .3 ? lowPres : zone < .78 ? midPres : highPres
     // High grass gets a bigger height scatter so it pokes through as tufts.
     const varScale = pres === highPres ? .7 + rnd(guard, 2, salt) * .9 : .85 + rnd(guard, 2, salt) * .3
     iHeight[placed] = pres.bladeHeight * varScale
@@ -115,19 +121,14 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(worldX + width / 2, 0, worldZ + depth / 2), Math.max(width, depth))
 
   const uniforms = {
-    time: { value: 0 },
-    uWindDir: { value: new THREE.Vector2(1, .35).normalize() },
-    uWindStrength: { value: .5 },
-    uWindSpeed: { value: 1.8 },
-    uWindScale: { value: .35 },
-    uGust: { value: .6 },
+    ...wind,
     uCurl: { value: 1.0 },
     uBladeHeight: { value: 1.0 },
     uBladeWidth: { value: 1.0 },
-    uColorBase: { value: new THREE.Color('#33421b') },
-    uColorTip: { value: new THREE.Color('#9bc24a') },
-    uColorVarAmt: { value: .5 },
-    uTranslucency: { value: 1.1 },
+    uColorBase: { value: new THREE.Color(grassLook.colorBase) },
+    uColorTip: { value: new THREE.Color(grassLook.colorTip) },
+    uColorVarAmt: { value: grassLook.colorVarAmt },
+    uTranslucency: { value: grassLook.translucency },
     uSunDir: { value: new THREE.Vector3(-.45, .82, .3).normalize() },
     uSunColor: { value: new THREE.Color('#ffd9a0') },
     uSunIntensity: { value: 2.6 },
@@ -151,7 +152,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
       attribute float iPhase;
       attribute float iCurlVar;
       attribute float iColorVar;
-      uniform float time;
+      uniform float uTime;
       uniform vec2 uWindDir;
       uniform float uWindStrength;
       uniform float uWindSpeed;
@@ -192,9 +193,9 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
 
         // Coherent wind: a shared travelling gust + fine per-blade flutter,
         // pushing along the wind direction, strongest at the tip.
-        float gph = dot(iWorld, uWindDir) * uWindScale + time * uWindSpeed + iPhase;
+        float gph = dot(iWorld, uWindDir) * uWindScale + uTime * uWindSpeed + iPhase;
         float gust = sin(gph) * 0.6 + sin(gph * 0.5 + 1.7) * 0.4;
-        float flutter = sin(time * 8.0 + iPhase * 3.0) * 0.15 * uGust;
+        float flutter = sin(uTime * 8.0 + iPhase * 3.0) * 0.15 * uGust;
         float sway = (gust + flutter) * uWindStrength;
         vec2 windOff = uWindDir * sway * (t * t);
 
@@ -272,9 +273,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, c
     material,
     uniforms,
     count: used,
-    update(t) {
-      uniforms.time.value = t
-    },
+    update() {},
   }
 }
 

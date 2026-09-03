@@ -33,25 +33,23 @@ export function makeVoxelTree(entity, THREE) {
 // as a dense, shading mass rather than a single lollipop sphere.
 // Canopy shaders get a Journey-style wind sway (circular-arc bend + travelling
 // gust + tip flutter) so the forest ripples in the wind; trunks stay rigid.
-export function buildTreeInstances(treeEntities, THREE) {
+export function buildTreeInstances(treeEntities, THREE, terrainAt, wind) {
   const group = new THREE.Group()
-  if (!treeEntities.length) return group
-  const count = treeEntities.length
+  const eligibleTrees = treeEntities.filter(entity => {
+    const terrain = terrainAt?.(entity.worldX, entity.worldZ)
+    return !terrain || (terrain.disturbance <= .04 && terrain.surface !== 3 && terrain.slope < .78 && terrain.wetness > .12)
+  })
+  if (!eligibleTrees.length) return group
+  const count = eligibleTrees.length
   const trunkGeo = new THREE.CylinderGeometry(.5, .72, 2, 7)
   const foliageGeoLow = new THREE.DodecahedronGeometry(1, 1)
   const foliageGeoHigh = new THREE.DodecahedronGeometry(1, 0)
   const trunkMat = new THREE.MeshStandardMaterial({ color: '#5d4330', roughness: .97 })
   const foliageMat = new THREE.MeshStandardMaterial({ color: '#3d6b44', roughness: .94 })
-  // Shared wind uniforms for the canopy sway.
-  const wind = {
-    uTime: { value: 0 },
-    uWindStrength: { value: .5 },
-    uWindSpeed: { value: 1.6 },
-    uWindScale: { value: .22 },
-    uGust: { value: .6 },
-  }
+  // The exact uniform objects are shared with grass through render/wind.js.
   const windVertexChunk = /* glsl */ `
     uniform float uTime;
+    uniform vec2 uWindDir;
     uniform float uWindStrength;
     uniform float uWindSpeed;
     uniform float uWindScale;
@@ -66,7 +64,7 @@ export function buildTreeInstances(treeEntities, THREE) {
     // bend so the crown arcs over while the trunk stays stiff.
     float t = clamp(position.y, 0.0, 1.0);
     // Travelling gust front sweeping downwind (world XZ sampled at base).
-    float along = base.x * 0.7071 + base.z * 0.7071;
+    float along = dot(base.xz, uWindDir);
     float gustPhase = along * uWindScale - uTime * uWindSpeed * 0.6;
     float gust = pow(sin(gustPhase) * 0.5 + 0.5, 1.6);
     float chop = sin(along * uWindScale * 2.7 - uTime * uWindSpeed * 1.3) * 0.5 + 0.5;
@@ -86,7 +84,7 @@ export function buildTreeInstances(treeEntities, THREE) {
     // Tip flutter (perpendicular shimmer, upper canopy only).
     float flutterMask = smoothstep(0.5, 1.0, t);
     float flutterAmt = sin(uTime * 10.0 + bladePhase * 3.0 + along * 0.8) * uGust * 0.08 * flutterMask;
-    vec2 windDir = vec2(0.7071, 0.7071);
+    vec2 windDir = uWindDir;
     vec2 perpDir = vec2(-windDir.y, windDir.x);
     vec3 sway = vec3(windDir.x * u + perpDir.x * flutterAmt, dv, windDir.y * u + perpDir.y * flutterAmt);
     transformed += sway;
@@ -119,9 +117,10 @@ export function buildTreeInstances(treeEntities, THREE) {
   const pos = new THREE.Vector3()
   const color = new THREE.Color()
   for (let i = 0; i < count; i++) {
-    const e = treeEntities[i]
+    const e = eligibleTrees[i]
     const crown = Math.max(e.widthM, e.depthM) * .85
-    const h = e.heightM
+    const terrain = terrainAt?.(e.worldX, e.worldZ) ?? { wetness: .5, slope: 0 }
+    const h = e.heightM * (.86 + terrain.wetness * .2 - terrain.slope * .12)
     const tintSeed = e.worldX * .017 + e.worldZ * .023
     const leanX = ((tintSeed * 137.5) % 1 + 1) % 1 * .16 - .08
     // Trunk: thicker so the canopy reads as supported, not a floating ball.
@@ -141,7 +140,7 @@ export function buildTreeInstances(treeEntities, THREE) {
     s.set(crown * .78, crown * .62, crown * .78)
     m.compose(pos, q, s)
     foliageHigh.setMatrixAt(i, m)
-    const hue = .33 + ((tintSeed % .09) - .045)
+    const hue = .30 + terrain.wetness * .08 + ((tintSeed % .09) - .045)
     color.setHSL(hue, .46, .3 + ((tintSeed * 3 % .08) + .02))
     foliageLow.setColorAt(i, color)
     color.setHSL(hue + .02, .5, .36)

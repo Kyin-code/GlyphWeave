@@ -372,6 +372,57 @@ export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth
   return geo
 }
 
+
+// Build normal/roughness maps from the same baked height and semantics raster
+// used for placement. This is intentionally CPU-side texture preparation, not
+// shader displacement: material detail may enrich light response but can never
+// detach an entity from its authoritative ground height.
+export function makeTerrainPbrMaps(heightView, surfaceView, terrainView, width, depth, THREE) {
+  const normalData = new Uint8Array(width * depth * 4)
+  const roughnessData = new Uint8Array(width * depth * 4)
+  const heightAt = (x, z) => {
+    const sx = Math.max(0, Math.min(width - 1, x))
+    const sz = Math.max(0, Math.min(depth - 1, z))
+    return heightView.getInt16((sz * width + sx) * 2, true) / 4
+  }
+  for (let z = 0; z < depth; z++) for (let x = 0; x < width; x++) {
+    const dx = (heightAt(x + 1, z) - heightAt(x - 1, z)) * .5
+    const dz = (heightAt(x, z + 1) - heightAt(x, z - 1)) * .5
+    const inv = 1 / Math.hypot(dx, 1.8, dz)
+    const offset = (z * width + x) * 4
+    // MeshStandardMaterial expects tangent-space normals: red is local X,
+    // green is local Z (the plane's bitangent), blue is the geometric up axis.
+    // Keep this distinct from a world-space RGB normal, otherwise slopes light
+    // in the wrong direction even though no geometry is displaced.
+    normalData[offset] = Math.round((-dx * inv * .5 + .5) * 255)
+    normalData[offset + 1] = Math.round((-dz * inv * .5 + .5) * 255)
+    normalData[offset + 2] = Math.round((1.8 * inv * .5 + .5) * 255)
+    normalData[offset + 3] = 255
+    const wetness = terrainView?.[offset + 2] / 255 || 0
+    const disturbance = terrainView?.[offset + 3] / 255 || 0
+    const surface = surfaceView?.[z * width + x] ?? 0
+    let roughness = .9 - wetness * .22 + disturbance * .08
+    if (surface === 2) roughness = .82
+    if (surface === 4 || surface === 5 || surface === 7) roughness = .68 - wetness * .12
+    const byte = Math.round(Math.max(.35, Math.min(1, roughness)) * 255)
+    roughnessData[offset] = byte
+    roughnessData[offset + 1] = byte
+    roughnessData[offset + 2] = byte
+    roughnessData[offset + 3] = 255
+  }
+  const normalTexture = new THREE.DataTexture(normalData, width, depth, THREE.RGBAFormat)
+  const roughnessTexture = new THREE.DataTexture(roughnessData, width, depth, THREE.RGBAFormat)
+  for (const texture of [normalTexture, roughnessTexture]) {
+    texture.needsUpdate = true
+    texture.colorSpace = THREE.NoColorSpace
+    texture.wrapS = THREE.ClampToEdgeWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.minFilter = THREE.LinearFilter
+    texture.magFilter = THREE.LinearFilter
+  }
+  return { normalTexture, roughnessTexture }
+}
+
 // Stylized PBR ground material for the steppe — a port of the Soil-Studio look
 // (achrefelouafi/GrassSystemThreeJS, MIT) adapted to our pre-generated height
 // field. The geometry keeps its baked vertex colors; this material adds

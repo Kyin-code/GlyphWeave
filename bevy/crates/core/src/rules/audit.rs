@@ -12,7 +12,7 @@ use super::errors::{RejectReason, RejectRecord, ValidationReport};
 use super::loader::ObjectRegistry;
 use super::schema::ItemKind;
 use super::validator::{Footprint, PlacedKind, PlacementContext, check_hard};
-use crate::worldgen::EntityInstance;
+use crate::worldgen::{EntityInstance, spatial_half_extents};
 
 /// Convert an existing entity into the rules engine's placed-item shape.
 /// Uses the entity's own kind string 鈫?ItemKind (best effort; unknown kinds
@@ -26,6 +26,7 @@ fn entity_to_placed_with_descriptor(
     descriptor: Option<&super::schema::ObjectDescriptor>,
 ) -> PlacedKind {
     let clearance = descriptor.map(|d| d.geometry.clearance).unwrap_or(0.0);
+    let (half_w, half_d) = spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
     PlacedKind {
         id: if e.entity_id.is_empty() {
             None
@@ -35,8 +36,8 @@ fn entity_to_placed_with_descriptor(
         kind: kind_from_str(&e.kind),
         cx: e.world_x as f32,
         cz: e.world_z as f32,
-        half_w: e.width_m * 0.5 + clearance,
-        half_d: e.depth_m * 0.5 + clearance,
+        half_w: half_w as f32 + clearance,
+        half_d: half_d as f32 + clearance,
         tags: descriptor.map(|d| d.tags.clone()).unwrap_or_default(),
     }
 }
@@ -132,11 +133,12 @@ pub fn audit_entities(
         }
 
         // Treat the entity's centre as a candidate; check its real footprint.
+        let (half_w, half_d) = spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
         let fp = Footprint {
             cx: e.world_x as f32,
             cz: e.world_z as f32,
-            half_w: e.width_m * 0.5 + desc.geometry.clearance,
-            half_d: e.depth_m * 0.5 + desc.geometry.clearance,
+            half_w: half_w as f32 + desc.geometry.clearance,
+            half_d: half_d as f32 + desc.geometry.clearance,
         };
 
         // Exclude the entity itself by stable id / index (not float equality).
@@ -202,6 +204,31 @@ fn descriptor_for<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worldgen::GroundingSpec;
+
+    #[test]
+    fn audit_footprint_uses_entity_rotation() {
+        let entity = EntityInstance {
+            entity_id: "rotated".into(),
+            asset_id: "prop.building".into(),
+            kind: "building".into(),
+            world_x: 100,
+            world_z: 200,
+            world_y: 8,
+            scale: 1.0,
+            width_m: 80.0,
+            depth_m: 20.0,
+            height_m: 10.0,
+            rotation_y_deg: 90.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        let placed = entity_to_placed(&entity);
+        assert_eq!(placed.half_w, 10.0);
+        assert_eq!(placed.half_d, 40.0);
+    }
+
     use crate::rules::schema::ItemKind;
 
     fn ctx_flat(bounds: (i32, i32, i32, i32)) -> PlacementContext<'static> {
