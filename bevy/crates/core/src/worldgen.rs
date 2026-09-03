@@ -977,12 +977,14 @@ impl Bounds2d {
 
 impl EntityInstance {
     pub fn computed_bounds(&self) -> Bounds2d {
-        Bounds2d::from_center(
-            self.world_x as f32,
-            self.world_z as f32,
-            self.width_m,
-            self.depth_m,
-        )
+        let (half_w, half_d) =
+            spatial_half_extents(self.width_m, self.depth_m, self.rotation_y_deg);
+        Bounds2d {
+            min_x: self.world_x as f32 - half_w as f32,
+            min_z: self.world_z as f32 - half_d as f32,
+            max_x: self.world_x as f32 + half_w as f32,
+            max_z: self.world_z as f32 + half_d as f32,
+        }
     }
 
     pub fn normalize_spatial_semantics(&mut self) {
@@ -2444,15 +2446,20 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         if !is_road && !is_building {
             continue;
         }
-        // Roads are long strips: the running length is `width` and the cross
-        // section is `depth`. The pad uses the running dimension along the
-        // longer axis so the strip stays flat across its cross-section.
+        // Roads are authored in local X/Z dimensions and may be rotated.
+        // Convert that local footprint into world-space before carving: a
+        // zero-degree road with width=1440 is long on X, while a road-ns with
+        // rotation=90 is long on Z. The old branch swapped these extents for
+        // the zero-degree case, causing an east-west road to carve a huge
+        // north-south trench through houses and vegetation.
         let (half_w, half_d, blend) = if is_road {
-            if width >= depth {
-                // Strip runs along X: cross-section (half) is on Z.
+            let rotated_quarter_turn = (entity.rotation_y_deg.round() as i32).rem_euclid(180) == 90;
+            if rotated_quarter_turn {
+                // Local width becomes world depth; local depth becomes world
+                // width after a quarter turn.
                 (depth * 0.5 + 1.5, width * 0.5 + 4.0, 6.0)
             } else {
-                // Strip runs along Z: cross-section is on X.
+                // Local width remains world X; local depth remains world Z.
                 (width * 0.5 + 4.0, depth * 0.5 + 1.5, 6.0)
             }
         } else {
@@ -2569,9 +2576,15 @@ fn terrain_height_with_geometry_carved(
         let outside_x = dx - carve.half_w;
         let outside_z = dz - carve.half_d;
         let outside = outside_x.max(outside_z);
+        // A generated pad is an earthwork fill, not an implicit excavation.
+        // Never lower existing terrain to an entity's center sample: doing so
+        // creates pits when a footprint crosses a higher contour and is
+        // especially wrong near the water datum. Explicit terrain edits may
+        // excavate later; generated roads/buildings may only raise or gently
+        // meet the natural surface.
         if outside <= 0.0 {
-            terrain = carve.target_h_m;
-        } else if outside < carve.blend_m {
+            terrain = terrain.max(carve.target_h_m);
+        } else if outside < carve.blend_m && carve.target_h_m > terrain {
             let t = (outside / carve.blend_m).clamp(0.0, 1.0);
             let smooth_t = t * t * (3.0 - 2.0 * t);
             terrain = carve.target_h_m + (terrain - carve.target_h_m) * smooth_t;
@@ -2829,8 +2842,9 @@ fn generate_entities_with_profile(
             (
                 entity.world_x,
                 entity.world_z,
-                f64::from(entity.width_m) * 0.5,
-                f64::from(entity.depth_m) * 0.5 + 30.0,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1
+                    + 30.0,
             )
         })
         .collect();
@@ -2845,8 +2859,8 @@ fn generate_entities_with_profile(
             (
                 entity.world_x,
                 entity.world_z,
-                f64::from(entity.width_m) * 0.5 + 0.5,
-                f64::from(entity.depth_m) * 0.5 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
             )
         })
         .collect();
@@ -2880,8 +2894,8 @@ fn generate_entities_with_profile(
             (
                 entity.world_x,
                 entity.world_z,
-                f64::from(entity.width_m) * 0.5 + 0.5,
-                f64::from(entity.depth_m) * 0.5 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
             )
         })
         .collect();
@@ -2893,7 +2907,13 @@ fn generate_entities_with_profile(
             entity.kind.as_str(),
             "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
         ) {
-            let detail_r = f64::from(entity.width_m.max(entity.depth_m)) * 0.5;
+            let detail_r =
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg)
+                    .0
+                    .max(
+                        spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg)
+                            .1,
+                    );
             let overlaps_road = road_footprints.iter().any(|(rx, rz, rhx, rhz)| {
                 f64::from((entity.world_x - rx).abs()) < detail_r + rhx
                     && f64::from((entity.world_z - rz).abs()) < detail_r + rhz
@@ -2940,9 +2960,16 @@ fn generate_entities_with_profile(
         if is_building_kind {
             // Buildings must clear every bridge corridor.
             let overlaps_bridge = bridge_spans.iter().any(|(bx, bz, bhx, bhz)| {
-                f64::from((entity.world_x - bx).abs()) < f64::from(entity.width_m) * 0.5 + bhx
+                f64::from((entity.world_x - bx).abs())
+                    < spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0
+                        + bhx
                     && f64::from((entity.world_z - bz).abs())
-                        < f64::from(entity.depth_m) * 0.5 + bhz
+                        < spatial_half_extents(
+                            entity.width_m,
+                            entity.depth_m,
+                            entity.rotation_y_deg,
+                        )
+                        .1 + bhz
             });
             if overlaps_bridge {
                 return false;
@@ -3005,6 +3032,15 @@ fn generate_entities_with_profile(
         entities = apply_rules_mode(seed, scene, geometry, style, entities);
         sanitize_natural_detail_clearance(&mut entities);
     }
+    // Spatial semantics (notably road quarter-turns) must be normalized
+    // before grounding and terrain-carve planning. The bake caller also
+    // normalizes for serialized compatibility, but doing it here prevents a
+    // road-ns proposal from being treated as east-west during generation.
+    for entity in &mut entities {
+        entity.normalize_spatial_semantics();
+    }
+    rebase_buildings_to_surface(seed, geometry, &mut entities);
+    rebase_generated_surfaces_to_ground(seed, geometry, &mut entities);
     entities
 }
 
@@ -3298,6 +3334,96 @@ pub fn audit_scene(
     ))
 }
 
+/// Return the highest natural/banked terrain sample under an object's footprint.
+///
+/// This deliberately samples every integer heightfield cell covered by the
+/// footprint rather than only the centre and four corners.  The renderer puts
+/// the building bottom at `world_y`, so a missed interior peak would still
+/// make the baked terrain intersect the house even though the corners looked
+/// grounded.  A lot can receive fill under its low side, but map generation
+/// must not excavate the high side merely to match the centre sample or the
+/// water datum.
+fn footprint_surface_ceiling_m(seed: u64, entity: &EntityInstance, water: WaterGeometry) -> i32 {
+    let half_w = (f64::from(entity.width_m) * 0.5).ceil().max(0.0) as i32;
+    let half_d = (f64::from(entity.depth_m) * 0.5).ceil().max(0.0) as i32;
+    let mut ceiling_m = f64::NEG_INFINITY;
+    for dz in -half_d..=half_d {
+        for dx in -half_w..=half_w {
+            let sample_m = f64::from(terrain_height_with_geometry(
+                seed,
+                entity.world_x + dx,
+                entity.world_z + dz,
+                water,
+            )) / 4.0;
+            ceiling_m = ceiling_m.max(sample_m);
+        }
+    }
+    ceiling_m.ceil() as i32
+}
+
+/// Rebase volume-bearing buildings onto the highest terrain sample inside their
+/// footprint before terrain pads are baked. Pads may add fill under the rest of
+/// the lot, but may never dig the landscape down to sea level or to a low centre
+/// sample. This establishes the data-side grounding contract; renderers only
+/// consume the resulting world_y/heightfield pair.
+fn rebase_buildings_to_surface(seed: u64, water: WaterGeometry, entities: &mut [EntityInstance]) {
+    for entity in entities {
+        if is_building_kind(&entity.kind) {
+            entity.world_y = entity
+                .world_y
+                .max(footprint_surface_ceiling_m(seed, entity, water));
+        }
+    }
+}
+
+/// Keep generated road/sidewalk anchors at or above the terrain that will be
+/// baked at their centre.  Roads are rendered as terrain-following strips, but
+/// their `world_y` is still the baseline used by adapters and by scale-audit.
+/// A neighbouring building pad can raise that centre after the road's initial
+/// terrain sample, so account for overlapping building pads before planning
+/// the final carves. Authored/GIS roads are left untouched because their
+/// elevation may intentionally describe a viaduct or bridge approach.
+fn rebase_generated_surfaces_to_ground(
+    seed: u64,
+    water: WaterGeometry,
+    entities: &mut [EntityInstance],
+) {
+    let building_supports: Vec<(i32, i32, f64, f64, f32)> = entities
+        .iter()
+        .filter(|entity| is_building_kind(&entity.kind))
+        .map(|entity| {
+            (
+                entity.world_x,
+                entity.world_z,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 1.0,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 1.0,
+                entity.ground_height_m(),
+            )
+        })
+        .collect();
+
+    for entity in entities.iter_mut().filter(|entity| {
+        entity.entity_id.starts_with("generated.")
+            && matches!(entity.kind.as_str(), "road" | "sidewalk")
+    }) {
+        let natural_m = f64::from(terrain_height_with_geometry(
+            seed,
+            entity.world_x,
+            entity.world_z,
+            water,
+        )) / 4.0;
+        let mut ground_m = natural_m;
+        for (bx, bz, half_w, half_d, building_ground_m) in &building_supports {
+            if f64::from((entity.world_x - bx).abs()) <= *half_w
+                && f64::from((entity.world_z - bz).abs()) <= *half_d
+            {
+                ground_m = ground_m.max(f64::from(*building_ground_m));
+            }
+        }
+        entity.world_y = entity.world_y.max(ground_m.ceil() as i32).max(1);
+    }
+}
+
 fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
     let road_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
@@ -3306,8 +3432,8 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
             (
                 entity.world_x,
                 entity.world_z,
-                f64::from(entity.width_m) * 0.5 + 0.5,
-                f64::from(entity.depth_m) * 0.5 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
             )
         })
         .collect();
@@ -3318,8 +3444,8 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
             (
                 entity.world_x,
                 entity.world_z,
-                f64::from(entity.width_m) * 0.5 + 0.5,
-                f64::from(entity.depth_m) * 0.5 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
             )
         })
         .collect();
@@ -3377,6 +3503,15 @@ fn generated_intent_entity(
         width_m,
         depth_m,
         height_m,
+    }
+}
+
+fn spatial_half_extents(width_m: f32, depth_m: f32, rotation_y_deg: f32) -> (f64, f64) {
+    let quarter_turn = (rotation_y_deg.round() as i32).rem_euclid(180) == 90;
+    if quarter_turn {
+        (f64::from(depth_m) * 0.5, f64::from(width_m) * 0.5)
+    } else {
+        (f64::from(width_m) * 0.5, f64::from(depth_m) * 0.5)
     }
 }
 
@@ -3535,38 +3670,35 @@ fn append_waterfront_intent_settlement(
                 format!("generated.intent-road-ew.{serial}"),
             )
         };
-        let road_y = i32::from(terrain_height(
-            seed,
-            core_x,
-            core_z,
-            WaterKind::None,
-            scene.width_m,
-            scene.depth_m,
-            0.0,
-        )) / 4;
+        let road_y =
+            (i32::from(terrain_height_with_geometry(seed, core_x, core_z, water)) / 4).max(1);
         entities.push(generated_intent_entity(
             road_id, "road", core_x, core_z, road_y, road_w, road_d, 0.24,
         ));
-        let buildings = [
-            ("commercial_center", 80.0, 60.0, 18.0, 0_i32, 0_i32),
-            ("school", 60.0, 48.0, 10.0, 105_i32, 20_i32),
-            ("green_space", 30.0, 30.0, 0.2, -90_i32, 35_i32),
-        ];
+        // Civic parcels sit beside the access road, never on its centreline.
+        // The side is derived from the bank, so this remains generic for any
+        // river/lake geometry instead of depending on fixture coordinates.
+        let bank_sign = if positive_bank { 1 } else { -1 };
+        let buildings = if road_is_vertical {
+            [
+                ("commercial_center", 80.0, 60.0, 18.0, bank_sign * 75, 0),
+                ("school", 60.0, 48.0, 10.0, bank_sign * 180, 20),
+                ("green_space", 30.0, 30.0, 0.2, bank_sign * 75, 100),
+            ]
+        } else {
+            [
+                ("commercial_center", 80.0, 60.0, 18.0, 0, bank_sign * 75),
+                ("school", 60.0, 48.0, 10.0, 20, bank_sign * 180),
+                ("green_space", 30.0, 30.0, 0.2, 100, bank_sign * 75),
+            ]
+        };
         for (offset, (kind, width, depth, height, ox, oz)) in buildings.into_iter().enumerate() {
             let x = core_x + ox;
             let z = core_z + oz;
             if !intent_candidate_is_free(scene, water, entities, x, z, width, depth, kind) {
                 continue;
             }
-            let y = i32::from(terrain_height(
-                seed,
-                x,
-                z,
-                WaterKind::None,
-                scene.width_m,
-                scene.depth_m,
-                0.0,
-            )) / 4;
+            let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
                 format!("generated.intent-{kind}.{}", serial + offset as u32),
                 kind,
@@ -3578,7 +3710,6 @@ fn append_waterfront_intent_settlement(
                 height,
             ));
         }
-        let bank_sign = if positive_bank { 1 } else { -1 };
         let homes = (density * 10.0).round() as i32;
         for row in 0..homes {
             let lateral = bank_sign * (150 + row * 36);
@@ -3600,15 +3731,7 @@ fn append_waterfront_intent_settlement(
             ) {
                 continue;
             }
-            let y = i32::from(terrain_height(
-                seed,
-                x,
-                z,
-                WaterKind::None,
-                scene.width_m,
-                scene.depth_m,
-                0.0,
-            )) / 4;
+            let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
                 format!("generated.intent-residential.{}", serial + 20 + row as u32),
                 "residential_block",
@@ -5503,13 +5626,6 @@ mod tests {
         let river_geometry = water_geometry(WaterKind::River, &[], &scene, &river_style);
         let river_entities =
             generate_entities_with_profile(7, &scene, &[], river_geometry, &river_style);
-        eprintln!(
-            "river entities: {:?}",
-            river_entities
-                .iter()
-                .map(|entity| (&entity.kind, entity.world_x, entity.world_z))
-                .collect::<Vec<_>>()
-        );
         assert!(
             river_entities
                 .iter()
@@ -5520,6 +5636,16 @@ mod tests {
                 .iter()
                 .any(|entity| entity.entity_id.starts_with("generated.intent-"))
         );
+        for entity in river_entities
+            .iter()
+            .filter(|entity| is_building_kind(&entity.kind))
+        {
+            assert!(
+                entity.world_y >= footprint_surface_ceiling_m(7, entity, river_geometry),
+                "{} is below its footprint surface",
+                entity.entity_id
+            );
+        }
 
         let pastoral_style = serde_json::json!({
             "terrainProfile": "steppe",
@@ -5660,6 +5786,74 @@ mod tests {
                 assert!(radius >= 1.22, "{} spawned in water", entity.entity_id);
             }
         }
+    }
+
+    #[test]
+    fn building_grounding_uses_the_highest_footprint_sample() {
+        let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
+        let mut entity = EntityInstance {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "test.building".into(),
+            asset_id: "prop.building".into(),
+            kind: "building".into(),
+            world_x: 400,
+            world_z: 400,
+            world_y: -50,
+            scale: 1.0,
+            width_m: 80.0,
+            depth_m: 60.0,
+            height_m: 12.0,
+        };
+        let expected = footprint_surface_ceiling_m(20260829, &entity, water);
+        rebase_buildings_to_surface(20260829, water, std::slice::from_mut(&mut entity));
+        assert_eq!(entity.world_y, expected);
+        let carve = plan_terrain_carves(&[entity.clone()]);
+        let half_w = (f64::from(entity.width_m) * 0.5).ceil() as i32;
+        let half_d = (f64::from(entity.depth_m) * 0.5).ceil() as i32;
+        let mut highest_baked = f64::NEG_INFINITY;
+        for dz in -half_d..=half_d {
+            for dx in -half_w..=half_w {
+                let baked = f64::from(terrain_height_with_geometry_carved(
+                    20260829,
+                    entity.world_x + dx,
+                    entity.world_z + dz,
+                    water,
+                    &carve,
+                )) / 4.0;
+                highest_baked = highest_baked.max(baked);
+                assert!(
+                    baked <= f64::from(expected) + 0.25,
+                    "building terrain intersects the footprint at ({dx},{dz}): {baked} > {expected}"
+                );
+            }
+        }
+        assert!(
+            highest_baked >= f64::from(expected) - 0.25,
+            "building grounding did not reach the highest footprint sample"
+        );
+    }
+
+    #[test]
+    fn generated_pads_never_excavate_higher_natural_ground() {
+        let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
+        let natural = terrain_height_with_geometry_carved(20260829, 400, 400, water, &[]);
+        let carve = TerrainCarve {
+            cx: 400.0,
+            cz: 400.0,
+            half_w: 50.0,
+            half_d: 40.0,
+            target_h_m: f64::from(natural) / 4.0 - 20.0,
+            blend_m: 6.0,
+            priority: 1,
+        };
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260829, 400, 400, water, &[carve]),
+            natural,
+            "generated pad excavated natural ground"
+        );
     }
 
     #[test]
@@ -5932,6 +6126,108 @@ mod tests {
                 }),
                 "{} overlaps a road",
                 detail.entity_id
+            );
+        }
+    }
+
+    #[test]
+    fn road_carve_respects_world_rotation() {
+        let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
+        let mut east_west = generated_intent_entity(
+            "generated.test-road-ew".into(),
+            "road",
+            400,
+            400,
+            100,
+            100.0,
+            10.0,
+            0.24,
+        );
+        east_west.rotation_y_deg = 0.0;
+        let ew_carve = plan_terrain_carves(&[east_west]);
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260903, 450, 400, water, &ew_carve),
+            400,
+            "east-west road did not carve along world X"
+        );
+        assert_ne!(
+            terrain_height_with_geometry_carved(20260903, 400, 450, water, &ew_carve),
+            400,
+            "east-west road carve leaked along world Z"
+        );
+
+        let mut north_south = generated_intent_entity(
+            "generated.test-road-ns".into(),
+            "road",
+            400,
+            400,
+            100,
+            100.0,
+            10.0,
+            0.24,
+        );
+        north_south.rotation_y_deg = 90.0;
+        let ns_carve = plan_terrain_carves(&[north_south]);
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260903, 400, 450, water, &ns_carve),
+            400,
+            "north-south road did not carve along world Z"
+        );
+        assert_ne!(
+            terrain_height_with_geometry_carved(20260903, 450, 400, water, &ns_carve),
+            400,
+            "north-south road carve leaked along world X"
+        );
+    }
+
+    #[test]
+    fn waterfront_civic_buildings_clear_their_access_roads() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 2_000,
+            depth_m: 1_600,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "generationIntent": { "settlement": "city" }
+        });
+        let geometry = legacy_water_geometry(WaterKind::River, scene.width_m, scene.depth_m, 0.0);
+        let entities = generate_entities_with_profile(20260903, &scene, &[], geometry, &style);
+        let roads: Vec<_> = entities.iter().filter(|e| e.kind == "road").collect();
+        let civic: Vec<_> = entities
+            .iter()
+            .filter(|e| matches!(e.kind.as_str(), "commercial_center" | "school"))
+            .collect();
+        assert!(!roads.is_empty());
+        assert!(!civic.is_empty());
+        for building in civic {
+            assert!(
+                !roads.iter().any(|road| {
+                    f64::from((building.world_x - road.world_x).abs())
+                        < spatial_half_extents(
+                            building.width_m,
+                            building.depth_m,
+                            building.rotation_y_deg,
+                        )
+                        .0 + spatial_half_extents(road.width_m, road.depth_m, road.rotation_y_deg)
+                            .0
+                        && f64::from((building.world_z - road.world_z).abs())
+                            < spatial_half_extents(
+                                building.width_m,
+                                building.depth_m,
+                                building.rotation_y_deg,
+                            )
+                            .1 + spatial_half_extents(
+                                road.width_m,
+                                road.depth_m,
+                                road.rotation_y_deg,
+                            )
+                            .1
+                }),
+                "{} overlaps its access road",
+                building.entity_id
             );
         }
     }
