@@ -1,4 +1,5 @@
 import { colorRgb, fractalNoise, hashNoise, smoothNoise } from '../core/shared.js'
+import { groundPresets, seasonPalettes } from './presets/materials.js'
 
 export function makeSurfaceTexture(surface, width, depth, THREE) {
   const textureCanvas = document.createElement('canvas')
@@ -311,55 +312,60 @@ export function makeSteppeGrass(THREE, worldX, worldZ, width, depth, heightAt, c
 // Minecraft / Journey-style terrain: no texture map, just flat vertex colours
 // graded by height and slope, lit by a simple Lambert light. This gives the
 // clean "painted blocks" look instead of a noisy photoreal smear.
-export function makeMCTerrain(heightView, width, depth, meshStep, THREE) {
+export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth, meshStep, THREE) {
   const geo = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep)))
   geo.rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
   const colors = new Float32Array(pos.count * 3)
-  let minH = Infinity, maxH = -Infinity
-  for (let i = 0; i < pos.count; i++) {
-    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
-    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
-    const h = heightView.getInt16((z * width + x) * 2, true) / 4
-    pos.setY(i, h)
-    if (h < minH) minH = h
-    if (h > maxH) maxH = h
-  }
-  // Store height for grading (re-read from positions after set).
-  const range = Math.max(1, maxH - minH)
-  for (let i = 0; i < pos.count; i++) {
-    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
-    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
-    const h = heightView.getInt16((z * width + x) * 2, true) / 4
-    // Steppe palette: deep grass in dips -> dry gold on rises.
-    const t = (h - minH) / range
-    let r, g, b
-    // Steppe palette — the GROUND IS THE GRASS. Dye it grass-green (spring/summer):
-    // deep green in damp hollows, fresh green on slopes, yellowish-green where
-    // drier. The 3D blades on top only add dynamic motion, not colour.
-    if (t < .35) { const s = t / .35; r = 66 + (88 - 66) * s; g = 118 + (132 - 118) * s; b = 52 + (60 - 52) * s; }
-    else if (t < .75) { const s = (t - .35) / .4; r = 88 + (132 - 88) * s; g = 132 + (148 - 132) * s; b = 60 + (70 - 60) * s; }
-    else { const s = (t - .75) / .25; r = 132 + (150 - 132) * s; g = 148 + (140 - 148) * s; b = 70 + (64 - 70) * s; }
-    // Large-scale tonal patches + patchy moss/meadow, baked into the vertex
-    // colour (deterministic, CPU side — matches the removed onBeforeCompile
-    // steppe material). Damp hollows get a deeper green, drier rises a yellower
-    // tone, and a moss mask lays a fresher green carpet over patches.
-    const tonal = 1 + (fractalNoise(x * .0035 + 2, z * .0035 + 7) - .5) * .18
-    r *= tonal; g *= tonal; b *= tonal
-    const warmN = fractalNoise(x * .006 + 9, z * .006 + 3)
-    if (warmN > .2) { r *= 1 + (warmN - .2) * .22; g *= 1 + (warmN - .2) * .1; b *= .98 }
-    const mossN = fractalNoise(x * .0028 + 4, z * .0028 + 6)
-    const moss = Math.max(0, Math.min(1, (mossN * .5 + .5 - .38) / .14))
-    if (moss > 0) {
-      r = r * (1 - moss * .6) + 70 * moss
-      g = g * (1 - moss * .6) + 130 * moss
-      b = b * (1 - moss * .6) + 50 * moss
+  const palette = seasonPalettes[groundPresets.season] ?? groundPresets.palette
+  const lerp = (a, b, t) => a + (b - a) * t
+  const mixRgb = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+  const semanticsAt = (x, z) => {
+    if (!terrainView || terrainView.length < width * depth * 4) return { slope: 0, curvature: 0, wetness: .5, disturbance: 0 }
+    const offset = (z * width + x) * 4
+    return {
+      slope: terrainView[offset] / 255,
+      curvature: terrainView[offset + 1] / 255 * 4 - 2,
+      wetness: terrainView[offset + 2] / 255,
+      disturbance: terrainView[offset + 3] / 255,
     }
-    // Subtle per-cell block variance (Minecraft-ish) from position hash.
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
+    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
+    pos.setY(i, heightView.getInt16((z * width + x) * 2, true) / 4)
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
+    const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
+    const h = heightView.getInt16((z * width + x) * 2, true) / 4
+    const surface = surfaceView?.[z * width + x] ?? 0
+    const semantic = semanticsAt(x, z)
+    // Absolute elevation prevents every chunk from independently remapping its
+    // colour range. The semantic raster then supplies the readable terrain
+    // signals: damp concave ground deepens, exposed slopes dry out, and pads
+    // remain visually quieter without changing their authoritative height.
+    const elevation = Math.max(0, Math.min(1, (h - 1) / 42))
+    let rgb = elevation < .45
+      ? mixRgb(palette.low, palette.mid, elevation / .45)
+      : mixRgb(palette.mid, palette.high, (elevation - .45) / .55)
+    const wet = Math.max(0, Math.min(1, semantic.wetness + semantic.curvature * .13))
+    const dry = Math.max(0, semantic.slope * .72 - wet * .22)
+    rgb = mixRgb(rgb, [44, 91, 47], wet * .34)
+    rgb = mixRgb(rgb, [151, 132, 72], dry * .32)
+    if (surface === 4 || surface === 5 || surface === 7) rgb = mixRgb(rgb, [103, 89, 57], .38 + wet * .24)
+    if (surface === 2) rgb = mixRgb(rgb, [104, 101, 91], .72)
+    // Disturbance is a land-cover signal, not a second terrain operation: the
+    // road/building geometry remains responsible for visible paving.
+    if (semantic.disturbance > .02) rgb = mixRgb(rgb, [116, 108, 82], semantic.disturbance * .18)
+    const tonal = 1 + (fractalNoise(x * .0035 + 2, z * .0035 + 7) - .5) * groundPresets.tonalAmount
+    const moss = Math.max(0, Math.min(1, (fractalNoise(x * .0028 + 4, z * .0028 + 6) * .5 + .5 - groundPresets.mossCoverage) / .14)) * wet
+    rgb = rgb.map(v => v * tonal)
+    if (moss > 0) rgb = mixRgb(rgb, groundPresets.mossColor, moss * .45)
     const v = ((x * 31 + z * 17) % 13) / 13 - .5
-    colors[i * 3] = r / 255 + v * .02
-    colors[i * 3 + 1] = g / 255 + v * .02
-    colors[i * 3 + 2] = b / 255 + v * .02
+    colors[i * 3] = Math.max(0, Math.min(1, rgb[0] / 255 + v * .012))
+    colors[i * 3 + 1] = Math.max(0, Math.min(1, rgb[1] / 255 + v * .012))
+    colors[i * 3 + 2] = Math.max(0, Math.min(1, rgb[2] / 255 + v * .012))
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geo.computeVertexNormals()

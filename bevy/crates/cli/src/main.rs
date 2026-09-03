@@ -442,6 +442,35 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
     {
         return Err("unsupported or incomplete sidecar contract".into());
     }
+    let terrain_semantics = contract.get("terrainSemantics");
+    if let Some(semantics) = terrain_semantics {
+        let expected_channels = [
+            "slope_degrees_u8",
+            "curvature_signed_u8",
+            "wetness_u8",
+            "disturbance_u8",
+        ];
+        if semantics.get("format").and_then(serde_json::Value::as_str)
+            != Some("glyphweave-terrain-semantics")
+            || semantics.get("version").and_then(serde_json::Value::as_u64) != Some(1)
+            || semantics
+                .get("bytesPerCell")
+                .and_then(serde_json::Value::as_u64)
+                != Some(4)
+            || semantics
+                .get("channels")
+                .and_then(serde_json::Value::as_array)
+                .map(|channels| {
+                    channels
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .collect::<Vec<_>>()
+                })
+                != Some(expected_channels.to_vec())
+        {
+            return Err("unsupported terrain semantics contract".into());
+        }
+    }
     if sidecar
         .get("worldIndex")
         .and_then(serde_json::Value::as_str)
@@ -486,6 +515,30 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
                     return Err(
                         format!("missing sidecar payload {}/{}", scene.scene_id, file).into(),
                     );
+                }
+            }
+            if terrain_semantics.is_some() {
+                let terrain_file = chunk.terrain_file.as_ref().ok_or_else(|| {
+                    format!(
+                        "scene {} is missing terrain semantics payload metadata",
+                        scene.scene_id
+                    )
+                })?;
+                let terrain_path = root.join("scenes").join(&scene.scene_id).join(terrain_file);
+                let expected = chunk.valid_width_m as u64 * chunk.valid_depth_m as u64 * 4;
+                if !terrain_path.is_file() {
+                    return Err(format!(
+                        "missing terrain semantics payload {}/{}",
+                        scene.scene_id, terrain_file
+                    )
+                    .into());
+                }
+                if fs::metadata(&terrain_path)?.len() != expected {
+                    return Err(format!(
+                        "terrain semantics payload {}/{} has invalid length",
+                        scene.scene_id, terrain_file
+                    )
+                    .into());
                 }
             }
         }
@@ -856,13 +909,20 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
             let lod_width = chunk.valid_width_m.div_ceil(64);
             let lod_depth = chunk.valid_depth_m.div_ceil(64);
             let expected_lod2_bytes = u64::from(lod_width) * u64::from(lod_depth) * 3;
-            for (name, expected) in [
+            let mut payload_files = vec![
                 (&chunk.height_file, expected_height_bytes),
                 (&chunk.surface_file, expected_surface_bytes),
                 (&chunk.lod2_file, expected_lod2_bytes),
-            ] {
+            ];
+            if let Some(terrain_file) = &chunk.terrain_file {
+                payload_files.push((
+                    terrain_file,
+                    u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m) * 4,
+                ));
+            }
+            for (name, expected) in &payload_files {
                 match fs::metadata(chunk_root.join(name)) {
-                    Ok(metadata) if metadata.len() == expected => {}
+                    Ok(metadata) if metadata.len() == *expected => {}
                     Ok(metadata) => failures.push(format!(
                         "{} chunk ({},{}) file {} has {} bytes, expected {}",
                         scene.scene_id,
@@ -879,7 +939,7 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                 }
             }
             let mut payload = Vec::new();
-            for name in [&chunk.height_file, &chunk.surface_file, &chunk.lod2_file] {
+            for (name, _) in &payload_files {
                 match fs::read(chunk_root.join(name)) {
                     Ok(bytes) => payload.extend_from_slice(&bytes),
                     Err(_) => payload.clear(),

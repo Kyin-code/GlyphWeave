@@ -18,6 +18,9 @@ pub const MIN_SCENE_METERS: u32 = 512;
 pub const MAX_SCENE_WIDTH_METERS: u32 = 6_000;
 pub const MAX_SCENE_DEPTH_METERS: u32 = 10_000;
 const SHORE_RADIUS: f64 = 1.9;
+/// Packed terrain-semantic sidecar payload: slope, curvature, wetness and
+/// human disturbance at the same one-metre raster as the baked heightfield.
+const TERRAIN_SEMANTIC_BYTES_PER_CELL: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaterKind {
@@ -59,6 +62,8 @@ struct TerrainCarve {
     /// Roads are carved before buildings so a pad under a street is not
     /// re-flattened by a neighbouring lot; higher = wins.
     priority: i32,
+    /// Render/analysis mask: 0 natural, 160 building/parcel pad, 255 roadbed.
+    disturbance: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -140,6 +145,37 @@ pub struct SceneTransition {
     pub kind: String,
 }
 
+/// Declares the derived terrain raster carried beside the authoritative
+/// heightfield. Height and land-cover remain in their existing payloads; this
+/// contract makes the shared render/placement inputs explicit instead of
+/// asking every adapter to invent independent noise fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerrainSemanticsContract {
+    pub format: String,
+    pub version: u32,
+    pub bytes_per_cell: u32,
+    /// Byte order per raster cell: slope degrees, signed curvature, wetness,
+    /// and disturbance. Values are normalized u8 unless noted otherwise.
+    pub channels: Vec<String>,
+}
+
+impl Default for TerrainSemanticsContract {
+    fn default() -> Self {
+        Self {
+            format: "glyphweave-terrain-semantics".into(),
+            version: 1,
+            bytes_per_cell: TERRAIN_SEMANTIC_BYTES_PER_CELL as u32,
+            channels: vec![
+                "slope_degrees_u8".into(),
+                "curvature_signed_u8".into(),
+                "wetness_u8".into(),
+                "disturbance_u8".into(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SidecarContract {
@@ -149,6 +185,8 @@ pub struct SidecarContract {
     pub gemap_role: String,
     pub scene_index_root: String,
     pub height_precision_m: f32,
+    #[serde(default)]
+    pub terrain_semantics: TerrainSemanticsContract,
 }
 
 impl Default for SidecarContract {
@@ -160,6 +198,7 @@ impl Default for SidecarContract {
             gemap_role: "identity-anchor".into(),
             scene_index_root: "scenes/".into(),
             height_precision_m: 0.25,
+            terrain_semantics: TerrainSemanticsContract::default(),
         }
     }
 }
@@ -243,6 +282,9 @@ pub struct ChunkDescriptor {
     pub height_file: String,
     pub surface_file: String,
     pub lod2_file: String,
+    /// Optional for worlds baked before terrain semantics; new bakes include it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terrain_file: Option<String>,
     pub hash: String,
 }
 
@@ -1328,7 +1370,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 let height_file = format!("{stem}.height.bin");
                 let surface_file = format!("{stem}.surface.bin");
                 let lod2_file = format!("{stem}.lod2.bin");
-                let (height, surface, lod2) = generate_chunk_with_geometry(
+                let terrain_file = format!("{stem}.terrain.bin");
+                let (height, surface, lod2, terrain) = generate_chunk_with_geometry(
                     manifest.world.seed ^ scene.seed_offset,
                     base_x,
                     base_z,
@@ -1339,6 +1382,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 );
                 fs::write(scene_dir.join(&height_file), &height)?;
                 fs::write(scene_dir.join(&surface_file), &surface)?;
+                fs::write(scene_dir.join(&terrain_file), &terrain)?;
                 for (i, pair) in height.chunks_exact(2).enumerate() {
                     let raw = i16::from_le_bytes([pair[0], pair[1]]);
                     let lx = i as i32 % valid_width_m as i32;
@@ -1350,7 +1394,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 }
                 fs::write(scene_dir.join(&lod2_file), &lod2)?;
                 let hash = blake3::hash(
-                    &[height.as_slice(), surface.as_slice(), lod2.as_slice()].concat(),
+                    &[
+                        height.as_slice(),
+                        surface.as_slice(),
+                        lod2.as_slice(),
+                        terrain.as_slice(),
+                    ]
+                    .concat(),
                 )
                 .to_hex()
                 .to_string();
@@ -1364,6 +1414,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     height_file,
                     surface_file,
                     lod2_file,
+                    terrain_file: Some(terrain_file),
                     hash,
                 };
                 fs::write(
@@ -1920,7 +1971,9 @@ fn generate_chunk(
     river_half_m: f64,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let geometry = legacy_water_geometry(water, scene_width, scene_depth, river_half_m);
-    generate_chunk_with_geometry(seed, base_x, base_z, width, depth, geometry, &[])
+    let (height, surface, lod2, _) =
+        generate_chunk_with_geometry(seed, base_x, base_z, width, depth, geometry, &[]);
+    (height, surface, lod2)
 }
 
 fn generate_chunk_with_geometry(
@@ -1931,10 +1984,11 @@ fn generate_chunk_with_geometry(
     depth: u32,
     water: WaterGeometry,
     carves: &[TerrainCarve],
-) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
     let cell_count = (width * depth) as usize;
     let mut height = Vec::with_capacity(cell_count * 2);
     let mut surface = Vec::with_capacity(cell_count);
+    let mut terrain = Vec::with_capacity(cell_count * TERRAIN_SEMANTIC_BYTES_PER_CELL);
     let mut lod2 = Vec::with_capacity((width.div_ceil(64) * depth.div_ceil(64)) as usize * 3);
     let mut samples = vec![0_i16; cell_count];
     for z in 0..depth {
@@ -1955,6 +2009,14 @@ fn generate_chunk_with_geometry(
             ));
         }
     }
+    for z in 0..depth {
+        for x in 0..width {
+            terrain.extend_from_slice(&terrain_semantics_at(
+                seed, base_x, base_z, width, depth, x, z, &samples, water, carves,
+            ));
+        }
+    }
+    debug_assert_eq!(terrain.len(), cell_count * TERRAIN_SEMANTIC_BYTES_PER_CELL);
     for block_z in (0..depth).step_by(64) {
         for block_x in (0..width).step_by(64) {
             let mut total = 0_i32;
@@ -1976,7 +2038,84 @@ fn generate_chunk_with_geometry(
             ));
         }
     }
-    (height, surface, lod2)
+    (height, surface, lod2, terrain)
+}
+
+/// Derive shared render/analysis attributes from the exact baked terrain.
+///
+/// Height lives in the height payload and land-cover lives in the surface
+/// payload. This compact four-byte payload carries values that must be
+/// consistent across renderers, vegetation placement and later terrain-aware
+/// rules, without letting each consumer generate unrelated visual noise.
+fn terrain_semantics_at(
+    seed: u64,
+    base_x: i32,
+    base_z: i32,
+    width: u32,
+    depth: u32,
+    x: u32,
+    z: u32,
+    samples: &[i16],
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+) -> [u8; TERRAIN_SEMANTIC_BYTES_PER_CELL] {
+    let sample = |sx: i32, sz: i32| -> i16 {
+        if sx >= 0 && sx < width as i32 && sz >= 0 && sz < depth as i32 {
+            samples[(sz as u32 * width + sx as u32) as usize]
+        } else {
+            terrain_height_with_geometry_carved(seed, base_x + sx, base_z + sz, water, carves)
+        }
+    };
+    let x = x as i32;
+    let z = z as i32;
+    let centre = f64::from(sample(x, z)) / 4.0;
+    let west = f64::from(sample(x - 1, z)) / 4.0;
+    let east = f64::from(sample(x + 1, z)) / 4.0;
+    let north = f64::from(sample(x, z - 1)) / 4.0;
+    let south = f64::from(sample(x, z + 1)) / 4.0;
+
+    // Central differences over two metres, encoded in degrees. This is the
+    // baked slope, so a renderer never has to infer it from a coarser LOD.
+    let gradient_x = (east - west) * 0.5;
+    let gradient_z = (south - north) * 0.5;
+    let slope_deg = gradient_x
+        .hypot(gradient_z)
+        .atan()
+        .to_degrees()
+        .clamp(0.0, 90.0);
+    let slope_u8 = (slope_deg / 90.0 * 255.0).round() as u8;
+
+    // Laplacian-like local curvature in metres. Valleys are positive and
+    // ridges negative; clamp deliberately because this field is a material /
+    // placement signal, not a replacement heightmap.
+    let curvature_m = (west + east + north + south - 4.0 * centre) * 0.25;
+    let curvature_u8 = (((curvature_m.clamp(-2.0, 2.0) + 2.0) / 4.0) * 255.0).round() as u8;
+
+    let world_x = base_x + x;
+    let world_z = base_z + z;
+    let wetness = (humidity_field(seed, world_x, world_z, water) * 255.0)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let disturbance = terrain_disturbance_at(world_x, world_z, carves);
+    [slope_u8, curvature_u8, wetness, disturbance]
+}
+
+/// Return the dominant human terrain intervention at a baked cell. Terrain
+/// pads are already authoritative for height; this is only the semantic mask
+/// that lets adapters vary cover/roughness without independently guessing
+/// where roads and lots have altered the ground.
+fn terrain_disturbance_at(x: i32, z: i32, carves: &[TerrainCarve]) -> u8 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    carves
+        .iter()
+        .filter_map(|carve| {
+            let outside =
+                ((xf - carve.cx).abs() - carve.half_w).max((zf - carve.cz).abs() - carve.half_d);
+            (outside <= 0.0).then_some(carve.disturbance)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -2041,6 +2180,36 @@ fn fbm2d(seed: u64, x: f64, z: f64) -> f64 {
     let detail = value_noise2d(seed.wrapping_add(0x33ab_1103), x / 150.0, z / 150.0) * 0.35;
     let fine = value_noise2d(seed.wrapping_add(0x2209_1f11), x / 64.0, z / 64.0) * 0.12;
     base + detail + fine
+}
+
+/// Mid-scale relief that makes slopes, swells and shallow draws legible at
+/// walking and district scale (roughly 80–360m) without adding fake renderer
+/// displacement. The field is deterministic in world space, chunk-continuous,
+/// and becomes part of the baked height contract used by roads and buildings.
+fn mesoscale_relief(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    // A low-frequency domain warp breaks the regularity of plain value noise.
+    let warp_x = value_noise2d(seed.wrapping_add(0x243f_6a88), xf / 360.0, zf / 360.0) * 85.0;
+    let warp_z = value_noise2d(seed.wrapping_add(0x85a3_08d3), xf / 360.0, zf / 360.0) * 85.0;
+    let swell = value_noise2d(
+        seed.wrapping_add(0x1319_8a2e),
+        (xf + warp_x) / 310.0,
+        (zf + warp_z) / 310.0,
+    );
+    // Fold a second field into soft shoulders and shallow draws. It gives a
+    // traveller something to read between kilometre-scale landforms and the
+    // 64m detail ripple, instead of a single featureless colour ramp.
+    let fold = 1.0
+        - value_noise2d(
+            seed.wrapping_add(0x0370_7344),
+            (xf - warp_z * 0.45) / 145.0,
+            (zf + warp_x * 0.45) / 145.0,
+        )
+        .abs();
+    let signed_fold = (fold - 0.5) * 2.0;
+    let amplitude = if water.smooth_rolling { 6.5 } else { 9.0 };
+    (swell * 0.68 + signed_fold * 0.32) * amplitude
 }
 
 /// Lightweight, deterministic erosion carving for natural terrain.
@@ -2473,6 +2642,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             target_h_m: f64::from(entity.ground_height_m()),
             blend_m: blend,
             priority: if is_road { 10 } else { 1 },
+            disturbance: if is_road { 255 } else { 160 },
         });
     }
     // Higher-priority pads (roads) must win when several overlap a cell, so
@@ -2503,7 +2673,14 @@ fn terrain_height_with_geometry_carved(
     // Gentle slope: base landform plus a modest detail ripple. The detail
     // amplitude stays small enough that adjacent 1m cells never step more
     // than ~4m, keeping both water shores and chunk seams continuous.
-    let natural = landform + detail * (3.0 + landform.max(0.0) * 0.18) + 14.0;
+    // Three spatial bands are baked into one authoritative heightfield:
+    // macro landform, readable district-scale relief, then restrained local
+    // detail. Renderers may add only shading micro-detail, never a competing
+    // geometric displacement that would detach roads/buildings from the map.
+    let natural = landform
+        + mesoscale_relief(seed, x, z, water)
+        + detail * (3.0 + landform.max(0.0) * 0.18)
+        + 14.0;
     // Erosion carves valleys into wild ground only; the water branches below
     // then clamp the lake/river bed, and settled land is masked to zero.
     let natural = natural + erosion_carve(seed, x, z, water);
@@ -5837,6 +6014,71 @@ mod tests {
     }
 
     #[test]
+    fn terrain_semantics_match_the_baked_raster_contract() {
+        let water = legacy_water_geometry(WaterKind::None, 128, 128, 0.0);
+        let carve = TerrainCarve {
+            cx: 32.0,
+            cz: 32.0,
+            half_w: 12.0,
+            half_d: 8.0,
+            target_h_m: 18.0,
+            blend_m: 4.0,
+            priority: 10,
+            disturbance: 255,
+        };
+        let (height, surface, lod2, terrain) =
+            generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, &[carve]);
+        assert_eq!(height.len(), 64 * 64 * 2);
+        assert_eq!(surface.len(), 64 * 64);
+        assert_eq!(lod2.len(), 3);
+        assert_eq!(terrain.len(), 64 * 64 * TERRAIN_SEMANTIC_BYTES_PER_CELL);
+        let centre = (32 * 64 + 32) * TERRAIN_SEMANTIC_BYTES_PER_CELL;
+        assert_eq!(
+            terrain[centre + 3],
+            255,
+            "roadbed disturbance was not serialized"
+        );
+        assert_ne!(terrain[centre], 255, "flat roadbed slope was not encoded");
+        assert!(
+            terrain[centre + 2] > 0,
+            "wetness encoding must be populated"
+        );
+        let outside = (63 * 64 + 63) * TERRAIN_SEMANTIC_BYTES_PER_CELL;
+        assert_eq!(
+            terrain[outside + 3],
+            0,
+            "natural ground was marked disturbed"
+        );
+    }
+
+    #[test]
+    fn mesoscale_relief_is_continuous_and_nontrivial() {
+        let water = legacy_water_geometry(WaterKind::None, 2_000, 2_000, 0.0);
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+        let mut max_adjacent_step = 0.0_f64;
+        for z in (0..=512).step_by(8) {
+            for x in (0..=512).step_by(8) {
+                let here = mesoscale_relief(20260903, x, z, water);
+                min = min.min(here);
+                max = max.max(here);
+                max_adjacent_step = max_adjacent_step
+                    .max((here - mesoscale_relief(20260903, x + 1, z, water)).abs());
+                max_adjacent_step = max_adjacent_step
+                    .max((here - mesoscale_relief(20260903, x, z + 1, water)).abs());
+            }
+        }
+        assert!(
+            max - min > 3.0,
+            "mid-scale terrain relief is visually negligible"
+        );
+        assert!(
+            max_adjacent_step < 0.5,
+            "mid-scale terrain introduced a discontinuity"
+        );
+    }
+
+    #[test]
     fn generated_pads_never_excavate_higher_natural_ground() {
         let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
         let natural = terrain_height_with_geometry_carved(20260829, 400, 400, water, &[]);
@@ -5848,6 +6090,7 @@ mod tests {
             target_h_m: f64::from(natural) / 4.0 - 20.0,
             blend_m: 6.0,
             priority: 1,
+            disturbance: 160,
         };
         assert_eq!(
             terrain_height_with_geometry_carved(20260829, 400, 400, water, &[carve]),
@@ -5867,6 +6110,7 @@ mod tests {
             target_h_m: 12.0,
             blend_m: 4.0,
             priority: 1,
+            disturbance: 160,
         };
         // Inside the pad the height is the flat target, independent of the
         // underlying natural terrain (which varies with position).
@@ -6084,6 +6328,7 @@ mod tests {
             "preview/app.js",
             "preview/core/shared.js",
             "preview/render/terrain.js",
+            "preview/render/presets/materials.js",
             "preview/vendor/three/build/three.module.js",
             "preview/vendor/three/examples/jsm/loaders/GLTFLoader.js",
         ] {

@@ -513,17 +513,22 @@ async function drawNear() {
     const cacheKey = `${sceneCacheKey}/${chunk.chunkX}/${chunk.chunkZ}`
     const chunkGroup = chunkGroupMap.get(cacheKey)
     const alreadyBuilt = chunkGroup.children.length > 0
-    let heightView, surface
+    let heightView, surface, terrain
     const cached = chunkDataCache.get(cacheKey)
     if (cached) {
       heightView = cached.heightView
       surface = cached.surface
+      terrain = cached.terrain
     } else {
-      const [heightResponse, surfaceResponse] = await Promise.all([fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`), fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`)])
-      const bytes = await heightResponse.arrayBuffer()
-      heightView = new DataView(bytes)
+      const [heightResponse, surfaceResponse, terrainResponse] = await Promise.all([
+        fetch(`../scenes/${scene.sceneId}/${chunk.heightFile}`),
+        fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`),
+        chunk.terrainFile ? fetch(`../scenes/${scene.sceneId}/${chunk.terrainFile}`) : Promise.resolve(null),
+      ])
+      heightView = new DataView(await heightResponse.arrayBuffer())
       surface = new Uint8Array(await surfaceResponse.arrayBuffer())
-      chunkDataCache.set(cacheKey, { heightView, surface })
+      terrain = terrainResponse ? new Uint8Array(await terrainResponse.arrayBuffer()) : null
+      chunkDataCache.set(cacheKey, { heightView, surface, terrain })
     }
     const width = chunk.validWidthM; const depth = chunk.validDepthM
     heightFields.push({ chunk, heightView, width, depth })
@@ -546,7 +551,7 @@ async function drawNear() {
       // Steppe: flat vertex colours graded by height (MC / Journey style, no
       // texture map). Urban: the existing noise-mapped terrain.
       if (window.__steppe) {
-        const geometry = makeMCTerrain(heightView, width, depth, meshStep, THREE)
+        const geometry = makeMCTerrain(heightView, surface, terrain, width, depth, meshStep, THREE)
         // MeshStandardMaterial handles vertex-color colour management correctly
         // (Lambert can wash the greens toward tan under these lights).
         const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })
