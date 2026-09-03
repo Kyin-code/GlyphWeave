@@ -1,0 +1,21 @@
+# Canal/waterway system object. It occupies water space and is generated before roads.
+id = "canal_waterway"
+kind = "water"
+applies_to = ["canal"]
+tags = ["water", "transport"]
+
+[geometry]
+footprint = [8.0, 8.0]
+height = 0.2
+clearance = 0.0
+
+[environment]
+on_ground = false
+not_in_water = false
+
+[placement]
+phase = "water_and_hazards"
+priority = 5
+attempts = 4
+allow_rotate = true
+fallback = "skip"

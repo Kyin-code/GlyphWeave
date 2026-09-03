@@ -40,6 +40,85 @@ pub enum WaterIntent {
     Lake,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LandUseIntent {
+    #[serde(default)]
+    pub urban_core_ratio: Option<f64>,
+    #[serde(default)]
+    pub suburban_ratio: Option<f64>,
+    #[serde(default)]
+    pub green_ratio: Option<f64>,
+    #[serde(default)]
+    pub farm_ratio: Option<f64>,
+    #[serde(default)]
+    pub forest_ratio: Option<f64>,
+    #[serde(default)]
+    pub pasture_ratio: Option<f64>,
+    #[serde(default)]
+    pub reserve_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConstraintIntent {
+    #[serde(default)]
+    pub max_slope_percent: Option<f32>,
+    #[serde(default)]
+    pub avoid_water: Option<bool>,
+    #[serde(default)]
+    pub protected_areas: Vec<String>,
+    #[serde(default)]
+    pub forbidden_areas: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IntentLandmark {
+    pub entity_id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    pub purpose: String,
+    pub description: String,
+    #[serde(default)]
+    pub scene_id: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    #[serde(default)]
+    pub world_y: i32,
+    pub width_m: u32,
+    pub depth_m: u32,
+    pub height_m: u32,
+    pub asset_id: String,
+    #[serde(default)]
+    pub rotation_y_deg: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IntentRoad {
+    pub road_id: String,
+    pub from_world_x: i32,
+    pub from_world_z: i32,
+    pub to_world_x: i32,
+    pub to_world_z: i32,
+    #[serde(default = "default_intent_road_width_m")]
+    pub width_m: u32,
+    #[serde(default)]
+    pub kind: String,
+}
+fn default_intent_road_width_m() -> u32 {
+    8
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransportIntent {
+    #[serde(default)]
+    pub roads: Vec<IntentRoad>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IntentScene {
@@ -52,7 +131,7 @@ pub struct IntentScene {
     pub origin_z: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorldIntent {
     pub name: String,
@@ -61,6 +140,14 @@ pub struct WorldIntent {
     pub terrain: TerrainIntent,
     pub settlement: SettlementIntent,
     pub water: WaterIntent,
+    #[serde(default)]
+    pub land_use: LandUseIntent,
+    #[serde(default)]
+    pub constraints: ConstraintIntent,
+    #[serde(default)]
+    pub landmarks: Vec<IntentLandmark>,
+    #[serde(default)]
+    pub transport: TransportIntent,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -86,9 +173,15 @@ pub enum IntentValidationError {
         required: WaterIntent,
         actual: WaterIntent,
     },
+    #[error("invalid intent parameter: {0}")]
+    InvalidParameter(String),
+    #[error("duplicate intent landmark id {0:?}")]
+    DuplicateLandmark(String),
+    #[error("duplicate intent road id {0:?}")]
+    DuplicateRoad(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntentDraft {
     pub source_text: String,
@@ -267,6 +360,10 @@ pub fn draft_from_text(source_text: &str) -> IntentDraft {
             terrain,
             settlement,
             water,
+            land_use: LandUseIntent::default(),
+            constraints: ConstraintIntent::default(),
+            landmarks: Vec::new(),
+            transport: TransportIntent::default(),
         })
     } else {
         None
@@ -316,6 +413,68 @@ impl WorldIntent {
                 });
             }
         }
+        for (name, value) in [
+            ("urbanCoreRatio", self.land_use.urban_core_ratio),
+            ("suburbanRatio", self.land_use.suburban_ratio),
+            ("greenRatio", self.land_use.green_ratio),
+            ("farmRatio", self.land_use.farm_ratio),
+            ("forestRatio", self.land_use.forest_ratio),
+            ("pastureRatio", self.land_use.pasture_ratio),
+            ("reserveRatio", self.land_use.reserve_ratio),
+        ] {
+            if let Some(value) = value {
+                if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                    return Err(IntentValidationError::InvalidParameter(format!(
+                        "{name} must be finite and within 0..=1"
+                    )));
+                }
+            }
+        }
+        if let Some(slope) = self.constraints.max_slope_percent {
+            if !slope.is_finite() || !(0.0..=100.0).contains(&slope) {
+                return Err(IntentValidationError::InvalidParameter(
+                    "maxSlopePercent must be finite and within 0..=100".into(),
+                ));
+            }
+        }
+        let mut landmark_ids = std::collections::BTreeSet::new();
+        for landmark in &self.landmarks {
+            if landmark.entity_id.trim().is_empty()
+                || !landmark_ids.insert(landmark.entity_id.clone())
+            {
+                return Err(IntentValidationError::DuplicateLandmark(
+                    landmark.entity_id.clone(),
+                ));
+            }
+            if landmark.width_m == 0
+                || landmark.depth_m == 0
+                || landmark.height_m == 0
+                || landmark.asset_id.trim().is_empty()
+            {
+                return Err(IntentValidationError::InvalidParameter(format!(
+                    "landmark {} has invalid geometry or asset_id",
+                    landmark.entity_id
+                )));
+            }
+            if !landmark.scene_id.is_empty() && landmark.scene_id != self.scene.scene_id {
+                return Err(IntentValidationError::InvalidParameter(format!(
+                    "landmark {} references unknown scene {}",
+                    landmark.entity_id, landmark.scene_id
+                )));
+            }
+        }
+        let mut road_ids = std::collections::BTreeSet::new();
+        for road in &self.transport.roads {
+            if road.road_id.trim().is_empty() || !road_ids.insert(road.road_id.clone()) {
+                return Err(IntentValidationError::DuplicateRoad(road.road_id.clone()));
+            }
+            if road.width_m == 0 {
+                return Err(IntentValidationError::InvalidParameter(format!(
+                    "road {} width_m must be positive",
+                    road.road_id
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -349,7 +508,24 @@ impl WorldIntent {
             "landUseProfile": { "theme": theme },
             "assetContracts": crate::worldgen::default_asset_contracts(),
             "naturalOnly": natural_only,
+            "generationProfile": "prototype",
         });
+        for (key, value) in [
+            ("urbanCoreRatio", self.land_use.urban_core_ratio),
+            ("suburbanRatio", self.land_use.suburban_ratio),
+            ("greenRatio", self.land_use.green_ratio),
+            ("farmRatio", self.land_use.farm_ratio),
+            ("forestRatio", self.land_use.forest_ratio),
+            ("pastureRatio", self.land_use.pasture_ratio),
+            ("reserveRatio", self.land_use.reserve_ratio),
+        ] {
+            if let Some(value) = value {
+                style["landUseProfile"][key] = serde_json::json!(value);
+            }
+        }
+        style["generationConstraints"] = serde_json::json!({ "maxSlopePercent": self.constraints.max_slope_percent, "avoidWater": self.constraints.avoid_water, "protectedAreas": self.constraints.protected_areas, "forbiddenAreas": self.constraints.forbidden_areas });
+        style["transportIntent"] =
+            serde_json::to_value(&self.transport).expect("transport intent is serializable");
         if let Some(water_type) = water_type {
             style["water"] = serde_json::json!({
                 "waterType": water_type,
@@ -376,8 +552,35 @@ impl WorldIntent {
                 seed_offset: 0,
             }],
             style,
-            landmarks: Vec::new(),
+            landmarks: self
+                .landmarks
+                .iter()
+                .map(|landmark| crate::worldgen::LandmarkSpec {
+                    entity_id: landmark.entity_id.clone(),
+                    name: landmark.name.clone(),
+                    entity_type: landmark.entity_type.clone(),
+                    purpose: landmark.purpose.clone(),
+                    description: landmark.description.clone(),
+                    scene_id: if landmark.scene_id.is_empty() {
+                        self.scene.scene_id.clone()
+                    } else {
+                        landmark.scene_id.clone()
+                    },
+                    world_x: landmark.world_x,
+                    world_z: landmark.world_z,
+                    world_y: landmark.world_y,
+                    width_m: landmark.width_m,
+                    depth_m: landmark.depth_m,
+                    height_m: landmark.height_m,
+                    asset_id: landmark.asset_id.clone(),
+                    rotation_y_deg: landmark.rotation_y_deg,
+                    grounding: Default::default(),
+                    anchors: Vec::new(),
+                    bounds: None,
+                })
+                .collect(),
             scene_graph: SceneGraph::default(),
+            patch_chain_hash: String::new(),
         }
     }
 }
@@ -419,6 +622,10 @@ mod tests {
             terrain: TerrainIntent::River,
             settlement: SettlementIntent::Town,
             water: WaterIntent::None,
+            land_use: LandUseIntent::default(),
+            constraints: ConstraintIntent::default(),
+            landmarks: Vec::new(),
+            transport: TransportIntent::default(),
         };
         assert!(matches!(
             intent.validate(),
@@ -446,6 +653,10 @@ mod tests {
             terrain: TerrainIntent::Steppe,
             settlement: SettlementIntent::Pastoral,
             water: WaterIntent::None,
+            land_use: LandUseIntent::default(),
+            constraints: ConstraintIntent::default(),
+            landmarks: Vec::new(),
+            transport: TransportIntent::default(),
         };
         assert_eq!(intent.compile_manifest().style["naturalOnly"], false);
     }

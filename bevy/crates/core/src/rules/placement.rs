@@ -6,7 +6,7 @@ use super::errors::{PlacementOutcome, RejectReason, RejectRecord};
 use super::loader::ObjectRegistry;
 use super::schema::ObjectDescriptor;
 use super::validator::{Footprint, PlacedKind, PlacementContext, check_hard, score_soft};
-use crate::worldgen::EntityInstance;
+use crate::worldgen::{EntityInstance, spatial_half_extents};
 
 /// A candidate position for one object.
 #[derive(Debug, Clone, Copy)]
@@ -70,15 +70,24 @@ fn footprint_for(
     source: Option<&PlacementSource>,
     cx: f32,
     cz: f32,
+    rotated: bool,
 ) -> Footprint {
-    let (width, depth) = source
-        .map(|source| (source.width_m * source.scale, source.depth_m * source.scale))
-        .unwrap_or((desc.geometry.footprint[0], desc.geometry.footprint[1]));
+    let (width, depth, source_rotation) = source
+        .map(|source| {
+            (
+                source.width_m * source.scale,
+                source.depth_m * source.scale,
+                source.rotation_y_deg,
+            )
+        })
+        .unwrap_or((desc.geometry.footprint[0], desc.geometry.footprint[1], 0.0));
+    let rotation_y_deg = source_rotation + if rotated { 90.0 } else { 0.0 };
+    let (half_w, half_d) = spatial_half_extents(width, depth, rotation_y_deg);
     Footprint {
         cx,
         cz,
-        half_w: width * 0.5 + desc.geometry.clearance,
-        half_d: depth * 0.5 + desc.geometry.clearance,
+        half_w: half_w as f32 + desc.geometry.clearance,
+        half_d: half_d as f32 + desc.geometry.clearance,
     }
 }
 
@@ -231,10 +240,7 @@ fn place_one_with_source(
 
     for cand in candidates {
         for &rot in rotations {
-            let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
-            if rot {
-                fp = fp.rotated();
-            }
+            let fp = footprint_for(desc, source, cand.x as f32, cand.z as f32, rot);
             match check_hard(desc, &fp, ctx, &hard, placed.as_slice()) {
                 Ok(()) => {
                     let s = score_soft(&fp, &soft, placed.as_slice());
@@ -258,10 +264,7 @@ fn place_one_with_source(
         );
         for cand in wider {
             for &rot in rotations {
-                let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
-                if rot {
-                    fp = fp.rotated();
-                }
+                let fp = footprint_for(desc, source, cand.x as f32, cand.z as f32, rot);
                 match check_hard(desc, &fp, ctx, &hard, placed.as_slice()) {
                     Ok(()) => {
                         let score = score_soft(&fp, &soft, placed.as_slice());
@@ -286,10 +289,7 @@ fn place_one_with_source(
     if let Some((_, cand, rot)) = best {
         // Commit: register into placed list (occupancy is tracked by caller
         // via PlacedKind). Build the EntityInstance for the map.
-        let mut fp = footprint_for(desc, source, cand.x as f32, cand.z as f32);
-        if rot {
-            fp = fp.rotated();
-        }
+        let fp = footprint_for(desc, source, cand.x as f32, cand.z as f32, rot);
         // Preserve the source entity's identity, asset and geometry while
         // applying the descriptor's placement constraints. The descriptor is a
         // rule/constraint source, not an implicit geometry replacement.
@@ -574,6 +574,50 @@ phase = "building"
         assert_eq!(entity.scale, 1.25);
     }
 
+    #[test]
+    fn source_rotation_uses_rotated_footprint_for_occupancy() {
+        let desc = building_desc();
+        let ctx = PlacementContext {
+            height_at: &|_, _| 0.0,
+            water_level: &|_, _| None,
+            slope_at: &|_, _| 0.0,
+            slope_at_footprint: None,
+            bounds: (0, 0, 500, 500),
+            grounding_tolerance: 0.5,
+            biome_at: None,
+            hazard_at: None,
+        };
+        let source = PlacementSource {
+            entity_id: "generated.rotated-building".into(),
+            asset_id: "prop.rotated-building".into(),
+            kind: "building".into(),
+            width_m: 80.0,
+            depth_m: 20.0,
+            height_m: 10.0,
+            scale: 1.0,
+            rotation_y_deg: 90.0,
+            grounding: crate::worldgen::GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        let mut index = PlacementIndex::new();
+        let outcome = place_one_with_source(
+            &desc,
+            Candidate { x: 100, z: 100 },
+            &ctx,
+            &mut index,
+            42,
+            Some(&source),
+        );
+
+        assert_eq!(outcome.placed.len(), 1);
+        assert_eq!(outcome.placed[0].rotation_y_deg, 90.0);
+        assert_eq!(index.len(), 1);
+        // The source is 80m wide by 20m deep, but its 90° world rotation
+        // makes occupancy 20m wide by 80m deep (plus descriptor clearance).
+        assert_eq!(index.as_slice()[0].half_w, 10.5);
+        assert_eq!(index.as_slice()[0].half_d, 40.5);
+    }
     #[test]
     fn place_rejects_water() {
         let desc = building_desc();

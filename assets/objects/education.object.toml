@@ -1,0 +1,30 @@
+id = "education_facility"
+kind = "building"
+applies_to = ["school"]
+tags = ["civic", "education", "has_entrance"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 1.0
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 10
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 8.0
+
+
+[placement]
+phase = "building"
+priority = 25
+attempts = 16
+allow_rotate = true
+fallback = "move"

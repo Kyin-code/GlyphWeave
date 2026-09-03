@@ -1,0 +1,30 @@
+id = "commercial_facility"
+kind = "building"
+applies_to = ["commercial_center", "market", "entertainment_center"]
+tags = ["commercial", "has_entrance"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 1.0
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 12
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 5.0
+
+
+[placement]
+phase = "building"
+priority = 30
+attempts = 16
+allow_rotate = true
+fallback = "move"

@@ -1,7 +1,7 @@
 # 农田、牧场、林地和自然保护地
 id = "landscape_area"
 kind = "other"
-applies_to = ["farmland", "pasture", "mountain_forest", "nature_reserve", "bush", "grass_clump", "fallen_log"]
+applies_to = ["farmland", "pasture", "mountain_forest", "nature_reserve", "green_space", "bush", "grass_clump", "fallen_log"]
 tags = ["landscape"]
 
 [geometry]
@@ -10,7 +10,7 @@ height = 1.0
 clearance = 0.0
 
 [environment]
-on_ground = true
+on_ground = false
 not_in_water = true
 
 [placement]

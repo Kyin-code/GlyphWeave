@@ -1,0 +1,25 @@
+# Bridge/causeway system object. It may span water but must not overlap buildings.
+id = "bridge_structure"
+kind = "bridge"
+applies_to = ["bridge", "causeway"]
+tags = ["transport", "bridge"]
+
+[geometry]
+footprint = [8.0, 8.0]
+height = 6.0
+clearance = 0.0
+
+[environment]
+on_ground = false
+not_in_water = false
+
+[[relations.avoid]]
+kind = "building"
+distance = 0.0
+
+[placement]
+phase = "road"
+priority = 12
+attempts = 8
+allow_rotate = true
+fallback = "move"

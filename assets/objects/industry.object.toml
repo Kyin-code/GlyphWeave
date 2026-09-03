@@ -1,0 +1,33 @@
+id = "industrial_facility"
+kind = "building"
+applies_to = ["industrial"]
+tags = ["industrial", "service_access"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 1.5
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 8
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 12.0
+
+[[relations.avoid]]
+kind = "building"
+distance = 2.0
+
+[placement]
+phase = "building"
+priority = 35
+attempts = 16
+allow_rotate = true
+fallback = "move"

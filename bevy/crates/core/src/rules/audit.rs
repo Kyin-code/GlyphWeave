@@ -53,7 +53,7 @@ fn conflict_id(reason: &super::errors::RejectReason) -> Option<String> {
 pub fn kind_from_str(kind: &str) -> super::schema::ItemKind {
     use super::schema::ItemKind;
     match kind {
-        "road" => ItemKind::Road,
+        "road" | "road-ew" | "road-ns" => ItemKind::Road,
         "railway" => ItemKind::Railway,
         "building"
         | "building_tower"
@@ -76,7 +76,7 @@ pub fn kind_from_str(kind: &str) -> super::schema::ItemKind {
         "storefront" => ItemKind::Storefront,
         "tree" => ItemKind::Tree,
         "rock" => ItemKind::Rock,
-        "water" | "lake" | "river" => ItemKind::Water,
+        "water" | "lake" | "river" | "canal" => ItemKind::Water,
         "bridge" | "causeway" => ItemKind::Bridge,
         "park" => ItemKind::Park,
         "sidewalk" => ItemKind::Sidewalk,
@@ -151,7 +151,21 @@ pub fn audit_entities(
             .map(|(_, p)| p.clone())
             .collect();
 
-        let ground_delta = (ctx.height(e.world_x, e.world_z) - e.ground_height_m()).abs();
+        let ground_fp = Footprint {
+            cx: fp.cx,
+            cz: fp.cz,
+            half_w: half_w as f32,
+            half_d: half_d as f32,
+        };
+        let footprint_ground = ground_fp
+            .sample_points()
+            .into_iter()
+            .map(|(x, z)| ctx.height(x, z))
+            .fold(f32::NEG_INFINITY, f32::max);
+        // A filled/raised pad may leave the entity slightly above the
+        // surrounding raster. The invalid case is only the inverse: the
+        // baked ground rises through the object bottom.
+        let ground_delta = footprint_ground - e.ground_height_m();
         if desc.environment.on_ground
             && ground_delta > ctx.grounding_tolerance.max(e.grounding.tolerance_m)
         {

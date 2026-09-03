@@ -1,0 +1,25 @@
+id = "parking_area"
+kind = "other"
+applies_to = ["parking_lot"]
+tags = ["parking", "surface"]
+
+[geometry]
+footprint = [8.0, 8.0]
+height = 0.2
+clearance = 0.5
+
+[environment]
+on_ground = false
+not_in_water = true
+max_slope = 6
+
+[[relations.avoid]]
+kind = "water"
+distance = 3.0
+
+[placement]
+phase = "lot"
+priority = 45
+attempts = 12
+allow_rotate = true
+fallback = "move"

@@ -10,7 +10,7 @@ height = 3.0
 clearance = 0.25
 
 [environment]
-on_ground = true
+on_ground = false
 not_in_water = true
 max_slope = 25
 

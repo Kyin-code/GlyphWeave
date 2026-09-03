@@ -21,7 +21,7 @@ use glyphweave_core::voxel::{
 };
 use glyphweave_core::worldgen::{
     LandUseProfile, SceneIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
-    audit_scene, bake_world, water_geometry, write_demo_manifest,
+    audit_scene, bake_world, water_geometry, world_manifest_revision, write_demo_manifest,
 };
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
@@ -76,6 +76,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "generate-world" => generate_world_command(&args[1..]),
         "apply-patch" => apply_patch_command(&args[1..]),
         "quality-report" => quality_report_command(&args[1..]),
+        "world-quality-gate" => world_quality_gate_command(&args[1..]),
         "validate-world" => validate_world_command(&args[1..]),
         "check-baseline" => check_baseline_command(&args[1..]),
         "scale-audit" => scale_audit_command(&args[1..]),
@@ -313,9 +314,9 @@ fn generate_demo_world_command(args: &[String]) -> CliResult<()> {
 }
 
 fn generate_procedural_world_command(args: &[String]) -> CliResult<()> {
-    if !(3..=6).contains(&args.len()) {
+    if !(3..=7).contains(&args.len()) {
         return Err(
-            "generate-procedural-world requires OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]"
+            "generate-procedural-world requires OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]"
                 .into(),
         );
     }
@@ -345,6 +346,18 @@ fn generate_procedural_world_command(args: &[String]) -> CliResult<()> {
         if let Some(profile) = manifest.style.get_mut("landUseProfile") {
             profile["urbanCoreRatio"] = serde_json::json!(ratio);
             profile["suburbanRatio"] = serde_json::json!((ratio * 1.2).min(1.0 - ratio));
+        }
+    }
+    if let Some(profile) = args.get(6) {
+        if !matches!(
+            profile.as_str(),
+            "legacy" | "prototype" | "strict" | "release"
+        ) {
+            return Err("PROFILE must be legacy, prototype, strict, or release".into());
+        }
+        manifest.style["generationProfile"] = serde_json::json!(profile);
+        if matches!(profile.as_str(), "strict" | "release") {
+            manifest.style["rulesMode"] = serde_json::json!("rules");
         }
     }
     let index = bake_world(&manifest, output)?;
@@ -388,17 +401,32 @@ fn write_generation_report(
         entity_count += scene.entities.len();
         landmark_count += scene.landmarks.len();
     }
+    let manifest: Option<WorldManifest> = fs::read(output.join("glyphweave.manifest.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let profile = manifest
+        .as_ref()
+        .and_then(|m| m.style.get("generationProfile"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("legacy");
+    let placement = fs::read(output.join("rules-placement.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let report = serde_json::json!({
         "format": "glyphweave.generation-report",
         "version": 1,
         "status": "baked",
-        "nextGate": "scale-audit",
+        "nextGate": if matches!(profile, "strict" | "release") { "world-quality-gate" } else { "scale-audit" },
         "worldRevision": index.revision,
         "sceneCount": index.scenes.len(),
         "chunkCount": chunk_count,
         "entityCount": entity_count,
         "landmarkCount": landmark_count,
         "renderMode": index.render_mode,
+        "generationProfile": profile,
+        "generatorRevision": glyphweave_core::worldgen::WORLD_GENERATOR_REVISION,
+        "patchChainHash": manifest.as_ref().map(|m| m.patch_chain_hash.clone()).unwrap_or_default(),
+        "placement": placement,
         "output": output.display().to_string(),
     });
     fs::write(
@@ -425,6 +453,25 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
     let root = Path::new(one_path("validate-world", args)?);
     let world: glyphweave_core::worldgen::WorldIndex =
         serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let manifest: WorldManifest =
+        serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    let expected_revision = world_manifest_revision(&manifest)?;
+    if world.revision != expected_revision {
+        return Err(format!(
+            "world.json revision {} does not match manifest/generator revision {}",
+            world.revision, expected_revision
+        )
+        .into());
+    }
+    if !world.generator_revision.is_empty()
+        && world.generator_revision != glyphweave_core::worldgen::WORLD_GENERATOR_REVISION
+    {
+        return Err(format!(
+            "unsupported world generator revision {}",
+            world.generator_revision
+        )
+        .into());
+    }
     let sidecar: serde_json::Value = serde_json::from_slice(&fs::read(root.join("sidecar.json"))?)?;
     let contract = sidecar
         .get("contract")
@@ -628,6 +675,173 @@ fn check_baseline_command(args: &[String]) -> CliResult<()> {
         }
     }
     println!("baseline matches {}", args[0]);
+    Ok(())
+}
+
+fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
+    if args.len() != 1 {
+        return Err("world-quality-gate requires WORLD_DIR".into());
+    }
+    // Run the existing structural gates first so this command is the single
+    // release-facing entry point rather than a second, drifting validator.
+    validate_world_command(args)?;
+    scale_audit_command(args)?;
+    quality_report_command(args)?;
+
+    let root = Path::new(&args[0]);
+    let manifest: WorldManifest =
+        serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    let profile = manifest
+        .style
+        .get("generationProfile")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("legacy");
+    let rules_mode = manifest
+        .style
+        .get("rulesMode")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("legacy");
+    let strict = matches!(profile, "strict" | "release");
+    let mut failures = Vec::<String>::new();
+    let mut warnings = Vec::<String>::new();
+    if strict && rules_mode != "rules" {
+        failures.push("generationProfile=strict requires style.rulesMode=rules".to_owned());
+    }
+
+    let quality: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("quality-report.json"))?)?;
+    if quality.get("status").and_then(serde_json::Value::as_str) == Some("fail") {
+        failures.push("quality-report status is fail".to_owned());
+    }
+    if let Some(items) = quality
+        .get("warnings")
+        .and_then(serde_json::Value::as_array)
+    {
+        warnings.extend(
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned),
+        );
+    }
+
+    let rules = fs::read(root.join("rules-audit.json"))
+        .ok()
+        .map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes))
+        .transpose()?;
+    if strict && rules.is_none() {
+        failures.push("strict profile requires rules-audit.json".to_owned());
+    }
+    let mut rule_metrics = serde_json::Map::new();
+    if let Some(report) = &rules {
+        for key in [
+            "checked_items",
+            "passed_items",
+            "rejected_items",
+            "floating_items",
+            "submerged_items",
+            "slope_too_high",
+            "out_of_bounds",
+            "blocked_entrances",
+            "geometry_collisions",
+            "disconnected_roads",
+        ] {
+            if let Some(value) = report.get(key) {
+                rule_metrics.insert(key.to_owned(), value.clone());
+            }
+        }
+        if report
+            .get("rejected_items")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        {
+            failures.push("rules-audit contains rejected items".to_owned());
+        }
+        if let Some(unruled) = report
+            .get("unruled_items")
+            .and_then(serde_json::Value::as_array)
+        {
+            let mut kinds = unruled
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>();
+            kinds.sort_unstable();
+            kinds.dedup();
+            rule_metrics.insert("unruled_kinds".to_owned(), serde_json::json!(kinds));
+            if strict && !kinds.is_empty() {
+                failures.push(format!(
+                    "strict profile has unruled entity kinds: {}",
+                    kinds.join(", ")
+                ));
+            }
+        }
+    }
+
+    let registry_path = root.join("assets").join("glyphweave.registry.json");
+    let mut registry_metrics = serde_json::Map::new();
+    match fs::read(&registry_path) {
+        Ok(bytes) => {
+            let registry: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let entries = registry
+                .get("assets")
+                .and_then(serde_json::Value::as_object)
+                .ok_or("asset registry missing assets object")?;
+            let mut missing_files = Vec::new();
+            for (asset_id, entry) in entries {
+                let Some(path) = entry.get("path").and_then(serde_json::Value::as_str) else {
+                    missing_files.push(format!("{asset_id}: missing path"));
+                    continue;
+                };
+                if !root.join(path).is_file() {
+                    missing_files.push(format!("{asset_id}: missing published asset {path}"));
+                }
+                for field in ["format", "unit", "origin", "forward", "collision"] {
+                    if entry
+                        .get(field)
+                        .and_then(serde_json::Value::as_str)
+                        .is_none()
+                    {
+                        missing_files.push(format!("{asset_id}: missing {field}"));
+                    }
+                }
+            }
+            registry_metrics.insert("entries".to_owned(), serde_json::json!(entries.len()));
+            registry_metrics.insert("missing".to_owned(), serde_json::json!(missing_files));
+            if strict
+                && registry_metrics["missing"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+            {
+                failures.push("published asset registry is incomplete".to_owned());
+            }
+        }
+        Err(_) if strict => {
+            failures.push("strict profile requires assets/glyphweave.registry.json".to_owned())
+        }
+        Err(_) => warnings.push("published asset registry is missing".to_owned()),
+    }
+
+    let report = serde_json::json!({
+        "format": "glyphweave.world-quality-gate",
+        "version": 1,
+        "status": if failures.is_empty() { "pass" } else { "fail" },
+        "profile": profile,
+        "rulesMode": rules_mode,
+        "worldRevision": serde_json::from_slice::<serde_json::Value>(&fs::read(root.join("world.json"))?)?.get("revision").cloned(),
+        "failures": failures,
+        "warnings": warnings,
+        "metrics": { "rules": rule_metrics, "assets": registry_metrics },
+        "inputs": ["validate-world", "scale-audit", "quality-report", "rules-audit.json"]
+    });
+    fs::write(
+        root.join("world-quality-gate.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if report["status"] == "fail" {
+        return Err("world quality gate failed".into());
+    }
     Ok(())
 }
 
@@ -1705,7 +1919,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
     );
 }
 

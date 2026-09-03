@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 pub const WORLD_FORMAT: &str = "glyphweave-world";
 pub const WORLD_VERSION: u32 = 1;
+/// Bump when the serialized world semantics or deterministic bake algorithm changes.
+pub const WORLD_GENERATOR_REVISION: &str = "worldgen-2026-09-03-r2";
 pub const STREAM_CHUNK_METERS: u32 = 512;
 pub const MIN_SCENE_METERS: u32 = 512;
 pub const MAX_SCENE_WIDTH_METERS: u32 = 6_000;
@@ -217,6 +219,9 @@ pub struct WorldManifest {
     pub landmarks: Vec<LandmarkSpec>,
     #[serde(default)]
     pub scene_graph: SceneGraph,
+    /// Hash of the immutable patch chain applied to this manifest.
+    #[serde(default)]
+    pub patch_chain_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +275,23 @@ pub struct LandmarkSpec {
     pub bounds: Option<Bounds2d>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EdgeSummary {
+    pub min_quarter_m: i16,
+    pub max_quarter_m: i16,
+    pub dominant_surface: u8,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChunkBoundarySummary {
+    pub west: EdgeSummary,
+    pub east: EdgeSummary,
+    pub north: EdgeSummary,
+    pub south: EdgeSummary,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkDescriptor {
@@ -286,6 +308,10 @@ pub struct ChunkDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terrain_file: Option<String>,
     pub hash: String,
+    /// Edge statistics allow adjacent chunks and multi-scene boundaries to be
+    /// checked without decoding the full raster first.
+    #[serde(default)]
+    pub boundary: ChunkBoundarySummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,6 +362,10 @@ pub struct WorldIndex {
     pub seed: u64,
     pub render_mode: String,
     pub revision: String,
+    #[serde(default)]
+    pub generator_revision: String,
+    #[serde(default)]
+    pub patch_chain_hash: String,
     pub scenes: Vec<String>,
     #[serde(default)]
     pub scene_graph: SceneGraph,
@@ -349,6 +379,13 @@ pub struct WorldPatch {
     pub format: String,
     pub version: u32,
     pub patch_id: String,
+    /// Optional for legacy v1 patches; strict workflows should provide it.
+    #[serde(default)]
+    pub base_revision: String,
+    #[serde(default)]
+    pub parent_patch_hash: Option<String>,
+    #[serde(default)]
+    pub sequence: u64,
     pub operations: Vec<PatchOperation>,
 }
 
@@ -360,6 +397,12 @@ pub enum PatchOperation {
         world_x: i32,
         world_z: i32,
         world_y: i32,
+    },
+    SetLandmark {
+        landmark: LandmarkSpec,
+    },
+    RemoveLandmark {
+        entity_id: String,
     },
 }
 
@@ -395,6 +438,8 @@ pub enum WorldgenError {
     OutputNotEmpty(String),
     #[error("rules mode could not load descriptors: {0}")]
     InvalidRules(String),
+    #[error("invalid patch: {0}")]
+    InvalidPatch(String),
     #[error(
         "rules-mode baked audit failed for scene {scene_id}: {rejected} of {checked} checked entities rejected"
     )]
@@ -1212,6 +1257,7 @@ impl WorldManifest {
             }),
             landmarks: Vec::new(),
             scene_graph: SceneGraph::default(),
+            patch_chain_hash: String::new(),
         }
     }
 
@@ -1297,6 +1343,54 @@ impl WorldManifest {
     }
 }
 
+fn edge_summary(
+    height: &[u8],
+    surface: &[u8],
+    width: u32,
+    depth: u32,
+    horizontal: bool,
+    index: u32,
+) -> EdgeSummary {
+    let length = if horizontal { width } else { depth };
+    let mut min = i16::MAX;
+    let mut max = i16::MIN;
+    let mut counts = [0_usize; 256];
+    for step in 0..length {
+        let x = if horizontal { step } else { index };
+        let z = if horizontal { index } else { step };
+        let offset = (z * width + x) as usize;
+        let h = i16::from_le_bytes([height[offset * 2], height[offset * 2 + 1]]);
+        min = min.min(h);
+        max = max.max(h);
+        counts[surface[offset] as usize] += 1;
+    }
+    let dominant_surface = counts
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| *count)
+        .map(|(value, _)| value as u8)
+        .unwrap_or(0);
+    EdgeSummary {
+        min_quarter_m: min,
+        max_quarter_m: max,
+        dominant_surface,
+    }
+}
+
+fn chunk_boundary_summary(
+    height: &[u8],
+    surface: &[u8],
+    width: u32,
+    depth: u32,
+) -> ChunkBoundarySummary {
+    ChunkBoundarySummary {
+        west: edge_summary(height, surface, width, depth, false, 0),
+        east: edge_summary(height, surface, width, depth, false, width - 1),
+        north: edge_summary(height, surface, width, depth, true, 0),
+        south: edge_summary(height, surface, width, depth, true, depth - 1),
+    }
+}
+
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
     manifest.validate()?;
     let rules_mode = manifest
@@ -1304,6 +1398,24 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         .get("rulesMode")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|mode| mode == "rules");
+    let generation_profile = manifest
+        .style
+        .get("generationProfile")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("legacy");
+    if !matches!(
+        generation_profile,
+        "legacy" | "prototype" | "strict" | "release"
+    ) {
+        return Err(WorldgenError::InvalidRules(format!(
+            "unsupported generationProfile {generation_profile:?}"
+        )));
+    }
+    if matches!(generation_profile, "strict" | "release") && !rules_mode {
+        return Err(WorldgenError::InvalidRules(
+            "generationProfile strict/release requires style.rulesMode=rules".into(),
+        ));
+    }
     let rules_dir = rules_mode.then(|| rules_dir_from_style(&manifest.style));
     if let Some(dir) = &rules_dir {
         crate::rules::ObjectRegistry::load_dir(dir)
@@ -1313,11 +1425,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         return Err(WorldgenError::OutputNotEmpty(output.display().to_string()));
     }
     fs::create_dir_all(output)?;
-    let revision = blake3::hash(&serde_json::to_vec(manifest)?)
-        .to_hex()
-        .to_string();
+    let revision = world_manifest_revision(manifest)?;
     let mut scene_paths = Vec::new();
     let mut baked_rules_report = crate::rules::ValidationReport::default();
+    let mut placement_reports = Vec::<serde_json::Value>::new();
     for scene in &manifest.scenes {
         let scene_dir = output.join("scenes").join(&scene.scene_id);
         fs::create_dir_all(&scene_dir)?;
@@ -1344,18 +1455,52 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             scene,
             &manifest.style,
         );
-        let entities = generate_entities_with_profile(
+        let (entities, placement_outcome) = generate_entities_with_profile_report(
             manifest.world.seed ^ scene.seed_offset,
             scene,
             &landmarks,
             water,
             &manifest.style,
         );
+        if let Some((proposed_count, outcome)) = placement_outcome {
+            let mut by_reason = BTreeMap::<String, usize>::new();
+            for reject in &outcome.rejected {
+                *by_reason.entry(reject.reason.clone()).or_default() += 1;
+            }
+            placement_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "proposedItems": proposed_count,
+                "placedItems": outcome.placed.len(),
+                "rejectedCandidates": outcome.rejected.len(),
+                "rejectedByReason": by_reason,
+                "rejects": outcome.rejected,
+            }));
+            fs::write(
+                output.join("rules-placement.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format": "glyphweave.rules-placement",
+                    "version": 1,
+                    "scenes": placement_reports,
+                }))?,
+            )?;
+        }
         let mut entities = entities;
         for entity in &mut entities {
             entity.normalize_spatial_semantics();
         }
-        let carves = plan_terrain_carves(&entities);
+        sanitize_generated_transport_collisions(&mut entities);
+        let mut carves = plan_terrain_carves(&entities);
+        // Reconcile grounded entities against the preliminary carved surface
+        // so roadbeds cannot make a nearby object fail final baked audit.
+        for _ in 0..2 {
+            rebase_grounded_entities_to_carved_surface(
+                manifest.world.seed ^ scene.seed_offset,
+                water,
+                &mut entities,
+                &carves,
+            );
+            carves = plan_terrain_carves(&entities);
+        }
         let mut chunks = Vec::new();
         let mut baked_samples = BTreeMap::<i64, f32>::new();
         for chunk_z in 0..chunk_count_z {
@@ -1416,6 +1561,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     lod2_file,
                     terrain_file: Some(terrain_file),
                     hash,
+                    boundary: chunk_boundary_summary(
+                        &height,
+                        &surface,
+                        valid_width_m,
+                        valid_depth_m,
+                    ),
                 };
                 fs::write(
                     scene_dir.join(format!("{stem}.json")),
@@ -1424,6 +1575,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 chunks.push(descriptor);
             }
         }
+        // Baked raster is authoritative; reconcile entity bottoms with the exact
+        // footprint samples after all pads and blends have been applied.
+        rebase_entities_to_baked_surface(&mut entities, &baked_samples);
         if let Some(rules_dir) = &rules_dir {
             // The generator validates candidates against natural terrain before
             // carving. Re-run the same rules against the actual baked height
@@ -1495,6 +1649,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             serde_json::to_vec_pretty(&baked_rules_report)?,
         )?;
     }
+    if !placement_reports.is_empty() {
+        fs::write(
+            output.join("rules-placement.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "format": "glyphweave.rules-placement",
+                "version": 1,
+                "scenes": placement_reports,
+            }))?,
+        )?;
+    }
     write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex {
         format: WORLD_FORMAT.to_owned(),
@@ -1503,6 +1667,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         seed: manifest.world.seed,
         render_mode: manifest.world.render_mode.clone(),
         revision,
+        generator_revision: WORLD_GENERATOR_REVISION.to_owned(),
+        patch_chain_hash: manifest.patch_chain_hash.clone(),
         scenes: scene_paths,
         scene_graph: manifest.scene_graph.clone(),
         sidecar: SidecarContract::default(),
@@ -1577,10 +1743,40 @@ fn write_gemap_anchor(
     Ok(())
 }
 
+pub fn world_manifest_revision(manifest: &WorldManifest) -> WorldgenResult<String> {
+    let payload = serde_json::json!({
+        "generator": WORLD_GENERATOR_REVISION,
+        "manifest": manifest,
+    });
+    Ok(blake3::hash(&serde_json::to_vec(&payload)?)
+        .to_hex()
+        .to_string())
+}
+
 pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResult<WorldManifest> {
     manifest.validate()?;
-    if patch.format != "glyphweave-world-patch" || patch.version != 1 {
+    if patch.format != "glyphweave-world-patch" || !(patch.version == 1 || patch.version == 2) {
         return Err(WorldgenError::InvalidFormat(patch.format.clone()));
+    }
+    if patch.patch_id.trim().is_empty() {
+        return Err(WorldgenError::InvalidPatch(
+            "patch_id must not be empty".into(),
+        ));
+    }
+    let current_revision = world_manifest_revision(manifest)?;
+    if !patch.base_revision.is_empty() && patch.base_revision != current_revision {
+        return Err(WorldgenError::InvalidPatch(format!(
+            "base_revision {} does not match manifest revision {}",
+            patch.base_revision, current_revision
+        )));
+    }
+    if let Some(parent) = &patch.parent_patch_hash {
+        if parent != &manifest.patch_chain_hash {
+            return Err(WorldgenError::InvalidPatch(format!(
+                "parent_patch_hash {} does not match manifest patch chain {}",
+                parent, manifest.patch_chain_hash
+            )));
+        }
     }
     let mut result = manifest.clone();
     for operation in &patch.operations {
@@ -1600,8 +1796,34 @@ pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResu
                 landmark.world_z = *world_z;
                 landmark.world_y = *world_y;
             }
+            PatchOperation::SetLandmark { landmark } => {
+                if let Some(existing) = result
+                    .landmarks
+                    .iter_mut()
+                    .find(|item| item.entity_id == landmark.entity_id)
+                {
+                    *existing = landmark.clone();
+                } else {
+                    result.landmarks.push(landmark.clone());
+                }
+            }
+            PatchOperation::RemoveLandmark { entity_id } => {
+                let before = result.landmarks.len();
+                result.landmarks.retain(|item| item.entity_id != *entity_id);
+                if result.landmarks.len() == before {
+                    return Err(WorldgenError::InvalidLandmark(entity_id.clone()));
+                }
+            }
         }
     }
+    let chain_payload = serde_json::json!({
+        "parent": manifest.patch_chain_hash,
+        "patch": patch,
+        "sequence": patch.sequence,
+    });
+    result.patch_chain_hash = blake3::hash(&serde_json::to_vec(&chain_payload)?)
+        .to_hex()
+        .to_string();
     result.validate()?;
     Ok(result)
 }
@@ -1947,9 +2169,31 @@ fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
             "../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"
         ),
     )?;
+    // Rewrite source-relative registry paths to the self-contained published
+    // preview asset bundle. The generated preview must not point back into the
+    // repository checkout that produced it.
+    let mut registry: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../assets/glyphweave.registry.json"
+    ))?;
+    if let Some(entries) = registry
+        .get_mut("assets")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for entry in entries.values_mut() {
+            if let Some(path) = entry.get("path").and_then(serde_json::Value::as_str) {
+                let file = path.rsplit('/').next().unwrap_or(path);
+                entry["path"] = serde_json::json!(format!("assets/{file}"));
+            }
+            if let Some(path) = entry.get("material").and_then(serde_json::Value::as_str) {
+                let file = path.rsplit('/').next().unwrap_or(path);
+                entry["material"] = serde_json::json!(format!("assets/{file}"));
+            }
+        }
+    }
+    registry["publishedRoot"] = serde_json::json!("assets/");
     fs::write(
         assets.join("glyphweave.registry.json"),
-        include_bytes!("../../../../assets/glyphweave.registry.json"),
+        serde_json::to_vec_pretty(&registry)?,
     )?;
     Ok(())
 }
@@ -2994,9 +3238,17 @@ fn generate_entities_with_geometry(
     landmarks: &[LandmarkSpec],
     geometry: WaterGeometry,
 ) -> Vec<EntityInstance> {
-    generate_entities_with_profile(seed, scene, landmarks, geometry, &serde_json::Value::Null)
+    generate_entities_with_profile_report(
+        seed,
+        scene,
+        landmarks,
+        geometry,
+        &serde_json::Value::Null,
+    )
+    .0
 }
 
+#[cfg(test)]
 fn generate_entities_with_profile(
     seed: u64,
     scene: &SceneSpec,
@@ -3004,6 +3256,19 @@ fn generate_entities_with_profile(
     geometry: WaterGeometry,
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
+    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style).0
+}
+
+fn generate_entities_with_profile_report(
+    seed: u64,
+    scene: &SceneSpec,
+    landmarks: &[LandmarkSpec],
+    geometry: WaterGeometry,
+    style: &serde_json::Value,
+) -> (
+    Vec<EntityInstance>,
+    Option<(usize, crate::rules::PlacementOutcome)>,
+) {
     let mut entities = generate_entities_template(seed, scene, landmarks, geometry);
     // When a normalized settlement intent is present for a water scene, the
     // generic intent planner owns ordinary buildings. Remove only the legacy
@@ -3213,20 +3478,28 @@ fn generate_entities_with_profile(
         .get("rulesMode")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("legacy");
+    // Normalize before rule placement as well as before carving: a road-ns
+    // proposal must occupy its north/south footprint while other candidates
+    // are being tested, not only during the final audit.
+    for entity in &mut entities {
+        entity.normalize_spatial_semantics();
+    }
+    let mut placement_outcome = None;
     if rules_mode == "rules" {
-        entities = apply_rules_mode(seed, scene, geometry, style, entities);
+        let proposed_count = entities.len();
+        let (rule_entities, outcome) = apply_rules_mode(seed, scene, geometry, style, entities);
+        entities = rule_entities;
+        placement_outcome = Some((proposed_count, outcome));
         sanitize_natural_detail_clearance(&mut entities);
     }
-    // Spatial semantics (notably road quarter-turns) must be normalized
-    // before grounding and terrain-carve planning. The bake caller also
-    // normalizes for serialized compatibility, but doing it here prevents a
-    // road-ns proposal from being treated as east-west during generation.
+    // Rule placement may have rotated/moved an entity, so refresh derived
+    // bounds/anchors once after its final transform is known.
     for entity in &mut entities {
         entity.normalize_spatial_semantics();
     }
     rebase_buildings_to_surface(seed, geometry, &mut entities);
     rebase_generated_surfaces_to_ground(seed, geometry, &mut entities);
-    entities
+    (entities, placement_outcome)
 }
 
 /// Re-validate / re-place the template-generated entities through the rules
@@ -3240,7 +3513,7 @@ fn apply_rules_mode(
     water: WaterGeometry,
     style: &serde_json::Value,
     proposed: Vec<EntityInstance>,
-) -> Vec<EntityInstance> {
+) -> (Vec<EntityInstance>, crate::rules::PlacementOutcome) {
     // Object rules location: <repo>/assets/objects (resolved from the caller).
     let rules_dir = rules_dir_from_style(style);
     // bake_world() validates the same directory before generation. Keep this
@@ -3286,9 +3559,9 @@ fn apply_rules_mode(
 
     let outcome = crate::rules::place_all(&registry, &requests, &ctx, seed);
     // Merge: rule-placed entities + descriptor-less passthrough.
-    let mut merged = outcome.placed;
+    let mut merged = outcome.placed.clone();
     merged.extend(passthrough);
-    merged
+    (merged, outcome)
 }
 
 /// Resolve the object-rules directory: `style.rulesDir` if set, else the
@@ -3297,10 +3570,15 @@ fn rules_dir_from_style(style: &serde_json::Value) -> std::path::PathBuf {
     if let Some(dir) = style.get("rulesDir").and_then(serde_json::Value::as_str) {
         return std::path::PathBuf::from(dir);
     }
-    std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("assets")
-        .join("objects")
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let candidates = [
+        cwd.join("assets").join("objects"),
+        cwd.join("..").join("assets").join("objects"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| cwd.join("assets").join("objects"))
 }
 
 /// Build the rules PlacementContext for a scene (natural terrain queries).
@@ -3313,9 +3591,8 @@ fn rules_placement_context(
 ) -> crate::rules::PlacementContext<'static> {
     let scene_w = scene.width_m;
     let scene_d = scene.depth_m;
-    let natural_height = move |x: i32, z: i32| {
-        terrain_height(seed, x, z, WaterKind::None, scene_w, scene_d, 0.0) as f32 / 4.0
-    };
+    let natural_height =
+        move |x: i32, z: i32| terrain_height_with_geometry(seed, x, z, water) as f32 / 4.0;
     let height_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(natural_height));
     let water_level = move |x: i32, z: i32| match water.kind {
         WaterKind::None => None,
@@ -3553,9 +3830,19 @@ fn footprint_surface_ceiling_m(seed: u64, entity: &EntityInstance, water: WaterG
 /// the lot, but may never dig the landscape down to sea level or to a low centre
 /// sample. This establishes the data-side grounding contract; renderers only
 /// consume the resulting world_y/heightfield pair.
+fn is_grounded_entity_kind(kind: &str) -> bool {
+    is_building_kind(kind)
+        || matches!(
+            kind,
+            "tree" | "rock" | "bush" | "grass_clump" | "fallen_log"
+        )
+}
+
 fn rebase_buildings_to_surface(seed: u64, water: WaterGeometry, entities: &mut [EntityInstance]) {
     for entity in entities {
-        if is_building_kind(&entity.kind) {
+        // Buildings and natural details use the same highest-footprint sample
+        // contract. Roads/bridges/water keep their own roadbed/deck semantics.
+        if is_grounded_entity_kind(&entity.kind) {
             entity.world_y = entity
                 .world_y
                 .max(footprint_surface_ceiling_m(seed, entity, water));
@@ -3570,6 +3857,35 @@ fn rebase_buildings_to_surface(seed: u64, water: WaterGeometry, entities: &mut [
 /// terrain sample, so account for overlapping building pads before planning
 /// the final carves. Authored/GIS roads are left untouched because their
 /// elevation may intentionally describe a viaduct or bridge approach.
+fn rebase_grounded_entities_to_carved_surface(
+    seed: u64,
+    water: WaterGeometry,
+    entities: &mut [EntityInstance],
+    carves: &[TerrainCarve],
+) {
+    for entity in entities
+        .iter_mut()
+        .filter(|entity| is_grounded_entity_kind(&entity.kind))
+    {
+        let (half_w, half_d) =
+            spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+        let mut ceiling = f64::NEG_INFINITY;
+        for dz in -(half_d.ceil() as i32)..=(half_d.ceil() as i32) {
+            for dx in -(half_w.ceil() as i32)..=(half_w.ceil() as i32) {
+                let sample = f64::from(terrain_height_with_geometry_carved(
+                    seed,
+                    entity.world_x + dx,
+                    entity.world_z + dz,
+                    water,
+                    carves,
+                )) / 4.0;
+                ceiling = ceiling.max(sample);
+            }
+        }
+        entity.world_y = entity.world_y.max(ceiling.ceil() as i32);
+    }
+}
+
 fn rebase_generated_surfaces_to_ground(
     seed: u64,
     water: WaterGeometry,
@@ -3611,6 +3927,55 @@ fn rebase_generated_surfaces_to_ground(
     }
 }
 
+fn rebase_entities_to_baked_surface(
+    entities: &mut [EntityInstance],
+    baked_samples: &BTreeMap<i64, f32>,
+) {
+    for entity in entities
+        .iter_mut()
+        .filter(|entity| is_grounded_entity_kind(&entity.kind))
+    {
+        let (half_w, half_d) =
+            spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+        let mut ceiling = f32::NEG_INFINITY;
+        for dz in -(half_d.ceil() as i32)..=(half_d.ceil() as i32) {
+            for dx in -(half_w.ceil() as i32)..=(half_w.ceil() as i32) {
+                let key =
+                    (i64::from(entity.world_x + dx) << 32) | ((entity.world_z + dz) as u32 as i64);
+                if let Some(height) = baked_samples.get(&key) {
+                    ceiling = ceiling.max(*height);
+                }
+            }
+        }
+        if ceiling.is_finite() {
+            entity.world_y = entity.world_y.max(ceiling.ceil() as i32);
+        }
+    }
+}
+
+fn sanitize_generated_transport_collisions(entities: &mut Vec<EntityInstance>) {
+    let buildings: Vec<(i32, i32, f64, f64)> = entities
+        .iter()
+        .filter(|entity| is_building_kind(&entity.kind))
+        .map(|entity| {
+            let (half_w, half_d) =
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+            (entity.world_x, entity.world_z, half_w + 4.0, half_d + 4.0)
+        })
+        .collect();
+    entities.retain(|entity| {
+        if !entity.entity_id.starts_with("generated.") || entity.kind != "sidewalk" {
+            return true;
+        }
+        let (half_w, half_d) =
+            spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+        !buildings.iter().any(|(bx, bz, bhw, bhd)| {
+            f64::from((entity.world_x - bx).abs()) < half_w + bhw
+                && f64::from((entity.world_z - bz).abs()) < half_d + bhd
+        })
+    });
+}
+
 fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
     let road_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
@@ -3619,8 +3984,8 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
             (
                 entity.world_x,
                 entity.world_z,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 6.0,
+                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 6.0,
             )
         })
         .collect();
@@ -5627,6 +5992,46 @@ mod tests {
             ),
             WaterKind::Lake
         );
+    }
+
+    #[test]
+    fn patch_chain_rejects_stale_base_revision_and_changes_revision() {
+        let manifest = WorldManifest::default_demo();
+        let base = world_manifest_revision(&manifest).unwrap();
+        let patch = WorldPatch {
+            format: "glyphweave-world-patch".into(),
+            version: 2,
+            patch_id: "patch-1".into(),
+            base_revision: base.clone(),
+            parent_patch_hash: Some(String::new()),
+            sequence: 1,
+            operations: Vec::new(),
+        };
+        let patched = apply_patch(&manifest, &patch).unwrap();
+        assert_ne!(patched.patch_chain_hash, manifest.patch_chain_hash);
+        assert_ne!(world_manifest_revision(&patched).unwrap(), base);
+        let stale = WorldPatch {
+            base_revision: "stale".into(),
+            ..patch
+        };
+        assert!(matches!(
+            apply_patch(&manifest, &stale),
+            Err(WorldgenError::InvalidPatch(_))
+        ));
+    }
+
+    #[test]
+    fn strict_profile_requires_rules_mode() {
+        let mut manifest = WorldManifest::default_demo();
+        manifest.style["generationProfile"] = serde_json::json!("strict");
+        let output =
+            std::env::temp_dir().join(format!("glyphweave-strict-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&output);
+        let result = bake_world(&manifest, &output);
+        assert!(
+            matches!(result, Err(WorldgenError::InvalidRules(message)) if message.contains("requires style.rulesMode"))
+        );
+        let _ = std::fs::remove_dir_all(output);
     }
 
     #[test]

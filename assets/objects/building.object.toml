@@ -43,12 +43,6 @@ distance = 5.0
 kind = "railway"
 distance = 20.0
 
-[[anchors]]
-id = "front"
-side = "front"
-kind = "public_access"
-clear_radius = 3.0
-must_face = "road"
 
 [placement]
 phase = "building"

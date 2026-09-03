@@ -1,18 +1,27 @@
 # 道路系统对象（道路变体、桥梁、人行道和渠道）
 id = "transport_surface"
 kind = "road"
-applies_to = ["road-ew", "road-ns", "bridge", "causeway", "sidewalk", "canal"]
+applies_to = ["road-ew", "road-ns", "sidewalk"]
 tags = ["transport"]
 
 [geometry]
 footprint = [8.0, 8.0]
 height = 0.5
-clearance = 0.0
+clearance = 4.0
 
 [environment]
 on_ground = false
 not_in_water = false
-max_slope = 12
+max_slope = 30
+
+
+[[relations.avoid]]
+kind = "building"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 0.0
 
 [placement]
 phase = "road"

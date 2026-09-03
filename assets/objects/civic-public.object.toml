@@ -1,0 +1,30 @@
+id = "public_civic_facility"
+kind = "building"
+applies_to = ["town_hall", "church", "temple"]
+tags = ["civic", "public", "has_entrance"]
+
+[geometry]
+footprint = [12.0, 10.0]
+height = 7.0
+clearance = 1.0
+
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 10
+
+[[relations.avoid]]
+kind = "road"
+distance = 0.0
+
+[[relations.avoid]]
+kind = "water"
+distance = 5.0
+
+
+[placement]
+phase = "building"
+priority = 28
+attempts = 16
+allow_rotate = true
+fallback = "move"

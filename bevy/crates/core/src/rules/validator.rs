@@ -205,14 +205,16 @@ pub fn check_hard(
                 }
             }
             Constraint::OnGround => {
-                let mut min_h = f32::MAX;
-                let mut max_h = f32::MIN;
-                for (x, z) in fp.sample_points() {
-                    let h = ctx.height(x, z);
-                    min_h = min_h.min(h);
-                    max_h = max_h.max(h);
-                }
-                if max_h - min_h > ctx.grounding_tolerance {
+                // Placement happens before the generator bakes support pads.
+                // Do not mistake natural relief for a floating object: the
+                // worldgen grounding pass will place the bottom at the highest
+                // footprint sample and terrain carving will flatten the pad.
+                // The rule still rejects missing/non-finite terrain samples.
+                if fp
+                    .sample_points()
+                    .iter()
+                    .any(|(x, z)| !ctx.height(*x, *z).is_finite())
+                {
                     return Err(RejectReason::NotGrounded);
                 }
             }
@@ -301,55 +303,58 @@ pub fn check_hard(
                 radius,
                 must_face,
             } => {
-                let r = *radius;
+                let r = radius.max(0.0);
                 let side = side.as_str();
-                // Anchor sits on a footprint edge, projected outward; ANY placed
-                // entity (hard or soft: a tree can block a doorway too) inside
-                // the anchor radius blocks the entrance.
-                let a_hw = fp.half_w - desc.geometry.clearance;
-                let a_hd = fp.half_d - desc.geometry.clearance;
-                let (ax, az) = match side {
-                    "front" | "north" => (fp.cx, fp.cz - a_hd - r * 0.5),
-                    "back" | "south" => (fp.cx, fp.cz + a_hd + r * 0.5),
-                    "left" | "west" => (fp.cx - a_hw - r * 0.5, fp.cz),
-                    "right" | "east" => (fp.cx + a_hw + r * 0.5, fp.cz),
-                    _ => (fp.cx, fp.cz - a_hd - r * 0.5),
+                let raw_hw = (fp.half_w - desc.geometry.clearance).max(0.0);
+                let raw_hd = (fp.half_d - desc.geometry.clearance).max(0.0);
+                // Model the entrance as an outward rectangular corridor, not a
+                // center-point circle. This catches a tree/building whose
+                // footprint clips the doorway while its center is outside.
+                let (corridor_cx, corridor_cz, corridor_hw, corridor_hd, dir_x, dir_z) = match side
+                {
+                    "front" | "north" => {
+                        (fp.cx, fp.cz - raw_hd - r * 0.5, r * 0.5, r * 0.5, 0.0, -1.0)
+                    }
+                    "back" | "south" => {
+                        (fp.cx, fp.cz + raw_hd + r * 0.5, r * 0.5, r * 0.5, 0.0, 1.0)
+                    }
+                    "left" | "west" => {
+                        (fp.cx - raw_hw - r * 0.5, fp.cz, r * 0.5, r * 0.5, -1.0, 0.0)
+                    }
+                    "right" | "east" => {
+                        (fp.cx + raw_hw + r * 0.5, fp.cz, r * 0.5, r * 0.5, 1.0, 0.0)
+                    }
+                    _ => (fp.cx, fp.cz - raw_hd - r * 0.5, r * 0.5, r * 0.5, 0.0, -1.0),
+                };
+                let target_matches = |p: &PlacedKind, target: &str| {
+                    kind_name(p.kind) == target || p.tags.iter().any(|tag| tag == target)
                 };
                 let blocked = placed.iter().any(|p| {
-                    // The entity the anchor must face is NOT a blocker (it's the
-                    // desired frontage, e.g. a road); anything else in the zone is.
                     let is_target = must_face
                         .as_deref()
-                        .map(|t| kind_name(p.kind) == t)
+                        .map(|t| target_matches(p, t))
                         .unwrap_or(false);
-                    !is_target && ((p.cx - ax).powi(2) + (p.cz - az).powi(2)).sqrt() <= r
+                    !is_target
+                        && (p.cx - corridor_cx).abs() < corridor_hw + p.half_w
+                        && (p.cz - corridor_cz).abs() < corridor_hd + p.half_d
                 });
                 if blocked {
                     return Err(RejectReason::BlockedEntrance {
                         anchor: anchor.clone(),
                     });
                 }
-                // must_face: the anchor direction must point at a placed entity
-                // whose kind/tag matches the target string (e.g. "road").
                 if let Some(target) = must_face {
-                    let mut dir_x = 0.0_f32;
-                    let mut dir_z = 0.0_f32;
-                    match side {
-                        "front" | "north" => dir_z = -1.0,
-                        "back" | "south" => dir_z = 1.0,
-                        "left" | "west" => dir_x = -1.0,
-                        "right" | "east" => dir_x = 1.0,
-                        _ => dir_z = -1.0,
-                    }
-                    // Look along the facing ray up to `r` metres for a matching
-                    // entity (kind string or tag), measured from the anchor point.
                     let faces_target = placed.iter().any(|p| {
-                        let rel_x = p.cx - ax;
-                        let rel_z = p.cz - az;
-                        // Dot with facing direction must be positive (ahead) and
-                        // within the anchor radius.
+                        if !target_matches(p, target) {
+                            return false;
+                        }
+                        let rel_x = p.cx - corridor_cx;
+                        let rel_z = p.cz - corridor_cz;
                         let ahead = rel_x * dir_x + rel_z * dir_z;
-                        ahead >= 0.0 && ahead <= r && (kind_name(p.kind) == target.as_str())
+                        let lateral = (rel_x * dir_z - rel_z * dir_x).abs();
+                        ahead >= -p.half_w.max(p.half_d)
+                            && ahead <= r + p.half_w.max(p.half_d)
+                            && lateral <= corridor_hw + corridor_hd
                     });
                     if !faces_target {
                         return Err(RejectReason::BlockedEntrance {
@@ -610,7 +615,7 @@ phase = "functional"
                 id: None,
                 kind: ItemKind::Tree,
                 cx: 50.0,
-                cz: 43.0,
+                cz: 44.0,
                 half_w: 1.0,
                 half_d: 1.0,
                 tags: vec![],

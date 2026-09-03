@@ -4,18 +4,7 @@
 
 id = "civic_building"
 kind = "building"
-applies_to = [
-    "commercial_center",
-    "entertainment_center",
-    "school",
-    "town_hall",
-    "market",
-    "industrial",
-    "temple",
-    "church",
-    "parking_lot",
-    "green_space",
-]
+applies_to = []
 tags = ["civic", "has_entrance"]
 
 [geometry]
