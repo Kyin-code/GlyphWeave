@@ -26,6 +26,19 @@ pub fn kind_name(kind: ItemKind) -> &'static str {
         ItemKind::Bench => "bench",
         ItemKind::BusStop => "bus_stop",
         ItemKind::FoodStall => "food_stall",
+        ItemKind::Mountain => "mountain",
+        ItemKind::Hill => "hill",
+        ItemKind::ShoppingMall => "shopping_mall",
+        ItemKind::OfficeTower => "office_tower",
+        ItemKind::ConvenienceStore => "convenience_store",
+        ItemKind::Fence => "fence",
+        ItemKind::Guardrail => "guardrail",
+        ItemKind::Boardwalk => "boardwalk",
+        ItemKind::ScenicBelt => "scenic_belt",
+        ItemKind::Mudflat => "mudflat",
+        ItemKind::NightMarket => "night_market",
+        ItemKind::CommunityPlaza => "community_plaza",
+        ItemKind::Mangrove => "mangrove",
         ItemKind::Other => "other",
     }
 }
@@ -33,6 +46,7 @@ pub fn kind_name(kind: ItemKind) -> &'static str {
 /// Geometry of a candidate placement (footprint expanded by clearance).
 #[derive(Debug, Clone, Copy)]
 pub struct Footprint {
+    pub rotation_y_deg: f32,
     /// World-space centre.
     pub cx: f32,
     pub cz: f32,
@@ -46,6 +60,7 @@ impl Footprint {
         let hw = desc.geometry.footprint[0] * 0.5 + desc.geometry.clearance;
         let hd = desc.geometry.footprint[1] * 0.5 + desc.geometry.clearance;
         Footprint {
+            rotation_y_deg: 0.,
             cx,
             cz,
             half_w: hw,
@@ -56,6 +71,7 @@ impl Footprint {
     /// Footprint with a 90° rotation applied (width/depth swap).
     pub fn rotated(&self) -> Footprint {
         Footprint {
+            rotation_y_deg: self.rotation_y_deg + 90.,
             cx: self.cx,
             cz: self.cz,
             half_w: self.half_d,
@@ -97,6 +113,8 @@ pub struct PlacementContext<'a> {
     /// Ground height at (x, z) in metres (not metres/4 like the raw DataView).
     pub height_at: &'a dyn Fn(i32, i32) -> f32,
     /// Water surface height in metres; None = no water body nearby.
+    /// Continuous water query; point-only contexts retain their sampling fallback.
+    pub water_intersects: Option<&'a dyn Fn(&Footprint) -> bool>,
     pub water_level: &'a dyn Fn(i32, i32) -> Option<f32>,
     /// Local slope in metres per 100m at (x, z), used as a fallback when
     /// no footprint-aware query is supplied.
@@ -149,6 +167,8 @@ impl<'a> PlacementContext<'a> {
 /// A placed entity record the validator can consult for relation checks.
 #[derive(Debug, Clone)]
 pub struct PlacedKind {
+    /// Collision inflation, excluded from explicit physical-footprint distances.
+    pub clearance: f32,
     pub id: Option<String>,
     pub kind: super::schema::ItemKind,
     pub cx: f32,
@@ -191,11 +211,65 @@ pub fn check_hard(
                 // group; they may overlap one another at crossings, but no
                 // other pair shares footprint space by default.
                 let transport = |kind: ItemKind| {
-                    matches!(kind, ItemKind::Road | ItemKind::Bridge | ItemKind::Sidewalk)
+                    matches!(
+                        kind,
+                        ItemKind::Road
+                            | ItemKind::Bridge
+                            | ItemKind::Sidewalk
+                            | ItemKind::Boardwalk
+                            | ItemKind::Water
+                    )
+                };
+                let building_like = |kind: ItemKind| {
+                    matches!(
+                        kind,
+                        ItemKind::Building
+                            | ItemKind::Storefront
+                            | ItemKind::ShoppingMall
+                            | ItemKind::OfficeTower
+                            | ItemKind::ConvenienceStore
+                            | ItemKind::NightMarket
+                            | ItemKind::CommunityPlaza
+                    )
+                };
+                let landform = |kind: ItemKind| matches!(kind, ItemKind::Mountain | ItemKind::Hill);
+                let landscape_container = |kind: ItemKind| {
+                    matches!(
+                        kind,
+                        ItemKind::Park
+                            | ItemKind::ScenicBelt
+                            | ItemKind::Mudflat
+                            | ItemKind::Mangrove
+                    )
+                };
+                let landscape_detail = |kind: ItemKind| {
+                    matches!(
+                        kind,
+                        ItemKind::Tree
+                            | ItemKind::Rock
+                            | ItemKind::Other
+                            | ItemKind::Lamp
+                            | ItemKind::Bench
+                            | ItemKind::FoodStall
+                    )
                 };
                 let conflict = placed.iter().find(|p| {
+                    let landform_detail = (landform(desc.kind) && !building_like(p.kind))
+                        || (landform(p.kind) && !building_like(desc.kind));
+                    let contained_natural_detail = (landscape_container(desc.kind)
+                        && landscape_detail(p.kind))
+                        || (landscape_container(p.kind) && landscape_detail(desc.kind));
+                    // Wetland/landscape zones are layers, not rigid solids:
+                    // mangrove can occupy a mudflat and a scenic belt can
+                    // overlap its planted sub-zone. Buildings and transport
+                    // remain hard occupants and are still rejected above.
+                    let compatible_landscape_layers =
+                        landscape_container(desc.kind) && landscape_container(p.kind);
                     fp.overlaps(p.cx, p.cz, p.half_w, p.half_d)
                         && !(transport(desc.kind) || transport(p.kind))
+                        && !landform_detail
+                        && !contained_natural_detail
+                        && !compatible_landscape_layers
                 });
                 if let Some(conflict) = conflict {
                     return Err(RejectReason::GeometryCollision {
@@ -219,14 +293,23 @@ pub fn check_hard(
                 }
             }
             Constraint::NotInWater => {
-                for (x, z) in fp.sample_points() {
-                    if let Some(w) = ctx.water(x, z) {
-                        if ctx.height(x, z) <= w {
-                            return Err(RejectReason::InWater);
-                        }
-                    }
+                // Water membership is a surface/footprint semantic, not an
+                // elevation comparison. A raised building with a high worldY
+                // is still in the water if any part of its footprint lies in
+                // the declared water body. Bridges and water-edge objects opt
+                // out through their descriptor instead.
+                let intersects = if let Some(query) = ctx.water_intersects {
+                    query(fp)
+                } else {
+                    fp.sample_points()
+                        .into_iter()
+                        .any(|(x, z)| ctx.water(x, z).is_some())
+                };
+                if intersects {
+                    return Err(RejectReason::InWater);
                 }
             }
+
             Constraint::MaxSlope(max) => {
                 let s = ctx.slope_for(fp);
                 if s > *max {
@@ -288,6 +371,17 @@ pub fn check_hard(
                     });
                 }
             }
+            Constraint::RequireFootprintNear { kind, distance } => {
+                let hw=(fp.half_w-desc.geometry.clearance).max(0.);
+                let hd=(fp.half_d-desc.geometry.clearance).max(0.);
+                let ok=placed.iter().any(|p| {
+                    if p.kind!=*kind {return false;}
+                    let dx=((p.cx-fp.cx).abs()-hw-(p.half_w-p.clearance).max(0.)).max(0.);
+                    let dz=((p.cz-fp.cz).abs()-hd-(p.half_d-p.clearance).max(0.)).max(0.);
+                    dx.hypot(dz)<=*distance
+                });
+                if !ok {return Err(RejectReason::MissingRequiredRelation{kind:*kind});}
+            }
             Constraint::RequireNear { kind, distance } => {
                 let d = *distance;
                 let ok = placed.iter().any(|p| {
@@ -305,6 +399,12 @@ pub fn check_hard(
             } => {
                 let r = radius.max(0.0);
                 let side = side.as_str();
+                let local = match side {"front"=>Some(0),"left"=>Some(1),"back"=>Some(2),"right"=>Some(3),_=>None};
+                let side = if let Some(base)=local {
+                    let turns=fp.rotation_y_deg/90.;
+                    if !turns.is_finite() || (turns-turns.round()).abs()>0.00001 {return Err(RejectReason::BlockedEntrance{anchor:anchor.clone()});}
+                    ["north","west","south","east"][(base+turns.round() as i32).rem_euclid(4) as usize]
+                } else {side};
                 let raw_hw = (fp.half_w - desc.geometry.clearance).max(0.0);
                 let raw_hd = (fp.half_d - desc.geometry.clearance).max(0.0);
                 // Model the entrance as an outward rectangular corridor, not a
@@ -352,9 +452,14 @@ pub fn check_hard(
                         let rel_z = p.cz - corridor_cz;
                         let ahead = rel_x * dir_x + rel_z * dir_z;
                         let lateral = (rel_x * dir_z - rel_z * dir_x).abs();
-                        ahead >= -p.half_w.max(p.half_d)
-                            && ahead <= r + p.half_w.max(p.half_d)
-                            && lateral <= corridor_hw + corridor_hd
+                        let hw=(p.half_w-p.clearance).max(0.);
+                        let hd=(p.half_d-p.clearance).max(0.);
+                        let forward_extent=hw*dir_x.abs()+hd*dir_z.abs();
+                        let lateral_extent=hw*dir_z.abs()+hd*dir_x.abs();
+                        // Facing is a ray/target-footprint relation. A separate
+                        // RequireNear constraint supplies any distance cap.
+                        ahead+forward_extent>=0.
+                            && lateral<=corridor_hw*dir_z.abs()+corridor_hd*dir_x.abs()+lateral_extent
                     });
                     if !faces_target {
                         return Err(RejectReason::BlockedEntrance {
@@ -437,6 +542,7 @@ mod tests {
             slope_at: slope_leak,
             slope_at_footprint: None,
             bounds,
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -480,6 +586,7 @@ phase = "vegetation"
             slope_at: &|_, _| 0.0,
             slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -502,6 +609,7 @@ phase = "vegetation"
                 if half_w >= 20 { 45.0 } else { 0.0 }
             }),
             bounds: (0, 0, 100, 100),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -532,6 +640,7 @@ phase = "vegetation"
         let (hard, _) = compile(&desc);
         let c = ctx(vec![], vec![], vec![], (0, 0, 100, 100));
         let placed = vec![PlacedKind {
+            clearance: 0.,
             id: None,
             kind: ItemKind::Building,
             cx: 6.0,
@@ -603,6 +712,7 @@ phase = "functional"
         // collision) but inside the front anchor's clear radius.
         let placed = vec![
             PlacedKind {
+            clearance: 0.,
                 id: None,
                 kind: ItemKind::Road,
                 cx: 50.0,
@@ -612,6 +722,7 @@ phase = "functional"
                 tags: vec![],
             },
             PlacedKind {
+            clearance: 0.,
                 id: None,
                 kind: ItemKind::Tree,
                 cx: 50.0,
@@ -633,6 +744,7 @@ phase = "functional"
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // Road is behind (south), require passes but front must_face fails.
         let placed = vec![PlacedKind {
+            clearance: 0.,
             id: None,
             kind: ItemKind::Road,
             cx: 50.0,
@@ -676,6 +788,7 @@ phase = "vegetation"
         let building_fp = Footprint::from_descriptor(&building, 50.0, 50.0);
         let tree_fp = Footprint::from_descriptor(&tree, 50.0, 50.0);
         let building_placed = PlacedKind {
+            clearance: 0.,
             id: Some("building-1".into()),
             kind: ItemKind::Building,
             cx: 50.0,
@@ -685,6 +798,7 @@ phase = "vegetation"
             tags: vec![],
         };
         let tree_placed = PlacedKind {
+            clearance: 0.,
             id: Some("tree-1".into()),
             kind: ItemKind::Tree,
             cx: 50.0,
@@ -731,6 +845,7 @@ phase = "vegetation"
             slope_at: &|_, _| 0.0,
             slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: Some(&|x, _| {
                 if x > 50 {
@@ -752,11 +867,13 @@ phase = "vegetation"
             slope_at: &|_, _| 0.0,
             slope_at_footprint: None,
             bounds: (0, 0, 100, 100),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: Some(&|_, _| super::super::schema::Biome::Grassland),
             hazard_at: None,
         };
         let tagged = PlacedKind {
+            clearance: 0.,
             id: Some("tree-2".into()),
             kind: ItemKind::Tree,
             cx: 50.0,
@@ -778,6 +895,7 @@ phase = "vegetation"
         let c = ctx(vec![], vec![], vec![], (0, 0, 200, 200));
         // Road placed ahead (north) of the front anchor → passes.
         let placed = vec![PlacedKind {
+            clearance: 0.,
             id: None,
             kind: ItemKind::Road,
             cx: 50.0,
@@ -789,4 +907,23 @@ phase = "vegetation"
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         assert!(check_hard(&desc, &fp, &c, &hard, &placed).is_ok());
     }
+    #[test]
+    fn frontage_relations_use_physical_gap_and_rotated_facing_not_road_centre() {
+        let desc:ObjectDescriptor=toml::from_str(include_str!("../../../../../assets/objects/storefront.object.toml")).unwrap();
+        let (hard,_)=compile(&desc);let context=ctx(vec![],vec![],vec![],(0,0,512,512));
+        let road=PlacedKind{id:Some("long-road".into()),kind:ItemKind::Road,cx:200.,cz:100.,half_w:131.,half_d:7.,clearance:3.,tags:vec![]};
+        let mut fp=Footprint{cx:150.,cz:117.,half_w:6.5,half_d:5.5,rotation_y_deg:0.};
+        assert!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)).is_ok());
+        fp.cz+=0.01;assert!(matches!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)),Err(RejectReason::MissingRequiredRelation{..})));
+        fp.cz=117.;fp.rotation_y_deg=180.;assert!(matches!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)),Err(RejectReason::BlockedEntrance{..})));
+        let road=PlacedKind{cx:100.,cz:200.,half_w:7.,half_d:131.,..road};
+        fp=Footprint{cx:117.,cz:150.,half_w:5.5,half_d:6.5,rotation_y_deg:90.};
+        assert!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)).is_ok());
+        fp.rotation_y_deg=270.;assert!(matches!(check_hard(&desc,&fp,&context,&hard,&[road]),Err(RejectReason::BlockedEntrance{..})));
+        // Existing descriptors still default to centre distance, not footprint distance.
+        let legacy=Constraint::RequireNear{kind:ItemKind::Road,distance:8.};
+        let distant=PlacedKind{id:None,kind:ItemKind::Road,cx:100.,cz:200.,half_w:4.,half_d:128.,clearance:0.,tags:vec![]};
+        assert!(check_hard(&desc,&fp,&context,&[legacy],&[distant]).is_err());
+    }
+
 }

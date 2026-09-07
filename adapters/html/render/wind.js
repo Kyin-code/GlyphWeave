@@ -1,13 +1,16 @@
-// One world-space wind field shared by grass, trees and future shrubs.
-// Every vegetation shader receives these same uniform objects, so gust fronts
-// travel coherently instead of each system inventing its own clock/direction.
+// Static preview wind contract.
+//
+// The world generator remains deterministic; the HTML acceptance view currently
+// disables wind so that terrain, bridge geometry, placement and occlusion can be
+// inspected without animated vegetation masking defects. Re-enable motion only
+// behind an explicit future preview setting.
 export function createWorldWind(THREE) {
   return {
     uTime: { value: 0 },
-    uWindDir: { value: new THREE.Vector2(.82, .57).normalize() },
-    uWindStrength: { value: .5 },
-    uWindSpeed: { value: 1.55 },
-    uWindScale: { value: .22 },
-    uGust: { value: .6 },
+    uWindDir: { value: new THREE.Vector2(Math.cos(THREE.MathUtils.degToRad(20)), Math.sin(THREE.MathUtils.degToRad(20))) },
+    uWindStrength: { value: 0 },
+    uWindSpeed: { value: 0 },
+    uWindScale: { value: .35 },
+    uGust: { value: 0 },
   }
 }

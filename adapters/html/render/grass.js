@@ -6,7 +6,7 @@
 // family as the terrain texture. One InstancedBufferGeometry = one draw call
 // per field.
 //
-import { grassLook, grassPresets } from './presets/materials.js'
+import { grassLook, grassPresets, grassReferenceTuning } from './presets/materials.js'
 
 // All visual tuning comes from the shared material preset.
 const lowPres = grassPresets.low
@@ -15,22 +15,34 @@ const highPres = grassPresets.high
 
 export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, terrainAt, wind, count, salt, focusX, focusZ, options = {}) {
   const segments = 5
-  const maxCount = Math.max(200, count)
+  // Hard cap protects the preview tab from accidental multi-million allocations.
+  // The world generator remains independent; this is only an HTML preview budget.
+  const maxCount = Math.min(180000, Math.max(200, Math.floor(count)))
+  // Two crossed ribbons per instance keep grass readable from an
+  // orthographic 2.5D camera. This is the same Soil Studio blade, duplicated
+  // at 90 degrees in the shader; it is not a polygon/cone fallback.
   const positions = []
   const normals = []
+  const planeAngles = []
   const indices = []
-  for (let j = 0; j <= segments; j++) {
-    const t = j / segments
-    positions.push(-0.5, t, 0, 0.5, t, 0)
-    normals.push(0, 0, 1, 0, 0, 1)
-    if (j < segments) {
-      const a = j * 2
-      indices.push(a, a + 1, a + 3, a, a + 3, a + 2)
+  const rowStride = (segments + 1) * 2
+  for (let plane = 0; plane < 2; plane++) {
+    const base = plane * rowStride
+    for (let j = 0; j <= segments; j++) {
+      const t = j / segments
+      positions.push(-0.5, t, 0, 0.5, t, 0)
+      normals.push(0, 0, 1, 0, 0, 1)
+      planeAngles.push(plane, plane)
+      if (j < segments) {
+        const a = base + j * 2
+        indices.push(a, a + 1, a + 3, a, a + 3, a + 2)
+      }
     }
   }
   const geometry = new THREE.InstancedBufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  geometry.setAttribute('bladePlane', new THREE.Float32BufferAttribute(planeAngles, 1))
   geometry.setIndex(indices)
 
   const iWorld = new Float32Array(maxCount * 2)
@@ -55,8 +67,10 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
   let guard = 0
   const fx = focusX ?? (worldX + width / 2), fz = focusZ ?? (worldZ + depth / 2)
   const maxR = Math.max(width, depth) * .55
-  const focusR = Math.min(options.focusR ?? 55, maxR) // dense core radius
-  const farR = Math.min(options.farR ?? 220, maxR)     // sparse transition edge
+  const focusR = Math.min(options.focusR ?? 120, maxR) // dense core radius
+  const farR = Math.min(options.farR ?? 360, maxR)     // sparse transition edge
+  const coverageThreshold = options.coverageThreshold ?? 0.18
+  const bladeWidthScale = options.bladeWidthScale ?? 1
   // Blade-height zones by terrain height: sample the range once so the layering
   // is consistent across the whole field.
   let hMin = Infinity, hMax = -Infinity
@@ -68,7 +82,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
     if (hh > hMax) hMax = hh
   }
   const hRange = Math.max(1e-3, hMax - hMin)
-  while (placed < maxCount && guard < maxCount * 120) {
+  while (placed < maxCount && guard < maxCount * 8) {
     guard++
     const x = worldX + rnd(guard, 0, salt) * width
     const z = worldZ + rnd(guard, 1, salt) * depth
@@ -79,7 +93,11 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
     if (terrain.disturbance > .04 || [2, 3, 4, 7].includes(terrain.surface)) continue
     const cover = fallbackFractal(x * .0022 + salt * .013, z * .0022 - salt * .017) * .5 + .5
     const growth = (0.3 + terrain.wetness * .7) * Math.max(.12, 1 - terrain.slope * .82)
-    if (cover * growth < .3) continue
+    // The upstream demo uses a shader coverage mask. This adapter keeps the
+    // same semantic raster (wetness/slope/disturbance) on the CPU, but uses a
+    // deliberately low acceptance floor so the larger world does not become
+    // visually bare before the blade layer is drawn.
+    if (cover * growth < coverageThreshold) continue
     // Distance falloff: dense within focusR, gentle square falloff out to farR.
     const d = Math.hypot(x - fx, z - fz)
     const keep = d < focusR ? 1 : d < farR ? Math.pow((farR - d) / (farR - focusR), 2) : 0
@@ -101,8 +119,8 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
     const pres = wetValley ? highPres : zone < .3 ? lowPres : zone < .78 ? midPres : highPres
     // High grass gets a bigger height scatter so it pokes through as tufts.
     const varScale = pres === highPres ? .7 + rnd(guard, 2, salt) * .9 : .85 + rnd(guard, 2, salt) * .3
-    iHeight[placed] = pres.bladeHeight * varScale
-    iWidth[placed] = pres.bladeWidth * (1.2 - rnd(guard, 3, salt) * .4)
+    iHeight[placed] = (pres.bladeHeight / grassReferenceTuning.height) * varScale * (options.bladeHeightScale ?? 1)
+    iWidth[placed] = (pres.bladeWidth / grassReferenceTuning.width) * (1.2 - rnd(guard, 3, salt) * .4) * bladeWidthScale
     iPhase[placed] = rnd(guard, 5, salt) * Math.PI * 2
     iCurlVar[placed] = pres.curl * (.7 + rnd(guard, 6, salt) * .6)
     iColorVar[placed] = rnd(guard, 7, salt)
@@ -122,22 +140,24 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
 
   const uniforms = {
     ...wind,
-    uCurl: { value: 1.0 },
-    uBladeHeight: { value: 1.0 },
-    uBladeWidth: { value: 1.0 },
-    uColorBase: { value: new THREE.Color(grassLook.colorBase) },
-    uColorTip: { value: new THREE.Color(grassLook.colorTip) },
+    // These base values are the checked Soil Studio defaults. Per-blade
+    // height/width variation remains in the three GlyphWeave ecological tiers.
+    uCurl: { value: grassReferenceTuning.curl },
+    uBladeHeight: { value: grassReferenceTuning.height },
+    uBladeWidth: { value: grassReferenceTuning.width },
+    uColorBase: { value: new THREE.Color('#3e6b28') },
+    uColorTip: { value: new THREE.Color('#acd55b') },
     uColorVarAmt: { value: grassLook.colorVarAmt },
     uTranslucency: { value: grassLook.translucency },
     uSunDir: { value: new THREE.Vector3(-.45, .82, .3).normalize() },
     uSunColor: { value: new THREE.Color('#ffd9a0') },
-    uSunIntensity: { value: 2.6 },
+    uSunIntensity: { value: 1.85 },
     uSkyColor: { value: new THREE.Color('#fff3d6') },
-    uGroundColor: { value: new THREE.Color('#8a7a52') },
+    uGroundColor: { value: new THREE.Color('#49603d') },
     uCameraPos: { value: new THREE.Vector3() },
     fogColor: { value: new THREE.Color('#9cb28c') },
-    fogNear: { value: 1400 },
-    fogFar: { value: 6000 },
+    fogNear: { value: 850 },
+    fogFar: { value: 4200 },
   }
 
   const material = new THREE.ShaderMaterial({
@@ -152,6 +172,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
       attribute float iPhase;
       attribute float iCurlVar;
       attribute float iColorVar;
+            attribute float bladePlane;
       uniform float uTime;
       uniform vec2 uWindDir;
       uniform float uWindStrength;
@@ -170,7 +191,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
         float t = position.y;
         float side = position.x;
         float h = uBladeHeight * iHeight;
-        float w = uBladeWidth * iWidth * (1.0 - t) * (0.7 + 0.3 * (1.0 - t));
+        float w = uBladeWidth * iWidth * (1.0 - t) * (0.82 + 0.18 * (1.0 - t));
 
         // Resting curl as a circular arc of total angle A (exact normals, stable
         // at A -> 0).
@@ -187,7 +208,8 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
         vec3 nLocal = vec3(0.0, -Ts, Tc);
 
         // Yaw around Y by the per-blade heading.
-        float cy = cos(iYaw), sy = sin(iYaw);
+        float bladeYaw = iYaw + bladePlane * 1.57079632679;
+        float cy = cos(bladeYaw), sy = sin(bladeYaw);
         vec3 pR = vec3(pLocal.x * cy + pLocal.z * sy, pLocal.y, -pLocal.x * sy + pLocal.z * cy);
         vec3 nR = vec3(nLocal.x * cy + nLocal.z * sy, nLocal.y, -nLocal.x * sy + nLocal.z * cy);
 
@@ -238,7 +260,7 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
         float hueShift = (vColorVar - 0.5) * 0.35;
         gcol = gcol * (1.0 + hueShift * vec3(-0.25, 0.35, -0.3));
         // Base occlusion: darker at the roots.
-        gcol *= mix(0.5, 1.0, smoothstep(0.0, 0.35, vT));
+        gcol *= mix(0.78, 1.0, smoothstep(0.0, 0.28, vT));
 
         vec3 N = normalize(vNormal);
         vec3 L = normalize(uSunDir);
@@ -248,7 +270,8 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
         vec3 hemi = uSkyColor * sky + uGroundColor * ground;
         // Flattened diffuse so per-ribbon shimmer doesn't flicker.
         float diffuse = 0.35 + 0.65 * max(dot(vec3(0.0, 1.0, 0.0), L), 0.0);
-        vec3 lit = gcol * (hemi * .5 + uSunColor * uSunIntensity * diffuse);
+        vec3 lit = gcol * (hemi * .72 + uSunColor * uSunIntensity * diffuse);
+         lit = mix(lit, gcol * 1.18, .28);
 
         // Backlight translucency: strongest looking through a thin blade at the
         // sun (Journey-style rim glow).

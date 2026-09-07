@@ -26,6 +26,7 @@ distance = 25.0
 [[relations.require]]
 kind = "road"
 distance = 8.0
+distance_metric = "footprint" # facade-to-road gap; not distance to a long road centre
 
 [[anchors]]
 id = "front"

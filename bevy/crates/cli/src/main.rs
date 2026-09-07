@@ -1,3 +1,7 @@
+mod road_corridor;
+use glyphweave_core::baked_terrain::BakedTerrain;
+use glyphweave_core::height_payload::HeightEncoding;
+use glyphweave_core::natural::verify_snapshot;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fs;
@@ -21,21 +25,13 @@ use glyphweave_core::voxel::{
 };
 use glyphweave_core::worldgen::{
     LandUseProfile, SceneIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
-    audit_scene, bake_world, water_geometry, world_manifest_revision, write_demo_manifest,
+    audit_baked_scene, bake_world, build_access_graph, footprint_intersects_water,
+    validate_access_surfaces, water_geometry, water_kind, world_manifest_revision,
+    write_demo_manifest,
 };
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
 const DEFAULT_DUMP_LIMIT: usize = 64;
-
-fn river_half_width_at(z: f64, scene: &glyphweave_core::worldgen::SceneIndex, base: f64) -> f64 {
-    if scene.depth_m < 3_000 {
-        return base.max(1.0);
-    }
-    let t = ((z - f64::from(scene.origin_z)) / f64::from(scene.depth_m)).clamp(0.0, 1.0);
-    let broad_bend = (t * std::f64::consts::TAU * 1.15).sin() * 0.08;
-    let harbour_bay = ((t - 0.28) * std::f64::consts::TAU * 3.0).sin().max(0.0) * 0.045;
-    (base * (1.0 + broad_bend + harbour_bay)).max(1.0)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DumpSelector {
@@ -81,6 +77,9 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "check-baseline" => check_baseline_command(&args[1..]),
         "scale-audit" => scale_audit_command(&args[1..]),
         "preview" => preview_command(&args[1..]),
+        "design-road-corridor" => road_corridor::run(&args[1..], false),
+        "verify-road-corridor" => road_corridor::run(&args[1..], true),
+        "export-preview-stream" => export_preview_stream_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
         "inspect" => inspect_command(&args[1..]),
@@ -172,6 +171,33 @@ fn intent_command(args: &[String]) -> CliResult<()> {
     }
 }
 
+// Derived-only regeneration for existing audited worlds. Never changes the
+// authoritative scene or reports; a projection is not an independent audit.
+fn export_preview_stream_command(args: &[String]) -> CliResult<()> {
+    let root = fs::canonicalize(one_path("export-preview-stream", args)?)?;
+    let world: glyphweave_core::worldgen::WorldIndex =
+        serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    for scene_path in &world.scenes {
+        let path = root.join(scene_path).canonicalize()?;
+        if !path.starts_with(&root) {
+            return Err("scene escapes world directory".into());
+        }
+        let scene: SceneIndex =
+            serde_json::from_reader(std::io::BufReader::new(fs::File::open(&path)?))?;
+        glyphweave_core::preview_stream::write(
+            &scene,
+            &world.revision,
+            path.parent().ok_or("missing scene directory")?,
+        )?;
+    }
+    glyphweave_core::worldgen::refresh_html_adapter(&root)?;
+    println!(
+        "exported render projections for {} scenes; authoritative files unchanged",
+        world.scenes.len()
+    );
+    Ok(())
+}
+
 fn preview_command(args: &[String]) -> CliResult<()> {
     if args.is_empty() || args.len() > 2 {
         return Err("preview requires WORLD_DIR [PORT]".into());
@@ -185,62 +211,73 @@ fn preview_command(args: &[String]) -> CliResult<()> {
     println!("preview: http://127.0.0.1:{port}/preview/");
     for stream in listener.incoming() {
         let mut stream = stream?;
-        let request = read_http_request(&mut stream)?;
-        let line = String::from_utf8_lossy(&request);
-        let request_line = line.lines().next().unwrap_or("");
-        let mut request_parts = request_line.split_whitespace();
-        let method = request_parts.next().unwrap_or("GET");
-        let requested = request_parts.next().unwrap_or("/");
-        if method == "POST" && requested == "/api/feedback" {
-            let body = line.split_once("\r\n\r\n").map_or("", |(_, body)| body);
-            let feedback: serde_json::Value = serde_json::from_str(body)?;
-            fs::write(
-                root.join("visual-feedback.json"),
-                serde_json::to_vec_pretty(&feedback)?,
-            )?;
-            let response = serde_json::to_vec(
-                &serde_json::json!({"ok": true, "path": "visual-feedback.json"}),
-            )?;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                response.len()
-            )?;
-            stream.write_all(&response)?;
-            continue;
+        // Client EOF, cancellation and malformed feedback are connection-local.
+        // A browser preconnect must never terminate the preview listener.
+        if let Err(error) = serve_preview_connection(&root, &mut stream) {
+            eprintln!("preview connection closed: {error}");
         }
-        let relative = requested.trim_start_matches('/').replace('/', "\\");
-        let relative = if relative.is_empty() {
-            "preview\\index.html".to_owned()
-        } else {
-            relative
-        };
-        let path = root.join(&relative);
-        let relative = if path.is_dir() {
-            format!("{relative}index.html")
-        } else {
-            relative
-        };
-        let path = root.join(&relative);
-        let canonical = path.canonicalize().ok();
-        let allowed = canonical
-            .as_ref()
-            .is_some_and(|path| path.starts_with(&root));
-        let (status, content_type, body) = if allowed {
-            match fs::read(canonical.expect("checked canonical path")) {
-                Ok(body) => ("200 OK", mime_for(&relative), body),
-                Err(_) => ("404 Not Found", "text/plain", b"Not found".to_vec()),
-            }
-        } else {
-            ("403 Forbidden", "text/plain", b"Forbidden".to_vec())
-        };
+    }
+    Ok(())
+}
+
+fn serve_preview_connection(root: &Path, stream: &mut TcpStream) -> CliResult<()> {
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(10)))?;
+    let request = read_http_request(stream)?;
+    let line = String::from_utf8_lossy(&request);
+    let request_line = line.lines().next().unwrap_or("");
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or("GET");
+    let requested = request_parts.next().unwrap_or("/");
+    let requested = requested.split('?').next().unwrap_or(requested);
+    if method == "POST" && requested == "/api/feedback" {
+        let body = line.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+        let feedback: serde_json::Value = serde_json::from_str(body)?;
+        fs::write(
+            root.join("visual-feedback.json"),
+            serde_json::to_vec_pretty(&feedback)?,
+        )?;
+        let response =
+            serde_json::to_vec(&serde_json::json!({"ok": true, "path": "visual-feedback.json"}))?;
         write!(
             stream,
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
-            body.len()
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response.len()
         )?;
-        stream.write_all(&body)?;
+        stream.write_all(&response)?;
+        return Ok(());
     }
+    let relative = requested.trim_start_matches('/').replace('/', "\\");
+    let relative = if relative.is_empty() {
+        "preview\\index.html".to_owned()
+    } else {
+        relative
+    };
+    let path = root.join(&relative);
+    let relative = if path.is_dir() {
+        format!("{relative}index.html")
+    } else {
+        relative
+    };
+    let path = root.join(&relative);
+    let canonical = path.canonicalize().ok();
+    let allowed = canonical
+        .as_ref()
+        .is_some_and(|path| path.starts_with(&root));
+    let (status, content_type, body) = if allowed {
+        match fs::read(canonical.expect("checked canonical path")) {
+            Ok(body) => ("200 OK", mime_for(&relative), body),
+            Err(_) => ("404 Not Found", "text/plain", b"Not found".to_vec()),
+        }
+    } else {
+        ("403 Forbidden", "text/plain", b"Forbidden".to_vec())
+    };
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(&body)?;
     Ok(())
 }
 
@@ -272,6 +309,9 @@ fn read_http_request(stream: &mut TcpStream) -> CliResult<Vec<u8>> {
         })
         .unwrap_or(0);
     let total_length = header_end.saturating_add(content_length);
+    if total_length > 4 * 1024 * 1024 {
+        return Err("HTTP request exceeds 4 MiB".into());
+    }
     while request.len() < total_length {
         let length = stream.read(&mut buffer)?;
         if length == 0 {
@@ -455,6 +495,7 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
         serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    manifest.validate()?;
     let expected_revision = world_manifest_revision(&manifest)?;
     if world.revision != expected_revision {
         return Err(format!(
@@ -488,6 +529,14 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
             != Some("identity-anchor")
     {
         return Err("unsupported or incomplete sidecar contract".into());
+    }
+    let expected = glyphweave_core::worldgen::SidecarContract::for_style(&manifest.style)?;
+    let published: glyphweave_core::worldgen::SidecarContract =
+        serde_json::from_value(contract.clone())?;
+    if serde_json::to_value(&expected)? != serde_json::to_value(&published)?
+        || serde_json::to_value(&world.sidecar)? != serde_json::to_value(&expected)?
+    {
+        return Err("sidecar height contract differs from manifest".into());
     }
     let terrain_semantics = contract.get("terrainSemantics");
     if let Some(semantics) = terrain_semantics {
@@ -691,6 +740,7 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
     let root = Path::new(&args[0]);
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    manifest.validate()?;
     let profile = manifest
         .style
         .get("generationProfile")
@@ -710,6 +760,25 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
 
     let quality: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("quality-report.json"))?)?;
+    let mut natural_metrics = serde_json::Map::new();
+    for scene in quality["scenes"]
+        .as_array()
+        .ok_or("quality report missing scenes")?
+    {
+        let audit = scene
+            .get("naturalTerrainAudit")
+            .ok_or("quality report missing independently recomputed natural audit")?;
+        if strict && audit["status"] != "pass" {
+            failures.push(format!(
+                "{} recomputed natural audit failed",
+                scene["sceneId"]
+            ));
+        }
+        natural_metrics.insert(
+            scene["sceneId"].as_str().ok_or("missing scene id")?.into(),
+            audit.clone(),
+        );
+    }
     if quality.get("status").and_then(serde_json::Value::as_str) == Some("fail") {
         failures.push("quality-report status is fail".to_owned());
     }
@@ -725,6 +794,163 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
         );
     }
 
+    if strict {
+        for scene in quality["scenes"]
+            .as_array()
+            .ok_or("quality report missing scenes")?
+        {
+            if scene["frontageAudit"].is_object() && scene["frontageAudit"]["status"] != "pass" {
+                failures.push(format!("{} local-height frontage demand or realization remains incomplete",scene["sceneId"]));
+            }
+            if scene["automaticRoads"]["unservedTargets"].as_u64().unwrap_or(0)>0 {
+                failures.push(format!("{} automatic road targets remain out of reach after {}",scene["sceneId"],scene["automaticRoads"]["stopReason"]));
+            }
+            if scene["roadNetworkAudit"].is_object()
+                && scene["roadNetworkAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} final road network failed independent design audit",
+                    scene["sceneId"]
+                ));
+            }
+            if scene["landProtectionAudit"].is_object()
+                && scene["landProtectionAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} reserved land protection audit failed",
+                    scene["sceneId"]
+                ));
+            }
+            if scene["jointLayoutAudit"].is_object()
+                && scene["jointLayoutAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} joint frontage housing minimum remains unmet",
+                    scene["sceneId"]
+                ));
+            }
+            if scene["serviceProgramAudit"].is_object()
+                && scene["serviceProgramAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} explicit service requests remain unrealized",
+                    scene["sceneId"]
+                ));
+            }
+            if scene["developmentAudit"].is_object() && scene["landUseLedger"]["status"] != "pass" {
+                failures.push(format!(
+                    "{} purpose-area allocation or realization remains incomplete",
+                    scene["sceneId"]
+                ));
+            }
+            if scene["landcoverAudit"].is_object() && scene["landcoverAudit"]["status"] != "pass" {
+                failures.push(format!("{} landcover remains unrealized", scene["sceneId"]));
+                if scene["landcoverAudit"]["ecologyUnfilledPlants"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    > 0
+                {
+                    failures.push(format!(
+                        "{} ecology density budget has {} unfilled plants",
+                        scene["sceneId"], scene["landcoverAudit"]["ecologyUnfilledPlants"]
+                    ));
+                }
+            }
+            if quality["landUseProfileApplied"] == true {
+                if scene["landUseBudget"]["status"] != "planned_within_tolerance"
+                    || scene["landUseBudget"]["entityCoverageStatus"] != "realized"
+                {
+                    failures.push(format!(
+                        "{} land-use planning or realization remains incomplete",
+                        scene["sceneId"]
+                    ));
+                }
+                if scene["developmentAudit"].is_object()
+                    && scene["developmentAudit"]["status"] != "pass"
+                {
+                    failures.push(format!(
+                        "{} road-first land-use development remains incomplete",
+                        scene["sceneId"]
+                    ));
+                }
+                if !scene["developmentAudit"].is_object()
+                    && scene["parcelRealization"]["unrealized"]
+                        .as_u64()
+                        .unwrap_or(1)
+                        > 0
+                {
+                    failures.push(format!(
+                        "{} has unrealized planned parcels",
+                        scene["sceneId"]
+                    ));
+                }
+                if quality["landUseProfile"]["urbanTarget"]
+                    .as_f64()
+                    .unwrap_or(0.)
+                    > 0.
+                    && scene["entityKinds"]["road"].as_u64().unwrap_or(0) == 0
+                {
+                    failures.push(format!(
+                        "{} urban scene has no actual roads",
+                        scene["sceneId"]
+                    ));
+                }
+            }
+            let access = scene
+                .get("accessGraph")
+                .ok_or("quality report missing access graph")?;
+            let buildings = scene
+                .get("entityKinds")
+                .and_then(|kinds| kinds.as_object())
+                .map(|kinds| {
+                    kinds
+                        .iter()
+                        .filter(|(kind, _)| {
+                            matches!(
+                                kind.as_str(),
+                                "building"
+                                    | "building_tower"
+                                    | "building_cluster"
+                                    | "urban_building"
+                                    | "residential_block"
+                                    | "residential_tower"
+                                    | "residential_home"
+                                    | "resort_lodge"
+                                    | "storefront"
+                                    | "commercial_center"
+                                    | "entertainment_center"
+                                    | "school"
+                                    | "town_hall"
+                                    | "market"
+                                    | "industrial"
+                                    | "temple"
+                                    | "church"
+                                    | "shopping_mall"
+                                    | "office_tower"
+                                    | "convenience_store"
+                                    | "night_market"
+                            )
+                        })
+                        .map(|(_, count)| count.as_u64().unwrap_or(0))
+                        .sum::<u64>()
+                })
+                .unwrap_or(0);
+            if buildings == 0 {
+                failures.push(format!(
+                    "{} has no buildings; empty access graph cannot pass",
+                    scene["sceneId"]
+                ));
+            }
+            if access["version"].as_u64() != Some(2)
+                || access["disconnectedEntities"].as_u64().unwrap_or(u64::MAX) > 0
+            {
+                failures.push(format!(
+                    "{} has unverified building access routes",
+                    scene["sceneId"]
+                ));
+            }
+        }
+    }
     let rules = fs::read(root.join("rules-audit.json"))
         .ok()
         .map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes))
@@ -769,11 +995,17 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
             kinds.sort_unstable();
             kinds.dedup();
             rule_metrics.insert("unruled_kinds".to_owned(), serde_json::json!(kinds));
+            let special_unruled = kinds
+                .iter()
+                .all(|kind| matches!(*kind, "river" | "lake" | "canal"));
             if strict && !kinds.is_empty() {
                 failures.push(format!(
                     "strict profile has unruled entity kinds: {}",
                     kinds.join(", ")
                 ));
+            }
+            if special_unruled {
+                rule_metrics.insert("special_unruled_kinds".to_owned(), serde_json::json!(kinds));
             }
         }
     }
@@ -825,13 +1057,13 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
     let report = serde_json::json!({
         "format": "glyphweave.world-quality-gate",
         "version": 1,
-        "status": if failures.is_empty() { "pass" } else { "fail" },
+        "status": if !failures.is_empty() { "fail" } else if !warnings.is_empty() { "warn" } else { "pass" },
         "profile": profile,
         "rulesMode": rules_mode,
         "worldRevision": serde_json::from_slice::<serde_json::Value>(&fs::read(root.join("world.json"))?)?.get("revision").cloned(),
         "failures": failures,
         "warnings": warnings,
-        "metrics": { "rules": rule_metrics, "assets": registry_metrics },
+        "metrics": { "rules": rule_metrics, "assets": registry_metrics, "naturalTerrain": natural_metrics },
         "inputs": ["validate-world", "scale-audit", "quality-report", "rules-audit.json"]
     });
     fs::write(
@@ -845,11 +1077,32 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
     Ok(())
 }
 
+// JSON float parsing may differ by one ULP. Tolerance applies only to
+// numeric budget values; keys, statuses, nulls and structure stay exact.
+fn budget_values_match(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => {
+            let (Some(a), Some(b)) = (a.as_f64(), b.as_f64()) else {
+                return false;
+            };
+            (a - b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.)
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(k, v)| b.get(k).is_some_and(|w| budget_values_match(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
 fn quality_report_command(args: &[String]) -> CliResult<()> {
     let root = Path::new(one_path("quality-report", args)?);
     let world: glyphweave_core::worldgen::WorldIndex =
         serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
     let mut scene_reports = Vec::new();
+    let mut access_surface_failed = false;
     let mut warnings = Vec::new();
     let mut chunks = 0_usize;
     let mut entities = 0_usize;
@@ -885,6 +1138,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     }
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    manifest.validate()?;
     let profile = LandUseProfile::from_style(&manifest.style);
     // The current profile-driven land-use generator runs on land scenes only.
     // Do not falsely grade a water template or naturalOnly scene against a
@@ -937,7 +1191,420 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         entities += scene.entities.len();
         landmarks += scene.landmarks.len();
         let areas = analyze_landuse_areas(&scene);
+        if let Some(budget) = &scene.land_use_budget {
+            if budget.scene_area_m2 <= 0.0 || budget.assigned_m2 > budget.scene_area_m2 + 0.01 {
+                warnings.push(format!(
+                    "{}: invalid persisted land-use budget",
+                    scene.scene_id
+                ));
+            }
+            if budget.status != "planned_within_tolerance" {
+                warnings.push(format!(
+                    "{}: land-use planning status {} (planned unassigned {:.1} m2)",
+                    scene.scene_id, budget.status, budget.unassigned_m2
+                ));
+            }
+            if scene.development_plan.is_none() && budget.entity_coverage_status != "realized" {
+                warnings.push(format!(
+                    "{}: land-use entities are not yet fully realized (entity coverage {:.1} m2)",
+                    scene.scene_id,
+                    budget.entity_urban_m2 + budget.entity_rural_m2 + budget.entity_nature_m2
+                ));
+            }
+            let entity_coverage =
+                budget.entity_urban_m2 + budget.entity_rural_m2 + budget.entity_nature_m2;
+            if scene.development_plan.is_none() && entity_coverage + 0.01 < budget.assigned_m2 * 0.5
+            {
+                warnings.push(format!(
+                    "{}: planned land-use is not yet realized by generated entities (entity coverage {:.1} / planned {:.1} m2)",
+                    scene.scene_id, entity_coverage, budget.assigned_m2
+                ));
+            }
+        } else if profile_applied {
+            warnings.push(format!(
+                "{}: persisted land-use budget is missing",
+                scene.scene_id
+            ));
+        }
+        if scene.settlement_graph.is_none() {
+            warnings.push(format!(
+                "{}: persisted settlement graph is missing",
+                scene.scene_id
+            ));
+        }
+        let spec = manifest
+            .scenes
+            .iter()
+            .find(|spec| spec.scene_id == scene.scene_id)
+            .ok_or("quality report scene missing from manifest")?;
+        let expected_water = water_geometry(
+            water_kind(&manifest.style),
+            &scene.landmarks,
+            spec,
+            &manifest.style,
+        );
+        if glyphweave_core::worldgen::road_network::enabled(&manifest.style, expected_water)
+            && scene.road_network_plan.is_none()
+        {
+            return Err("missing required natural road network plan".into());
+        }
+        if let Some(profile) = &profile {
+            let zones = glyphweave_core::worldgen::plan_landuse_zones(spec, profile);
+            if serde_json::to_value(&zones)? != serde_json::to_value(&scene.land_use_zones)? {
+                return Err("persisted zones differ from manifest planning inputs".into());
+            }
+            let folder = root.join("scenes").join(&scene.scene_id);
+            if scene.road_network_plan.is_some() {
+                if scene.parcel_plan.is_some() {
+                    return Err("road-first scene cannot publish legacy parcel authority".into());
+                }
+                let plan = scene
+                    .development_plan
+                    .as_ref()
+                    .ok_or("missing required road-first development plan")?;
+                let published: serde_json::Value =
+                    serde_json::from_slice(&fs::read(folder.join("development-plan.json"))?)?;
+                let canonical: serde_json::Value = serde_json::from_slice(&serde_json::to_vec(plan)?)?;
+                if published != canonical {
+                    return Err("development-plan.json differs from scene plan".into());
+                }
+            } else {
+                if scene.development_plan.is_some()
+                    || scene.landcover_plan.is_some()
+                    || scene.landcover_surfaces.is_some()
+                {
+                    return Err("development/landcover plan has no road source".into());
+                }
+                let plan = scene
+                    .parcel_plan
+                    .as_ref()
+                    .ok_or("missing parcel plan; rebake required")?;
+                glyphweave_core::settlement::verify_parcel_plan(plan, &zones, &scene.entities)?;
+                for (file, expected) in [
+                    ("parcel-plan.json", serde_json::to_value(plan)?),
+                    (
+                        "infrastructure-plan.json",
+                        serde_json::to_value(&plan.infrastructure)?,
+                    ),
+                ] {
+                    let published: serde_json::Value =
+                        serde_json::from_slice(&fs::read(folder.join(file))?)?;
+                    if published != expected {
+                        return Err(format!(
+                            "{file} differs from independently checked scene plan"
+                        )
+                        .into());
+                    }
+                }
+            }
+            let budget = glyphweave_core::worldgen::plan_landuse_budget(&scene, profile);
+            if !budget_values_match(
+                &serde_json::to_value(&scene.land_use_budget)?,
+                &serde_json::to_value(&budget)?,
+            ) {
+                return Err(
+                    "persisted land-use budget differs from rebuilt entity and zone areas".into(),
+                );
+            }
+            for (file, expected) in [("land-use-zones.json", serde_json::to_value(&zones)?)] {
+                let published: serde_json::Value =
+                    serde_json::from_slice(&fs::read(folder.join(file))?)?;
+                if published != expected {
+                    return Err(
+                        format!("{file} differs from independently checked scene plan").into(),
+                    );
+                }
+            }
+        }
+
+        let mut terrain = BakedTerrain::new(spec)?;
+        for chunk in &scene.chunks {
+            let bytes = fs::read(
+                root.join("scenes")
+                    .join(&scene.scene_id)
+                    .join(&chunk.height_file),
+            )?;
+            terrain.insert_chunk(
+                chunk.world_x,
+                chunk.world_z,
+                chunk.valid_width_m,
+                chunk.valid_depth_m,
+                &bytes,
+            )?;
+        }
+        terrain.require_complete()?;
+        if terrain.encoding()
+            != Some(glyphweave_core::worldgen::height_encoding_from_style(
+                &manifest.style,
+            )?)
+        {
+            return Err("final height encoding differs from manifest".into());
+        }
+        let mut natural_terrain = BakedTerrain::new(spec)?;
+        for chunk in &scene.chunks {
+            let natural_file = chunk.natural_height_file.as_ref().ok_or_else(|| {
+                format!("{} missing natural heightfield reference", scene.scene_id)
+            })?;
+            let bytes = fs::read(root.join("scenes").join(&scene.scene_id).join(natural_file))?;
+            natural_terrain.insert_chunk(
+                chunk.world_x,
+                chunk.world_z,
+                chunk.valid_width_m,
+                chunk.valid_depth_m,
+                &bytes,
+            )?;
+        }
+        natural_terrain.require_complete()?;
+        if natural_terrain.encoding() != terrain.encoding() {
+            return Err("natural/final height precision differs".into());
+        }
+        if scene.natural_terrain.seed != manifest.world.seed ^ spec.seed_offset {
+            return Err(format!("{} natural snapshot seed mismatch", scene.scene_id).into());
+        }
+        let recomputed_natural_audit =
+            verify_snapshot(&scene.natural_terrain, &natural_terrain, spec)?;
+        let published_natural: glyphweave_core::natural::NaturalTerrainSnapshot =
+            serde_json::from_slice(&fs::read(
+                root.join("scenes")
+                    .join(&scene.scene_id)
+                    .join("natural-terrain.json"),
+            )?)?;
+        if serde_json::to_value(&published_natural)?
+            != serde_json::to_value(&scene.natural_terrain)?
+        {
+            return Err(format!("{} natural snapshot copies differ", scene.scene_id).into());
+        }
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &scene.landmarks,
+            spec,
+            &manifest.style,
+        );
+        if glyphweave_core::worldgen::road_network::enabled(&manifest.style, water)
+            && scene.road_network_plan.is_none()
+        {
+            return Err("missing required natural road network plan".into());
+        }
+        let road_network_audit = if let Some(plan) = &scene.road_network_plan {
+            let published: glyphweave_core::worldgen::road_network::RoadNetworkPlan =
+                serde_json::from_slice(&fs::read(
+                    root.join("scenes")
+                        .join(&scene.scene_id)
+                        .join("road-network-plan.json"),
+                )?)?;
+            if serde_json::to_value(&published)? != serde_json::to_value(plan)? {
+                return Err("road network plan copies differ".into());
+            }
+            let service_program = glyphweave_core::worldgen::services::from_style(&manifest.style)?;
+            let audit = glyphweave_core::worldgen::road_network::verify_with_style(
+                plan,
+                spec,
+                &natural_terrain,
+                &terrain,
+                water,
+                &scene.entities,
+                Some(&scene.land_use_zones),
+                service_program.as_ref(),
+                &manifest.style,
+            )?;
+            if audit.status != "pass" {
+                warnings.push(format!(
+                    "{} road network differs from design: {:?}",
+                    scene.scene_id, audit.failures
+                ));
+            }
+            Some(audit)
+        } else {
+            None
+        };
+        let protection_audit = if scene.road_network_plan.is_some() {
+            let a = glyphweave_core::worldgen::zoning::audit_protection(
+                spec,
+                &scene.land_use_zones,
+                &natural_terrain,
+                &terrain,
+                &scene.entities,
+            )?;
+            if a.status != "pass" {
+                warnings.push(format!(
+                    "{} reserved land changed or occupied: {:?}",
+                    scene.scene_id, a
+                ));
+            }
+            Some(a)
+        } else {
+            None
+        };
+        let access = build_access_graph(&scene.entities, &terrain, water);
+        let joint_layout_audit = scene
+            .road_network_plan
+            .as_ref()
+            .filter(|p| p.joint_layout.is_some())
+            .map(|p| glyphweave_core::worldgen::joint_frontage::audit(p, &scene.entities, &access));
+        if let Some(a) = &joint_layout_audit {
+            if a.status != "pass" {
+                warnings.push(format!(
+                    "{} joint housing minimum remains unmet: {:?}",
+                    scene.scene_id, a
+                ));
+            }
+        }
+        let service_program_audit = scene
+            .road_network_plan
+            .as_ref()
+            .filter(|p| !p.service_outcomes.is_empty())
+            .map(|p| glyphweave_core::worldgen::services::audit(p, &scene.entities, &access));
+        if let Some(audit) = &service_program_audit {
+            if audit.status != "pass" {
+                warnings.push(format!(
+                    "{} requested services incomplete: {:?}",
+                    scene.scene_id, audit
+                ));
+            }
+        }
+        let mut development_audit = if let Some(plan) = &scene.development_plan {
+            let roads = scene
+                .road_network_plan
+                .as_ref()
+                .ok_or("development missing road source")?;
+            let audit = glyphweave_core::settlement::development::verify(
+                plan,
+                spec,
+                &scene.land_use_zones,
+                roads,
+                &scene.entities,
+                &access,
+            )?;
+            let graph =
+                glyphweave_core::settlement::development::settlement_graph(plan, &scene.entities);
+            if serde_json::to_value(&scene.settlement_graph)? != serde_json::to_value(Some(&graph))?
+            {
+                return Err("settlement graph differs from road-first parentage".into());
+            }
+            let published: glyphweave_core::settlement::SettlementGraph =
+                serde_json::from_slice(&fs::read(
+                    root.join("scenes")
+                        .join(&scene.scene_id)
+                        .join("settlement-graph.json"),
+                )?)?;
+            if serde_json::to_value(&published)? != serde_json::to_value(&graph)? {
+                return Err("settlement-graph.json differs from road-first parentage".into());
+            }
+            Some(audit)
+        } else {
+            None
+        };
+        let landcover_audit = if let Some(development) = &scene.development_plan {
+            let plan = scene
+                .landcover_plan
+                .as_ref()
+                .ok_or("missing required landcover plan")?;
+            let published: serde_json::Value = serde_json::from_slice(&fs::read(
+                root.join("scenes")
+                    .join(&scene.scene_id)
+                    .join("landcover-plan.json"),
+            )?)?;
+            if published != serde_json::to_value(plan)? {
+                return Err("landcover-plan.json differs from scene plan".into());
+            }
+            glyphweave_core::settlement::farm_program::audit_source(
+                &plan.farm_pattern,
+                &manifest.style,
+                spec,
+            )?;
+            glyphweave_core::settlement::development::audit_landcover(plan, spec, development)?;
+            let surfaces = scene
+                .landcover_surfaces
+                .as_ref()
+                .ok_or("missing required landcover surfaces")?;
+            let published: glyphweave_core::settlement::landcover::SurfaceRealization =
+                serde_json::from_slice(&fs::read(
+                    root.join("scenes")
+                        .join(&scene.scene_id)
+                        .join("landcover-surfaces.json"),
+                )?)?;
+            let audit = glyphweave_core::settlement::landcover::verify(
+                surfaces,
+                spec,
+                development,
+                plan,
+                &terrain,
+                water,
+                &scene.entities,
+            )
+            .map_err(|e| format!("scene landcover independent realization: {e}"))?;
+            glyphweave_core::settlement::landcover::verify(
+                &published,
+                spec,
+                development,
+                plan,
+                &terrain,
+                water,
+                &scene.entities,
+            )
+            .map_err(|e| format!("published landcover independent realization: {e}"))?;
+            if audit.ecology_unfilled_plants > 0 {
+                warnings.push(format!(
+                    "{} ecology has {} / {} planned plants without legal placement",
+                    scene.scene_id, audit.ecology_unfilled_plants, audit.ecology_planned_plants
+                ));
+            }
+            if audit.unresolved_area_m2 > 1e-7 {
+                warnings.push(format!(
+                    "{} landcover has {} m2 without surface realization",
+                    scene.scene_id, audit.unresolved_area_m2
+                ));
+            }
+            Some(audit)
+        } else {
+            None
+        };
+        if let (Some(d), Some(s)) = (&mut development_audit, &landcover_audit) {
+            glyphweave_core::settlement::landcover::apply_evidence(d, s);
+            if d.status != "pass" {
+                warnings.push(format!(
+                    "{} road-first land-use development is {}: {:?} {:?}",
+                    scene.scene_id, d.status, d.failures, d.incomplete_reasons
+                ));
+            }
+        }
+        let surface_audit = validate_access_surfaces(&access, &terrain, &scene.access_surfaces);
+        if let Err(error) = &surface_audit {
+            access_surface_failed = true;
+            warnings.push(format!("{}: {error}", scene.scene_id));
+        }
+        if access.disconnected_entities > 0 {
+            warnings.push(format!(
+                "{}: {} buildings have no verified walkable entrance route",
+                scene.scene_id, access.disconnected_entities
+            ));
+        }
+        // Only verified source geometry enters this ledger. The published
+        // land-use-ledger.json is a convenience report, never input authority.
+        let land_use_ledger = if scene.development_plan.is_some() {
+            let ledger = glyphweave_core::settlement::landuse_ledger::analyze(
+                &scene,
+                profile
+                    .as_ref()
+                    .ok_or("road-first ledger missing profile")?,
+            )?;
+            for (purpose, row) in &ledger.by_purpose {
+                if row.unresolved_m2 > 1e-6 {
+                    warnings.push(format!("{}: {purpose} land realization {:.1}/{:.1} m2; unresolved {:.1} m2 (whole-scene realized ratio {:.4}, target {:.4})",
+                        scene.scene_id, row.realized_m2, row.planned_m2, row.unresolved_m2,
+                        row.realized_scene_ratio, row.target_ratio));
+                }
+                if (row.planned_scene_ratio - row.target_ratio).abs() > 0.05 + 1e-6 {
+                    warnings.push(format!("{}: {purpose} zoning ratio {:.4} differs from target {:.4} by more than 0.05",
+                        scene.scene_id, row.planned_scene_ratio, row.target_ratio));
+                }
+            }
+            Some(ledger)
+        } else {
+            None
+        };
         if profile_applied
+            && land_use_ledger.is_none()
             && !has_structured_water
             && !matches!(intent_settlement, Some("pastoral"))
         {
@@ -981,28 +1648,70 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 }
             }
         }
+        let purpose_area = |kind: &str, legacy: f64| {
+            land_use_ledger
+                .as_ref()
+                .map_or(legacy, |l| l.by_purpose[kind].realized_m2)
+        };
+        let urban_area = purpose_area("urban", areas.urban_m2);
+        let rural_area = purpose_area("rural", areas.rural_m2);
+        let nature_area = purpose_area("nature", areas.nature_m2);
         area_reports.push(serde_json::json!({
             "sceneId": scene.scene_id,
             "areaM2": areas.scene_area_m2,
-            "urbanM2": areas.urban_m2,
-            "ruralM2": areas.rural_m2,
-            "natureM2": areas.nature_m2,
-            "urbanRatio": areas.urban_ratio,
-            "ruralRatio": areas.rural_ratio,
-            "natureRatio": areas.nature_ratio,
-            "byKindM2": areas.by_kind,
+            "accounting": if land_use_ledger.is_some() { "disjoint-purpose-cover-v1" } else { "legacy-entity-proxy" },
+            "urbanM2": urban_area,
+            "ruralM2": rural_area,
+            "natureM2": nature_area,
+            "urbanRatio": urban_area / areas.scene_area_m2,
+            "ruralRatio": rural_area / areas.scene_area_m2,
+            "natureRatio": nature_area / areas.scene_area_m2,
+            "entityFootprintDiagnostic": {
+                "accounting": "legacy-overlapping-entity-proxy-not-realization",
+                "urbanM2": areas.urban_m2, "ruralM2": areas.rural_m2,
+                "natureM2": areas.nature_m2, "byKindM2": areas.by_kind,
+            },
+            "landUseBudget": scene.land_use_budget,
+            "landUseBudgetStatus": scene.land_use_budget.as_ref().map(|budget| budget.status.clone()),
+            "settlementGraph": scene.settlement_graph.as_ref().map(|graph| serde_json::json!({
+                "settlements": graph.settlements.len(),
+                "districts": graph.districts.len(),
+                "parcels": graph.parcels.len(),
+                "publicSpaces": graph.public_spaces.len(),
+                "buildingRelations": graph.building_relations.len(),
+                "status": graph.status,
+            })),
         }));
         scene_reports.push(serde_json::json!({
             "sceneId": scene.scene_id, "sizeM": [scene.width_m, scene.depth_m],
             "chunks": scene.chunks.len(), "expectedChunks": expected,
             "landmarks": scene.landmarks.len(), "entities": scene.entities.len(),
+            "naturalTerrainAudit": recomputed_natural_audit,
+            "roadNetworkAudit": road_network_audit,
+            "automaticRoads":scene.road_network_plan.as_ref().and_then(|p|p.automatic_extensions.as_ref()),
+            "frontageAudit":scene.road_network_plan.as_ref().filter(|p|p.frontage.is_some()).map(|p|glyphweave_core::worldgen::frontage::audit(p,&scene.entities,&access)),
+            "jointLayoutAudit": joint_layout_audit,
+            "landProtectionAudit": protection_audit,
+            "landUseLedger": land_use_ledger,
+            "serviceProgramAudit": service_program_audit,
+            "developmentAudit": development_audit,
+            "landcoverAudit": landcover_audit,
+            "accessGraph": access,
+            "accessSurfaces": { "count": scene.access_surfaces.len(), "status": if surface_audit.is_ok() { "pass" } else { "fail" } },
+            "landUseBudget": scene.land_use_budget,
+            "parcelRealization": scene.parcel_plan.as_ref().map(|p| serde_json::json!({
+                "status": p.status, "planned": p.parcels.len(),
+                "accepted": p.parcels.iter().filter(|p|p.realization_status=="accepted").count(),
+                "unrealized": p.parcels.iter().filter(|p|p.realization_status!="accepted").count(),
+                "evidence": "independently-rebuilt-plan-and-origin-ids",
+            })),
             "entityKinds": kinds,
             "landUseArea": area_reports.last(),
         }));
     }
     let report = serde_json::json!({
-        "format": "glyphweave.quality-report", "version": 1,
-        "status": if scale_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
+        "format": "glyphweave.quality-report", "version": 2,
+        "status": if scale_failed || access_surface_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "warnings": warnings, "scenes": scene_reports,
@@ -1052,10 +1761,52 @@ fn contract_limits(
     )
 }
 
+/// BakedTerrain::height already returns metres, not quarter-metre integers.
+fn road_is_below_ground(entity: &glyphweave_core::worldgen::EntityInstance, ground_m: f32) -> bool {
+    if let Some(profile)=&entity.grounding.road_profile {
+        if !ground_m.is_finite() || profile.validate_entity(entity).is_err(){return true;}
+        // Both the profile and its required raster use integer millimetres.
+        // Reconstruct that integer, not (-1 + 0.904f32) < -0.096f32.
+        // No geometric tolerance is added: a one-millimetre burial still fails.
+        let ground_mm=(f64::from(ground_m)*1000.).round() as i64;
+        return profile.elevations_mm[profile.elevations_mm.len()/2] < ground_mm;
+    }
+    entity.ground_height_m() < ground_m
+}
+
+fn contract_for_entity<'a>(
+    contracts: Option<&'a serde_json::Map<String, serde_json::Value>>,
+    entity: &glyphweave_core::worldgen::EntityInstance,
+    authored: bool,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    let contracts = contracts?;
+    // Authored assets get an exact asset contract first. This prevents a large
+    // bridge, fence, GIS building, or water object from being forced through a
+    // generic procedural kind contract. The manifest can declare:
+    // assetContracts["asset:<assetId>"] = {...}.
+    if authored {
+        let key = format!("asset:{}", entity.asset_id);
+        if let Some(contract) = contracts.get(&key).and_then(serde_json::Value::as_object) {
+            return Some(contract);
+        }
+    }
+    contracts
+        .get(&entity.kind)
+        .or_else(|| {
+            if matches!(entity.kind.as_str(), "urban_building" | "building_tower") {
+                contracts.get("building")
+            } else {
+                None
+            }
+        })
+        .and_then(serde_json::Value::as_object)
+}
+
 fn scale_audit_command(args: &[String]) -> CliResult<()> {
     let root = Path::new(one_path("scale-audit", args)?);
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
+    manifest.validate()?;
     let mut failures = Vec::new();
     let style = &manifest.style;
     if !manifest.landmarks.is_empty()
@@ -1089,12 +1840,42 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
         serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
     let mut audited_entities = 0_usize;
     let mut tree_count = 0_usize;
+    let mut authored_count = 0_usize;
+    let mut authored_contract_count = 0_usize;
+    let authored_kind_fallback_count = 0_usize;
     let mut expected_chunk_total = 0_usize;
     let mut actual_chunk_total = 0_usize;
-    let mut max_boundary_step = 0_i32;
+    let mut max_boundary_step = 0_f64;
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
             serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        // Load each scene heightfield once. The old implementation reread a
+        // chunk file for every boundary cell and every entity, turning a
+        // 60-million-cell audit into thousands of filesystem calls.
+        let scene_spec = glyphweave_core::worldgen::SceneSpec {
+            scene_id: scene.scene_id.clone(),
+            width_m: scene.width_m,
+            depth_m: scene.depth_m,
+            origin_x: scene.origin_x,
+            origin_z: scene.origin_z,
+            seed_offset: 0,
+        };
+        let mut baked_terrain = BakedTerrain::new(&scene_spec)?;
+        for chunk in &scene.chunks {
+            let bytes = fs::read(
+                root.join("scenes")
+                    .join(&scene.scene_id)
+                    .join(&chunk.height_file),
+            )?;
+            baked_terrain.insert_chunk(
+                chunk.world_x,
+                chunk.world_z,
+                chunk.valid_width_m,
+                chunk.valid_depth_m,
+                &bytes,
+            )?;
+        }
+        baked_terrain.require_complete()?;
         let expected_chunks = (scene.chunk_count_x * scene.chunk_count_z) as usize;
         expected_chunk_total += expected_chunks;
         actual_chunk_total += scene.chunks.len();
@@ -1116,8 +1897,19 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                 ));
             }
             let chunk_root = root.join("scenes").join(&scene.scene_id);
-            let expected_height_bytes =
-                u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m) * 2;
+            let encoding = glyphweave_core::worldgen::height_encoding_from_style(&manifest.style)?;
+            let expected_height_bytes = u64::from(chunk.valid_width_m)
+                * u64::from(chunk.valid_depth_m)
+                * if encoding == HeightEncoding::Millimetre {
+                    4
+                } else {
+                    2
+                }
+                + if encoding == HeightEncoding::Millimetre {
+                    16
+                } else {
+                    0
+                };
             let expected_surface_bytes =
                 u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m);
             let lod_width = chunk.valid_width_m.div_ceil(64);
@@ -1190,8 +1982,8 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
         {
             for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
                 if let (Some(left), Some(right)) = (
-                    scene_height_at(&root, &scene, boundary_x - 1, z),
-                    scene_height_at(&root, &scene, boundary_x, z),
+                    baked_terrain.height(boundary_x - 1, z).map(f64::from),
+                    baked_terrain.height(boundary_x, z).map(f64::from),
                 ) {
                     max_boundary_step = max_boundary_step.max((right - left).abs());
                 } else {
@@ -1208,8 +2000,8 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
         {
             for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
                 if let (Some(top), Some(bottom)) = (
-                    scene_height_at(&root, &scene, x, boundary_z - 1),
-                    scene_height_at(&root, &scene, x, boundary_z),
+                    baked_terrain.height(x, boundary_z - 1).map(f64::from),
+                    baked_terrain.height(x, boundary_z).map(f64::from),
                 ) {
                     max_boundary_step = max_boundary_step.max((bottom - top).abs());
                 } else {
@@ -1221,42 +2013,38 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                 }
             }
         }
-        if max_boundary_step > 16 {
+        if max_boundary_step > 4.0 {
             failures.push(format!(
-                "{} boundary height step {} quarter-meters exceeds 16",
+                "{} boundary height step {} metres exceeds 4",
                 scene.scene_id, max_boundary_step
             ));
         }
-        let water_zones: Vec<(f64, f64, f64, f64, String)> = scene
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &scene.landmarks,
+            &scene_spec,
+            &manifest.style,
+        );
+        let authored_ids: BTreeSet<&str> = manifest
             .landmarks
             .iter()
-            .filter(|landmark| matches!(landmark.entity_type.as_str(), "river" | "lake"))
-            .map(|landmark| {
-                let half_w = f64::from(landmark.width_m) * 0.5;
-                let half_d = f64::from(landmark.depth_m) * 0.5;
-                (
-                    f64::from(landmark.world_x),
-                    f64::from(landmark.world_z),
-                    half_w,
-                    half_d,
-                    landmark.entity_type.clone(),
-                )
-            })
+            .filter(|landmark| landmark.scene_id == scene.scene_id)
+            .map(|landmark| landmark.entity_id.as_str())
             .collect();
         for entity in &scene.entities {
             audited_entities += 1;
-            let Some(contract) = contracts
-                .and_then(|items| {
-                    items.get(&entity.kind).or_else(|| {
-                        if matches!(entity.kind.as_str(), "urban_building" | "building_tower") {
-                            items.get("building")
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .and_then(serde_json::Value::as_object)
-            else {
+            let authored = authored_ids.contains(entity.entity_id.as_str());
+            if authored {
+                authored_count += 1;
+            }
+            if authored
+                && contracts
+                    .and_then(|map| map.get(&format!("asset:{}", entity.asset_id)))
+                    .is_some()
+            {
+                authored_contract_count += 1;
+            }
+            let Some(contract) = contract_for_entity(contracts, entity, authored) else {
                 failures.push(format!(
                     "{} has no asset contract for kind {}",
                     entity.entity_id, entity.kind
@@ -1286,53 +2074,12 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                     | "fallen_log"
                     | "building_cluster"
             ) {
-                // GIS / real-data footprints are positioned by the source map,
-                // including legitimate waterfront structures; the procedural
-                // water-zone check only applies to generated entities.
-                if entity.entity_id.starts_with("gis.") {
-                    continue;
-                }
-                for (zone_x, zone_z, half_w, half_d, zone_kind) in &water_zones {
-                    let margin = match entity.kind.as_str() {
-                        "reed" => 0.0,
-                        _ => 4.0,
-                    };
-                    let half_x = f64::from(entity.width_m) * 0.5 + margin;
-                    let half_z = f64::from(entity.depth_m) * 0.5 + margin;
-                    let samples = [
-                        (f64::from(entity.world_x), f64::from(entity.world_z)),
-                        (
-                            f64::from(entity.world_x) - half_x,
-                            f64::from(entity.world_z) - half_z,
-                        ),
-                        (
-                            f64::from(entity.world_x) - half_x,
-                            f64::from(entity.world_z) + half_z,
-                        ),
-                        (
-                            f64::from(entity.world_x) + half_x,
-                            f64::from(entity.world_z) - half_z,
-                        ),
-                        (
-                            f64::from(entity.world_x) + half_x,
-                            f64::from(entity.world_z) + half_z,
-                        ),
-                    ];
-                    let inside = samples.iter().any(|(x, z)| {
-                        if zone_kind == "river" {
-                            let effective_half_w = river_half_width_at(*z, &scene, *half_w);
-                            (*x - zone_x).abs() < effective_half_w - margin
-                        } else {
-                            ((*x - zone_x) / half_w).powi(2) + ((*z - zone_z) / half_d).powi(2)
-                                < 1.0
-                        }
-                    });
-                    if inside {
-                        failures.push(format!(
-                            "{} {} is inside {zone_kind} water zone",
-                            entity.entity_id, entity.kind
-                        ));
-                    }
+                let margin = if entity.kind == "reed" { 0.0 } else { 4.0 };
+                if footprint_intersects_water(entity, water, margin) {
+                    failures.push(format!(
+                        "{} {} is inside water geometry",
+                        entity.entity_id, entity.kind
+                    ));
                 }
             }
             for (field, value, min_field, max_field) in [
@@ -1405,17 +2152,19 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                     }
                 }
                 "road" => {
+                    if let Some(profile)=&entity.grounding.road_profile {
+                        if let Err(error)=profile.validate_entity(entity){failures.push(error.to_string());continue;}
+                    }
                     // Only procedurally generated roads must sit on the ground
                     // heightfield. GIS/landmark roads carry author-specified
                     // heights (bridges, viaducts) and are exempt.
                     if entity.entity_id.starts_with("generated.") {
-                        if let Some(ground_y) =
-                            scene_height_at(&root, &scene, entity.world_x, entity.world_z)
+                        if let Some(ground_y) = baked_terrain.height(entity.world_x, entity.world_z)
                         {
-                            if entity.world_y < ground_y {
+                            if road_is_below_ground(entity, ground_y) {
                                 failures.push(format!(
                                     "{} road y={} is below ground y={}",
-                                    entity.entity_id, entity.world_y, ground_y
+                                    entity.entity_id, entity.ground_height_m(), ground_y
                                 ));
                             }
                         } else {
@@ -1445,12 +2194,15 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
         "worldRevision": world.revision,
         "auditedEntities": audited_entities,
         "treeCount": tree_count,
+        "authoredCount": authored_count,
+        "authoredAssetContractCount": authored_contract_count,
+        "authoredKindFallbackCount": authored_kind_fallback_count,
         "chunkCoverage": {
             "scenes": world.scenes.len(),
             "expectedChunks": expected_chunk_total,
             "actualChunks": actual_chunk_total
         },
-        "continuity": { "maxBoundaryHeightStepQuarterM": max_boundary_step },
+        "continuity": { "maxBoundaryHeightStepM": max_boundary_step, "maxBoundaryHeightStepQuarterM": max_boundary_step*4.0 },
         "failures": failures,
     });
     fs::write(
@@ -1462,32 +2214,6 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
         return Err("scale audit failed".into());
     }
     Ok(())
-}
-
-fn scene_height_at(
-    root: &Path,
-    scene: &glyphweave_core::worldgen::SceneIndex,
-    world_x: i32,
-    world_z: i32,
-) -> Option<i32> {
-    let chunk = scene.chunks.iter().find(|chunk| {
-        world_x >= chunk.world_x
-            && world_x < chunk.world_x + chunk.valid_width_m as i32
-            && world_z >= chunk.world_z
-            && world_z < chunk.world_z + chunk.valid_depth_m as i32
-    })?;
-    let width = chunk.valid_width_m as usize;
-    let x = (world_x - chunk.world_x) as usize;
-    let z = (world_z - chunk.world_z) as usize;
-    let bytes = fs::read(
-        root.join("scenes")
-            .join(&scene.scene_id)
-            .join(&chunk.height_file),
-    )
-    .ok()?;
-    let offset = (z * width + x) * 2;
-    let value = i16::from_le_bytes([*bytes.get(offset)?, *bytes.get(offset + 1)?]);
-    Some(i32::from(value) / 4)
 }
 
 fn convert_command(args: &[String]) -> CliResult<()> {
@@ -1919,7 +2645,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave export-preview-stream WORLD_DIR\n  glyphweave design-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave verify-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
     );
 }
 
@@ -1992,6 +2718,7 @@ fn rules_command(args: &[String]) -> CliResult<()> {
             let manifest_path = world_dir.join("glyphweave.manifest.json");
             let manifest: WorldManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
 
+            manifest.validate()?;
             let mut total = glyphweave_core::rules::ValidationReport::default();
             let mut unruled: Vec<String> = Vec::new();
             let mut checked = 0usize;
@@ -2001,6 +2728,16 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     .join(&scene.scene_id)
                     .join("scene.json");
                 let index: SceneIndex = serde_json::from_slice(&fs::read(&scene_json)?)?;
+                if index.scene_id != scene.scene_id
+                    || index.width_m != scene.width_m
+                    || index.depth_m != scene.depth_m
+                    || index.origin_x != scene.origin_x
+                    || index.origin_z != scene.origin_z
+                {
+                    return Err(
+                        format!("scene index {} disagrees with manifest", scene.scene_id).into(),
+                    );
+                }
                 let landmarks: Vec<_> = manifest
                     .landmarks
                     .iter()
@@ -2013,63 +2750,40 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     scene,
                     &manifest.style,
                 );
-                // Load the baked heightfield for this scene into a query map.
-                let mut baked = BTreeMap::<i64, i16>::new();
+                // Core validates coverage and units; no per-landmark full-map copies.
+                let mut baked = BakedTerrain::new(scene)?;
                 for chunk in &index.chunks {
-                    let hfile = world_dir
-                        .join("scenes")
-                        .join(&scene.scene_id)
-                        .join(&chunk.height_file);
-                    let bytes = fs::read(&hfile)?;
-                    let width = chunk.valid_width_m as usize;
-                    let depth = chunk.valid_depth_m as usize;
-                    let expected = width * depth * 2;
-                    if bytes.len() != expected {
-                        return Err(format!(
-                            "heightfield {} has {} bytes, expected {expected} ({}x{}x2); refusing to audit with possibly missing terrain",
-                            chunk.height_file, bytes.len(), width, depth
-                        )
-                        .into());
-                    }
-                    for (i, pair) in bytes.chunks_exact(2).enumerate() {
-                        let raw = i16::from_le_bytes([pair[0], pair[1]]);
-                        let lx = i as i32 % width as i32;
-                        let lz = i as i32 / width as i32;
-                        let wx = chunk.world_x + lx;
-                        let wz = chunk.world_z + lz;
-                        baked.insert(i64::from(wx) << 32 | (wz as u32 as i64), raw);
-                    }
+                    let bytes = fs::read(
+                        world_dir
+                            .join("scenes")
+                            .join(&scene.scene_id)
+                            .join(&chunk.height_file),
+                    )?;
+                    baked.insert_chunk(
+                        chunk.world_x,
+                        chunk.world_z,
+                        chunk.valid_width_m,
+                        chunk.valid_depth_m,
+                        &bytes,
+                    )?;
                 }
-                // Verify every entity's centre has a baked height sample; a
-                // missing point must be an error, not a silent height-0.
-                for e in &index.entities {
-                    let key = (i64::from(e.world_x) << 32) | (e.world_z as u32 as i64);
-                    if !baked.contains_key(&key) {
-                        return Err(format!(
-                            "entity {} at ({},{}) has no baked height sample; refusing to audit",
-                            e.entity_id, e.world_x, e.world_z
-                        )
-                        .into());
-                    }
+                if baked.encoding()
+                    != Some(glyphweave_core::worldgen::height_encoding_from_style(
+                        &manifest.style,
+                    )?)
+                {
+                    return Err("rules height encoding differs from manifest".into());
                 }
-                let height_at = |x: i32, z: i32| -> f32 {
-                    baked
-                        .get(&((i64::from(x) << 32) | (z as u32 as i64)))
-                        .map(|v| f32::from(*v) / 4.0)
-                        .unwrap_or(0.0)
-                };
-                let opts = glyphweave_core::worldgen::AuditOptions {
-                    height_at: Some(&height_at),
-                    slope_half: Some((8, 8)),
-                };
-                let report = audit_scene(
+                let access = build_access_graph(&index.entities, &baked, water);
+                validate_access_surfaces(&access, &baked, &index.access_surfaces)?;
+                let report = audit_baked_scene(
                     manifest.world.seed ^ scene.seed_offset,
                     scene,
                     &landmarks,
                     &index.entities,
                     water,
                     &rules_dir,
-                    opts,
+                    &baked,
                 )?;
                 total.buildings += report.buildings;
                 total.roads += report.roads;
@@ -2119,6 +2833,15 @@ fn rules_command(args: &[String]) -> CliResult<()> {
                     unruled.len()
                 );
             }
+            if total.rejected_items > 0 {
+                return Err(format!(
+                    "rules audit rejected {} of {} checked entities; report={}",
+                    total.rejected_items,
+                    total.checked_items,
+                    report_path.display()
+                )
+                .into());
+            }
             Ok(())
         }
         other => Err(format!("unknown rules subcommand {other:?}").into()),
@@ -2127,6 +2850,68 @@ fn rules_command(args: &[String]) -> CliResult<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn road_grounding_compares_metres_without_fourfold_conversion() {
+        let mut road: glyphweave_core::worldgen::EntityInstance =
+            serde_json::from_value(serde_json::json!({
+                "entityId":"generated.road","assetId":"prop.road","kind":"road",
+                "worldX":10,"worldZ":10,"worldY":6,"widthM":20,"depthM":8,"heightM":0.2,"scale":1
+            }))
+            .unwrap();
+        assert!(!road_is_below_ground(&road, 6.));
+        assert!(!road_is_below_ground(&road, 5.75));
+        assert!(road_is_below_ground(&road, 6.25));
+        road.grounding.roadbed_offset_m = 0.25;
+        assert!(!road_is_below_ground(&road, 6.25));
+    }
+
+    #[test]
+    fn graded_road_grounding_compares_exact_millimetres_without_cancellation() {
+        for mm in [-31999_i64,-322,-96,0,96,2049,5861,255999] {
+            let level=mm as f64/1000.;
+            let mut road:glyphweave_core::worldgen::EntityInstance=serde_json::from_value(serde_json::json!({
+                "entityId":"generated.road-auto.test","assetId":"prop.road","kind":"road","worldX":0,"worldZ":0,"worldY":level.floor() as i32,"widthM":64,"depthM":8,"heightM":0.24,"scale":1,
+                "grounding":{"bottomOffsetM":level-level.floor(),"roadProfile":{"version":1,"start":[-32,0],"end":[32,0],"elevationsMm":vec![mm;65],"maxFillMm":6000}}
+            })).unwrap();
+            assert!(!road_is_below_ground(&road,level as f32),"{mm}mm must not fail from f32 cancellation");
+            assert!(road_is_below_ground(&road,(level+0.001) as f32),"1mm burial must fail");
+            road.grounding.bottom_offset_m+=0.01;
+            assert!(road_is_below_ground(&road,level as f32),"invalid profile/entity centre must not bypass checks");
+        }
+    }
+    #[test]
+    fn authored_asset_contract_takes_precedence_over_kind_contract() {
+        let contracts = serde_json::json!({
+            "building": {"type":"generic"},
+            "asset:bridge.custom": {"type":"bridge", "minWidthM":100}
+        });
+        let map = contracts.as_object().unwrap();
+        let entity = glyphweave_core::worldgen::EntityInstance {
+            entity_id: "custom-landmark".into(),
+            asset_id: "bridge.custom".into(),
+            kind: "building".into(),
+            world_x: 0,
+            world_z: 0,
+            world_y: 0,
+            scale: 1.,
+            width_m: 120.,
+            depth_m: 12.,
+            height_m: 20.,
+            rotation_y_deg: 0.,
+            grounding: Default::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        assert_eq!(
+            contract_for_entity(Some(map), &entity, true).unwrap()["type"],
+            "bridge"
+        );
+        assert_eq!(
+            contract_for_entity(Some(map), &entity, false).unwrap()["type"],
+            "generic"
+        );
+    }
+
     use super::*;
 
     #[test]

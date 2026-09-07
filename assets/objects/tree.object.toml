@@ -17,7 +17,7 @@ rotations = "any"
 [environment]
 on_ground = true
 not_in_water = true
-max_slope = 30              # 树可稍陡
+max_slope = 70              # 自然树可在坡地生长
 allowed_biomes = ["grassland", "forest", "urban_green"]
 
 [[relations.avoid]]

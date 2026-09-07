@@ -1,0 +1,21 @@
+id = "coastal_linear_feature"
+kind = "sidewalk"
+applies_to = ["fence", "guardrail", "boardwalk"]
+tags = ["coastal", "linear", "barrier"]
+[geometry]
+footprint = [12.0, 3.0]
+height = 1.4
+clearance = 0.25
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 18
+[[relations.avoid]]
+kind = "building"
+distance = 0.5
+[placement]
+phase = "functional"
+priority = 42
+attempts = 12
+allow_rotate = true
+fallback = "move"

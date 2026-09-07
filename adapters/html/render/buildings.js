@@ -26,25 +26,25 @@ export function addBridgeBeam(group, x1, y1, x2, y2, z, thickness, material, THR
 
 export function makeBridgeStructure(spec, THREE, heightAt) {
   const bridge = new THREE.Group()
-  const steel = new THREE.MeshStandardMaterial({ color: '#58636a', roughness: .78, metalness: .42 })
-  const darkSteel = new THREE.MeshStandardMaterial({ color: '#303b40', roughness: .82, metalness: .35 })
+  const steel = new THREE.MeshStandardMaterial({ color: '#b7c7c7', roughness: .62, metalness: .5 })
+  const darkSteel = new THREE.MeshStandardMaterial({ color: '#536a73', roughness: .76, metalness: .38 })
   const concrete = new THREE.MeshStandardMaterial({ color: '#a29d91', roughness: .96 })
-  const road = new THREE.MeshStandardMaterial({ color: '#343b3d', roughness: .92 })
-  const tower = new THREE.MeshStandardMaterial({ color: '#d0c3a7', roughness: .9 })
+  const road = new THREE.MeshStandardMaterial({ color: '#47565a', roughness: .84 })
+  const tower = new THREE.MeshStandardMaterial({ color: '#e0d2ad', roughness: .82 })
   const flag = new THREE.MeshStandardMaterial({ color: '#a43c32', roughness: .82 })
   const marking = new THREE.MeshStandardMaterial({ color: '#c7c9bd', roughness: .78 })
   const length = spec.widthM || 4588
   const width = spec.depthM || 19.5
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(length, 1.2, width), road)
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(length, 1.8, width), road)
   bridge.add(deck)
   for (const z of [-4.5, 4.5]) {
     const laneLine = new THREE.Mesh(new THREE.BoxGeometry(length, .035, .12), marking)
-    laneLine.position.set(0, .62, z)
+    laneLine.position.set(0, .92, z)
     bridge.add(laneLine)
   }
   for (const z of [-width / 2 - .45, width / 2 + .45]) {
     const parapet = new THREE.Mesh(new THREE.BoxGeometry(length, 1.4, .35), darkSteel)
-    parapet.position.set(0, 1.25, z)
+    parapet.position.set(0, 1.62, z)
     bridge.add(parapet)
   }
   const railDeck = new THREE.Mesh(new THREE.BoxGeometry(length, .9, 14), darkSteel)
@@ -104,7 +104,15 @@ export function makeBridgeStructure(spec, THREE, heightAt) {
     portal.position.set(side * (length / 2 - 70), towerHeight - 4, 0)
     bridge.add(portal)
   }
-  bridge.position.set(spec.worldX, spec.worldY, spec.worldZ)
+  // GroundingSpec uses a bottom pivot for bridges. The deck geometry is centered
+  // on its local origin, therefore move the render group by half its thickness
+  // so the deck underside sits exactly at entity.worldY.
+  bridge.position.set(spec.worldX, spec.worldY + .9, spec.worldZ)
+  // Water is translucent and depth-write disabled; keep the authored bridge
+  // visibly above the water surface in every 2.5D camera.
+  bridge.renderOrder = 30
+  bridge.traverse(object => { if (object.isMesh) object.renderOrder = 30 })
+  if (Number.isFinite(spec.rotationYDeg)) bridge.rotation.y = THREE.MathUtils.degToRad(spec.rotationYDeg)
   // Approach ramps: both ends step down from the deck to the shore so the
   // bridge never ends in a floating vertical cut. Each ramp is a short sloped
   // road slab from the deck edge down to the ground height at that end.
@@ -116,7 +124,10 @@ export function makeBridgeStructure(spec, THREE, heightAt) {
       const x0 = side * (deckEdge - rampLength)
       const x1 = side * deckEdge
       const xEnd = side * (deckEdge + rampLength)
-      const groundAtEnd = heightAt(spec.worldX + xEnd, spec.worldZ) - spec.worldY
+      // Entity worldY is the bottom of the deck. The bridge group is lifted by
+      // half the deck thickness, so ramp samples are expressed in that group
+      // frame and join the natural shore exactly.
+      const groundAtEnd = heightAt(spec.worldX + xEnd, spec.worldZ) - spec.worldY - .6
       const segments = Math.ceil(rampLength / rampStep)
       for (let seg = 0; seg < segments; seg++) {
         const xA = x0 + seg * rampStep * side
@@ -215,14 +226,14 @@ export function makeHongKongTower(spec, THREE) {
 // houses) instead of clipping through the grass.
 export function applySlopeFoundation(group, entity, heightAt, THREE, plinthColor = '#9a938a') {
   if (!heightAt || !entity) return
-  const hw = entity.widthM * .5
-  const hd = entity.depthM * .5
+  const hw = Math.abs(entity.widthM || 0) * .5
+  const hd = Math.abs(entity.depthM || 0) * .5
+  const yaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
+  const cos = Math.cos(yaw); const sin = Math.sin(yaw)
+  const toWorld = (x, z) => [entity.worldX + x * cos + z * sin, entity.worldZ - x * sin + z * cos]
   const corners = [
-    [entity.worldX - hw, entity.worldZ - hd],
-    [entity.worldX + hw, entity.worldZ - hd],
-    [entity.worldX - hw, entity.worldZ + hd],
-    [entity.worldX + hw, entity.worldZ + hd],
-    [entity.worldX, entity.worldZ],
+    toWorld(-hw, -hd), toWorld(hw, -hd), toWorld(-hw, hd), toWorld(hw, hd),
+    toWorld(0, 0),
   ]
   const groundLevels = corners.map(([cx, cz]) => heightAt(cx, cz))
   const minGround = Math.min(...groundLevels)
@@ -232,8 +243,10 @@ export function applySlopeFoundation(group, entity, heightAt, THREE, plinthColor
   // Keep the foundation in that local frame; writing world coordinates here
   // would apply the entity position a second time and create apparent sinking
   // or detached plinths.
-  const top = .4
-  const bottom = minGround - .3 - anchor
+  // Stop exactly at the natural low side. The old extra -0.3m margin made the
+  // plinth cut below the baked surface and read as an artificial excavation.
+  const top = .26
+  const bottom = minGround - anchor
   if (top <= bottom + .4) return
   const plinth = new THREE.Mesh(
     new THREE.BoxGeometry(entity.widthM + .6, top - bottom, entity.depthM + .6),
@@ -368,6 +381,56 @@ export function makeResidentialTower(entity, THREE, heightAt) {
 
 // American-style detached home on its own lot, with a front yard and a single
 // family house — low-rise and spread out, distinct from the dense core.
+// Road-first BuildingPlan dimensions describe the BUILDING, not its lot.
+// Keep the old compound recipe only for legacy entities without that contract.
+// Exact Rust-planned service envelope; no browser-invented campus, car park,
+// perimeter fence or annex. Architectural detailing remains a separate task.
+export function makePlannedServiceBuilding(entity, THREE) {
+  const group = new THREE.Group()
+  group.name = 'planned-service:' + entity.entityId
+  group.userData.sourceEntityId = entity.entityId
+  group.userData.footprintOnly = true
+  group.userData.programKind = entity.kind
+  const colors = { school: '#dbc798', church: '#c7c5bc', town_hall: '#b4c5cd', market: '#c7b287', convenience_store: '#c8d5c0' }
+  const roofHeight = .35
+  const body = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM, entity.heightM - roofHeight, entity.depthM), new THREE.MeshStandardMaterial({ color: colors[entity.kind] ?? '#d0cbc0', roughness: .9 }))
+  body.name = 'building-body'; body.position.y = (entity.heightM - roofHeight) / 2; group.add(body)
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM, roofHeight, entity.depthM), new THREE.MeshStandardMaterial({ color: '#56616a', roughness: .9 }))
+  roof.name = 'building-roof'; roof.position.y = entity.heightM - roofHeight / 2; group.add(roof)
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.1), new THREE.MeshStandardMaterial({ color: '#47565b' }))
+  door.name = 'front-door'; door.rotation.y = Math.PI; door.position.set(0, 1.05, -entity.depthM / 2 - .002); group.add(door)
+  for (const side of [-1, 1]) {
+    const window = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(3, entity.widthM * .2), 1.4), new THREE.MeshStandardMaterial({ color: '#91b4c4', roughness: .4 }))
+    window.name = 'front-window'; window.rotation.y = Math.PI; window.position.set(side * entity.widthM * .3, Math.min(2, entity.heightM * .5), -entity.depthM / 2 - .002); group.add(window)
+  }
+  group.position.set(entity.worldX, entity.worldY, entity.worldZ)
+  return group
+}
+
+export function makePlannedResidentialHome(entity, THREE) {
+  const group=new THREE.Group()
+  group.name='planned-building:'+entity.entityId
+  group.userData.footprintOnly=true
+  const w=entity.widthM, d=entity.depthM, h=entity.heightM
+  const roofH=Math.min(2,h*.25), wallH=h-roofH
+  const wall=new THREE.MeshStandardMaterial({color:'#ddd6c7',roughness:.95})
+  const body=new THREE.Mesh(new THREE.BoxGeometry(w,wallH,d),wall)
+  body.name='building-body';body.position.y=wallH*.5;group.add(body)
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(1,1,4),new THREE.MeshStandardMaterial({color:'#8a5a42',roughness:.9}))
+  roof.geometry.rotateY(Math.PI/4)
+  roof.scale.set(w/Math.SQRT2,roofH,d/Math.SQRT2)
+  roof.name='building-roof';roof.position.y=wallH+roofH*.5;group.add(roof)
+  const door=new THREE.Mesh(new THREE.PlaneGeometry(1.2,2.1),new THREE.MeshStandardMaterial({color:'#584133',roughness:.9}))
+  // Local front is -Z, matching Rust SpatialAnchor and the serialized yaw.
+  door.name='front-door';door.rotation.y=Math.PI;door.position.set(0,1.05,-d*.5-.002);group.add(door)
+  for(const side of [-1,1]) {
+    const win=new THREE.Mesh(new THREE.PlaneGeometry(Math.min(2,w*.16),1.5),new THREE.MeshStandardMaterial({color:'#8eb4c0',roughness:.35}))
+    win.name='front-window';win.rotation.y=Math.PI;win.position.set(side*w*.3,wallH*.55,-d*.5-.002);group.add(win)
+  }
+  group.position.set(entity.worldX,entity.worldY,entity.worldZ)
+  return group
+}
+
 export function makeResidentialHome(entity, THREE, heightAt) {
   const group = new THREE.Group()
   const lotMat = new THREE.MeshStandardMaterial({ color: '#6d9a52', roughness: 1 })
@@ -996,3 +1059,95 @@ export const CGA_STYLES = {
   resort_lodge: CGA_RESORT,
 }
 
+
+
+// Generic static coastal/urban feature builder. Entity-local geometry is kept
+// separate from world transforms so the same visual contract works for landmarks
+// and generated entities.
+export function makeCoastalFeature(spec, THREE) {
+  const type = spec.type || spec.entityType || spec.kind || 'hill'
+  const w = Math.max(1, Number(spec.widthM) || 20)
+  const d = Math.max(1, Number(spec.depthM) || 20)
+  const h = Math.max(.1, Number(spec.heightM) || 1)
+  const group = new THREE.Group()
+  group.userData.sourceEntityId = spec.entityId
+  const material = (color, roughness = .86, metalness = 0, emissive = null) => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...(emissive ? { emissive, emissiveIntensity: .24 } : {}) })
+  const add = (mesh, x = 0, y = 0, z = 0) => { mesh.position.set(x, y, z); group.add(mesh); return mesh }
+  const box = (ww, hh, dd, mat, x = 0, y = hh * .5, z = 0) => add(new THREE.Mesh(new THREE.BoxGeometry(ww, hh, dd), mat), x, y, z)
+  const post = (r, hh, mat, x = 0, y = hh * .5, z = 0) => add(new THREE.Mesh(new THREE.CylinderGeometry(r * .86, r, hh, 7), mat), x, y, z)
+  const glass = material('#6e9eae', .22, .42)
+  const darkGlass = material('#294d5b', .2, .52)
+  const concrete = material('#aaa69b', .94)
+  const trim = material('#d6c6a1', .72, .12)
+  const green = material('#4d794e', .96)
+  const rock = material('#747b70', .98)
+  const rockLight = material('#92978a', .96)
+  if (type === 'rock_mountain' || type === 'mountain') {
+    const max = Math.max(w, d)
+    const skirt = add(new THREE.Mesh(new THREE.CylinderGeometry(max * .47, max * .6, h * .2, 9), rock), 0, h * .1, 0); skirt.scale.z = d / max
+    for (const [x, z, sc, hh, mat] of [[-.2, .03, .74, .82, rock], [.2, -.08, .56, .72, rockLight], [0, .18, .36, 1, rock]]) {
+      const ridge = add(new THREE.Mesh(new THREE.ConeGeometry(max * .5 * sc, h * hh, 7), mat), x * w, h * hh * .5 + h * .16, z * d); ridge.scale.z = d / max; ridge.rotation.y = x * 1.7 + z
+    }
+    for (let i = 0; i < 4; i++) box(w * (.28 - i * .03), .45, d * (.2 - i * .015), i % 2 ? rockLight : rock, (i - 1.5) * w * .12, h * (.25 + i * .12), (i % 2 ? -.16 : .16) * d)
+  } else if (type === 'hill') {
+    const base = add(new THREE.Mesh(new THREE.CylinderGeometry(w * .45, w * .56, h * .13, 12), green), 0, h * .065, 0); base.scale.z = d / w
+    const body = add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), green), -w * .06, h * .38, d * .04); body.scale.set(w * .53, h * .7, d * .53); body.rotation.y = -.18
+    const shoulder = add(new THREE.Mesh(new THREE.SphereGeometry(1, 12, 7), material('#668b58', .98)), w * .18, h * .56, -d * .08); shoulder.scale.set(w * .27, h * .45, d * .3)
+  } else if (type === 'shopping_mall') {
+    const podium = Math.max(4, h * .42)
+    box(w, podium, d, concrete, 0, podium * .5)
+    box(w * .88, h * .4, d * .7, darkGlass, 0, podium + h * .2, -d * .03)
+    for (const x of [-.28, .28]) box(w * .3, h * .56, d * .8, glass, x * w, podium + h * .28, d * .05)
+    box(w * .74, .7, d * .86, trim, 0, h * .98)
+    box(w * .3, .32, .18, material('#e2c35f', .58, .1, '#c99725'), 0, h * .6, d * .5 + .12)
+    box(w * .16, h * .28, .16, glass, 0, podium + h * .14, d * .5 + .16)
+    for (const x of [-.34, -.17, 0, .17, .34]) box(w * .025, podium * .7, .16, trim, x * w, podium * .56, d * .5 + .12)
+  } else if (type === 'office_tower') {
+    box(w * .84, Math.max(5, h * .14), d * 1.08, concrete, 0, h * .07)
+    box(w * .72, h * .78, d * .7, darkGlass, 0, h * .53)
+    for (const x of [-.5, .5]) box(.34, h * .82, d * .78, trim, x * w * .38, h * .55)
+    for (let y = h * .22; y < h * .94; y += Math.max(4, h * .12)) box(w * .76, .18, d * .76, trim, 0, y)
+    box(w * .82, .8, d * .9, trim, 0, h * .96)
+    post(Math.min(w, d) * .08, h * .16, glass, 0, h * 1.03)
+  } else if (type === 'convenience_store') {
+    const bh = Math.max(2.8, h)
+    box(w, bh, d, material('#d4b77d', .84), 0, bh * .5)
+    box(w * .94, .35, d * 1.02, material('#bf3c38', .72, .04, '#681c1b'), 0, bh + .18)
+    box(w * .72, bh * .5, .12, glass, 0, bh * .34, d * .5 + .08)
+    box(w * .16, bh * .5, .14, darkGlass, -w * .28, bh * .34, d * .5 + .1)
+    box(w * .16, bh * .5, .14, darkGlass, w * .28, bh * .34, d * .5 + .1)
+    box(w * .7, .12, d * .32, material('#7d9b66', 1), 0, .08, -d * .58)
+  } else if (type === 'fence' || type === 'guardrail') {
+    const rail = type === 'guardrail' ? material('#aeb9b6', .42, .65) : material('#74543b', .88)
+    const spacing = type === 'guardrail' ? 4 : 3; const count = Math.max(2, Math.ceil(w / spacing))
+    for (let i = 0; i <= count; i++) post(type === 'guardrail' ? .09 : .11, h, rail, -w * .5 + w * i / count)
+    for (const y of [h * .42, h * .78]) box(w, .12, .12, rail, 0, y)
+    if (type === 'fence') box(w, h * .45, .035, material('#9a7855', 1), 0, h * .48)
+  } else if (type === 'boardwalk') {
+    box(w, .3, d, material('#a9784b', .95), 0, .15)
+    for (let x = -w * .5 + 1; x < w * .5; x += 2) box(.07, .34, d * 1.02, material('#60442f', 1), x, .18)
+    for (const z of [-d * .5 - .25, d * .5 + .25]) { box(w, .55, .1, material('#70523d', .92), 0, .36, z); for (let x = -w * .5 + 4; x < w * .5; x += 8) post(.08, 1.3, material('#70523d', .92), x, .65, z) }
+  } else if (type === 'scenic_belt') {
+    box(w, .2, d, material('#688558', 1), 0, .1)
+    for (let x = -w * .46; x <= w * .46; x += 12) { const z = Math.sin(x * .09) * d * .25; post(.35, Math.max(2, h * .38), material('#614935', 1), x, 0, z); const crown = add(new THREE.Mesh(new THREE.DodecahedronGeometry(Math.max(1.6, h * .3), 1), material(x % 24 ? '#3f7048' : '#527f4e', 1)), x, h * .55, z); crown.scale.y = .9 }
+  } else if (type === 'mudflat') {
+    box(w, .16, d, material('#9e8a6c', 1), 0, .08)
+    for (let x = -w * .42; x < w * .42; x += 9) { const channel = box(.18, .05, d * .65, material('#6e5b49', 1), x, .18, (x % 18) * .04); channel.rotation.y = .04 * Math.sin(x) }
+    for (let i = 0; i < 12; i++) post(.18 + (i % 3) * .08, .05, material('#b6a27e', 1), (i * 37 % 100) / 100 * w - w * .5, .19, (i * 61 % 100) / 100 * d - d * .5, 6)
+  } else if (type === 'night_market') {
+    box(w, .16, d, material('#746858', .94), 0, .08)
+    for (let i = 0; i < 5; i++) { const x = -w * .38 + i * w * .19; box(w * .13, h * .52, d * .46, i % 2 ? material('#bc6e4e', .84) : material('#9b5945', .87), x, h * .27); box(w * .16, .18, d * .56, i % 2 ? material('#e1b45e', .7, .05, '#c68a26') : material('#d5d0a2', .78), x, h * .66); post(.045, h * .62, material('#3d3029', .9), x - w * .07, h * .31, -d * .28); post(.045, h * .62, material('#3d3029', .9), x + w * .07, h * .31, -d * .28) }
+    box(w * .9, .06, .06, material('#edc66d', .4, .1, '#d99823'), 0, h * .7, -d * .31)
+  } else if (type === 'community_plaza') {
+    box(w, .22, d, material('#aaa297', .92), 0, .11)
+    for (let x = -w * .45; x < w * .45; x += 4) box(.035, .025, d * .9, material('#888177', 1), x, .235)
+    for (let z = -d * .4; z < d * .4; z += 4) box(w * .9, .025, .035, material('#888177', 1), 0, .24, z)
+    box(w * .16, .3, d * .16, material('#5f7f4d', 1), -w * .22, .4)
+    for (const x of [-w * .32, w * .32]) box(w * .16, .35, .7, material('#6b5641', .95), x, .42, d * .2)
+    box(w * .42, .12, .12, material('#d9c37d', .65, .1, '#c3952b'), 0, 1.4, -d * .28)
+  } else box(w, h, d, material('#7f8870', .98), 0, h * .5)
+  group.position.set(Number(spec.worldX) || 0, Number(spec.worldY) || 0, Number(spec.worldZ) || 0)
+  if (Number.isFinite(spec.rotationYDeg)) group.rotation.y = THREE.MathUtils.degToRad(spec.rotationYDeg)
+  group.userData.visualContract = { kind: type, renderClass: 'coastal-procedural', widthM: w, depthM: d, heightM: h, rotationYDeg: Number(spec.rotationYDeg) || 0, pivot: spec.grounding?.pivot || 'bottom', collisionClass: spec.collisionClass || 'generated-box' }
+  return group
+}

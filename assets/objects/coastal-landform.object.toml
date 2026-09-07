@@ -1,0 +1,26 @@
+id = "coastal_landform"
+kind = "mountain"
+applies_to = ["rock_mountain", "mountain", "hill"]
+tags = ["coastal", "landform", "hard_visual"]
+[geometry]
+footprint = [40.0, 40.0]
+height = 20.0
+clearance = 2.0
+[environment]
+# Landforms are terrain masses, not freestanding props. Their mesh rises
+# from the sampled terrain and must not be rejected as an object bottom.
+on_ground = false
+not_in_water = true
+max_slope = 60
+[[relations.avoid]]
+kind = "road"
+distance = 4.0
+[[relations.avoid]]
+kind = "building"
+distance = 4.0
+[placement]
+phase = "terrain"
+priority = 18
+attempts = 12
+allow_rotate = true
+fallback = "move"

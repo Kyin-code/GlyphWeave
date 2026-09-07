@@ -1,0 +1,12 @@
+{
+  "sceneId": "scene-0",
+  "start": [2496, 5000],
+  "end": [3520, 5000],
+  "roadWidthM": 8,
+  "shoulderWidthM": 3,
+  "maxFillMm": 6000,
+  "maxRiseMmPerM": 80,
+  "startLevelMm": null,
+  "endLevelMm": null,
+  "junctionLengthM": 8
+}

@@ -81,21 +81,24 @@ export function makeRiverGeometry(landmark, THREE) {
 // roughness/metallic read gives it a glassy, reflective surface — Journey-like
 // calm water rather than flat paint. `opacity` here is the min opacity (viewed
 // straight down); grazing angles become near-opaque so the shore reads solid.
-export function makeWaterMaterial(THREE, isRiver, baseColor) {
+export function makeWaterMaterial(THREE, isRiver, baseColor, staticPreview = false) {
+  // Static preview keeps water lit by the normal Three.js PBR pipeline but
+  // disables the custom ripple shader. This avoids the opaque baked water band
+  // turning black while preserving a valid StandardMaterial contract.
   const material = new THREE.MeshStandardMaterial({
-    color: baseColor ?? (isRiver ? '#2e5f6e' : '#326b78'),
-    roughness: .18,
-    metalness: .35,
+    color: baseColor ?? (isRiver ? (staticPreview ? '#4e9baa' : '#2e5f6e') : '#326b78'),
+    roughness: staticPreview ? .34 : .18,
+    metalness: staticPreview ? .08 : .35,
     transparent: true,
-    opacity: .86,
+    opacity: staticPreview ? .94 : .86,
     depthWrite: false,
     side: THREE.DoubleSide,
-    envMapIntensity: 1.4,
+    envMapIntensity: staticPreview ? .45 : 1.4,
   })
   const uniforms = {
     uTime: { value: 0 },
   }
-  material.onBeforeCompile = (shader) => {
+  if (!staticPreview) material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms)
     shader.vertexShader = shader.vertexShader
       .replace(

@@ -146,24 +146,26 @@ export function makeStripGeometry(entity, halfWidth, centerZ, heightAt, THREE, l
   // roads that are wider in depth than width).
   const rawLength = Math.max(entity.widthM || 850, entity.depthM || 850)
   const length = maxLength ? Math.min(rawLength, maxLength) : Math.min(rawLength, 1500)
-  const origin = centerX ?? entity.worldX
+  const yaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
+  const cos = Math.cos(yaw); const sin = Math.sin(yaw)
+  // centerX is the world coordinate along the strip axis used by the preview
+  // recentering optimisation. Convert that shift back into entity-local space
+  // before applying the serialized yaw.
+  const axisOrigin = alongZ ? entity.worldZ : entity.worldX
+  const axisCenter = centerX ?? axisOrigin
+  const localAxisShift = axisCenter - axisOrigin
   const step = 8
   const segments = Math.ceil(length / step)
   const vertices = []
   const indices = []
   for (let i = 0; i <= segments; i++) {
     const t = -length / 2 + Math.min(length, i * step)
-    const edge = t
     for (const off of [centerZ - halfWidth, centerZ + halfWidth]) {
-      if (alongZ) {
-        const x = off
-        const z = edge
-        vertices.push(x, heightAt(entity.worldX + x, entity.worldZ + z) - entity.worldY + lift, z)
-      } else {
-        const x = edge
-        const z = off
-        vertices.push(x, heightAt(origin + x, entity.worldZ + z) - entity.worldY + lift, z)
-      }
+      const localX = alongZ ? off : t + localAxisShift
+      const localZ = alongZ ? t + localAxisShift : off
+      const worldX = entity.worldX + localX * cos + localZ * sin
+      const worldZ = entity.worldZ - localX * sin + localZ * cos
+      vertices.push(alongZ ? off : t, heightAt(worldX, worldZ) - entity.worldY + lift, alongZ ? t : off)
     }
   }
   for (let i = 0; i < segments; i++) {
@@ -312,10 +314,18 @@ export function makeSteppeGrass(THREE, worldX, worldZ, width, depth, heightAt, c
 // Minecraft / Journey-style terrain: no texture map, just flat vertex colours
 // graded by height and slope, lit by a simple Lambert light. This gives the
 // clean "painted blocks" look instead of a noisy photoreal smear.
-export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth, meshStep, THREE) {
-  const geo = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep)))
+export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth, meshStep, THREE, waterLevel = 0) {
+  if(!Number.isInteger(meshStep)||meshStep<1)throw new Error('Invalid terrain mesh spacing')
+  const cols=Math.ceil(width/meshStep), rows=Math.ceil(depth/meshStep)
+  const geo = new THREE.PlaneGeometry(width, depth, cols, rows)
   geo.rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
+  // Integer metre positions, not width/(width-1) stretched sample locations.
+  // The last boundary vertex extends the final sample to the chunk edge.
+  for(let i=0;i<pos.count;i++) {
+    pos.setX(i,Math.min((i%(cols+1))*meshStep,width)-width/2)
+    pos.setZ(i,Math.min(Math.floor(i/(cols+1))*meshStep,depth)-depth/2)
+  }
   const colors = new Float32Array(pos.count * 3)
   const palette = seasonPalettes[groundPresets.season] ?? groundPresets.palette
   const lerp = (a, b, t) => a + (b - a) * t
@@ -333,12 +343,13 @@ export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth
   for (let i = 0; i < pos.count; i++) {
     const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
     const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
-    pos.setY(i, heightView.getInt16((z * width + x) * 2, true) / 4)
+    const surface = surfaceView?.[z * width + x] ?? 0
+    pos.setY(i, surface === 3 ? waterLevel : heightView.readMetres(z * width + x))
   }
   for (let i = 0; i < pos.count; i++) {
     const x = Math.min(width - 1, Math.max(0, Math.round(pos.getX(i) + width / 2)))
     const z = Math.min(depth - 1, Math.max(0, Math.round(pos.getZ(i) + depth / 2)))
-    const h = heightView.getInt16((z * width + x) * 2, true) / 4
+    const h = heightView.readMetres(z * width + x)
     const surface = surfaceView?.[z * width + x] ?? 0
     const semantic = semanticsAt(x, z)
     // Absolute elevation prevents every chunk from independently remapping its
@@ -346,13 +357,16 @@ export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth
     // signals: damp concave ground deepens, exposed slopes dry out, and pads
     // remain visually quieter without changing their authoritative height.
     const elevation = Math.max(0, Math.min(1, (h - 1) / 42))
-    let rgb = elevation < .45
-      ? mixRgb(palette.low, palette.mid, elevation / .45)
-      : mixRgb(palette.mid, palette.high, (elevation - .45) / .55)
+    let rgb = surface === 3
+      ? [39, 103, 119]
+      : elevation < .45
+        ? mixRgb(palette.low, palette.mid, elevation / .45)
+        : mixRgb(palette.mid, palette.high, (elevation - .45) / .55)
     const wet = Math.max(0, Math.min(1, semantic.wetness + semantic.curvature * .13))
     const dry = Math.max(0, semantic.slope * .72 - wet * .22)
-    rgb = mixRgb(rgb, [44, 91, 47], wet * .34)
-    rgb = mixRgb(rgb, [151, 132, 72], dry * .32)
+    if (surface !== 3) rgb = mixRgb(rgb, [44, 91, 47], wet * .34)
+    if (surface !== 3) rgb = mixRgb(rgb, [151, 132, 72], dry * .32)
+    if (surface === 3) rgb = mixRgb(rgb, [25, 76, 91], .32)
     if (surface === 4 || surface === 5 || surface === 7) rgb = mixRgb(rgb, [103, 89, 57], .38 + wet * .24)
     if (surface === 2) rgb = mixRgb(rgb, [104, 101, 91], .72)
     // Disturbance is a land-cover signal, not a second terrain operation: the
@@ -383,7 +397,7 @@ export function makeTerrainPbrMaps(heightView, surfaceView, terrainView, width, 
   const heightAt = (x, z) => {
     const sx = Math.max(0, Math.min(width - 1, x))
     const sz = Math.max(0, Math.min(depth - 1, z))
-    return heightView.getInt16((sz * width + sx) * 2, true) / 4
+    return heightView.readMetres(sz * width + sx)
   }
   for (let z = 0; z < depth; z++) for (let x = 0; x < width; x++) {
     const dx = (heightAt(x + 1, z) - heightAt(x - 1, z)) * .5
@@ -523,7 +537,7 @@ export function makeSteppeGroundMaterial(THREE, baseColorTop, baseColorBottom) {
         `
       )
       .replace(
-        '#include <roughnessmap_fragment>',
+        '#include <color_fragment>',
         /* glsl */ `
         // Runs AFTER the standard color_fragment (which applied the baked MC
         // vertex-color grass palette). Layer tonal / warm-cool / moss variation

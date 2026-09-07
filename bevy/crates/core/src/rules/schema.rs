@@ -25,6 +25,19 @@ pub enum ItemKind {
     Bench,
     BusStop,
     FoodStall,
+    Mountain,
+    Hill,
+    ShoppingMall,
+    OfficeTower,
+    ConvenienceStore,
+    Fence,
+    Guardrail,
+    Boardwalk,
+    ScenicBelt,
+    Mudflat,
+    NightMarket,
+    CommunityPlaza,
+    Mangrove,
     Other,
 }
 
@@ -41,6 +54,18 @@ impl ItemKind {
                 | ItemKind::Bridge
                 | ItemKind::Park
                 | ItemKind::Sidewalk
+                | ItemKind::Mountain
+                | ItemKind::Hill
+                | ItemKind::ShoppingMall
+                | ItemKind::OfficeTower
+                | ItemKind::ConvenienceStore
+                | ItemKind::Fence
+                | ItemKind::Guardrail
+                | ItemKind::Boardwalk
+                | ItemKind::ScenicBelt
+                | ItemKind::Mudflat
+                | ItemKind::NightMarket
+                | ItemKind::CommunityPlaza
         )
     }
 }
@@ -196,6 +221,16 @@ pub struct RelationNear {
     pub weight: f32,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all="snake_case")]
+pub enum RequiredDistanceMetric { #[default] Center, Footprint }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationRequiredNear {
+    pub kind: ItemKind, pub distance:f32,
+    #[serde(default)] pub weight:f32,
+    #[serde(default)] pub distance_metric:RequiredDistanceMetric,
+}
 /// Relations to other objects (hard avoid/require + soft prefer).
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -207,7 +242,7 @@ pub struct RelationSpec {
     #[serde(default, alias = "avoid_tag")]
     pub avoid_tags: Vec<RelationAvoidTag>,
     #[serde(default)]
-    pub require: Vec<RelationNear>,
+    pub require: Vec<RelationRequiredNear>,
     #[serde(default)]
     pub prefer: Vec<RelationNear>,
 }
@@ -306,6 +341,19 @@ pub fn descriptor_kind_str(kind: ItemKind) -> Option<&'static str> {
         ItemKind::Bench => "bench",
         ItemKind::BusStop => "bus_stop",
         ItemKind::FoodStall => "food_stall",
+        ItemKind::Mountain => "mountain",
+        ItemKind::Hill => "hill",
+        ItemKind::ShoppingMall => "shopping_mall",
+        ItemKind::OfficeTower => "office_tower",
+        ItemKind::ConvenienceStore => "convenience_store",
+        ItemKind::Fence => "fence",
+        ItemKind::Guardrail => "guardrail",
+        ItemKind::Boardwalk => "boardwalk",
+        ItemKind::ScenicBelt => "scenic_belt",
+        ItemKind::Mudflat => "mudflat",
+        ItemKind::NightMarket => "night_market",
+        ItemKind::CommunityPlaza => "community_plaza",
+        ItemKind::Mangrove => "mangrove",
         ItemKind::Other => return None,
     })
 }

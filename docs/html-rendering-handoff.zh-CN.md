@@ -23,6 +23,22 @@ GlyphWeave 是一个程序化世界生成器（Rust 核心生成 `.gemap`/manife
 
 ## 2. 渲染探索完整时间线
 
+### 阶段 0：最早期纯自然地形工程（GlyphWeave Rust 生成器之前的 JS 实验）
+
+在 GlyphWeave 的 Rust worldgen 成熟前，Kyin 用**独立 JS 脚本（根目录 `.mjs`）直接生成网格世界 `.gemap`**，探索纯自然地形 + 视觉。这些不是渲染管线方案，但包含了地形设计 → 是理解"我们想要什么样的自然地形"的起点：
+
+| 脚本 | 产出 | 内容 | 备注 |
+|------|------|------|------|
+| `gen-wadi.mjs` | `badlands-wadi.gemap` | 岩漠干河谷（Civ-style，480×270），半岩漠半沙漠 + 干河绿洲 | 有 `badlands-wadi.png` 截图 |
+| `generate-desert.mjs` | 南海群岛（640×360） | atoll 环礁 + 渔村 + 岛礁 | `nanhai.png` |
+| `generate-mega.mjs` | `aethra-mega.gemap` | 灼沙干河 v4（960×540，51.8 万格） | `aethra-*.png` |
+| `generate-city.mjs` | `eldoria-city.gemap` | 超大城市（先规划街区→街道→代码填建筑） | `eldoria-*.png`、`my-dungeon.gemap`（参考简律纯思路） |
+| 手动 | `artifacts/nature-test` | 自然地形测试（4000×4000，seed 42） | Rust 生成器早期自然测试 |
+| 手动 | `artifacts/skeleton-test` | 地形骨架测试（ridge 噪声骨架早期版） | 对应 `docs/mapgen4-hydrology-plan.zh-CN.md` 的 A 阶段 |
+| 手动 | `artifacts/grassland` | **内蒙草原**（纯自然、wgen 抛物面丘陵 + naturalOnly） | 后期重点，见阶段 A |
+
+**这条线的价值**：验证了"纯 JS 生成 + 单文件 .gemap + 简单渲染"能快速看地形效果；但单文件全内存、无分块，无法做大世界 → 催生了 Rust 生成器 + chunk 化（512m 分块）架构。地形风格从"噪声色块"进化到"ridge 骨架 → 水文 → 气候 biome"（Rust worldgen 三阶段，见 `docs/mapgen4-hydrology-plan.zh-CN.md`、`modern-mainland-morphology.zh-CN.md`）。
+
 ### 阶段 A：早期"仿陈星汉花"方向（深圳湾 → 草原）
 
 | 时间 | 尝试 | 结果 | 教训 |

@@ -18,13 +18,13 @@
     canvas { display: block; width: 100%; height: 100%; }
     .chunk-nav { position: fixed; z-index: 10; width: 46px; height: 46px; border-radius: 8px; font-size: 20px; font-weight: 800; background: rgba(26,38,34,.72); border: 1px solid #52645a; color: #cfe3cf; cursor: pointer; display: none; align-items: center; justify-content: center; user-select: none; }
     .chunk-nav:hover { background: rgba(43,58,51,.92); border-color: #8da88f; }
-    .chunk-nav.near { display: flex; }
+    .chunk-nav.near { display: none !important; }
     #chunk-up { left: calc(50% - 23px); top: 82px; }
     #chunk-down { left: calc(50% - 23px); bottom: 24px; }
     #chunk-left { left: 20px; top: calc(50% - 23px); }
     #chunk-right { right: 20px; top: calc(50% - 23px); }
     #chunk-label { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; background: rgba(20,30,26,.8); border: 1px solid #3a4a42; border-radius: 6px; padding: 5px 12px; font-family: monospace; font-size: 12px; color: #9eafa3; display: none; z-index: 10; white-space: nowrap; }
-    #chunk-label.near { display: block; }
+    #chunk-label.near { display: none !important; }
     #info { margin-left: auto; font-family: monospace; color: #9eafa3; }
     #help { color: #8fa197; font-size: 12px; white-space: nowrap; }
     :fullscreen header { display: none; }
@@ -38,7 +38,7 @@
   </style>
 </head>
 <body>
-  <header><strong id="title">GlyphWeave World</strong><button id="strategic">战略图</button><button id="skyline">天际线全景</button><button id="close">2.5D 近景</button><button id="street">沿街街景</button><button id="bridgehead">桥头堡近景</button><button id="explore">第一人称探索</button><button id="fullscreen">全屏</button><select id="scene"></select><span id="help">2.5D: 左键平移 · Alt+左键旋转 · 探索: WASD移动 · 拖拽环视</span><span id="info"></span></header>
+  <header><strong id="title">GlyphWeave World</strong><button id="strategic">战略图</button><button id="close">2.5D 近景</button><select id="scene" hidden></select><span id="help">战略图 / 2.5D 近景</span><span id="info"></span></header>
   <main id="viewport"><canvas id="map"></canvas></main>
   <button id="chunk-up" class="chunk-nav" title="相邻 chunk 上方">▲</button>
   <button id="chunk-down" class="chunk-nav" title="相邻 chunk 下方">▼</button>

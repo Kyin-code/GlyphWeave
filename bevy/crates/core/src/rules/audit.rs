@@ -21,13 +21,14 @@ pub fn entity_to_placed(e: &EntityInstance) -> PlacedKind {
     entity_to_placed_with_descriptor(e, None)
 }
 
-fn entity_to_placed_with_descriptor(
+pub(crate) fn entity_to_placed_with_descriptor(
     e: &EntityInstance,
     descriptor: Option<&super::schema::ObjectDescriptor>,
 ) -> PlacedKind {
     let clearance = descriptor.map(|d| d.geometry.clearance).unwrap_or(0.0);
     let (half_w, half_d) = spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
     PlacedKind {
+        clearance,
         id: if e.entity_id.is_empty() {
             None
         } else {
@@ -74,6 +75,19 @@ pub fn kind_from_str(kind: &str) -> super::schema::ItemKind {
         | "parking_lot"
         | "green_space" => ItemKind::Building,
         "storefront" => ItemKind::Storefront,
+        "mountain" | "rock_mountain" => ItemKind::Mountain,
+        "hill" => ItemKind::Hill,
+        "shopping_mall" => ItemKind::ShoppingMall,
+        "office_tower" => ItemKind::OfficeTower,
+        "convenience_store" => ItemKind::ConvenienceStore,
+        "fence" => ItemKind::Fence,
+        "guardrail" => ItemKind::Guardrail,
+        "boardwalk" => ItemKind::Boardwalk,
+        "scenic_belt" => ItemKind::ScenicBelt,
+        "mudflat" => ItemKind::Mudflat,
+        "night_market" => ItemKind::NightMarket,
+        "community_plaza" => ItemKind::CommunityPlaza,
+        "mangrove" => ItemKind::Mangrove,
         "tree" => ItemKind::Tree,
         "rock" => ItemKind::Rock,
         "water" | "lake" | "river" | "canal" => ItemKind::Water,
@@ -135,6 +149,7 @@ pub fn audit_entities(
         // Treat the entity's centre as a candidate; check its real footprint.
         let (half_w, half_d) = spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
         let fp = Footprint {
+            rotation_y_deg: e.rotation_y_deg,
             cx: e.world_x as f32,
             cz: e.world_z as f32,
             half_w: half_w as f32 + desc.geometry.clearance,
@@ -142,24 +157,37 @@ pub fn audit_entities(
         };
 
         // Exclude the entity itself by stable id / index (not float equality).
+        // Authored landforms own their complete footprint; procedural detail
+        // inside a terrain mass must not make that fixed landmark fail audit.
+        let authored_landform = e.entity_id.starts_with("landmark.")
+            && matches!(desc.kind, ItemKind::Mountain | ItemKind::Hill);
         let others: Vec<PlacedKind> = all_placed
             .iter()
             .enumerate()
             .filter(|(i, p)| {
-                *i != idx && !(p.id.is_some() && p.id.as_deref() == Some(e.entity_id.as_str()))
+                *i != idx
+                    && !(p.id.is_some() && p.id.as_deref() == Some(e.entity_id.as_str()))
+                    && !authored_landform
             })
             .map(|(_, p)| p.clone())
             .collect();
 
         let ground_fp = Footprint {
+            rotation_y_deg: 0.,
             cx: fp.cx,
             cz: fp.cz,
             half_w: half_w as f32,
             half_d: half_d as f32,
         };
-        let footprint_ground = ground_fp
-            .sample_points()
-            .into_iter()
+        // Grounding uses every integer raster sample, not nine probes: an
+        // interior peak can pierce a building without touching its corners.
+        let (min_x, min_z, max_x, max_z) = ctx.bounds;
+        let x0 = (ground_fp.cx - ground_fp.half_w).floor().max(min_x as f32) as i32;
+        let x1 = (ground_fp.cx + ground_fp.half_w).ceil().min(max_x as f32) as i32;
+        let z0 = (ground_fp.cz - ground_fp.half_d).floor().max(min_z as f32) as i32;
+        let z1 = (ground_fp.cz + ground_fp.half_d).ceil().min(max_z as f32) as i32;
+        let footprint_ground = (z0..=z1)
+            .flat_map(|z| (x0..=x1).map(move |x| (x, z)))
             .map(|(x, z)| ctx.height(x, z))
             .fold(f32::NEG_INFINITY, f32::max);
         // A filled/raised pad may leave the entity slightly above the
@@ -205,10 +233,12 @@ pub fn audit_entities(
 /// `kind == "building"`). Entities whose kind string has no descriptor (e.g.
 /// `commercial_center`) are skipped rather than force-fitted onto another
 /// building descriptor 鈥?a mis-fitting rule would report false violations.
-fn descriptor_for<'a>(
+pub(crate) fn descriptor_for<'a>(
     registry: &'a ObjectRegistry,
     e: &EntityInstance,
 ) -> Option<&'a super::schema::ObjectDescriptor> {
+    // Identity is not a rule override. A road-ns ID still has kind `road`
+    // and must not inherit a more permissive sidewalk/transport descriptor.
     registry
         .descriptors
         .values()
@@ -255,10 +285,34 @@ mod tests {
             slope_at: slope,
             slope_at_footprint: None,
             bounds,
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
         }
+    }
+
+    #[test]
+    fn interior_baked_peak_is_not_hidden_between_nine_probes() {
+        let mut entity: EntityInstance = serde_json::from_value(serde_json::json!({
+            "entityId":"interior-peak", "assetId":"prop.building", "kind":"building",
+            "worldX":100, "worldZ":200, "worldY":0,
+            "scale":1.0,"widthM":20.0,"depthM":20.0,"heightM":10.0
+        }))
+        .unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects");
+        let registry = ObjectRegistry::load_dir(&dir).unwrap();
+        let height = |x, z| if x == 103 && z == 203 { 5.0 } else { 0.0 };
+        let mut ctx = ctx_flat((0, 0, 512, 512));
+        ctx.height_at = &height;
+        let report = audit_entities(&[entity.clone()], &registry, &ctx, 42);
+        assert_eq!(report.floating_items, 1);
+        assert_eq!(report.rejected_items, 1);
+        entity.world_y = 5;
+        assert_eq!(
+            audit_entities(&[entity], &registry, &ctx, 42).rejected_items,
+            0
+        );
     }
 
     #[test]
@@ -278,5 +332,27 @@ mod tests {
         assert_eq!(r.buildings, 0);
         assert!(r.rejects.is_empty());
         assert!(r.geometry_collisions == 0);
+    }
+}
+
+#[cfg(test)]
+mod descriptor_identity_tests {
+    use super::*;
+
+    #[test]
+    fn road_like_id_cannot_select_a_more_permissive_descriptor() {
+        let registry = ObjectRegistry::load_dir(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"),
+        )
+        .unwrap();
+        let road: EntityInstance = serde_json::from_value(serde_json::json!({
+            "entityId":"generated.landuse-road-ns.1", "assetId":"prop.road", "kind":"road",
+            "worldX":200,"worldZ":200,"worldY":0,"widthM":100,"depthM":8,"heightM":0.5,"scale":1
+        }))
+        .unwrap();
+        assert_eq!(descriptor_for(&registry, &road).unwrap().id, "road");
+        let mut spoof = road.clone();
+        spoof.kind = "tree".into();
+        assert_eq!(descriptor_for(&registry, &spoof).unwrap().id, "tree_common");
     }
 }

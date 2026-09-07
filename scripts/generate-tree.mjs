@@ -82,7 +82,7 @@ function generateTree() {
  * (starts with `src/`).
  */
 function findTreeBlock(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8')
+  const content = fs.readFileSync(filePath, 'utf-8').replace(/\r\n/g, '\n')
   const regex = /```\n(src\/[\s\S]*?)```/
   const match = content.match(regex)
   if (!match) return null

@@ -1,3 +1,9 @@
+import { makeGradedRoad } from './render/road-profile.js'
+import { verticesOverlapChunks } from './core/render-stream.js'
+import { loadPreviewScene, createRenderStream } from './core/render-stream.js'
+import { createEcologyRenderer } from './render/ecology.js'
+import { loadLandUseLedger } from './core/world.js'
+import { decodeHeightPayload } from './core/height.js'
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
 import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial, makeTerrainPbrMaps } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
@@ -7,7 +13,7 @@ import { makeWaterTexture, makeRiverGeometry, makeWaterMaterial } from './render
 import { makeSkyTexture } from './render/sky.js'
 import { makeVoxelTree, buildTreeInstances, makeMangrove, makeForestPatch, buildRockInstances } from './render/vegetation.js'
 import { makeWaterWell, makeRoadSign, makeStreetLamp, makePedestrian, makeFoodStall } from './render/props.js'
-import { fitAssetToEntity, addBridgeBeam, makeBridgeStructure, makeHongKongTower, applySlopeFoundation, makeResidentialBlock, makeResidentialTower, makeResidentialHome, makeResortLodge, makeSchool, makeCommercialCenter, makeEntertainmentCenter, makeParkingLot, makeTemple, makeChurch, makeFarmland, makePasture, makeCanal, makeTownHall, makeMarket, makeIndustrial, makeStorefront } from './render/buildings.js'
+import { fitAssetToEntity, addBridgeBeam, makeBridgeStructure, makeHongKongTower, applySlopeFoundation, makeResidentialBlock, makeResidentialTower, makeResidentialHome, makePlannedResidentialHome, makePlannedServiceBuilding, makeResortLodge, makeSchool, makeCommercialCenter, makeEntertainmentCenter, makeParkingLot, makeTemple, makeChurch, makeFarmland, makePasture, makeCanal, makeTownHall, makeMarket, makeIndustrial, makeStorefront, makeCoastalFeature } from './render/buildings.js'
 
 const canvas = document.querySelector('#map')
 const context = canvas.getContext('2d')
@@ -20,20 +26,24 @@ let mode = 'strategic'
 let nearPreset = 'harbour'
 // URL presets: ?view=near|skyline|street|explore opens straight into a 3D view.
 const urlView = new URLSearchParams(location.search).get('view')
-if (urlView) { mode = 'near'; nearPreset = ['skyline', 'street', 'explore'].includes(urlView) ? urlView : 'harbour' }
+if (urlView && urlView !== 'ownership') { mode = 'near'; nearPreset = ['skyline', 'street', 'explore', 'bridgehead', 'yard', 'farm', 'services', 'graded-road', 'frontage'].includes(urlView) ? urlView : 'harbour' }
 let webglCanvas
 let nearRenderer
 let nearScene
 let nearCamera
 let nearControls
 let exploreKeys = new Set()
+const STATIC_PREVIEW = true
 let worldWind
 let exploreInputCleanup
 const chunkDataCache = new Map()
 const entityMeshCache = new Map()
 const entityGroupCache = new Map()
 let nearGroupRoot = null
+let ecologyRenderer = null
 let activeChunkKeys = new Set()
+let nearBuildToken = 0
+let renderNearFrame = null
 
 window.glyphweaveSubmitFeedback = async (feedback) => {
   const payload = {
@@ -193,8 +203,15 @@ function resize() {
 // though every part is primitive geometry.
 
 
+let sceneLoadToken = 0
+let renderStream = null
 async function loadScene() {
-  scene = await fetch(`../${world.scenes[sceneSelect.selectedIndex]}`).then(response => response.json())
+  const token = ++sceneLoadToken
+  const loaded = await loadPreviewScene(world.scenes[sceneSelect.selectedIndex], world.revision)
+  loaded.landUseLedger = await loadLandUseLedger(loaded)
+  if (token !== sceneLoadToken) return
+  scene = loaded
+  renderStream = loaded.renderStream ? createRenderStream(loaded) : null
   draw()
 }
 
@@ -242,6 +259,76 @@ function drawStrategicOverlays(ox, oz, scale) {
   }
 }
 
+// Debug view is a read-only projection of Rust's partition. No browser
+// placement, clipping, nearest-parcel inference or realization decisions.
+function drawOwnership(ox, oz, scale) {
+  const plan = scene.developmentPlan
+  if (!plan) { info.textContent = '当前场景没有 Rust 土地归属计划'; return }
+  const colors = { road: '#71b9ce', building: '#edac67', yard: '#cab785', unplanned: '#263b42', managed_grass:'#719555', access_pavement:'#b2aaa0' }
+  context.save()
+  for (const cell of plan.cells) {
+    const r = cell.boundary
+    context.fillStyle = colors[cell.role] ?? '#bf4b52'
+    context.fillRect(ox + (r.x - scene.originX) * scale, oz + (r.z - scene.originZ) * scale, r.widthM * scale, r.depthM * scale)
+  }
+  let surfaceTriangles=0
+  for(const patch of scene.landcoverSurfaces?.patches ?? []) {
+    context.fillStyle=({managed_grass:'#719555',access_pavement:'#b2aaa0',cultivated_soil:'#927046',field_headland:'#baaa70',farm_track:'#a59384'})[patch.material]??'#bf4b52'
+    for(const triangle of patch.triangles) {
+      context.beginPath()
+      triangle.forEach((index,i)=>{const [x,,z]=patch.vertices[index];const px=ox+(x-scene.originX)*scale;const pz=oz+(z-scene.originZ)*scale;if(i===0)context.moveTo(px,pz);else context.lineTo(px,pz)})
+      context.closePath();context.fill();surfaceTriangles+=1
+    }
+  }
+  window.glyphweaveFeedback.visualChecks.ownershipSurfaceTriangles=surfaceTriangles
+  context.strokeStyle = '#99b0aa'; context.lineWidth = .6
+  for (const zone of scene.landUseZones) {
+    context.strokeRect(ox + (zone.worldX - scene.originX) * scale, oz + (zone.worldZ - scene.originZ) * scale, zone.widthM * scale, zone.depthM * scale)
+  }
+  context.font = '13px system-ui'; context.textBaseline = 'middle'
+  context.fillStyle = '#111c22'; context.fillRect(18, 16, 300, 194)
+  const labels = [['road','道路：交叉区域只计一次'],['building','建筑：计划 footprint'],['yard','庭院：候选或待实现'],['unplanned','剩余：无开发／保护实施'],['managed_grass','庭院地表：实际 Rust 网格'],['access_pavement','步道：复用实际入口通路']]
+  labels.forEach(([role,label],i) => {
+    context.fillStyle = colors[role]; context.fillRect(28,30+i*28,14,14)
+    context.fillStyle = '#e2e9e6'; context.fillText(label,52,37+i*28)
+  })
+  context.restore()
+  const ledger = scene.landUseLedger
+  if (ledger) {
+    // Display Rust's numbers verbatim, never derive land use from visible props.
+    context.save()
+    context.fillStyle = '#111c22'; context.fillRect(18, 220, 620, 190)
+    context.textBaseline = 'middle'; context.fillStyle = '#e2e9e6'; context.font = '13px system-ui'
+    context.fillText(scene.renderStream ? '用地账本：全图；实际地表网格：仅当前已加载块' : '用地账本 · Rust bake 诊断（独立验收请运行 CLI）', 28, 238)
+    const columns = [28, 126, 228, 360, 492]
+    ;['用途', '目标比例', '规划 m²', '已实现 m²', '未实现 m²'].forEach((text, i) => context.fillText(text, columns[i], 267))
+    ;[['urban', '城市'], ['rural', '农村'], ['nature', '自然'], ['unassigned', '未指定']].forEach(([kind, label], i) => {
+      const row = ledger.byPurpose[kind]
+      const values = [label, (row.targetRatio * 100).toFixed(2) + '%', row.plannedM2.toFixed(1), row.realizedM2.toFixed(1), row.unresolvedM2.toFixed(1)]
+      values.forEach((text, j) => context.fillText(text, columns[j], 292 + i * 24))
+    })
+    context.fillStyle = '#c7b98b'; context.fillText('道路已计入所在用途；保护高度不变不等于生态实现。', 28, 391)
+    if (scene.landcoverSurfaces?.ecology?.classes?.length) {
+      context.fillStyle = '#a8c9b1'; context.fillText('自然地表分类：' + scene.landcoverSurfaces.ecology.classes.map(c => c.className + ' ' + c.areaM2.toFixed(0) + 'm²').join(' · '), 28, 410)
+    }
+    context.restore()
+    window.glyphweaveFeedback.visualChecks.landUseLedgerDisplayed = true
+    window.glyphweaveFeedback.landUseLedgerDiagnostic = ledger
+  }
+  const joint = scene.roadNetworkPlan?.jointLayout
+  if (joint) {
+    context.save(); context.fillStyle = '#111c22'; context.fillRect(18, 420, 620, 62)
+    context.font = '13px system-ui'; context.textBaseline = 'middle'; context.fillStyle = '#e2e9e6'
+    context.fillText('联合布局规划：住宅最低 ' + joint.residentialMinimum + '，原位保留 ' + joint.retainedResidentialIds.length + '，替代选址 ' + joint.replacementResidentialIds.length + '，未补足 ' + joint.unfilledResidential, 28, 440)
+    context.fillStyle = '#c7b98b'; context.fillText('候选调整发生在生成前；实际住宅与入口仍需 CLI 独立验收。', 28, 465)
+    context.restore()
+    window.glyphweaveFeedback.visualChecks.jointLayoutDisplayed = true
+  }
+  info.textContent = 'Rust 土地归属诊断 · 规划不等于完成 · 双击进入近景'
+  window.glyphweaveFeedback.visualChecks.ownershipRendered = true
+  window.glyphweaveFeedback.visualChecks.ownershipCells = plan.cells.length
+}
+
 function drawStrategic() {
   const scale = Math.min(canvas.clientWidth / scene.widthM, canvas.clientHeight / scene.depthM)
   const ox = (canvas.clientWidth - scene.widthM * scale) / 2
@@ -249,6 +336,7 @@ function drawStrategic() {
   const background = context.createLinearGradient(0, 0, 0, canvas.clientHeight)
   background.addColorStop(0, '#152a38'); background.addColorStop(.72, '#23332f'); background.addColorStop(1, '#111816')
   context.fillStyle = background; context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight)
+  if (urlView === 'ownership') { drawOwnership(ox, oz, scale); return }
   let loadedChunks = 0
   for (const chunk of scene.chunks) {
     fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`).then(response => response.arrayBuffer()).then(bytes => {
@@ -271,18 +359,25 @@ function drawStrategic() {
 }
 
 async function drawNear() {
+  const buildToken = ++nearBuildToken
   const THREE = await import('three')
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
   const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js')
-  const postAddons = await Promise.all([
+  // Post-processing is opt-in in the static preview. Loading six addon modules
+  // plus extra render targets during the first 2.5D frame created an avoidable
+  // memory spike on integrated GPUs. Use ?fx=1 for an explicit cinematic test.
+  const query = new URLSearchParams(location.search)
+  const enableFx = query.get('fx') === '1' && !query.has('nofx')
+  const postAddons = enableFx ? await Promise.all([
     import('three/addons/postprocessing/EffectComposer.js'),
     import('three/addons/postprocessing/RenderPass.js'),
     import('three/addons/postprocessing/BokehPass.js'),
     import('three/addons/postprocessing/UnrealBloomPass.js'),
     import('three/addons/postprocessing/ShaderPass.js'),
     import('three/addons/postprocessing/OutputPass.js'),
-  ]).then(modules => ({ EffectComposer: modules[0].EffectComposer, RenderPass: modules[1].RenderPass, BokehPass: modules[2].BokehPass, UnrealBloomPass: modules[3].UnrealBloomPass, ShaderPass: modules[4].ShaderPass, OutputPass: modules[5].OutputPass }))
+  ]).then(modules => ({ EffectComposer: modules[0].EffectComposer, RenderPass: modules[1].RenderPass, BokehPass: modules[2].BokehPass, UnrealBloomPass: modules[3].UnrealBloomPass, ShaderPass: modules[4].ShaderPass, OutputPass: modules[5].OutputPass })) : null
+  if (buildToken !== nearBuildToken) return
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -291,14 +386,21 @@ async function drawNear() {
   webglCanvas.style.width = '100%'
   webglCanvas.style.height = '100%'
   webglCanvas.style.display = 'block'
+  if (!webglCanvas.dataset.contextGuard) {
+    webglCanvas.dataset.contextGuard = '1'
+    webglCanvas.addEventListener('webglcontextlost', event => {
+      event.preventDefault()
+      info.textContent = '2.5D 渲染上下文被系统回收，请重新加载页面'
+    })
+  }
   document.querySelector('#viewport').append(webglCanvas)
   if (nearControls) { nearControls.dispose(); nearControls = null }
   if (exploreInputCleanup) { exploreInputCleanup(); exploreInputCleanup = null }
   if (!nearRenderer) {
-    nearRenderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true })
+    nearRenderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: !STATIC_PREVIEW })
     nearRenderer.setSize(viewportWidth, viewportHeight, false)
-    nearRenderer.setPixelRatio(Math.min(devicePixelRatio, 2))
-    nearRenderer.shadowMap.enabled = true
+    nearRenderer.setPixelRatio(STATIC_PREVIEW ? 1 : Math.min(devicePixelRatio, 2))
+    nearRenderer.shadowMap.enabled = !STATIC_PREVIEW
     nearRenderer.shadowMap.type = THREE.PCFSoftShadowMap
     nearRenderer.outputColorSpace = THREE.SRGBColorSpace
     nearRenderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -313,10 +415,26 @@ async function drawNear() {
   const isSkyline = nearPreset === 'skyline'
   const isStreet = nearPreset === 'street'
   const isStreetView = isStreet || isExplore
+  const frontageEntity=nearPreset==='frontage' ? scene.entities.find(e=>e.grounding?.frontageRoadPoint) : null
+  const gradedRoad=nearPreset==='graded-road' ? scene.entities.find(e=>e.grounding?.roadProfile) : null
+  const serviceId=(scene.roadNetworkPlan?.roadsideSites?.find(s=>s.program?.kind==='school') ?? scene.roadNetworkPlan?.roadsideSites?.find(s=>s.program))?.id
+  const serviceEntity=nearPreset==='services' ? scene.entities.find(e=>e.entityId===serviceId) : null
+  const yardBuildingId=scene.developmentPlan?.buildings?.[0]?.entity?.entityId
+  const yardEntity=nearPreset==='yard' ? scene.entities.find(e=>e.entityId===yardBuildingId) : null
+  const farmFields = scene.landcoverSurfaces?.agriculture?.fields ?? []
+  const requestedFarm = query.get('field')
+  const farmField = nearPreset === 'farm' ? (requestedFarm ? farmFields.find(f => f.id === requestedFarm) : farmFields[0]) : null
+  if (nearPreset === 'farm' && requestedFarm && !farmField) throw new Error('Unknown Rust farm field: ' + requestedFarm)
+  const farmPatch=farmField ? scene.landcoverSurfaces.patches.find(p=>p.parcelId===farmField.id&&p.material==='cultivated_soil') : null
+  const focusOverride = window.__nearFocusOverride ?? (frontageEntity ? {x:frontageEntity.worldX-scene.originX,z:frontageEntity.worldZ-scene.originZ,y:frontageEntity.worldY+(frontageEntity.grounding.bottomOffsetM??0)} : gradedRoad ? {x:gradedRoad.worldX-scene.originX,z:gradedRoad.worldZ-scene.originZ,y:gradedRoad.worldY+(gradedRoad.grounding.bottomOffsetM??0)} : serviceEntity ? {x:serviceEntity.worldX-scene.originX,z:serviceEntity.worldZ-scene.originZ,y:serviceEntity.worldY} : yardEntity ? {x:yardEntity.worldX-scene.originX,z:yardEntity.worldZ-scene.originZ,y:yardEntity.worldY} : farmField ? {x:farmField.boundary.x+farmField.boundary.widthM/2-scene.originX,z:farmField.boundary.z+farmField.boundary.depthM/2-scene.originZ,y:farmPatch?.vertices[0]?.[1]??scene.landcoverSurfaces.agriculture.previewFocusHeights?.[farmField.id]??0} : null)
+  const hasBridge = (scene.entities ?? []).some(entity => entity.kind === 'bridge') || (scene.landmarks ?? []).some(landmark => landmark.type === 'bridge')
+  // Harbour's default 2.5D entry is the bridge inspection view. Only fall
+  // back to a wide overview when a scene has no bridge landmark to focus.
+  const isHarbourOverview = nearPreset === 'harbour' && !focusOverride
   // Focus / 2.5d near view uses a street-block scale (~120m) so doors,
   // windows, street lamps and lane markings are readable inside a single
   // 512m chunk. Skyline stays full-world; street/explore are perspective.
-  const orthoHeight = isSkyline ? Math.max(scene.widthM, scene.depthM) * .92 : isStreet ? 220 : 120
+  const orthoHeight = isSkyline ? Math.max(scene.widthM, scene.depthM) * .62 : isHarbourOverview ? Math.min(820, Math.max(scene.widthM, scene.depthM) * .36) : isStreet ? 220 : 120
   const orthoWidth = orthoHeight * viewportWidth / Math.max(1, viewportHeight)
   nearCamera = isExplore || isStreet
     ? new THREE.PerspectiveCamera(isStreet ? 54 : 68, viewportWidth / viewportHeight, .1, 12000)
@@ -334,31 +452,38 @@ async function drawNear() {
   }) ?? (scene.entities ?? []).find(entity => {
     const local = localCoordinate(entity)
     return entity.kind === 'building' && local.x > 64 && local.x < scene.widthM - 64 && local.z > 64 && local.z < scene.depthM - 64
-  }) ?? (scene.entities ?? []).find(entity => ['tree', 'bench', 'grass_clump'].includes(entity.kind))
+  }) ?? (scene.entities ?? []).find(entity => ['tree', 'bush', 'bench'].includes(entity.kind))
   const bridgeLength = focusEntity?.kind === 'bridge' ? (focusEntity.widthM || 4588) : 0
-  const focusOverride = window.__nearFocusOverride
   const harbour = (scene.landmarks ?? []).find(landmark => landmark.type === 'river')
+  const harbourBridge = (scene.landmarks ?? []).find(landmark => landmark.type === 'bridge') ?? (scene.entities ?? []).find(entity => entity.kind === 'bridge')
   const centreDist = e => Math.hypot(e.worldX - (scene.originX + scene.widthM / 2), e.worldZ - (scene.originZ + scene.depthM / 2))
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
   const streetX = streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
   const streetZ = streetAnchor?.worldZ ?? scene.depthM * .5
-  const focusX = focusOverride ? focusOverride.x : isSkyline ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : isSkyline ? scene.depthM * .5 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = isSkyline || isStreetView ? 0 : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
-  const isBridgeFocus = focusEntity?.kind === 'bridge'
+  const focusX = focusOverride ? focusOverride.x : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
-  const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : focusY + 6
-  const focusTargetZ = isStreet ? focusZ + 90 : focusZ
+  const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : isHarbourOverview ? 10 : focusY + 6
+  const focusTargetZ = isStreet ? focusZ + 55 : focusZ
   const viewOffsetX = nearPreset === 'bridgehead' ? 100 : 0
   const viewOffsetZ = nearPreset === 'bridgehead' ? 105 : 72
   const landmarkViewDistance = Math.max(180, (focusLandmark?.heightM || 100) * 1.15)
   nearCamera.position.set(
-    focusX + viewOffsetX + (isExplore ? 130 : isStreet ? 150 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : orthoHeight * .5),
-    focusY + (isExplore ? 8 : isStreet ? 10 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .78 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
-    focusZ + (isExplore ? 125 : isStreet ? -90 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .72 : orthoHeight * .42),
+    focusX + viewOffsetX + (isExplore ? 130 : isStreet ? 150 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : isHarbourOverview ? orthoHeight * .46 : orthoHeight * .5),
+    focusY + (isExplore ? 16 : isStreet ? 64 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .64 : isHarbourOverview ? orthoHeight * .56 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
+    focusZ + (isExplore ? 125 : isStreet ? -160 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .40 : isHarbourOverview ? -orthoHeight * .18 : orthoHeight * .42),
   )
+  // Harbour overview is an orientation shot, not a bridge close-up. Look
+  // obliquely across the bay so the bridge, water and both shores can read in
+  // one frame; bridgehead remains the detailed inspection preset.
+  if (isHarbourOverview) {
+    nearCamera.position.set(focusX + Math.max(420, orthoHeight * .72), focusY + Math.max(260, orthoHeight * .62), focusZ + Math.max(300, orthoHeight * .48))
+    nearCamera.lookAt(focusX, focusY + 4, focusZ)
+  }
   if (nearScene) {
     // Persistent scene: remove the old chunk root so we can rebuild it, but
     // keep the scene, lights and sky so navigation does not recreate them.
@@ -370,7 +495,7 @@ async function drawNear() {
     // painterly look inspired by Journey / Flower: a soft warm key light, a
     // gentle distance haze, and no hard shadows. Urban scenes keep the cool
     // clinical look.
-    const urban = (scene.entities ?? []).some(e => ['storefront', 'residential_block', 'residential_tower', 'building_tower'].includes(e.kind))
+    const urban = (scene.entities ?? []).some(e => ['storefront', 'residential_block', 'residential_tower', 'building_tower', 'urban_building', 'resort_lodge', 'road', 'bridge'].includes(e.kind)) || (scene.landmarks ?? []).some(e => ['bridge', 'shopping_mall', 'office_tower', 'convenience_store', 'boardwalk', 'scenic_belt', 'community_plaza', 'night_market'].includes(e.type))
     const steppe = !urban
     window.__steppe = steppe
     nearScene.background = makeSkyTexture(THREE)
@@ -406,7 +531,14 @@ async function drawNear() {
   nearControls.minDistance = 10
   nearControls.maxDistance = 2400
   nearControls.maxPolarAngle = isExplore ? Math.PI * .8 : Math.PI * .48
-  nearControls.addEventListener('change', updateNearCoordinateInfo)
+  // The constructor looked at its initial (0,0,0) target. Static previews
+  // have no animation loop to apply our new target: sync once BEFORE the
+  // change listener, never recursively inside renderNearFrame.
+  nearControls.update()
+  nearControls.addEventListener('change', () => {
+    updateNearCoordinateInfo()
+    if (STATIC_PREVIEW) renderNearFrame?.()
+  })
   window.__nearControls = nearControls
   window.__nearCamera = nearCamera
   window.__focusAt = (x, z) => { window.__nearFocusOverride = { x, z }; nearPreset = 'focus'; mode = 'near'; draw() }
@@ -455,14 +587,37 @@ async function drawNear() {
   // scene origins do not shift buildings and roads away from the terrain.
   nearGroupRoot.position.set(-scene.originX, 0, -scene.originZ)
   if (!nearGroupRoot.parent) nearScene.add(nearGroupRoot)
+  // Old transient groups must not accumulate across camera/scene rebuilds.
+  nearGroupRoot.clear()
   nearGroupRoot.add(group)
   const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
+  // Static 2.5D renders the authoritative focus chunk only. A 3x3 ring
+  // multiplies 1m terrain geometry, PBR maps, vegetation instances and entity
+  // groups before the first frame, which can make Chromium lose WebGL context.
+  // Opt into ring streaming explicitly with ?ring=1.
+  const streamRing = query.get('ring') === '1'
   const activeChunks = focusChunk
-    ? scene.chunks.filter(chunk => Math.abs(chunk.chunkX - focusChunk.chunkX) <= 1 && Math.abs(chunk.chunkZ - focusChunk.chunkZ) <= 1)
+    ? (streamRing || isSkyline || isHarbourOverview
+        ? scene.chunks.filter(chunk => Math.abs(chunk.chunkX - focusChunk.chunkX) <= 1 && Math.abs(chunk.chunkZ - focusChunk.chunkZ) <= 1)
+        : [focusChunk])
     : scene.chunks.slice(0, 1)
+  if (renderStream) {
+    const loader = renderStream
+    const loaded = await loader.load(activeChunks)
+    if (buildToken !== nearBuildToken || loader !== renderStream) return
+    scene.landcoverSurfaces = loaded.surfaces
+    window.glyphweaveFeedback.visualChecks.renderStream = loaded.stats
+    // Release only retired landcover meshes here. Other legacy terrain/entity
+    // caches are separate and are not claimed to be bounded by this change.
+    const activeIds = new Set((loaded.surfaces?.patches ?? []).map(p => 'landcover:' + p.id))
+    for (const [key, mesh] of entityMeshCache) if (key.startsWith('landcover:') && !activeIds.has(key)) {
+      mesh.removeFromParent(); mesh.geometry.dispose(); mesh.material.dispose(); entityMeshCache.delete(key)
+    }
+  }
   // Cache each active chunk's terrain mesh so navigating back is instant.
   const chunkGroupMap = new Map()
   for (const chunk of activeChunks) {
+    if (buildToken !== nearBuildToken) return
     const cacheKey = `${scene.sceneId}/${chunk.chunkX}/${chunk.chunkZ}`
     let chunkGroup = entityMeshCache.get(`chunkgroup:${cacheKey}`)
     if (!chunkGroup) {
@@ -499,6 +654,17 @@ async function drawNear() {
     let built = entityGroupCache.get(entity.entityId)
     if (!built) {
       built = builder()
+      // Procedural building helpers keep their geometry in an entity-local
+      // frame. Apply the serialized yaw at this boundary so the visible
+      // footprint stays aligned with worldgen and the rules engine.
+      if (built && !built.userData?.authoredWorldAxes && Number.isFinite(entity.rotationYDeg)) {
+        built.rotation.y = THREE.MathUtils.degToRad(entity.rotationYDeg)
+      }
+      if (built && entity.grounding?.frontageRoadPoint) {
+        const g=entity.grounding
+        built.position.y+=(g.bottomOffsetM??0)+(g.roadbedOffsetM??0)-(g.pivot==='center'?entity.heightM*.5:0)
+        built.userData.sourceEntityId=entity.entityId
+      }
       entityGroupCache.set(entity.entityId, built)
     }
     return built
@@ -527,7 +693,9 @@ async function drawNear() {
         fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`),
         chunk.terrainFile ? fetch(`../scenes/${scene.sceneId}/${chunk.terrainFile}`) : Promise.resolve(null),
       ])
-      heightView = new DataView(await heightResponse.arrayBuffer())
+      heightView = decodeHeightPayload(await heightResponse.arrayBuffer(),chunk.validWidthM,chunk.validDepthM)
+      const expectedEncoding=world.sidecar?.heightEncoding==='gwhm-v1-i32le-millimeter'?'millimeter':'quarter-meter'
+      if(heightView.encoding!==expectedEncoding)throw new Error('Height encoding disagrees with world sidecar')
       surface = new Uint8Array(await surfaceResponse.arrayBuffer())
       terrain = terrainResponse ? new Uint8Array(await terrainResponse.arrayBuffer()) : null
       chunkDataCache.set(cacheKey, { heightView, surface, terrain })
@@ -540,7 +708,7 @@ async function drawNear() {
     // mesh so navigation doesn't rebuild huge geometries.
     const isFocusChunk = focusChunk && chunk.chunkX === focusChunk.chunkX && chunk.chunkZ === focusChunk.chunkZ
     const chunkDist = focusChunk ? Math.max(Math.abs(chunk.chunkX - focusChunk.chunkX), Math.abs(chunk.chunkZ - focusChunk.chunkZ)) : 9
-    const meshStep = isFocusChunk ? 1 : chunkDist <= 1 ? 2 : 8
+    const meshStep = isFocusChunk ? (isHarbourOverview ? 4 : 1) : chunkDist <= 1 ? (isHarbourOverview ? 8 : 2) : 8
     const builtStep = chunkGroup.userData.meshStep ?? 0
     if (alreadyBuilt && builtStep === meshStep) continue
     // Remove any prior-step mesh before adding the correct one.
@@ -550,31 +718,36 @@ async function drawNear() {
     const meshCacheKey = `${cacheKey}/step${meshStep}`
     let mesh = entityMeshCache.get(meshCacheKey)
     if (!mesh) {
-      // Steppe: flat vertex colours graded by height (MC / Journey style, no
-      // texture map). Urban: the existing noise-mapped terrain.
-      if (window.__steppe) {
-        const geometry = makeMCTerrain(heightView, surface, terrain, width, depth, meshStep, THREE)
-        // Exact-height normal + roughness maps add PBR light response without
-        // any visual displacement. The renderer therefore cannot create a
-        // second ground surface that breaks road/building grounding.
+      // All themes use the same semantic terrain geometry and PBR response.
+      // The previous urban branch used a dense legacy noise texture, hiding the
+      // new grass/terrain look and making surface overlays hard to read.
+      {
+        const geometry = makeMCTerrain(heightView, surface, terrain, width, depth, meshStep, THREE, Number.isFinite(world.waterLevelM) ? world.waterLevelM : 0)
         const maps = makeTerrainPbrMaps(heightView, surface, terrain, width, depth, THREE)
-        const material = new THREE.MeshStandardMaterial({
-          vertexColors: true,
-          roughness: .88,
-          normalMap: maps.normalTexture,
-          normalScale: new THREE.Vector2(.34, .34),
-          roughnessMap: maps.roughnessTexture,
-        })
+        // Use the tuned grass-ground shader on land-only chunks. Chunks that
+        // contain water keep a plain vertex-colour PBR material so the water
+        // datum remains blue and is not tinted by moss/grass grading.
+        const hasWater = surface.some(value => value === 3)
+        const material = hasWater
+          ? new THREE.MeshBasicMaterial({ color: '#4f9dab', vertexColors: true, transparent: false, side: THREE.DoubleSide })
+          : makeSteppeGroundMaterial(THREE, '#5a8a3e', '#9bc24a')
+        // Mixed water/land chunks use a single vertex-colour material. Do not
+        // apply the land tangent normal to water cells: that made the baked
+        // water plane receive near-black lighting and visually swallowed the
+        // bridge. Land-only chunks retain the normal/roughness PBR contract.
+        if (!hasWater) {
+          material.normalMap = maps.normalTexture
+          material.normalScale = new THREE.Vector2(.34, .34)
+          material.roughnessMap = maps.roughnessTexture
+        }
         mesh = new THREE.Mesh(geometry, material)
-      } else {
-        const geometry = new THREE.PlaneGeometry(width, depth, Math.min(width - 1, Math.ceil(width / meshStep)), Math.min(depth - 1, Math.ceil(depth / meshStep))); geometry.rotateX(-Math.PI / 2)
-        const positions = geometry.attributes.position
-        for (let i = 0; i < positions.count; i++) { const x = Math.min(width - 1, Math.max(0, Math.round(positions.getX(i) + width / 2))); const z = Math.min(depth - 1, Math.max(0, Math.round(positions.getZ(i) + depth / 2))); positions.setY(i, heightView.getInt16((z * width + x) * 2, true) / 4) }
-        geometry.computeVertexNormals(); const material2 = meshStep <= 2 ? (() => { const surfaceMaps = makeSurfaceTexture(surface, width, depth, THREE); surfaceMaps.texture.anisotropy = Math.min(8, nearRenderer.capabilities.getMaxAnisotropy()); surfaceMaps.normalTexture.anisotropy = surfaceMaps.texture.anisotropy; return new THREE.MeshStandardMaterial({ map: surfaceMaps.texture, normalMap: surfaceMaps.normalTexture, normalScale: new THREE.Vector2(.45, .45), roughness: .92 }) })() : new THREE.MeshStandardMaterial({ map: makeLodTexture(surface, width, depth, THREE), roughness: 1 }); mesh = new THREE.Mesh(geometry, material2)
       }
       entityMeshCache.set(meshCacheKey, mesh)
     }
     const meshClone = mesh.clone()
+    meshClone.name='terrain:'+chunk.chunkX+','+chunk.chunkZ
+    meshClone.userData.heightEncoding=heightView.encoding
+    meshClone.userData.chunkX=chunk.chunkX;meshClone.userData.chunkZ=chunk.chunkZ
     meshClone.position.set(chunk.worldX - scene.originX + width / 2, 0, chunk.worldZ - scene.originZ + depth / 2)
     chunkGroup.add(meshClone)
     chunkGroup.userData.meshStep = meshStep
@@ -587,11 +760,48 @@ async function drawNear() {
       field = heightFields.find(item => worldX >= item.chunk.worldX && worldX < item.chunk.worldX + item.width && worldZ >= item.chunk.worldZ && worldZ < item.chunk.worldZ + item.depth)
       heightFieldMap.set(key, field ?? null)
     }
+    if (!field && heightFields.length) {
+      field = heightFields.reduce((nearest, item) => {
+        const minX = item.chunk.worldX; const maxX = minX + item.width - 1
+        const minZ = item.chunk.worldZ; const maxZ = minZ + item.depth - 1
+        const dx = Math.max(minX - worldX, 0, worldX - maxX)
+        const dz = Math.max(minZ - worldZ, 0, worldZ - maxZ)
+        const distance = dx * dx + dz * dz
+        return !nearest || distance < nearest.distance ? { item, distance } : nearest
+      }, null)?.item ?? null
+    }
     if (!field) return 0
     const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
-    return field.heightView.getInt16((z * field.width + x) * 2, true) / 4
+    return field.heightView.readMetres(z * field.width + x)
   }
+  // Grounding must never use the nearest loaded chunk. That fallback is useful
+  // for a camera between streamed chunks, but it would silently place an
+  // off-screen building on a different chunk's terrain.
+  const loadedHeightAt = (worldX, worldZ) => {
+    const field = heightFields.find(item => worldX >= item.chunk.worldX && worldX < item.chunk.worldX + item.width && worldZ >= item.chunk.worldZ && worldZ < item.chunk.worldZ + item.depth)
+    if (!field) return null
+    const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
+    const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
+    return field.heightView.readMetres(z * field.width + x)
+  }
+  const groundedRenderY = entity => {
+    const scale = Number.isFinite(entity.scale) ? entity.scale : 1
+    const halfW = Math.abs((entity.widthM || 0) * scale) * .5
+    const halfD = Math.abs((entity.depthM || 0) * scale) * .5
+    const yaw = THREE.MathUtils.degToRad(Number(entity.rotationYDeg) || 0)
+    const cos = Math.cos(yaw); const sin = Math.sin(yaw)
+    const samples = [[0, 0], [-halfW, -halfD], [halfW, -halfD], [-halfW, halfD], [halfW, halfD], [0, -halfD], [0, halfD], [-halfW, 0], [halfW, 0]]
+      .map(([x, z]) => [x * cos + z * sin, -x * sin + z * cos])
+    const levels = samples.map(([dx, dz]) => loadedHeightAt(entity.worldX + dx, entity.worldZ + dz))
+    if (levels.some(level => level == null)) return entity.worldY ?? 0
+    const highest = Math.max(...levels)
+    const grounding = entity.grounding ?? {}
+    const offsets = (grounding.bottomOffsetM ?? 0) + (grounding.roadbedOffsetM ?? 0)
+    if (grounding.pivot === 'center') return highest - offsets + (entity.heightM || 0) * scale * .5
+    return highest - offsets
+  }
+
   const terrainFieldMap = new Map()
   const terrainAt = (worldX, worldZ) => {
     const key = `${Math.floor((worldX - scene.originX) / 512)},${Math.floor((worldZ - scene.originZ) / 512)}`
@@ -614,32 +824,136 @@ async function drawNear() {
     }
   }
   if (!worldWind) worldWind = createWorldWind(THREE)
+  // Water is a world-space footprint contract, not merely a low terrain
+  // height. This guard protects legacy/exported worlds where an authored
+  // building was serialized separately from the generated entity list.
+  const waterContains = (x, z) => {
+    const water = (scene.landmarks ?? []).find(item => item.type === 'river' || item.type === 'lake')
+    if (!water) return false
+    if (water.type === 'lake') {
+      const dx = (x - water.worldX) / Math.max(1, water.widthM * .5)
+      const dz = (z - water.worldZ) / Math.max(1, water.depthM * .5)
+      return dx * dx + dz * dz < 1
+    }
+    const minZ = water.worldZ - water.depthM * .5
+    const maxZ = water.worldZ + water.depthM * .5
+    if (z < minZ || z > maxZ) return false
+    if (water.depthM < 3000) return Math.abs(x - water.worldX) < water.widthM * .5
+    const t = (z - minZ) / Math.max(1, water.depthM)
+    const halfWidth = water.widthM * .5 * (1 + Math.sin(t * Math.PI * 2 * 1.15) * .08 + Math.max(0, Math.sin((t - .28) * Math.PI * 2 * 3)) * .045)
+    return Math.abs(x - water.worldX) < halfWidth
+  }
+  const waterCompatibleKind = kind => ['river', 'lake', 'canal', 'bridge', 'causeway', 'mudflat', 'mangrove', 'reed'].includes(kind)
+  const footprintIntersectsWater = entity => {
+    if (!entity || waterCompatibleKind(entity.kind || entity.type)) return false
+    const hw = Math.abs(entity.widthM || 0) * .5
+    const hd = Math.abs(entity.depthM || 0) * .5
+    const yaw = THREE.MathUtils.degToRad(Number(entity.rotationYDeg) || 0)
+    const points = [[0, 0], [-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd], [0, -hd], [0, hd], [-hw, 0], [hw, 0]]
+    return points.some(([x, z]) => waterContains(entity.worldX + x * Math.cos(yaw) + z * Math.sin(yaw), entity.worldZ - x * Math.sin(yaw) + z * Math.cos(yaw)))
+  }
   // The generated terrain raster is the one ecological contract for all
-  // visible natural detail. Disturbance means a road/building/pad; surface 3
-  // is open water. Species then consume the same slope and wetness channels
-  // with different, intentionally broad habitat windows.
+  // visible natural detail. Legacy worlds may not contain the semantic sidecar,
+  // so add an explicit geometric exclusion for road/sidewalk footprints. This
+  // prevents reeds, rocks and fallback five-sided grass clumps from appearing
+  // on top of a road even when disturbance bytes are absent.
+  const footprintContains = (entity, worldX, worldZ, padding = 0) => {
+    const hw = Math.abs(entity.widthM || 0) * .5 + padding
+    const hd = Math.abs(entity.depthM || 0) * .5 + padding
+    const yaw = THREE.MathUtils.degToRad(Number(entity.rotationYDeg) || 0)
+    const dx = worldX - entity.worldX; const dz = worldZ - entity.worldZ
+    const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw)
+    const localZ = dx * Math.sin(yaw) + dz * Math.cos(yaw)
+    return Math.abs(localX) <= hw && Math.abs(localZ) <= hd
+  }
+  const roadFootprints = (scene.entities ?? []).filter(entity => entity.kind === 'road' || entity.kind === 'sidewalk')
+  const onRoadFootprint = (entity, padding = 0) => roadFootprints.some(road => footprintContains(road, entity.worldX, entity.worldZ, padding + Math.max(entity.widthM || 0, entity.depthM || 0) * .5))
   const vegetationFitsTerrain = entity => {
     const terrain = terrainAt(entity.worldX, entity.worldZ)
-    if (terrain.disturbance > .04 || terrain.surface === 3) return false
+    if (onRoadFootprint(entity, .35) || terrain.disturbance > .04 || terrain.surface === 3) return false
     if (entity.kind === 'tree') return terrain.slope < .78 && terrain.wetness > .12
     if (entity.kind === 'bush') return terrain.slope < .7 && terrain.wetness > .18 && terrain.wetness < .96 && terrain.surface !== 2
     if (entity.kind === 'grass_clump') return terrain.slope < .9 && terrain.wetness > .06 && terrain.surface !== 2
+    if (entity.kind === 'reed') return terrain.slope < .82 && terrain.wetness > .42
     return true
-  }  // Steppe grass: GPU-instanced curved blades with wind + backlight over the
-  // focused chunk (Journey/Flower style). Density concentrates near the camera
-  // so the visible foreground reads lush. Skyline (whole-world view) gets a
-  // wider but bounded cover so four-theme previews stay responsive on an integrated GPU.
-  if (window.__steppe && focusChunk && !new URLSearchParams(location.search).has('nograss')) {
+  }
+  // Grass blades are a shared natural-detail layer, not a steppe-only theme.
+  // Urban scenes still need grass on parks, verges and unbuilt lots; the baked
+  // terrain semantics reject roads, pads, water and hard surfaces.
+  if (focusChunk && !new URLSearchParams(location.search).has('nograss')) {
     const sky = isSkyline
-    const grass = makeGrassBlades(THREE, focusChunk.worldX, focusChunk.worldZ, focusChunk.validWidthM, focusChunk.validDepthM, heightAt, terrainAt, worldWind, sky ? 220000 : 150000, 7, focusX, focusZ, { focusR: sky ? 360 : 230, farR: sky ? 720 : 520 })
-    grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
-    group.add(grass.mesh)
-    window.__steppeGrass = grass
+    // Soil Studio uses a 0.13 live density over a 200k demo cap. A 2.5D
+    // GlyphWeave view spans a 3x3 active-chunk window, so every active chunk
+    // receives its own deterministic layer; emitting only the focus chunk made
+    // most of the visible green terrain look like a bare lawn.
+    // Keep the browser-safe world budget bounded. A previous 3x3 allocation
+    // created >1.5m CPU instances before the first frame and could kill the tab.
+    // One detailed focus field plus small neighbour fields gives continuity
+    // without turning a preview into a multi-million-blade allocation.
+    const focusBudget = sky ? (window.__steppe ? 110000 : 90000) : (window.__steppe ? 100000 : 80000)
+    const grassLayers = []
+    let grassRequested = 0
+    let grassPlaced = 0
+    const managedYards=(scene.landcoverSurfaces ? scene.landcoverPlan?.cells : [])?.filter(c=>c.role==='managed_yard') ?? []
+    const inManagedYard=(x,z)=>managedYards.some(c=>x>=c.boundary.x && x<c.boundary.x+c.boundary.widthM && z>=c.boundary.z && z<c.boundary.z+c.boundary.depthM)
+    const farmRects=scene.landcoverSurfaces?.agriculture?.fields.map(f=>f.boundary)??[]
+    const farmTrackCells=new Set()
+    for(const patch of scene.landcoverSurfaces?.patches??[])if(patch.material==='farm_track') {
+      for(let i=0;i<patch.vertices.length;i+=4){const [x,,z]=patch.vertices[i];farmTrackCells.add(x+','+z)}
+    }
+    const onFarmSurface=(x,z)=>farmRects.some(r=>x>=r.x&&x<r.x+r.widthM&&z>=r.z&&z<r.z+r.depthM)||farmTrackCells.has(Math.floor(x)+','+Math.floor(z))
+    // Suppress unowned procedural blades over Rust-managed yards/pavement.
+    // Rust meshes below remain the only actual landscaping geometry there.
+    const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || roadFootprints.some(road => footprintContains(road, x, z)) ? { slope: 0, curvature: 0, wetness: 0, disturbance: 1, surface: 2 } : terrainAt(x, z)
+    // The terrain raster is authoritative for placement, but legacy semantic
+    // bytes can be absent or overly conservative. Keep a deterministic neutral
+    // fallback for genuinely land-covered chunks so the render adapter still
+    // shows grass; roads/water remain hard-excluded by explicit footprints.
+    const chunkTerrainAt = (chunk, x, z) => {
+      const sample = grassTerrainAt(x, z)
+      if (!chunk.terrain && sample.surface === 0 && sample.wetness === 0.5 && sample.disturbance === 0) return { slope: 0, curvature: 0, wetness: .7, disturbance: 0, surface: 0 }
+      return sample
+    }
+    for (const chunk of activeChunks) {
+      const distance = Math.max(Math.abs(chunk.chunkX - focusChunk.chunkX), Math.abs(chunk.chunkZ - focusChunk.chunkZ))
+      const budget = distance === 0 ? focusBudget : distance === 1 ? Math.floor(focusBudget * .08) : 0
+      if (budget < 200) continue
+      const grass = makeGrassBlades(THREE, chunk.worldX, chunk.worldZ, chunk.validWidthM, chunk.validDepthM, heightAt, (x, z) => chunkTerrainAt(chunk, x, z), worldWind, budget, 7 + chunk.chunkX * 17 + chunk.chunkZ * 31, focusX, focusZ, {
+        focusR: sky ? 520 : 360,
+        farR: sky ? 900 : 760,
+        coverageThreshold: .075,
+        bladeWidthScale: sky ? 5.5 : 6.2,
+        bladeHeightScale: sky ? 2.1 : 2.35,
+      })
+      grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
+      group.add(grass.mesh)
+      grassLayers.push(grass)
+      grassRequested += budget
+      grassPlaced += grass.count
+    }
+    window.__steppeGrassLayers = grassLayers
+    window.__steppeGrass = grassLayers[0] ?? null
+    const grassInfo = document.getElementById('info')
+    if (grassInfo) {
+      grassInfo.dataset.grassRequested = String(grassRequested)
+      grassInfo.dataset.grassPlaced = String(grassPlaced)
+      grassInfo.dataset.grassInstanceCount = String(grassPlaced)
+      grassInfo.dataset.grassFocusChunk = String(focusChunk.chunkX) + ',' + String(focusChunk.chunkZ)
+      grassInfo.dataset.grassLayers = String(grassLayers.length)
+    }
   }
   for (const landmark of scene.landmarks) {
+    if (footprintIntersectsWater({ ...landmark, kind: landmark.type })) {
+      console.warn(`skip land landmark ${landmark.entityId}: footprint intersects water`)
+      continue
+    }
     const groundedLandmark = { ...landmark, worldY: heightAt(landmark.worldX, landmark.worldZ) }
-    if (focusChunk && !['bridge', 'river', 'pagoda', 'park', 'station', 'ferris_wheel', 'boat', 'building_tower', 'mangrove', 'nature_reserve', 'food_stall'].includes(landmark.type) && !inFocusChunk(landmark)) continue
+    if (focusChunk && !isHarbourOverview && !isSkyline && !['bridge', 'river', 'pagoda', 'park', 'station', 'ferris_wheel', 'boat', 'building_tower', 'mangrove', 'nature_reserve', 'food_stall'].includes(landmark.type) && !inFocusChunk(landmark)) continue
     const type = landmark.type
+    if (['rock_mountain', 'mountain', 'hill', 'shopping_mall', 'office_tower', 'convenience_store', 'fence', 'guardrail', 'boardwalk', 'scenic_belt', 'mudflat', 'night_market', 'community_plaza'].includes(type)) {
+      group.add(makeCoastalFeature(groundedLandmark, THREE))
+      continue
+    }
     if (type === 'bridge') {
       group.add(makeBridgeStructure(landmark, THREE, heightAt))
       continue
@@ -897,14 +1211,20 @@ async function drawNear() {
     let waterUniforms = null
     let material
     if (isWater) {
-      const wm = makeWaterMaterial(THREE, type === 'river')
+      const wm = makeWaterMaterial(THREE, type === 'river', undefined, STATIC_PREVIEW)
       material = wm.material
       waterUniforms = wm.uniforms
       waterUniforms.uTime.value = waterUniforms.uTime.value
       animatedWater.push(wm.uniforms)
-      material.map = waterMaps?.texture ?? null
-      material.normalMap = waterMaps?.normalTexture ?? null
-      material.normalScale = new THREE.Vector2(.7, .7)
+      // In static acceptance mode keep the calm water material flat and
+      // legible. The animated ripple maps are intentionally skipped here;
+      // otherwise the transparent river overlay becomes a dark striped sheet
+      // over the baked water band.
+      if (!STATIC_PREVIEW) {
+        material.map = waterMaps?.texture ?? null
+        material.normalMap = waterMaps?.normalTexture ?? null
+        material.normalScale = new THREE.Vector2(.7, .7)
+      }
     } else {
       material = new THREE.MeshStandardMaterial({
         color: type === 'causeway' ? '#b38b5a' : type === 'pavilion' ? '#c84f3f' : '#6f8557',
@@ -927,21 +1247,57 @@ async function drawNear() {
     else if (isWater) marker.scale.set(landmark.widthM, 1, landmark.depthM)
     else marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
     marker.position.set(landmark.worldX, isWater ? .15 : landmark.worldY + landmark.heightM / 2, landmark.worldZ)
-    if (isWater) { marker.castShadow = false; marker.receiveShadow = false }
+    if (isWater) { marker.castShadow = false; marker.receiveShadow = false; marker.renderOrder = 10 }
     group.add(marker)
   }
-  const focusEntities = isSkyline
-    ? (scene.entities ?? [])
-    : (scene.entities ?? []).filter(entity =>
-        entity.kind === 'bridge'
-        || inFocusChunk(entity)
+  const inActiveChunk = entity => activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM)
+  // Legacy manifest vegetation is deliberately not rendered as primitive fallback
+  // geometry. `grass_clump` and `reed` used to become a green cone/pentagonal
+  // cylinder as tall as a tree trunk, which is both visually wrong and easy to
+  // place on a road in older worlds. The GPU grass layer is now the only generic
+  // grass representation in 2.5D; reeds can be reintroduced later with a
+  // dedicated wetland renderer and an explicit asset contract.
+  const legacyGrassFallbackKinds = new Set(['grass_clump', 'reed'])
+  const landmarkEntityIds = new Set((scene.landmarks ?? []).map(landmark => landmark.entityId).filter(Boolean))
+  // All camera presets share the same water exclusion. Skyline is only a
+  // visibility/LOD choice; it must never bypass the spatial safety contract.
+  const gradedInActiveChunk = entity => {
+    const p=entity.grounding?.roadProfile
+    return p && verticesOverlapChunks([[Math.min(p.start[0],p.end[0])-4,0,Math.min(p.start[1],p.end[1])-4],[Math.max(p.start[0],p.end[0])+4,0,Math.max(p.start[1],p.end[1])+4]],activeChunks)
+  }
+  const focusEntityCandidates = (scene.entities ?? []).filter(entity =>
+    !legacyGrassFallbackKinds.has(entity.kind) && !footprintIntersectsWater(entity) && (
+      entity.kind === 'bridge'
+      || ((inActiveChunk(entity) || gradedInActiveChunk(entity)) && (
+        inFocusChunk(entity) || gradedInActiveChunk(entity)
         || inStreetFrame(entity)
-        || entity.kind === 'storefront'
-        || entity.kind === 'pedestrian'
-        || ['residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
-        || (['tree', 'bush', 'rock', 'grass_clump'].includes(entity.kind) && shouldRenderVegetation(entity, 7) && vegetationFitsTerrain(entity))
-      )
+        || ['storefront', 'pedestrian', 'residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
+        || (['tree', 'bush', 'rock'].includes(entity.kind) && shouldRenderVegetation(entity, 7) && vegetationFitsTerrain(entity))
+      ))
+    )
+  )
+  // Use a shallow render copy. The serialized scene remains the source of truth
+  // for navigation, audits, and vegetation caches.
+  const focusEntities = focusEntityCandidates.filter(entity => !legacyGrassFallbackKinds.has(entity.kind) && !(entity.kind === 'fallen_log' && onRoadFootprint(entity, .5))).map(entity => {
+    if(entity.grounding?.frontageRoadPoint)return entity // Rust platform is authoritative; never renderer-reground planned frontage.
+    const required = groundedRenderY(entity)
+    return Number.isFinite(required) ? { ...entity, worldY: required } : entity
+  })
+  const plannedBuildingIds = new Set((scene.developmentPlan?.buildings ?? []).map(b => b.entity.entityId))
   for (const entity of focusEntities) {
+    if (entity.grounding?.roadProfile) {
+      addEntityToGroup(entity,buildEntityCached(entity,()=>makeGradedRoad(entity,THREE)))
+      continue
+    }
+    if (entity.grounding?.frontageRoadPoint) {
+      if(!plannedBuildingIds.has(entity.entityId))throw new Error('Frontage entity missing Rust building plan: '+entity.entityId)
+      addEntityToGroup(entity,buildEntityCached(entity,()=>entity.kind==='residential_home'?makePlannedResidentialHome(entity,THREE):makePlannedServiceBuilding(entity,THREE)))
+      continue
+    }
+    // Trees and rocks are rendered by their dedicated instanced systems below.
+    // Do not let this generic fallback create tall low-poly cones/dodecahedra
+    // (another source of the misleading green five-point objects).
+    if (entity.kind === 'tree' || entity.kind === 'rock') continue
     if (entity.kind === 'storefront') {
       if (isStreetView && !inStreetFrame(entity)) continue
       group.add(makeStorefront(entity, THREE))
@@ -990,6 +1346,10 @@ async function drawNear() {
       }))
       continue
     }
+    if (entity.kind !== 'residential_home' && plannedBuildingIds.has(entity.entityId)) {
+      addEntityToGroup(entity, buildEntityCached(entity, () => makePlannedServiceBuilding(entity, THREE)))
+      continue
+    }
     if (entity.kind === 'residential_block') {
       addEntityToGroup(entity, buildEntityCached(entity, () => {
         const built = makeResidentialBlock(entity, THREE, heightAt)
@@ -1008,8 +1368,11 @@ async function drawNear() {
     }
     if (entity.kind === 'residential_home') {
       addEntityToGroup(entity, buildEntityCached(entity, () => {
-        const built = makeResidentialHome(entity, THREE, heightAt)
-        applySlopeFoundation(built, entity, heightAt, THREE)
+        const planned=scene.developmentPlan?.buildings.some(b=>b.entity.entityId===entity.entityId)
+        const built = planned ? makePlannedResidentialHome(entity, THREE) : makeResidentialHome(entity, THREE, heightAt)
+        // Planned foundations already belong to final Rust terrain; don't add
+        // a larger browser-invented plinth outside the building footprint.
+        if(!planned) applySlopeFoundation(built, entity, heightAt, THREE)
         return built
       }))
       continue
@@ -1081,8 +1444,6 @@ async function drawNear() {
       : entity.kind === 'building_tower' ? new THREE.BoxGeometry(entity.widthM, entity.heightM, entity.depthM)
        : entity.kind === 'car' ? new THREE.BoxGeometry(entity.widthM, entity.heightM, entity.depthM)
        : entity.kind === 'pedestrian' ? new THREE.CapsuleGeometry(.28, 1.15, 4, 6)
-      : entity.kind === 'grass_clump' ? new THREE.ConeGeometry(1.2, 3.5, 5)
-      : entity.kind === 'reed' ? new THREE.CylinderGeometry(.16, .24, 3.8, 5)
       : entity.kind === 'bench' ? new THREE.BoxGeometry(3.4, 1.1, 1.2)
       : entity.kind === 'lamp' ? new THREE.CylinderGeometry(.16, .24, 4.8, 6)
       : entity.kind === 'fallen_log' ? new THREE.CylinderGeometry(.38, .5, 3.2, 8)
@@ -1093,9 +1454,9 @@ async function drawNear() {
       : null
     if (!geometry) continue
       const zoneColor = { parking_lot: '#6d7070', commercial_center: '#b06d4d', entertainment_center: '#9b5c91', school: '#c29b61', residential_block: '#807b70', canal: '#477c87', farmland: '#9a8747', mountain_forest: '#456344', green_space: '#4d7c4b', temple: '#a74e3c', church: '#777f91', pasture: '#78904b', nature_reserve: '#3d6948' }[entity.kind]
-      const material = new THREE.MeshStandardMaterial({ color: zoneColor ?? (entity.kind === 'road' ? '#786b5a' : entity.kind === 'sidewalk' ? '#b0a58f' : entity.kind === 'bridge' ? '#807664' : entity.kind === 'building_cluster' ? '#6c665d' : entity.kind === 'building_tower' ? '#7d8a94' : entity.kind === 'car' ? '#b8463a' : entity.kind === 'pedestrian' ? '#3e536b' : entity.kind === 'grass_clump' ? '#6d944f' : entity.kind === 'reed' ? '#718e45' : entity.kind === 'bench' ? '#756451' : entity.kind === 'lamp' ? '#6c675b' : entity.kind === 'fallen_log' ? '#70503a' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#746d63'), roughness: .95 })
+      const material = new THREE.MeshStandardMaterial({ color: zoneColor ?? (entity.kind === 'road' ? '#786b5a' : entity.kind === 'sidewalk' ? '#b0a58f' : entity.kind === 'bridge' ? '#807664' : entity.kind === 'building_cluster' ? '#6c665d' : entity.kind === 'building_tower' ? '#7d8a94' : entity.kind === 'car' ? '#b8463a' : entity.kind === 'pedestrian' ? '#3e536b' : entity.kind === 'bench' ? '#756451' : entity.kind === 'lamp' ? '#6c675b' : entity.kind === 'fallen_log' ? '#70503a' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#746d63'), roughness: .95 })
     const prop = new THREE.Mesh(geometry, material)
-     const baseHeight = zoneKinds.includes(entity.kind) ? entity.heightM / 2 : entity.kind === 'road' || entity.kind === 'sidewalk' ? 0 : entity.kind === 'bridge' ? 4 : entity.kind === 'building_cluster' ? 16       : entity.kind === 'building_tower' ? entity.heightM / 2 : entity.kind === 'car' ? .9 : entity.kind === 'pedestrian' ? .9 : entity.kind === 'building' ? 12 : entity.kind === 'grass_clump' ? 1.75 : entity.kind === 'reed' ? 1.9 : entity.kind === 'bench' ? .55 : entity.kind === 'lamp' ? 2.4 : entity.kind === 'fallen_log' ? .35 : entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10
+     const baseHeight = zoneKinds.includes(entity.kind) ? entity.heightM / 2 : entity.kind === 'road' || entity.kind === 'sidewalk' ? 0 : entity.kind === 'bridge' ? 4 : entity.kind === 'building_cluster' ? 16       : entity.kind === 'building_tower' ? entity.heightM / 2 : entity.kind === 'car' ? .9 : entity.kind === 'pedestrian' ? .9 : entity.kind === 'building' ? 12 : entity.kind === 'bench' ? .55 : entity.kind === 'lamp' ? 2.4 : entity.kind === 'fallen_log' ? .35 : entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10
     // GroundingSpec owns the map/asset height contract. Old baked worlds omit
     // it and retain the legacy bottom-pivot behaviour.
     const grounding = entity.grounding ?? {}
@@ -1110,17 +1471,21 @@ async function drawNear() {
     if (entity.kind === 'road' || entity.kind === 'sidewalk') {
       // Center the visible strip on the focus so a long road stays on screen
       // instead of extending to the far scene edge.
-      const roadCenter = isStreetView ? entity.worldX : focusX
-      const bed = new THREE.Mesh(makeStripGeometry(entity, entity.kind === 'sidewalk' ? 3.2 : 8, 0, heightAt, THREE, .1, undefined, roadCenter), new THREE.MeshStandardMaterial({ color: entity.kind === 'sidewalk' ? '#877e70' : '#4c4438', roughness: 1 }))
-      bed.position.set(roadCenter - entity.worldX, 0, 0)
+      // Keep the strip centered on its serialized entity. Re-centering a long
+      // rotated road in world X was a source of false offsets and apparent
+      // sinking at the visible end; the active-chunk filter already controls
+      // how much of the road is shown.
+      const roadLift = entity.kind === 'road' ? .42 : .28
+      const bed = new THREE.Mesh(makeStripGeometry(entity, entity.kind === 'sidewalk' ? 3.2 : 8, 0, heightAt, THREE, roadLift), new THREE.MeshStandardMaterial({ color: entity.kind === 'sidewalk' ? '#877e70' : '#4c4438', roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }))
+      bed.position.set(0, 0, 0)
       prop.add(bed)
       if (entity.kind === 'road') {
-        const marking = new THREE.Mesh(makeStripGeometry(entity, .28, 0, heightAt, THREE, .58, undefined, roadCenter), new THREE.MeshStandardMaterial({ color: '#d9c98c', roughness: .8 }))
-        marking.position.set(roadCenter - entity.worldX, 0, 0)
+        const marking = new THREE.Mesh(makeStripGeometry(entity, .28, 0, heightAt, THREE, .72), new THREE.MeshStandardMaterial({ color: '#d9c98c', roughness: .8 }))
+        marking.position.set(0, 0, 0)
         prop.add(marking)
         for (const side of [-1, 1]) {
-          const curb = new THREE.Mesh(makeStripGeometry(entity, .18, side * 6.2, heightAt, THREE, .52, undefined, roadCenter), new THREE.MeshStandardMaterial({ color: '#a3957e', roughness: .95 }))
-          curb.position.set(roadCenter - entity.worldX, 0, 0)
+          const curb = new THREE.Mesh(makeStripGeometry(entity, .18, side * 6.2, heightAt, THREE, .66), new THREE.MeshStandardMaterial({ color: '#a3957e', roughness: .95 }))
+          curb.position.set(0, 0, 0)
           prop.add(curb)
         }
       }
@@ -1147,7 +1512,7 @@ async function drawNear() {
         }
       }
     }
-    if (['bush', 'rock', 'tree', 'grass_clump', 'reed'].includes(entity.kind)) prop.userData.vegetation = true
+    if (['bush', 'rock', 'tree'].includes(entity.kind)) prop.userData.vegetation = true
     group.add(prop)
     if (entity.kind === 'car' || entity.kind === 'pedestrian') {
       prop.userData.actorKind = entity.kind
@@ -1166,6 +1531,62 @@ async function drawNear() {
   for (const file of ['1Story_GableRoof.obj', '2Story_Wide.obj', '2Story_RoundRoof.obj']) {
     try { buildingVariants.push(await objLoader.loadAsync(`../assets/${file}`)) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
   }
+  // Pavement meshes are authored by Rust on the final raster. Do not round
+  // coordinates, divide Y by four, re-ground, or invent missing paths here.
+  for (const surface of scene.accessSurfaces ?? []) {
+    if (surface.version !== 1) throw new Error('Unsupported access surface version')
+    const vertices = surface.vertices
+    if (!verticesOverlapChunks(vertices,activeChunks)) continue
+    const key = 'access:' + JSON.stringify([scene.sceneId, surface.entityId, surface.anchorId])
+    let pavement = entityMeshCache.get(key)
+    if (!pavement) {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices.flat(), 3))
+      geometry.setIndex(surface.triangles.flat())
+      geometry.computeVertexNormals()
+      pavement = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+        color: 0x99938a, roughness: .94, metalness: 0,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      }))
+      pavement.name = key
+      pavement.receiveShadow = true
+      entityMeshCache.set(key, pavement)
+    }
+    group.add(pavement)
+  }
+  const landscaping=scene.landcoverSurfaces
+  let renderedYardPatches=0
+  if (landscaping) {
+    if(![1,2].includes(landscaping.version)) throw new Error('Unsupported landcover surface version')
+    for(const patch of landscaping.patches) {
+      // Pavement patches only account for clipped areas of the existing
+      // accessSurfaces mesh: drawing them again would create z-fighting.
+      if(patch.material==='access_pavement') continue
+      const palette={managed_grass:0x65804a,cultivated_soil:0x79603d,field_headland:0xa1946c,farm_track:0x958576,conservation_ground:0x466b55,conservation_forest_floor:0x355b42,conservation_wetland:0x527b67}
+      if(!(patch.material in palette)) throw new Error('Unsupported landcover material')
+      const vertices=patch.vertices
+      if(!verticesOverlapChunks(vertices,activeChunks)) continue
+      const key='landcover:'+patch.id
+      let mesh=entityMeshCache.get(key)
+      if(!mesh){
+        const geometry=new THREE.BufferGeometry()
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices.flat(),3))
+        geometry.setIndex(patch.triangles.flat());geometry.computeVertexNormals()
+        mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:palette[patch.material],roughness:1,metalness:0,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}))
+        mesh.name=key;mesh.receiveShadow=true;mesh.userData.landcoverMaterial=patch.material
+        entityMeshCache.set(key,mesh)
+      }
+      group.add(mesh);if(patch.material==='managed_grass')renderedYardPatches+=1
+    }
+  }
+  window.glyphweaveFeedback.visualChecks.landcoverGrassPatches=renderedYardPatches
+  window.glyphweaveFeedback.visualChecks.agricultureFields=landscaping?.agriculture?.fields.length??0
+  // Consume Rust-authoritative plants through bounded chunk/type instance batches.
+  ecologyRenderer ??= createEcologyRenderer(THREE)
+  const ecologyStats = ecologyRenderer.update(scene, activeChunks, group)
+  window.glyphweaveFeedback.visualChecks.ecologyPlants = ecologyStats.activePlants
+  window.glyphweaveFeedback.visualChecks.ecologyInstancing = ecologyStats
+
   // Trees are instanced per chunk so a 3x3 area with hundreds of trees costs
   // just a few draw calls instead of one Group per tree. We collect every tree
   // in the active chunks (not LOD-filtered) so the cached InstancedMesh stays
@@ -1193,7 +1614,7 @@ async function drawNear() {
   }
   // Rocks are instanced per scene so a field of boulders costs one draw call
   // (the LOD-filtered set already keeps the visible count reasonable).
-  const activeRocks = (scene.entities ?? []).filter(entity => entity.kind === 'rock' && activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM))
+  const activeRocks = (scene.entities ?? []).filter(entity => entity.kind === 'rock' && vegetationFitsTerrain(entity) && activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM))
   if (activeRocks.length) {
     const rockCacheKey = `rocks:${scene.sceneId}`
     let rockInst = entityMeshCache.get(rockCacheKey)
@@ -1205,13 +1626,26 @@ async function drawNear() {
     group.add(rockInst)
   }
   for (const entity of focusEntities) {
+    // A planned building already has its authoritative envelope above.
+    // Never draw a second coastal recipe or asset prototype on top of it.
+    if (plannedBuildingIds.has(entity.entityId)) continue
+    if (landmarkEntityIds.has(entity.entityId)) continue
+    if (['rock_mountain', 'mountain', 'hill', 'shopping_mall', 'office_tower', 'convenience_store', 'fence', 'guardrail', 'boardwalk', 'scenic_belt', 'mudflat', 'night_market', 'community_plaza'].includes(entity.kind)) {
+      group.add(makeCoastalFeature({ ...entity, type: entity.kind, worldY: groundedRenderY(entity) }, THREE))
+      continue
+    }
+    if (entity.kind === 'mangrove') {
+      group.add(makeMangrove(entity, THREE))
+      continue
+    }
     if (entity.kind === 'tree') continue
     if (entity.kind === 'storefront') continue
-    if (['bush', 'grass_clump'].includes(entity.kind) && !vegetationFitsTerrain(entity)) continue
+    if (['bush', 'fallen_log'].includes(entity.kind) && !vegetationFitsTerrain(entity)) continue
     const prototype = prototypes.get(entity.kind)
     if (['building', 'urban_building'].includes(entity.kind) && (buildingPrototype || buildingVariants.length)) {
       const source = [buildingPrototype, ...buildingVariants].filter(Boolean)[Math.abs(entity.worldX + entity.worldZ) % (buildingVariants.length + 1)]
       const prop = source.clone(true)
+      prop.userData.sourceEntityId = entity.entityId
       const facadePalette = ['#8d7567', '#6c7d82', '#b08d69', '#7e8a6d', '#85758c', '#6f7770']
       const facadeColor = facadePalette[Math.abs(entity.worldX * 17 + entity.worldZ * 31) % facadePalette.length]
       prop.traverse(child => { if (child.material) child.material = new THREE.MeshStandardMaterial({ color: facadeColor, roughness: .82, metalness: .08 }) })
@@ -1224,6 +1658,7 @@ async function drawNear() {
     }
     if (!prototype) continue
     const prop = prototype.clone(true)
+    prop.userData.sourceEntityId = entity.entityId
     fitAssetToEntity(prop, entity, THREE, entity.kind === 'tree' ? { width: .7, depth: .7, height: 5 } : entity.kind === 'bush' ? { width: 1.5, depth: 1.5, height: 1.2 } : { width: 1, depth: 1, height: 1 })
     prop.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
     group.add(prop)
@@ -1240,7 +1675,7 @@ async function drawNear() {
   // Cinematic post-processing (DoF opt-in for street/explore, bloom + film
   // grade always on). Fall back to a plain render if the composer fails.
   let nearFx = null
-  if (!new URLSearchParams(location.search).has('nofx')) {
+  if (enableFx && postAddons) {
     try {
       nearFx = createPostFX({ THREE, addons: postAddons, renderer: nearRenderer, scene: nearScene, camera: nearCamera })
       if (window.__steppe) nearFx.bloom.strength = .2
@@ -1249,28 +1684,39 @@ async function drawNear() {
       console.warn('postfx unavailable, falling back to direct render', error)
     }
   }
+  if (buildToken !== nearBuildToken) return
   nearRenderer.render(nearScene, nearCamera)
   window.glyphweaveFeedback.visualChecks.highDetailChunk = focusChunk ? `${focusChunk.chunkX},${focusChunk.chunkZ}` : null
   window.glyphweaveFeedback.visualChecks.loadedChunks = activeChunks.map(chunk => `${chunk.chunkX},${chunk.chunkZ}`)
   window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
-  nearRenderer.setAnimationLoop(() => {
+  renderNearFrame = () => {
+    if (!nearRenderer || !nearCamera || !nearScene) return
+    // Do not call OrbitControls.update() here: update() dispatches `change`,
+    // whose static-preview handler calls this function. Calling it recursively
+    // exhausted the stack on the first 2.5D frame.
+    if (nearFx) nearFx.render(1 / 60)
+    else nearRenderer.render(nearScene, nearCamera)
+  }
+  if (!STATIC_PREVIEW) nearRenderer.setAnimationLoop(() => {
     const now = performance.now() * .001
-    if (window.__steppeGrass) {
-      window.__steppeGrass.update(now)
-      window.__steppeGrass.uniforms.uCameraPos.value.copy(nearCamera.position)
+    for (const layer of window.__steppeGrassLayers ?? []) {
+      layer.update(now)
+      layer.uniforms.uCameraPos.value.copy(nearCamera.position)
     }
-    if (worldWind) worldWind.uTime.value = now
-    for (const actor of animatedActors) {
-      actor.object.position.z = actor.baseZ + Math.sin(now * actor.speed + actor.phase) * (actor.object.userData.actorKind === 'car' ? 8 : 3)
+    if (!STATIC_PREVIEW) {
+      if (worldWind) worldWind.uTime.value = now
+      for (const actor of animatedActors) {
+        actor.object.position.z = actor.baseZ + Math.sin(now * actor.speed + actor.phase) * (actor.object.userData.actorKind === 'car' ? 8 : 3)
+      }
+      for (const maps of waterTextures) {
+        maps.texture.offset.x = (maps.texture.offset.x + .00025) % 1
+        maps.texture.offset.y = (maps.texture.offset.y + .00055) % 1
+        maps.normalTexture.offset.x = (maps.normalTexture.offset.x + .00025) % 1
+        maps.normalTexture.offset.y = (maps.normalTexture.offset.y + .00055) % 1
+      }
+      for (const wu of animatedWater) wu.uTime.value = now
     }
-    for (const maps of waterTextures) {
-      maps.texture.offset.x = (maps.texture.offset.x + .00025) % 1
-      maps.texture.offset.y = (maps.texture.offset.y + .00055) % 1
-      maps.normalTexture.offset.x = (maps.normalTexture.offset.x + .00025) % 1
-      maps.normalTexture.offset.y = (maps.normalTexture.offset.y + .00055) % 1
-    }
-    for (const wu of animatedWater) wu.uTime.value = now
     if (edgePointer) {
       const edge = 54
       const speed = 1.8
@@ -1320,7 +1766,10 @@ async function drawNear() {
       lastRenderMs = frameMs
     }
   })
-  let lastRenderMs = performance.now()
+  if (STATIC_PREVIEW) {
+    nearRenderer.setAnimationLoop(null)
+    renderNearFrame()
+  }
 }
 
 function updateNearCoordinateInfo() {
@@ -1363,21 +1812,29 @@ function draw() {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('near', isNearMode)
   }
-  if (mode === 'strategic') drawStrategic(); else drawNear()
+  if (mode === 'strategic') drawStrategic(); else drawNear().catch(error => {
+    console.error('2.5D render failed', error)
+    info.textContent = `2.5D 加载失败：${error?.message || error}`
+  })
 }
-document.querySelector('#strategic').onclick = () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() }
-document.querySelector('#skyline').onclick = () => { nearPreset = 'skyline'; mode = 'near'; draw() }
-document.querySelector('#close').onclick = () => { nearPreset = 'harbour'; mode = 'near'; draw() }
-document.querySelector('#street').onclick = () => { nearPreset = 'street'; mode = 'near'; draw() }
-document.querySelector('#bridgehead').onclick = () => { nearPreset = 'bridgehead'; mode = 'near'; draw() }
-document.querySelector('#explore').onclick = () => { nearPreset = 'explore'; mode = 'near'; draw() }
-document.querySelector('#fullscreen').onclick = async () => { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); resize() }
-document.querySelector('#chunk-up').onclick = () => { if (window.__chunkNav) window.__chunkNav(0, 1) }
-document.querySelector('#chunk-down').onclick = () => { if (window.__chunkNav) window.__chunkNav(0, -1) }
-document.querySelector('#chunk-left').onclick = () => { if (window.__chunkNav) window.__chunkNav(-1, 0) }
-document.querySelector('#chunk-right').onclick = () => { if (window.__chunkNav) window.__chunkNav(1, 0) }
+const bindClick = (id, handler) => {
+  const element = document.querySelector(id)
+  if (element) element.onclick = handler
+}
+bindClick('#strategic', () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() })
+bindClick('#close', () => { nearPreset = 'harbour'; mode = 'near'; draw() })
+// Optional preview modes are intentionally omitted from the compact UI, but
+// keep these bindings safe for older exported HTML pages that still include
+// one or more of the buttons.
+bindClick('#skyline', () => { nearPreset = 'skyline'; mode = 'near'; draw() })
+bindClick('#street', () => { nearPreset = 'street'; mode = 'near'; draw() })
+bindClick('#bridgehead', () => { nearPreset = 'bridgehead'; mode = 'near'; draw() })
+bindClick('#explore', () => { nearPreset = 'explore'; mode = 'near'; draw() })
+bindClick('#fullscreen', async () => { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); resize() })
+bindClick('#chunk-up', () => { if (window.__chunkNav) window.__chunkNav(0, 1) })
+bindClick('#chunk-down', () => { if (window.__chunkNav) window.__chunkNav(0, -1) })
+bindClick('#chunk-left', () => { if (window.__chunkNav) window.__chunkNav(-1, 0) })
+bindClick('#chunk-right', () => { if (window.__chunkNav) window.__chunkNav(1, 0) })
 sceneSelect.onchange = loadScene
 window.onresize = resize
 fetch('../world.json').then(response => response.json()).then(async data => { world = data; title.textContent = data.name; for (const path of data.scenes) { const option = document.createElement('option'); option.textContent = path.split('/')[1]; sceneSelect.append(option) } await loadScene(); resize() })
-
-

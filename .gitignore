@@ -41,3 +41,6 @@ bevy/target/
 
 # Scratch / agent review output
 work/
+
+# Alternate Rust build directories (generated binaries/caches, not source)
+/bevy/target-r*/

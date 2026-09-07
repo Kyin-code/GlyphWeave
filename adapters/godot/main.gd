@@ -71,6 +71,19 @@ func _load_height_mesh(chunk: Dictionary) -> ArrayMesh:
 	var file := FileAccess.open("res://../scenes/%s/%s" % [scene_index.sceneId, chunk.heightFile], FileAccess.READ)
 	var width: int = chunk.validWidthM
 	var depth: int = chunk.validDepthM
+	if file == null:
+		push_error("Missing terrain height file")
+		return ArrayMesh.new()
+	var precision_mm := file.get_length() != width * depth * 2
+	var payload_offset := 0
+	var stride := 2
+	if precision_mm:
+		# GWHM byte signature; FileAccess integers default to little-endian.
+		if file.get_length() != 16 + width * depth * 4 or file.get_32() != 0x4d485747 or file.get_32() != 1 or file.get_32() != width or file.get_32() != depth:
+			push_error("Invalid GWHM terrain payload")
+			return ArrayMesh.new()
+		payload_offset = 16
+		stride = 4
 	var step := 16
 	var cols := ceili(float(width) / step) + 1
 	var rows := ceili(float(depth) / step) + 1
@@ -80,8 +93,14 @@ func _load_height_mesh(chunk: Dictionary) -> ArrayMesh:
 		for x in range(cols):
 			var sx := mini(x * step, width - 1)
 			var sz := mini(z * step, depth - 1)
-			file.seek((sz * width + sx) * 2)
-			var height := float(file.get_16()) / 4.0
+			file.seek(payload_offset + (sz * width + sx) * stride)
+			var raw: int = file.get_32() if precision_mm else file.get_16()
+			# FileAccess reads unsigned words; restore signed height below datum.
+			if precision_mm and raw >= 2147483648:
+				raw -= 4294967296
+			elif not precision_mm and raw >= 32768:
+				raw -= 65536
+			var height := float(raw) / (1000.0 if precision_mm else 4.0)
 			vertices.append(Vector3(sx, height, sz))
 	for z in range(rows - 1):
 		for x in range(cols - 1):

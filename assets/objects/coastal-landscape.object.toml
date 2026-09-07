@@ -1,0 +1,21 @@
+id = "coastal_landscape_feature"
+kind = "park"
+applies_to = ["scenic_belt", "mudflat", "mangrove"]
+tags = ["coastal", "landscape", "soft"]
+[geometry]
+footprint = [30.0, 20.0]
+height = 0.5
+clearance = 1.0
+[environment]
+on_ground = true
+not_in_water = false
+max_slope = 25
+[[relations.avoid]]
+kind = "building"
+distance = 2.0
+[placement]
+phase = "terrain"
+priority = 34
+attempts = 12
+allow_rotate = true
+fallback = "move"

@@ -3,9 +3,38 @@
 //! Public world coordinates use named `world_x`, `world_z`, and `world_y`
 //! fields. The `.gemap` v3 codec keeps its frozen `(z, x, y)` protocol order.
 
+use crate::baked_terrain::{BakedTerrain, TerrainError};
+use crate::engineering::{EngineeredTerrainOperation, EngineeredTerrainSnapshot};
+use crate::height_payload::{HeightEncoding, HeightPayload, encode_millimetres};
+use crate::natural::{NaturalTerrainSnapshot, audit_drainage_graph};
+use crate::settlement::development::{self, DevelopmentPlan, LandcoverPlan};
+use crate::settlement::landcover::{self, SurfaceRealization};
+use crate::settlement::proposals::{self, DevelopmentProposal};
+use crate::settlement::{
+    ParcelPlan, SettlementGraph, derive_settlement_graph, plan_parcels,
+    realize_infrastructure_plan, realize_parcel_plan, validate_parcel_plan,
+};
+mod access;
+mod access_surface;
+pub use access::{AccessGraph, AccessLink, AccessPoint, build_access_graph};
+pub use access_surface::{AccessSurface, bake_access_surfaces, validate_access_surfaces};
+mod engineered_placement;
+pub mod joint_frontage;
+pub mod road_network;
+pub mod road_alignment;
+pub mod road_profile;
+pub mod road_extensions;
+pub mod auto_roads;
+pub mod frontage;
+pub mod services;
+mod terrain_context;
+mod water_query;
+pub mod zoning;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use terrain_context::TerrainContext;
+pub use water_query::footprint_intersects_water;
 
 use crate::storage::codec::encode_world_with_metadata;
 use crate::voxel::{VoxelCoord, VoxelWorld};
@@ -14,7 +43,7 @@ use thiserror::Error;
 pub const WORLD_FORMAT: &str = "glyphweave-world";
 pub const WORLD_VERSION: u32 = 1;
 /// Bump when the serialized world semantics or deterministic bake algorithm changes.
-pub const WORLD_GENERATOR_REVISION: &str = "worldgen-2026-09-03-r2";
+pub const WORLD_GENERATOR_REVISION: &str = "worldgen-2026-09-07-r49-indexed-pedestrian-clearance";
 pub const STREAM_CHUNK_METERS: u32 = 512;
 pub const MIN_SCENE_METERS: u32 = 512;
 pub const MAX_SCENE_WIDTH_METERS: u32 = 6_000;
@@ -43,6 +72,8 @@ pub struct WaterGeometry {
     /// landform bands without threading extra scene state through the API.
     scene_width_m: u32,
     scene_depth_m: u32,
+    terrain_origin_x: i32,
+    terrain_origin_z: i32,
     /// Smooth-rolling terrain (steppe / prairie): soft rolling hills instead
     /// of sharp ridges, matching wgen's "Hills" hemispheric generator.
     smooth_rolling: bool,
@@ -53,8 +84,9 @@ pub struct WaterGeometry {
 /// on a slope reads as standing on level ground instead of draping over the
 /// hillside (the approach used by symbios-ground-lab's terrain carving).
 /// `blend_m` is the width of the smooth transition ring around the pad.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct TerrainCarve {
+    profile: Option<std::sync::Arc<road_profile::RoadProfile>>,
     cx: f64,
     cz: f64,
     half_w: f64,
@@ -79,6 +111,10 @@ pub enum GroundingPivot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GroundingSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontage_road_point: Option<[i32;2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_profile: Option<road_profile::RoadProfile>,
     #[serde(default)]
     pub pivot: GroundingPivot,
     #[serde(default)]
@@ -96,6 +132,8 @@ fn default_grounding_tolerance_m() -> f32 {
 impl Default for GroundingSpec {
     fn default() -> Self {
         Self {
+            frontage_road_point: None,
+            road_profile: None,
             pivot: GroundingPivot::Bottom,
             bottom_offset_m: 0.0,
             roadbed_offset_m: 0.0,
@@ -187,10 +225,30 @@ pub struct SidecarContract {
     pub gemap_role: String,
     pub scene_index_root: String,
     pub height_precision_m: f32,
+    #[serde(default = "default_height_encoding_name")]
+    pub height_encoding: String,
+    #[serde(default = "default_lod_height_precision")]
+    pub lod_height_precision_m: f32,
     #[serde(default)]
     pub terrain_semantics: TerrainSemanticsContract,
 }
 
+fn default_height_encoding_name() -> String {
+    "i16le-quarter-meter-raw".into()
+}
+fn default_lod_height_precision() -> f32 {
+    0.25
+}
+impl SidecarContract {
+    pub fn for_style(style: &serde_json::Value) -> WorldgenResult<Self> {
+        let mut c = Self::default();
+        if height_encoding_from_style(style)? == HeightEncoding::Millimetre {
+            c.height_precision_m = 0.001;
+            c.height_encoding = "gwhm-v1-i32le-millimeter".into();
+        }
+        Ok(c)
+    }
+}
 impl Default for SidecarContract {
     fn default() -> Self {
         Self {
@@ -200,6 +258,8 @@ impl Default for SidecarContract {
             gemap_role: "identity-anchor".into(),
             scene_index_root: "scenes/".into(),
             height_precision_m: 0.25,
+            height_encoding: default_height_encoding_name(),
+            lod_height_precision_m: 0.25,
             terrain_semantics: TerrainSemanticsContract::default(),
         }
     }
@@ -302,6 +362,8 @@ pub struct ChunkDescriptor {
     pub valid_width_m: u32,
     pub valid_depth_m: u32,
     pub height_file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_height_file: Option<String>,
     pub surface_file: String,
     pub lod2_file: String,
     /// Optional for worlds baked before terrain semantics; new bakes include it.
@@ -317,6 +379,28 @@ pub struct ChunkDescriptor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneIndex {
+    #[serde(default)]
+    pub land_use_budget: Option<LandUseBudget>,
+    #[serde(default)]
+    pub land_use_zones: Vec<LandUseZone>,
+    #[serde(default)]
+    pub settlement_graph: Option<SettlementGraph>,
+    #[serde(default)]
+    pub parcel_plan: Option<ParcelPlan>,
+    #[serde(default)]
+    pub road_network_plan: Option<road_network::RoadNetworkPlan>,
+    #[serde(default)]
+    pub development_plan: Option<DevelopmentPlan>,
+    #[serde(default)]
+    pub landcover_plan: Option<LandcoverPlan>,
+    #[serde(default)]
+    pub landcover_surfaces: Option<SurfaceRealization>,
+    #[serde(default)]
+    pub development_proposals: Vec<DevelopmentProposal>,
+    #[serde(default)]
+    pub natural_terrain: NaturalTerrainSnapshot,
+    #[serde(default)]
+    pub engineered_terrain: EngineeredTerrainSnapshot,
     pub scene_id: String,
     pub width_m: u32,
     pub depth_m: u32,
@@ -328,6 +412,10 @@ pub struct SceneIndex {
     pub chunks: Vec<ChunkDescriptor>,
     pub landmarks: Vec<LandmarkSpec>,
     pub entities: Vec<EntityInstance>,
+    #[serde(default)]
+    pub access_graph: AccessGraph,
+    #[serde(default)]
+    pub access_surfaces: Vec<AccessSurface>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -371,6 +459,9 @@ pub struct WorldIndex {
     pub scene_graph: SceneGraph,
     #[serde(default)]
     pub sidecar: SidecarContract,
+    /// Horizontal datum used by preview adapters for water cells.
+    #[serde(default)]
+    pub water_level_m: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -432,6 +523,10 @@ pub enum WorldgenError {
     InvalidLandmark(String),
     #[error("landmark {landmark:?} references missing scene {scene:?}")]
     MissingLandmarkScene { landmark: String, scene: String },
+    #[error(
+        "landmark {landmark:?} footprint intersects water in scene {scene:?}; move it to land or declare an explicit water-compatible kind"
+    )]
+    LandmarkIntersectsWater { landmark: String, scene: String },
     #[error("landmark {landmark:?} is outside scene {scene:?}")]
     LandmarkOutsideScene { landmark: String, scene: String },
     #[error("output directory already contains files: {0}")]
@@ -448,6 +543,8 @@ pub enum WorldgenError {
         checked: usize,
         rejected: usize,
     },
+    #[error(transparent)]
+    Terrain(#[from] TerrainError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -665,9 +762,223 @@ fn ratio_of(profile: &serde_json::Value, key: &str, fallback: f64) -> f64 {
         .clamp(0.0, 1.0)
 }
 
-/// Achieved land-use area breakdown over a baked scene. Areas are computed as
-/// `width_m * depth_m` per entity and grouped into urban / rural / nature so
-/// the audit compares against `LandUseProfile` targets instead of entity counts.
+/// Planning allocation, NOT achieved area. Realization is accounted by the
+/// disjoint purpose/physical-cover ledger after geometry reconstruction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandUseZone {
+    pub id: String,
+    pub kind: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    pub width_m: u32,
+    pub depth_m: u32,
+    pub source: String,
+}
+
+pub fn plan_landuse_zones(scene: &SceneSpec, profile: &LandUseProfile) -> Vec<LandUseZone> {
+    if scene.width_m == 0 || scene.depth_m == 0 {
+        return Vec::new();
+    }
+    let total =
+        (profile.urban_target() + profile.rural_target() + profile.nature_target()).max(1.0);
+    let targets = [
+        profile.urban_target() / total,
+        profile.rural_target() / total,
+        profile.nature_target() / total,
+    ];
+    let cell = if scene.width_m.max(scene.depth_m) >= 5000 {
+        240
+    } else {
+        160
+    };
+    let cols = scene.width_m.div_ceil(cell);
+    let rows = scene.depth_m.div_ceil(cell);
+    let cx = f64::from(scene.origin_x) + f64::from(scene.width_m) * 0.5;
+    let cz = f64::from(scene.origin_z) + f64::from(scene.depth_m) * 0.5;
+    let mut cells = Vec::new();
+    for row in 0..rows {
+        for col in 0..cols {
+            // Redistribute the partial edge rather than emitting a 32m sliver.
+            let x = (u64::from(col) * u64::from(scene.width_m) / u64::from(cols)) as u32;
+            let z = (u64::from(row) * u64::from(scene.depth_m) / u64::from(rows)) as u32;
+            let right = (u64::from(col + 1) * u64::from(scene.width_m) / u64::from(cols)) as u32;
+            let bottom = (u64::from(row + 1) * u64::from(scene.depth_m) / u64::from(rows)) as u32;
+            let wx = i64::from(scene.origin_x) + i64::from(x);
+            let wz = i64::from(scene.origin_z) + i64::from(z);
+            let (Ok(wx), Ok(wz)) = (i32::try_from(wx), i32::try_from(wz)) else {
+                continue;
+            };
+            let radius = (f64::from(wx) + f64::from(right - x) * 0.5 - cx).powi(2)
+                + (f64::from(wz) + f64::from(bottom - z) * 0.5 - cz).powi(2);
+            cells.push((radius, row * cols + col, wx, wz, right - x, bottom - z));
+        }
+    }
+    cells.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let area = f64::from(scene.width_m) * f64::from(scene.depth_m);
+    let boundaries = [
+        targets[0] * area,
+        (targets[0] + targets[1]) * area,
+        (targets[0] + targets[1] + targets[2]) * area,
+    ];
+    let names = ["urban", "rural", "nature", "unassigned"];
+    let mut consumed = 0.0;
+    let mut category = 0;
+    cells
+        .into_iter()
+        .map(|(_, index, x, z, w, d)| {
+            let size = f64::from(w) * f64::from(d);
+            // Nearest cumulative area boundary, not rounded cell count. Zero
+            // targets remain zero and an unspecified remainder stays unassigned.
+            while category < 3
+                && (consumed + size - boundaries[category]).abs()
+                    >= (consumed - boundaries[category]).abs()
+            {
+                category += 1;
+            }
+            let kind = names[category];
+            consumed += size;
+            LandUseZone {
+                id: format!("{}.zone.{kind}.{index}", scene.scene_id),
+                kind: kind.into(),
+                world_x: x,
+                world_z: z,
+                width_m: w,
+                depth_m: d,
+                source: "balanced-area-radial-v3".into(),
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandUseBudget {
+    pub scene_area_m2: f64,
+    #[serde(default)]
+    pub realization_accounting: String,
+    pub target_urban_ratio: f64,
+    pub target_rural_ratio: f64,
+    pub target_nature_ratio: f64,
+    pub target_urban_m2: f64,
+    pub target_rural_m2: f64,
+    pub target_nature_m2: f64,
+    pub planned_urban_m2: f64,
+    pub planned_rural_m2: f64,
+    pub planned_nature_m2: f64,
+    pub entity_urban_m2: f64,
+    pub entity_rural_m2: f64,
+    pub entity_nature_m2: f64,
+    pub actual_urban_m2: f64,
+    pub actual_rural_m2: f64,
+    pub actual_nature_m2: f64,
+    #[serde(default)]
+    pub actual_transport_m2: f64,
+    pub assigned_m2: f64,
+    pub unassigned_m2: f64,
+    pub status: String,
+    pub entity_coverage_status: String,
+}
+
+pub fn plan_landuse_budget(scene: &SceneIndex, profile: &LandUseProfile) -> LandUseBudget {
+    let areas = analyze_landuse_areas(scene);
+    let zone_area = |kind: &str| -> f64 {
+        scene
+            .land_use_zones
+            .iter()
+            .filter(|zone| zone.kind == kind)
+            .map(|zone| f64::from(zone.width_m) * f64::from(zone.depth_m))
+            .sum()
+    };
+    let planned_urban = zone_area("urban");
+    let planned_rural = zone_area("rural");
+    let planned_nature = zone_area("nature");
+    let entity_urban = areas.urban_m2;
+    let entity_rural = areas.rural_m2;
+    let entity_nature = areas.nature_m2;
+    let (actual_urban, actual_rural, actual_nature, actual_transport, accounting) =
+        if let (Some(plan), Some(roads)) = (&scene.development_plan, &scene.road_network_plan) {
+            let owned = development::realized_footprint_areas(plan, roads, &scene.entities);
+            (
+                owned.urban_m2 as f64
+                    + scene
+                        .landcover_surfaces
+                        .as_ref()
+                        .map_or(0., |s| landcover::area_by_zone(s, "urban")),
+                owned.rural_m2 as f64
+                    + scene
+                        .landcover_surfaces
+                        .as_ref()
+                        .map_or(0., |s| landcover::area_by_zone(s, "rural")),
+                0.,
+                owned.road_m2 as f64
+                    + scene
+                        .landcover_surfaces
+                        .as_ref()
+                        .map_or(0., landcover::farm_track_area),
+                "disjoint-owned-surfaces-v3",
+            )
+        } else {
+            (
+                entity_urban,
+                entity_rural,
+                entity_nature,
+                0.,
+                "legacy-entity-proxy",
+            )
+        };
+    let norm = (profile.urban_target() + profile.rural_target() + profile.nature_target()).max(1.0);
+    let urban = profile.urban_target() / norm;
+    let rural = profile.rural_target() / norm;
+    let nature = profile.nature_target() / norm;
+    let target_urban_m2 = areas.scene_area_m2 * urban;
+    let target_rural_m2 = areas.scene_area_m2 * rural;
+    let target_nature_m2 = areas.scene_area_m2 * nature;
+    let planned_within = [
+        (planned_urban / areas.scene_area_m2.max(1.0) - urban).abs(),
+        (planned_rural / areas.scene_area_m2.max(1.0) - rural).abs(),
+        (planned_nature / areas.scene_area_m2.max(1.0) - nature).abs(),
+    ]
+    .into_iter()
+    .all(|delta| delta <= 0.05);
+    let entity_coverage = actual_urban + actual_rural + actual_nature + actual_transport;
+    let entity_coverage_status =
+        if entity_coverage >= (planned_urban + planned_rural + planned_nature) * 0.9 {
+            "realized"
+        } else {
+            "underfilled"
+        };
+    LandUseBudget {
+        scene_area_m2: areas.scene_area_m2,
+        realization_accounting: accounting.into(),
+        target_urban_ratio: urban,
+        target_rural_ratio: rural,
+        target_nature_ratio: nature,
+        target_urban_m2,
+        target_rural_m2,
+        target_nature_m2,
+        planned_urban_m2: planned_urban,
+        planned_rural_m2: planned_rural,
+        planned_nature_m2: planned_nature,
+        entity_urban_m2: entity_urban,
+        entity_rural_m2: entity_rural,
+        entity_nature_m2: entity_nature,
+        actual_urban_m2: actual_urban,
+        actual_rural_m2: actual_rural,
+        actual_nature_m2: actual_nature,
+        actual_transport_m2: actual_transport,
+        assigned_m2: entity_coverage,
+        unassigned_m2: (areas.scene_area_m2 - entity_coverage).max(0.0),
+        status: if planned_within {
+            "planned_within_tolerance"
+        } else {
+            "planned_mismatched"
+        }
+        .into(),
+        entity_coverage_status: entity_coverage_status.into(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LandUseAreaReport {
@@ -681,6 +992,8 @@ pub struct LandUseAreaReport {
     pub by_kind: BTreeMap<String, f64>,
 }
 
+/// Legacy diagnostic: overlapping entity footprint proxies, not zoning or
+/// realized land cover. Kept for compatibility, never road-first gate authority.
 pub fn analyze_landuse_areas(scene: &SceneIndex) -> LandUseAreaReport {
     let scene_area_m2 = f64::from(scene.width_m.max(1)) * f64::from(scene.depth_m.max(1));
     let mut by_kind = BTreeMap::<String, f64>::new();
@@ -709,10 +1022,18 @@ pub fn analyze_landuse_areas(scene: &SceneIndex) -> LandUseAreaReport {
             | "industrial"
             | "water_well"
             | "street_lamp"
-            | "road_sign" => urban_m2 += area,
-            "farmland" | "pasture" | "canal" | "building_cluster" => rural_m2 += area,
+            | "road_sign"
+            | "shopping_mall"
+            | "office_tower"
+            | "convenience_store"
+            | "night_market"
+            | "community_plaza" => urban_m2 += area,
+            "farmland" | "pasture" | "canal" | "building_cluster" | "hill" | "mountain"
+            | "rock_mountain" => rural_m2 += area,
             "green_space" | "mountain_forest" | "nature_reserve" | "tree" | "bush" | "rock"
-            | "grass_clump" | "reed" | "fallen_log" => nature_m2 += area,
+            | "grass_clump" | "reed" | "fallen_log" | "scenic_belt" | "mudflat" | "mangrove" => {
+                nature_m2 += area
+            }
             _ => {}
         }
     }
@@ -856,6 +1177,103 @@ pub(crate) fn default_asset_contracts() -> serde_json::Value {
         ("fallen_log", "vegetation", 0.2, 8.0, 0.2, 4.0, 0.1, 3.0),
         ("bridge", "bridge", 6.0, 10000.0, 6.0, 200.0, 0.1, 80.0),
         (
+            "mountain", "landform", 20.0, 2000.0, 20.0, 2000.0, 1.0, 500.0,
+        ),
+        ("hill", "landform", 20.0, 1200.0, 20.0, 1200.0, 0.5, 180.0),
+        (
+            "rock_mountain",
+            "landform",
+            20.0,
+            2000.0,
+            20.0,
+            2000.0,
+            1.0,
+            500.0,
+        ),
+        (
+            "shopping_mall",
+            "commercial",
+            40.0,
+            400.0,
+            30.0,
+            300.0,
+            4.0,
+            60.0,
+        ),
+        (
+            "office_tower",
+            "commercial",
+            20.0,
+            160.0,
+            20.0,
+            160.0,
+            12.0,
+            400.0,
+        ),
+        (
+            "convenience_store",
+            "commercial",
+            6.0,
+            40.0,
+            6.0,
+            30.0,
+            2.5,
+            12.0,
+        ),
+        ("fence", "barrier", 1.0, 10000.0, 0.1, 4.0, 0.5, 4.0),
+        ("guardrail", "barrier", 1.0, 10000.0, 0.1, 4.0, 0.5, 3.0),
+        ("boardwalk", "pavement", 1.0, 10000.0, 1.0, 20.0, 0.1, 3.0),
+        (
+            "scenic_belt",
+            "landscape",
+            10.0,
+            2000.0,
+            10.0,
+            500.0,
+            0.1,
+            30.0,
+        ),
+        (
+            "mudflat",
+            "coastal_ecology",
+            10.0,
+            2000.0,
+            10.0,
+            1000.0,
+            0.1,
+            8.0,
+        ),
+        (
+            "night_market",
+            "market",
+            20.0,
+            300.0,
+            12.0,
+            220.0,
+            0.1,
+            20.0,
+        ),
+        (
+            "community_plaza",
+            "civic",
+            20.0,
+            400.0,
+            20.0,
+            400.0,
+            0.1,
+            8.0,
+        ),
+        (
+            "mangrove",
+            "coastal_ecology",
+            10.0,
+            1200.0,
+            10.0,
+            1200.0,
+            0.1,
+            20.0,
+        ),
+        (
             "building_cluster",
             "building",
             20.0,
@@ -928,6 +1346,32 @@ pub fn water_kind(style: &serde_json::Value) -> WaterKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerrainDomain {
+    pub origin_x: i32,
+    pub origin_z: i32,
+    pub width_m: u32,
+    pub depth_m: u32,
+}
+fn terrain_domain(style: &serde_json::Value) -> WorldgenResult<Option<TerrainDomain>> {
+    let Some(value) = style.get("terrainDomain") else {
+        return Ok(None);
+    };
+    let d: TerrainDomain = serde_json::from_value(value.clone())?;
+    if d.width_m < 1
+        || d.depth_m < 1
+        || d.width_m > 6000
+        || d.depth_m > 10000
+        || d.origin_x.checked_add(d.width_m as i32).is_none()
+        || d.origin_z.checked_add(d.depth_m as i32).is_none()
+    {
+        return Err(WorldgenError::InvalidRules(
+            "invalid terrainDomain bounds".into(),
+        ));
+    }
+    Ok(Some(d))
+}
 pub fn water_geometry(
     kind: WaterKind,
     landmarks: &[LandmarkSpec],
@@ -975,14 +1419,26 @@ pub fn water_geometry(
         .and_then(serde_json::Value::as_str)
         .map(|s| matches!(s, "steppe" | "prairie" | "grassland" | "plains"))
         .unwrap_or(false);
+    // Manifest validation checks optional shared domain before generation.
+    let domain = terrain_domain(style)
+        .ok()
+        .flatten()
+        .unwrap_or(TerrainDomain {
+            origin_x: scene.origin_x,
+            origin_z: scene.origin_z,
+            width_m: scene.width_m,
+            depth_m: scene.depth_m,
+        });
     WaterGeometry {
         kind,
         center_x,
         center_z,
         half_width,
         half_depth,
-        scene_width_m: scene.width_m,
-        scene_depth_m: scene.depth_m,
+        scene_width_m: domain.width_m,
+        scene_depth_m: domain.depth_m,
+        terrain_origin_x: domain.origin_x,
+        terrain_origin_z: domain.origin_z,
         smooth_rolling,
     }
 }
@@ -1002,6 +1458,8 @@ fn legacy_water_geometry(
             half_depth: f64::from(scene_depth) * 0.26,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         },
         WaterKind::River => WaterGeometry {
@@ -1012,6 +1470,8 @@ fn legacy_water_geometry(
             half_depth: f64::from(scene_depth) * 0.5,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         },
         WaterKind::None => WaterGeometry {
@@ -1022,6 +1482,8 @@ fn legacy_water_geometry(
             half_depth: 0.0,
             scene_width_m: scene_width,
             scene_depth_m: scene_depth,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         },
     }
@@ -1029,6 +1491,7 @@ fn legacy_water_geometry(
 
 impl GroundingSpec {
     pub fn validate(&self, owner: &str) -> WorldgenResult<()> {
+        if let Some(p)=&self.road_profile {p.validate_shape()?;}
         if !self.bottom_offset_m.is_finite()
             || !self.roadbed_offset_m.is_finite()
             || !self.tolerance_m.is_finite()
@@ -1114,21 +1577,22 @@ impl EntityInstance {
                 | "church"
         );
         if is_building && self.anchors.is_empty() {
-            let (dx, dz) = match (self.rotation_y_deg.round() as i32).rem_euclid(360) {
-                90 => (self.width_m * 0.5 + 1.0, 0.0),
-                180 => (0.0, self.depth_m * 0.5 + 1.0),
-                270 => (-self.width_m * 0.5 - 1.0, 0.0),
-                _ => (0.0, -self.depth_m * 0.5 - 1.0),
-            };
+            // Local front is -Z. Transform continuously with the same yaw
+            // convention used by terrain footprints and renderer meshes.
+            let (sin, cos) = self.rotation_y_deg.to_radians().sin_cos();
+            let offset = self.depth_m * 0.5 + 1.0;
+            let dx = -sin * offset;
+            let dz = -cos * offset;
             self.anchors.push(SpatialAnchor {
                 id: "front".into(),
                 world_x: (self.world_x as f32 + dx).round() as i32,
                 world_z: (self.world_z as f32 + dz).round() as i32,
-                direction: match (self.rotation_y_deg.round() as i32).rem_euclid(360) {
-                    90 => "east",
-                    180 => "south",
-                    270 => "west",
-                    _ => "north",
+                direction: if dx.abs() > dz.abs() {
+                    if dx > 0. { "east" } else { "west" }
+                } else if dz > 0. {
+                    "south"
+                } else {
+                    "north"
                 }
                 .into(),
                 target: Some("road".into()),
@@ -1150,12 +1614,17 @@ impl EntityInstance {
 
 impl LandmarkSpec {
     pub fn computed_bounds(&self) -> Bounds2d {
-        Bounds2d::from_center(
-            self.world_x as f32,
-            self.world_z as f32,
+        let (half_w, half_d) = spatial_half_extents(
             self.width_m as f32,
             self.depth_m as f32,
-        )
+            self.rotation_y_deg,
+        );
+        Bounds2d {
+            min_x: self.world_x as f32 - half_w as f32,
+            min_z: self.world_z as f32 - half_d as f32,
+            max_x: self.world_x as f32 + half_w as f32,
+            max_z: self.world_z as f32 + half_d as f32,
+        }
     }
 
     pub fn normalize_spatial_semantics(&mut self) {
@@ -1262,6 +1731,44 @@ impl WorldManifest {
     }
 
     pub fn validate(&self) -> WorldgenResult<()> {
+        road_extensions::validate_manifest(self)?;
+        auto_roads::validate_manifest(self)?;
+        frontage::validate_manifest(self)?;
+        height_encoding_from_style(&self.style)?;
+        crate::settlement::farm_program::validate_manifest(&self.style,&self.scenes).map_err(WorldgenError::InvalidRules)?;
+        let service_program =
+            services::from_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        if let Some(program) = &service_program {
+            for id in program.housing_minimum.keys() {
+                if !self.scenes.iter().any(|s| &s.scene_id == id) {
+                    return Err(WorldgenError::InvalidRules(
+                        "housing minimum refers to unknown scene".into(),
+                    ));
+                }
+            }
+            for request in &program.requests {
+                if !self.scenes.iter().any(|s| s.scene_id == request.scene_id) {
+                    return Err(WorldgenError::InvalidRules(
+                        "service request refers to unknown scene".into(),
+                    ));
+                }
+            }
+        }
+        if let Some(domain) = terrain_domain(&self.style)? {
+            for scene in &self.scenes {
+                if i64::from(scene.origin_x) < i64::from(domain.origin_x)
+                    || i64::from(scene.origin_z) < i64::from(domain.origin_z)
+                    || i64::from(scene.origin_x) + i64::from(scene.width_m)
+                        > i64::from(domain.origin_x) + i64::from(domain.width_m)
+                    || i64::from(scene.origin_z) + i64::from(scene.depth_m)
+                        > i64::from(domain.origin_z) + i64::from(domain.depth_m)
+                {
+                    return Err(WorldgenError::InvalidRules(
+                        "scene escapes shared terrainDomain".into(),
+                    ));
+                }
+            }
+        }
         if self.format != WORLD_FORMAT {
             return Err(WorldgenError::InvalidFormat(self.format.clone()));
         }
@@ -1276,6 +1783,11 @@ impl WorldManifest {
                 self.world.render_mode.clone(),
             ));
         }
+        if self.scenes.is_empty() {
+            return Err(WorldgenError::InvalidSceneId(
+                "at least one scene is required".into(),
+            ));
+        }
         let mut scene_ids = BTreeMap::new();
         for scene in &self.scenes {
             if scene.scene_id.trim().is_empty() || scene_ids.insert(&scene.scene_id, true).is_some()
@@ -1284,6 +1796,8 @@ impl WorldManifest {
             }
             if !(MIN_SCENE_METERS..=MAX_SCENE_WIDTH_METERS).contains(&scene.width_m)
                 || !(MIN_SCENE_METERS..=MAX_SCENE_DEPTH_METERS).contains(&scene.depth_m)
+                || scene.origin_x.checked_add(scene.width_m as i32).is_none()
+                || scene.origin_z.checked_add(scene.depth_m as i32).is_none()
             {
                 return Err(WorldgenError::InvalidSceneSize {
                     scene_id: scene.scene_id.clone(),
@@ -1293,8 +1807,11 @@ impl WorldManifest {
             }
         }
         self.scene_graph.validate(&self.scenes)?;
+        let mut landmark_ids = std::collections::BTreeSet::new();
         for landmark in &self.landmarks {
             if landmark.entity_id.trim().is_empty()
+                || !landmark_ids.insert(&landmark.entity_id)
+                || !landmark.rotation_y_deg.is_finite()
                 || landmark.name.trim().is_empty()
                 || landmark.entity_type.trim().is_empty()
                 || landmark.purpose.trim().is_empty()
@@ -1322,16 +1839,21 @@ impl WorldManifest {
                     scene: landmark.scene_id.clone(),
                 });
             };
-            let local_x = landmark.world_x - scene.origin_x;
-            let local_z = landmark.world_z - scene.origin_z;
-            let half_width = landmark.width_m.div_ceil(2) as i32;
-            let half_depth = landmark.depth_m.div_ceil(2) as i32;
+            let local_x = i64::from(landmark.world_x) - i64::from(scene.origin_x);
+            let local_z = i64::from(landmark.world_z) - i64::from(scene.origin_z);
+            let (half_width, half_depth) = spatial_half_extents(
+                landmark.width_m as f32,
+                landmark.depth_m as f32,
+                landmark.rotation_y_deg,
+            );
+            let half_width = half_width.ceil() as i64;
+            let half_depth = half_depth.ceil() as i64;
             let may_be_clipped_by_scene = matches!(landmark.entity_type.as_str(), "lake" | "river");
             if !may_be_clipped_by_scene
                 && (local_x - half_width < 0
                     || local_z - half_depth < 0
-                    || local_x + half_width >= scene.width_m as i32
-                    || local_z + half_depth >= scene.depth_m as i32)
+                    || local_x + half_width >= i64::from(scene.width_m)
+                    || local_z + half_depth >= i64::from(scene.depth_m))
             {
                 return Err(WorldgenError::LandmarkOutsideScene {
                     landmark: landmark.entity_id.clone(),
@@ -1351,6 +1873,7 @@ fn edge_summary(
     horizontal: bool,
     index: u32,
 ) -> EdgeSummary {
+    let payload = HeightPayload::parse(height, width, depth).expect("generated height payload");
     let length = if horizontal { width } else { depth };
     let mut min = i16::MAX;
     let mut max = i16::MIN;
@@ -1359,7 +1882,7 @@ fn edge_summary(
         let x = if horizontal { step } else { index };
         let z = if horizontal { index } else { step };
         let offset = (z * width + x) as usize;
-        let h = i16::from_le_bytes([height[offset * 2], height[offset * 2 + 1]]);
+        let h = (payload.metres(offset) * 4.).clamp(i16::MIN as f64, i16::MAX as f64) as i16;
         min = min.min(h);
         max = max.max(h);
         counts[surface[offset] as usize] += 1;
@@ -1391,8 +1914,91 @@ fn chunk_boundary_summary(
     }
 }
 
+fn bake_natural_heightfield(
+    seed: u64,
+    scene: &SceneSpec,
+    water: WaterGeometry,
+    scene_dir: &Path,
+    precise: bool,
+) -> WorldgenResult<BakedTerrain> {
+    let mut terrain = BakedTerrain::new(scene)?;
+    for chunk_z in 0..scene.depth_m.div_ceil(STREAM_CHUNK_METERS) {
+        for chunk_x in 0..scene.width_m.div_ceil(STREAM_CHUNK_METERS) {
+            let dx = chunk_x * STREAM_CHUNK_METERS;
+            let dz = chunk_z * STREAM_CHUNK_METERS;
+            let width = (scene.width_m - dx).min(STREAM_CHUNK_METERS);
+            let depth = (scene.depth_m - dz).min(STREAM_CHUNK_METERS);
+            let x = scene.origin_x + dx as i32;
+            let z = scene.origin_z + dz as i32;
+            let bytes = if precise {
+                encode_millimetres(
+                    width,
+                    depth,
+                    (0..depth).flat_map(|row| {
+                        (0..width).map(move |col| {
+                            terrain_height_metres(seed, x + col as i32, z + row as i32, water, &[])
+                        })
+                    }),
+                )?
+            } else {
+                let mut bytes = Vec::with_capacity((width * depth * 2) as usize);
+                for row in 0..depth {
+                    for col in 0..width {
+                        bytes.extend_from_slice(
+                            &terrain_height_with_geometry(
+                                seed,
+                                x + col as i32,
+                                z + row as i32,
+                                water,
+                            )
+                            .to_le_bytes(),
+                        );
+                    }
+                }
+                bytes
+            };
+            terrain.insert_chunk(x, z, width, depth, &bytes)?;
+            fs::write(
+                scene_dir.join(format!("chunk-{chunk_x}-{chunk_z}.natural.height.bin")),
+                bytes,
+            )?;
+        }
+    }
+    terrain.require_complete()?;
+    Ok(terrain)
+}
+
+pub fn height_encoding_from_style(style: &serde_json::Value) -> WorldgenResult<HeightEncoding> {
+    if style.get("heightPrecision").is_some_and(|v| !v.is_string()) {
+        return Err(WorldgenError::InvalidRules(
+            "heightPrecision must be a string".into(),
+        ));
+    }
+    match style
+        .get("heightPrecision")
+        .and_then(serde_json::Value::as_str)
+    {
+        None | Some("quarter-meter") => Ok(HeightEncoding::QuarterMetre),
+        Some("millimeter") => Ok(HeightEncoding::Millimetre),
+        Some(value) => Err(WorldgenError::InvalidRules(format!(
+            "unsupported heightPrecision {value:?}"
+        ))),
+    }
+}
+// Opt-in stderr telemetry is observational, never part of world identity or
+// release acceptance. The external runner measures process resources.
+struct BakeTrace { enabled: bool, started: std::time::Instant }
+impl BakeTrace {
+    fn new()->Self { Self { enabled:std::env::var_os("GLYPHWEAVE_BAKE_TRACE").is_some_and(|v|v=="1"),started:std::time::Instant::now() } }
+    fn stage(&self,scene:&str,stage:&str) {
+        if self.enabled {eprintln!("{}",serde_json::json!({"format":"glyphweave.bake-trace","event":"begin","sceneId":scene,"stage":stage,"elapsedMs":self.started.elapsed().as_millis()}));}
+    }
+}
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
+    let trace=BakeTrace::new();
+    trace.stage("", "manifest-validation");
     manifest.validate()?;
+    let precise = height_encoding_from_style(&manifest.style)? == HeightEncoding::Millimetre;
     let rules_mode = manifest
         .style
         .get("rulesMode")
@@ -1429,16 +2035,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     let mut scene_paths = Vec::new();
     let mut baked_rules_report = crate::rules::ValidationReport::default();
     let mut placement_reports = Vec::<serde_json::Value>::new();
+    let mut engineering_reports = Vec::new();
     for scene in &manifest.scenes {
         let scene_dir = output.join("scenes").join(&scene.scene_id);
         fs::create_dir_all(&scene_dir)?;
         let chunk_count_x = scene.width_m.div_ceil(STREAM_CHUNK_METERS);
         let chunk_count_z = scene.depth_m.div_ceil(STREAM_CHUNK_METERS);
-        // Generate entities BEFORE baking the heightfields so we can carve
-        // their footprints into the terrain. The world_y of every entity is
-        // read from the natural (uncarved) terrain, then each road / building
-        // pad is flattened into the heightfield so the baked ground carries a
-        // level lot under every structure (symbios-ground-lab's approach).
+        // Authored water establishes the legacy natural boundary. Bake that
+        // layer first; generated infrastructure modifies only the final layer.
         let landmarks: Vec<LandmarkSpec> = manifest
             .landmarks
             .iter()
@@ -1455,13 +2059,126 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             scene,
             &manifest.style,
         );
-        let (entities, placement_outcome) = generate_entities_with_profile_report(
+        let service_program =
+            services::from_style(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+        if service_program.as_ref().is_some_and(|p| {
+            p.requests.iter().any(|r| r.scene_id == scene.scene_id)
+                || p.housing_minimum.contains_key(&scene.scene_id)
+        }) && !road_network::enabled(&manifest.style, water)
+        {
+            return Err(WorldgenError::InvalidRules(
+                "explicit service program requires supported road-first scene".into(),
+            ));
+        }
+        if crate::settlement::farm_program::for_scene(&manifest.style,scene).map_err(WorldgenError::InvalidRules)?.is_some()
+            && !road_network::enabled(&manifest.style,water) {
+            return Err(WorldgenError::InvalidRules("explicit agriculture program requires supported road-first scene".into()));
+        }
+        // Establish and publish the natural fact layer before any human
+        // candidate exists. Only heights are baked here, not unused LOD or
+        // derivative payloads; final engineering has its own later bake.
+        trace.stage(&scene.scene_id,"natural-heightfield");
+        let natural_samples = bake_natural_heightfield(
             manifest.world.seed ^ scene.seed_offset,
             scene,
-            &landmarks,
             water,
-            &manifest.style,
-        );
+            &scene_dir,
+            precise,
+        )?;
+        natural_samples.require_complete()?;
+
+        trace.stage(&scene.scene_id,"natural-drainage");
+        let natural_terrain = {
+            let kind = match water.kind {
+                WaterKind::None => "none",
+                WaterKind::Lake => "lake",
+                WaterKind::River => "river",
+            };
+            let snapshot = NaturalTerrainSnapshot::authored_water(
+                manifest.world.seed ^ scene.seed_offset,
+                &scene.scene_id,
+                scene.width_m,
+                scene.depth_m,
+                kind,
+                water.center_x as f32,
+                water.center_z as f32,
+            )
+            .with_derived_drainage(&natural_samples, scene)?;
+            fs::write(
+                scene_dir.join("natural-terrain.json"),
+                serde_json::to_vec_pretty(&snapshot)?,
+            )?;
+            let drainage_audit = audit_drainage_graph(&snapshot.drainage);
+            fs::write(
+                scene_dir.join("natural-terrain-audit.json"),
+                serde_json::to_vec_pretty(&drainage_audit)?,
+            )?;
+            snapshot
+        };
+        trace.stage(&scene.scene_id,"road-and-service-planning");
+        let planned_zones =
+            LandUseProfile::from_style(&manifest.style).map(|p| plan_landuse_zones(scene, &p));
+        let road_plan = if road_network::enabled(&manifest.style, water) {
+            Some(road_network::plan_with_style(
+                scene,
+                &natural_samples,
+                water,
+                planned_zones.as_deref(),
+                service_program.as_ref(),
+                &manifest.style,
+            )?)
+        } else {
+            None
+        };
+        if let Some(plan) = &road_plan {
+            fs::write(
+                scene_dir.join("road-network-plan.json"),
+                serde_json::to_vec_pretty(plan)?,
+            )?;
+        }
+        drop(natural_samples);
+        trace.stage(&scene.scene_id,"development-partition");
+        let development_plan = if let Some(roads) = &road_plan {
+            let profile = LandUseProfile::from_style(&manifest.style).ok_or_else(|| {
+                WorldgenError::InvalidRules("road development requires land-use profile".into())
+            })?;
+            Some(
+                development::plan(scene, &plan_landuse_zones(scene, &profile), roads)
+                    .map_err(WorldgenError::InvalidRules)?,
+            )
+        } else {
+            None
+        };
+        // Authored landmarks are rendered even when the procedural entity list
+        // filters them out. Validate them before generation so a building cannot
+        // silently disappear from the Rust audit and then reappear on top of the
+        // water in the HTML adapter.
+        let zoning_mask = if road_plan.is_some() {
+            planned_zones
+                .as_deref()
+                .map(|z| zoning::ZoningMask::new(scene, z))
+                .transpose()?
+        } else {
+            None
+        };
+        let terrain_context = TerrainContext {
+            seed: manifest.world.seed ^ scene.seed_offset,
+            water,
+            precise,
+            zoning: zoning_mask.as_ref(),
+        };
+        validate_authored_landmarks_clear_water(&landmarks, scene, water)?;
+        trace.stage(&scene.scene_id,"entity-generation-and-preflight");
+        let (entities, placement_outcome, development_proposals) =
+            generate_entities_with_profile_report(
+                manifest.world.seed ^ scene.seed_offset,
+                scene,
+                &landmarks,
+                water,
+                &manifest.style,
+                road_plan.as_ref(),
+                development_plan.as_ref(),
+            );
         if let Some((proposed_count, outcome)) = placement_outcome {
             let mut by_reason = BTreeMap::<String, usize>::new();
             for reject in &outcome.rejected {
@@ -1489,6 +2206,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             entity.normalize_spatial_semantics();
         }
         sanitize_generated_transport_collisions(&mut entities);
+        for e in &entities { if let Some(p)=&e.grounding.road_profile { p.validate_entity(e)?; } frontage::validate_entity(e)?; }
         let mut carves = plan_terrain_carves(&entities);
         // Reconcile grounded entities against the preliminary carved surface
         // so roadbeds cannot make a nearby object fail final baked audit.
@@ -1501,8 +2219,30 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             );
             carves = plan_terrain_carves(&entities);
         }
+        if let Some(dir) = &rules_dir {
+            let (repaired, final_carves, report) = engineered_placement::reconcile(
+                manifest.world.seed ^ scene.seed_offset,
+                scene,
+                &landmarks,
+                &entities,
+                water,
+                dir,
+                &terrain_context,
+            )?;
+            entities = repaired;
+            carves = final_carves;
+            engineering_reports.push(report);
+            fs::write(
+                output.join("engineering-placement.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format":"glyphweave.engineering-placement", "version":1,
+                    "scenes":engineering_reports,
+                }))?,
+            )?;
+        }
         let mut chunks = Vec::new();
-        let mut baked_samples = BTreeMap::<i64, f32>::new();
+        trace.stage(&scene.scene_id,"final-heightfield-and-semantics");
+        let mut baked_samples = BakedTerrain::new(scene)?;
         for chunk_z in 0..chunk_count_z {
             for chunk_x in 0..chunk_count_x {
                 let valid_width_m =
@@ -1513,42 +2253,51 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 let base_z = scene.origin_z + (chunk_z * STREAM_CHUNK_METERS) as i32;
                 let stem = format!("chunk-{chunk_x}-{chunk_z}");
                 let height_file = format!("{stem}.height.bin");
+                let natural_height_file = format!("{stem}.natural.height.bin");
                 let surface_file = format!("{stem}.surface.bin");
                 let lod2_file = format!("{stem}.lod2.bin");
                 let terrain_file = format!("{stem}.terrain.bin");
-                let (height, surface, lod2, terrain) = generate_chunk_with_geometry(
+                // A large scene may contain thousands of pads. Restrict the
+                // per-cell terrain walk to carves whose expanded bounds touch
+                // this chunk; unrelated city districts no longer cost O(N)
+                // for every raster cell.
+                let chunk_carves: Vec<TerrainCarve> = carves
+                    .iter()
+                    .cloned()
+                    .filter(|carve| {
+                        carve_intersects_chunk(carve, base_x, base_z, valid_width_m, valid_depth_m)
+                    })
+                    .collect();
+                let (height, surface, lod2, terrain) = generate_chunk_encoded(
                     manifest.world.seed ^ scene.seed_offset,
                     base_x,
                     base_z,
                     valid_width_m,
                     valid_depth_m,
                     water,
-                    &carves,
+                    &chunk_carves,
+                    precise,
+                    zoning_mask.as_ref(),
                 );
                 fs::write(scene_dir.join(&height_file), &height)?;
                 fs::write(scene_dir.join(&surface_file), &surface)?;
                 fs::write(scene_dir.join(&terrain_file), &terrain)?;
-                for (i, pair) in height.chunks_exact(2).enumerate() {
-                    let raw = i16::from_le_bytes([pair[0], pair[1]]);
-                    let lx = i as i32 % valid_width_m as i32;
-                    let lz = i as i32 / valid_width_m as i32;
-                    let wx = base_x + lx;
-                    let wz = base_z + lz;
-                    let key = (i64::from(wx) << 32) | (wz as u32 as i64);
-                    baked_samples.insert(key, f32::from(raw) / 4.0);
-                }
+                baked_samples.insert_chunk(
+                    base_x,
+                    base_z,
+                    valid_width_m,
+                    valid_depth_m,
+                    &height,
+                )?;
                 fs::write(scene_dir.join(&lod2_file), &lod2)?;
-                let hash = blake3::hash(
-                    &[
-                        height.as_slice(),
-                        surface.as_slice(),
-                        lod2.as_slice(),
-                        terrain.as_slice(),
-                    ]
-                    .concat(),
-                )
-                .to_hex()
-                .to_string();
+                // Stream the four payloads into BLAKE3 instead of allocating
+                // one additional concatenated buffer per 512m chunk.
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(&height);
+                hasher.update(&surface);
+                hasher.update(&lod2);
+                hasher.update(&terrain);
+                let hash = hasher.finalize().to_hex().to_string();
                 let descriptor = ChunkDescriptor {
                     chunk_x,
                     chunk_z,
@@ -1557,6 +2306,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     valid_width_m,
                     valid_depth_m,
                     height_file,
+                    natural_height_file: Some(natural_height_file),
                     surface_file,
                     lod2_file,
                     terrain_file: Some(terrain_file),
@@ -1575,41 +2325,56 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 chunks.push(descriptor);
             }
         }
-        // Baked raster is authoritative; reconcile entity bottoms with the exact
-        // footprint samples after all pads and blends have been applied.
+        // One compact raster and one audit preparation path for bake and CLI.
+        trace.stage(&scene.scene_id,"final-entity-access-and-audit");
+        baked_samples.require_complete()?;
         rebase_entities_to_baked_surface(&mut entities, &baked_samples);
-        if let Some(rules_dir) = &rules_dir {
-            // The generator validates candidates against natural terrain before
-            // carving. Re-run the same rules against the actual baked height
-            // samples so terrain-carve and placement semantics cannot drift.
-            for entity in &entities {
-                let key = (i64::from(entity.world_x) << 32) | (entity.world_z as u32 as i64);
-                if !baked_samples.contains_key(&key) {
-                    return Err(WorldgenError::InvalidRules(format!(
-                        "baked heightfield has no sample for entity {} at ({},{})",
-                        entity.entity_id, entity.world_x, entity.world_z
-                    )));
-                }
+        rebase_generated_transport_to_baked_surface(&mut entities, &landmarks, &baked_samples);
+        let mut access_graph =
+            access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
+        // Planned frontage entrances are already a Rust-owned engineering
+        // contract; generic fallback must not rotate them away from the road.
+        for planned in entities.iter_mut().filter(|e| e.grounding.frontage_road_point.is_some()) {
+            let expected = road_plan.as_ref().and_then(|p| p.roadside_sites.iter().find(|s| s.id == planned.entity_id));
+            if let Some(site) = expected {
+                let authoritative = site.entity();
+                *planned = authoritative;
+                planned.normalize_spatial_semantics();
             }
-            let height_query = |x: i32, z: i32| {
-                baked_samples
-                    .get(&((i64::from(x) << 32) | (z as u32 as i64)))
-                    .copied()
-                    .expect("validated baked entity/footprint sample")
-            };
-            let audit = audit_scene(
+        }
+        // Final planned/authored obligations cannot be deleted to improve a gate.
+        let protected_access_ids: std::collections::BTreeSet<String> = landmarks
+            .iter()
+            .map(|l| l.entity_id.clone())
+            .chain(
+                development_plan
+                    .iter()
+                    .flat_map(|p| p.buildings.iter().map(|b| b.entity.entity_id.clone())),
+            )
+            .collect();
+        let rejected_access = access::rejectable_candidates(&access_graph, &protected_access_ids);
+        if !rejected_access.is_empty() {
+            entities.retain(|entity| !rejected_access.contains(&entity.entity_id));
+            access_graph =
+                access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "access-candidate-rejection",
+                "rejectedGeneratedBuildings": rejected_access,
+                "reason": "no generated facade produced a verified route within the strict access contract"
+            }));
+        }
+        let access_surfaces = bake_access_surfaces(&access_graph, &baked_samples)?;
+        if let Some(rules_dir) = &rules_dir {
+            let audit = audit_baked_scene(
                 manifest.world.seed ^ scene.seed_offset,
                 scene,
                 &landmarks,
                 &entities,
                 water,
                 rules_dir,
-                AuditOptions {
-                    height_at: Some(&height_query),
-                    slope_half: None,
-                },
-            )
-            .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+                &baked_samples,
+            )?;
             merge_validation_report(&mut baked_rules_report, &audit);
             if audit.rejected_items > 0 {
                 let _ = fs::write(
@@ -1624,7 +2389,104 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }
         }
 
-        let index = SceneIndex {
+        if let Some(plan) = &road_plan {
+            let mut natural = BakedTerrain::new(scene)?;
+            for chunk in &chunks {
+                let file = chunk
+                    .natural_height_file
+                    .as_ref()
+                    .ok_or_else(|| TerrainError("missing natural chunk for road audit".into()))?;
+                natural.insert_chunk(
+                    chunk.world_x,
+                    chunk.world_z,
+                    chunk.valid_width_m,
+                    chunk.valid_depth_m,
+                    &fs::read(scene_dir.join(file))?,
+                )?;
+            }
+            let audit = road_network::verify_with_style(
+                plan,
+                scene,
+                &natural,
+                &baked_samples,
+                water,
+                &entities,
+                planned_zones.as_deref(),
+                service_program.as_ref(),
+                &manifest.style,
+            )?;
+            let protection = zoning::audit_protection(
+                scene,
+                planned_zones.as_deref().expect("zoned road source"),
+                &natural,
+                &baked_samples,
+                &entities,
+            )?;
+            fs::write(
+                scene_dir.join("land-protection-audit.json"),
+                serde_json::to_vec_pretty(&protection)?,
+            )?;
+            if let Some(joint) = &plan.joint_layout {
+                let audit = joint_frontage::audit(plan, &entities, &access_graph);
+                fs::write(
+                    scene_dir.join("joint-layout.json"),
+                    serde_json::to_vec_pretty(joint)?,
+                )?;
+                fs::write(
+                    scene_dir.join("joint-layout-audit.json"),
+                    serde_json::to_vec_pretty(&audit)?,
+                )?;
+            }
+            if !plan.service_outcomes.is_empty() {
+                let service_audit = services::audit(plan, &entities, &access_graph);
+                fs::write(
+                    scene_dir.join("service-program-outcomes.json"),
+                    serde_json::to_vec_pretty(&plan.service_outcomes)?,
+                )?;
+                fs::write(
+                    scene_dir.join("service-program-audit.json"),
+                    serde_json::to_vec_pretty(&service_audit)?,
+                )?;
+            }
+            fs::write(
+                scene_dir.join("road-network-audit.json"),
+                serde_json::to_vec_pretty(&audit)?,
+            )?;
+        }
+        let engineered_terrain = {
+            let operations = carves
+                .iter()
+                .enumerate()
+                .map(|(index, carve)| EngineeredTerrainOperation {
+                    id: format!("{}.carve.{index}", scene.scene_id),
+                    kind: if carve.disturbance == 255 {
+                        "roadbed"
+                    } else {
+                        "building_or_parcel_pad"
+                    }
+                    .into(),
+                    entity_id: carve.profile.as_deref().and_then(|p|entities.iter().find(|e|e.grounding.road_profile.as_ref()==Some(p))).map(|e|e.entity_id.clone()).unwrap_or_else(||format!("generated.terrain-carve.{index}")),
+                    center_x: carve.cx as f32,
+                    center_z: carve.cz as f32,
+                    half_width_m: carve.half_w as f32,
+                    half_depth_m: carve.half_d as f32,
+                    target_height_m: carve.target_h_m as f32,
+                    road_profile: carve.profile.as_deref().cloned(),
+                    blend_m: carve.blend_m as f32,
+                    priority: carve.priority,
+                    status: "applied-to-final-heightfield".into(),
+                })
+                .collect();
+            let snapshot = EngineeredTerrainSnapshot::new(operations);
+            fs::write(
+                scene_dir.join("engineered-terrain.json"),
+                serde_json::to_vec_pretty(&snapshot)?,
+            )?;
+            snapshot
+        };
+        let mut index = SceneIndex {
+            natural_terrain,
+            engineered_terrain,
             scene_id: scene.scene_id.clone(),
             width_m: scene.width_m,
             depth_m: scene.depth_m,
@@ -1634,13 +2496,142 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             chunk_count_x,
             chunk_count_z,
             chunks,
+            access_graph,
+            access_surfaces,
             landmarks,
             entities,
+            land_use_budget: None,
+            land_use_zones: Vec::new(),
+            settlement_graph: None,
+            parcel_plan: None,
+            road_network_plan: road_plan,
+            development_plan,
+            landcover_plan: None,
+            landcover_surfaces: None,
+            development_proposals,
         };
+        if let Some(profile) = LandUseProfile::from_style(&manifest.style) {
+            let zones = plan_landuse_zones(scene, &profile);
+            fs::write(
+                scene_dir.join("land-use-zones.json"),
+                serde_json::to_vec_pretty(&zones)?,
+            )?;
+            index.land_use_zones = zones;
+            if let Some(plan) = &index.development_plan {
+                let landcover = development::plan_landcover_with_program(scene, plan, &manifest.style)
+                    .map_err(WorldgenError::InvalidRules)?;
+                trace.stage(&scene.scene_id,"landcover-realization");
+                let surfaces = landcover::realize(
+                    scene,
+                    plan,
+                    &landcover,
+                    &baked_samples,
+                    water,
+                    &index.entities,
+                )
+                .map_err(WorldgenError::InvalidRules)?;
+                trace.stage(&scene.scene_id,"landcover-independent-reconstruction");
+                let landcover_audit = landcover::verify(
+                    &surfaces,
+                    scene,
+                    plan,
+                    &landcover,
+                    &baked_samples,
+                    water,
+                    &index.entities,
+                )
+                .map_err(WorldgenError::InvalidRules)?;
+                trace.stage(&scene.scene_id,"landcover-serialization");
+                fs::write(
+                    scene_dir.join("landcover-surfaces.json"),
+                    serde_json::to_vec_pretty(&surfaces)?,
+                )?;
+                index.landcover_surfaces = Some(surfaces);
+                fs::write(
+                    scene_dir.join("landcover-plan.json"),
+                    serde_json::to_vec_pretty(&landcover)?,
+                )?;
+                fs::write(
+                    scene_dir.join("landcover-audit.json"),
+                    serde_json::to_vec_pretty(&landcover_audit)?,
+                )?;
+                index.landcover_plan = Some(landcover);
+                let mut audit = development::verify(
+                    plan,
+                    scene,
+                    &index.land_use_zones,
+                    index
+                        .road_network_plan
+                        .as_ref()
+                        .expect("development has road source"),
+                    &index.entities,
+                    &index.access_graph,
+                )
+                .map_err(WorldgenError::InvalidRules)?;
+                landcover::apply_evidence(&mut audit, &landcover_audit);
+                fs::write(
+                    scene_dir.join("development-plan.json"),
+                    serde_json::to_vec_pretty(plan)?,
+                )?;
+                fs::write(
+                    scene_dir.join("development-audit.json"),
+                    serde_json::to_vec_pretty(&audit)?,
+                )?;
+            } else {
+                let mut parcel_plan = plan_parcels(&index.land_use_zones);
+                realize_parcel_plan(&mut parcel_plan, &index.entities);
+                realize_infrastructure_plan(&mut parcel_plan.infrastructure, &index.entities);
+                validate_parcel_plan(&parcel_plan).map_err(WorldgenError::InvalidRules)?;
+                fs::write(
+                    scene_dir.join("parcel-plan.json"),
+                    serde_json::to_vec_pretty(&parcel_plan)?,
+                )?;
+                fs::write(
+                    scene_dir.join("infrastructure-plan.json"),
+                    serde_json::to_vec_pretty(&parcel_plan.infrastructure)?,
+                )?;
+                index.parcel_plan = Some(parcel_plan);
+            }
+            trace.stage(&scene.scene_id,"landuse-accounting");
+            let budget = plan_landuse_budget(&index, &profile);
+            fs::write(
+                scene_dir.join("land-use-budget.json"),
+                serde_json::to_vec_pretty(&budget)?,
+            )?;
+            index.land_use_budget = Some(budget);
+            if index.development_plan.is_some() {
+                let ledger = crate::settlement::landuse_ledger::analyze(&index, &profile)
+                    .map_err(WorldgenError::InvalidRules)?;
+                fs::write(
+                    scene_dir.join("land-use-ledger.json"),
+                    serde_json::to_vec_pretty(&ledger)?,
+                )?;
+            }
+        }
+        if index.development_plan.is_some() {
+            fs::write(
+                scene_dir.join("development-proposals.json"),
+                serde_json::to_vec_pretty(&index.development_proposals)?,
+            )?;
+        }
+        // SettlementGraph is written after land-use planning so its final
+        // entity relations observe the same parcel plan that was persisted.
+        let settlement_graph = if let Some(plan) = &index.development_plan {
+            development::settlement_graph(plan, &index.entities)
+        } else {
+            derive_settlement_graph(scene, &index.entities)
+        };
+        fs::write(
+            scene_dir.join("settlement-graph.json"),
+            serde_json::to_vec_pretty(&settlement_graph)?,
+        )?;
+        index.settlement_graph = Some(settlement_graph);
+        trace.stage(&scene.scene_id,"scene-serialization");
         fs::write(
             scene_dir.join("scene.json"),
             serde_json::to_vec_pretty(&index)?,
         )?;
+        crate::preview_stream::write(&index,&revision,&scene_dir).map_err(|e|WorldgenError::InvalidRules(format!("preview projection: {e}")))?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
     }
     if rules_mode {
@@ -1659,6 +2650,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }))?,
         )?;
     }
+    trace.stage("","world-publication");
     write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex {
         format: WORLD_FORMAT.to_owned(),
@@ -1671,7 +2663,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         patch_chain_hash: manifest.patch_chain_hash.clone(),
         scenes: scene_paths,
         scene_graph: manifest.scene_graph.clone(),
-        sidecar: SidecarContract::default(),
+        sidecar: SidecarContract::for_style(&manifest.style)?,
+        water_level_m: manifest
+            .style
+            .get("water")
+            .and_then(|water| water.get("levelM"))
+            .and_then(serde_json::Value::as_f64)
+            .map(|level| level as f32),
     };
     fs::write(
         output.join("world.json"),
@@ -1828,6 +2826,14 @@ pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResu
     Ok(result)
 }
 
+/// Refresh only HTML adapter modules, never authoritative generation files.
+pub fn refresh_html_adapter(output:&Path)->WorldgenResult<()> {
+    let preview=output.join("preview");fs::create_dir_all(&preview)?;
+    fs::write(preview.join("index.html"),include_str!("../../../../adapters/html/index.html"))?;
+    fs::write(preview.join("app.js"),include_str!("../../../../adapters/html/app.js"))?;
+    write_html_preview_modules(&preview)?;write_preview_assets(output)?;Ok(())
+}
+
 fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
     let preview = output.join("preview");
     let godot = output.join("godot");
@@ -1865,6 +2871,10 @@ fn write_html_preview_modules(preview: &Path) -> WorldgenResult<()> {
     // imports. Three.js is vendored so the exported world works offline.
     let files: &[(&str, &[u8])] = &[
         (
+            "core/height.js",
+            include_bytes!("../../../../adapters/html/core/height.js"),
+        ),
+        (
             "core/camera.js",
             include_bytes!("../../../../adapters/html/core/camera.js"),
         ),
@@ -1881,8 +2891,20 @@ fn write_html_preview_modules(preview: &Path) -> WorldgenResult<()> {
             include_bytes!("../../../../adapters/html/core/three.js"),
         ),
         (
+            "core/render-stream.js",
+            include_bytes!("../../../../adapters/html/core/render-stream.js"),
+        ),
+        (
             "core/world.js",
             include_bytes!("../../../../adapters/html/core/world.js"),
+        ),
+        (
+            "render/road-profile.js",
+            include_bytes!("../../../../adapters/html/render/road-profile.js"),
+        ),
+        (
+            "render/ecology.js",
+            include_bytes!("../../../../adapters/html/render/ecology.js"),
         ),
         (
             "render/buildings.js",
@@ -2224,6 +3246,27 @@ fn generate_chunk(
     (height, surface, lod2)
 }
 
+/// Include the one-metre finite-difference halo used by terrain semantics.
+/// Filtering only the chunk interior changes edge normals/curvature/wetness
+/// even when every encoded height sample is identical.
+fn carve_intersects_chunk(
+    carve: &TerrainCarve,
+    base_x: i32,
+    base_z: i32,
+    width: u32,
+    depth: u32,
+) -> bool {
+    let min_x = f64::from(base_x) - 1.;
+    let max_x = f64::from(base_x) + f64::from(width);
+    let min_z = f64::from(base_z) - 1.;
+    let max_z = f64::from(base_z) + f64::from(depth);
+    carve.cx + carve.half_w + carve.blend_m >= min_x
+        && carve.cx - carve.half_w - carve.blend_m <= max_x
+        && carve.cz + carve.half_d + carve.blend_m >= min_z
+        && carve.cz - carve.half_d - carve.blend_m <= max_z
+}
+
+#[cfg(test)]
 fn generate_chunk_with_geometry(
     seed: u64,
     base_x: i32,
@@ -2233,21 +3276,42 @@ fn generate_chunk_with_geometry(
     water: WaterGeometry,
     carves: &[TerrainCarve],
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+    generate_chunk_encoded(
+        seed, base_x, base_z, width, depth, water, carves, false, None,
+    )
+}
+fn generate_chunk_encoded(
+    seed: u64,
+    base_x: i32,
+    base_z: i32,
+    width: u32,
+    depth: u32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    precise: bool,
+    zoning: Option<&zoning::ZoningMask>,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
     let cell_count = (width * depth) as usize;
     let mut height = Vec::with_capacity(cell_count * 2);
     let mut surface = Vec::with_capacity(cell_count);
     let mut terrain = Vec::with_capacity(cell_count * TERRAIN_SEMANTIC_BYTES_PER_CELL);
     let mut lod2 = Vec::with_capacity((width.div_ceil(64) * depth.div_ceil(64)) as usize * 3);
-    let mut samples = vec![0_i16; cell_count];
+    let mut samples = vec![0_f64; cell_count];
     for z in 0..depth {
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let quarter_meters =
-                terrain_height_with_geometry_carved(seed, world_x, world_z, water, carves);
+            let source = terrain_height_zoned(seed, world_x, world_z, water, carves, zoning);
+            let quarter_meters = (source * 4.).clamp(-128., 1024.) as i16;
             let index = (z * width + x) as usize;
-            samples[index] = quarter_meters;
-            height.extend_from_slice(&quarter_meters.to_le_bytes());
+            samples[index] = if precise {
+                (source * 1000.).round() / 1000.
+            } else {
+                f64::from(quarter_meters) / 4.
+            };
+            if !precise {
+                height.extend_from_slice(&quarter_meters.to_le_bytes());
+            }
             surface.push(surface_kind_with_geometry(
                 seed,
                 world_x,
@@ -2260,7 +3324,7 @@ fn generate_chunk_with_geometry(
     for z in 0..depth {
         for x in 0..width {
             terrain.extend_from_slice(&terrain_semantics_at(
-                seed, base_x, base_z, width, depth, x, z, &samples, water, carves,
+                seed, base_x, base_z, width, depth, x, z, &samples, water, carves, precise, zoning,
             ));
         }
     }
@@ -2271,7 +3335,7 @@ fn generate_chunk_with_geometry(
             let mut count = 0_i32;
             for z in block_z..(block_z + 64).min(depth) {
                 for x in block_x..(block_x + 64).min(width) {
-                    total += i32::from(samples[(z * width + x) as usize]);
+                    total += (samples[(z * width + x) as usize] * 4.) as i32;
                     count += 1;
                 }
             }
@@ -2285,6 +3349,10 @@ fn generate_chunk_with_geometry(
                 water,
             ));
         }
+    }
+    if precise {
+        height = encode_millimetres(width, depth, samples)
+            .expect("bounded metre source produces valid millimetre payload");
     }
     (height, surface, lod2, terrain)
 }
@@ -2303,24 +3371,31 @@ fn terrain_semantics_at(
     depth: u32,
     x: u32,
     z: u32,
-    samples: &[i16],
+    samples: &[f64],
     water: WaterGeometry,
     carves: &[TerrainCarve],
+    precise: bool,
+    zoning: Option<&zoning::ZoningMask>,
 ) -> [u8; TERRAIN_SEMANTIC_BYTES_PER_CELL] {
-    let sample = |sx: i32, sz: i32| -> i16 {
+    let sample = |sx: i32, sz: i32| -> f64 {
         if sx >= 0 && sx < width as i32 && sz >= 0 && sz < depth as i32 {
             samples[(sz as u32 * width + sx as u32) as usize]
         } else {
-            terrain_height_with_geometry_carved(seed, base_x + sx, base_z + sz, water, carves)
+            let h = terrain_height_zoned(seed, base_x + sx, base_z + sz, water, carves, zoning);
+            if precise {
+                (h * 1000.).round() / 1000.
+            } else {
+                (h * 4.).clamp(-128., 1024.) as i16 as f64 / 4.
+            }
         }
     };
     let x = x as i32;
     let z = z as i32;
-    let centre = f64::from(sample(x, z)) / 4.0;
-    let west = f64::from(sample(x - 1, z)) / 4.0;
-    let east = f64::from(sample(x + 1, z)) / 4.0;
-    let north = f64::from(sample(x, z - 1)) / 4.0;
-    let south = f64::from(sample(x, z + 1)) / 4.0;
+    let centre = sample(x, z);
+    let west = sample(x - 1, z);
+    let east = sample(x + 1, z);
+    let north = sample(x, z - 1);
+    let south = sample(x, z + 1);
 
     // Central differences over two metres, encoded in degrees. This is the
     // baked slope, so a renderer never has to infer it from a coarser LOD.
@@ -2344,7 +3419,11 @@ fn terrain_semantics_at(
     let wetness = (humidity_field(seed, world_x, world_z, water) * 255.0)
         .round()
         .clamp(0.0, 255.0) as u8;
-    let disturbance = terrain_disturbance_at(world_x, world_z, carves);
+    let disturbance = if zoning.is_some_and(|m| m.protected_at(world_x, world_z)) {
+        0
+    } else {
+        terrain_disturbance_at(world_x, world_z, carves)
+    };
     [slope_u8, curvature_u8, wetness, disturbance]
 }
 
@@ -2460,17 +3539,16 @@ fn mesoscale_relief(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     (swell * 0.68 + signed_fold * 0.32) * amplitude
 }
 
-/// Lightweight, deterministic erosion carving for natural terrain.
+/// Approximate valley-shaped noise carving, NOT a water/sediment simulation.
 ///
-/// This is NOT a particle simulation (which would break the pure-function
-/// heightfield). It mimics the *result* of hydrological erosion: valley
-/// networks are cut deeper where drainage concentrates, while ridges stay
-/// high. The carve is a smooth function of world position so it is
-/// chunk-continuous and matches the entity world_y samples exactly.
+/// This legacy pointwise function has no water or sediment transport state.
+/// It carves near warped-noise zero contours, not measured drainage paths.
+/// A deterministic staged simulation can replace it later; simulation does
+/// not inherently prevent reproducibility or chunked output.
 ///
 /// It is masked to zero inside settled land so cities and their surroundings
 /// stay flat — erosion only reshapes the wild valley / hill ground.
-fn erosion_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
+fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let xf = f64::from(x);
     let zf = f64::from(z);
     // Domain-warped field: warping makes the zero lines meander like rivers
@@ -2579,8 +3657,8 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let zf = f64::from(z);
     let width = f64::from(water.scene_width_m.max(1));
     let depth = f64::from(water.scene_depth_m.max(1));
-    let cx = width * 0.5;
-    let cz = depth * 0.5;
+    let cx = f64::from(water.terrain_origin_x) + width * 0.5;
+    let cz = f64::from(water.terrain_origin_z) + depth * 0.5;
     // Radial skirt: normalised distance from the scene centre, but the term is
     // an even function that reaches its max at the scene edge and does NOT
     // grow outside it (terrain_height is sampled past the edge by continuity
@@ -2644,8 +3722,8 @@ fn urbanization_field(seed: u64, x: i32, z: i32, water: WaterGeometry, urban_sca
     let zf = f64::from(z);
     let width = f64::from(water.scene_width_m.max(1));
     let depth = f64::from(water.scene_depth_m.max(1));
-    let cx = width * 0.5;
-    let cz = depth * 0.5;
+    let cx = f64::from(water.terrain_origin_x) + width * 0.5;
+    let cz = f64::from(water.terrain_origin_z) + depth * 0.5;
     // City radius is primarily scene-driven so every profile keeps a
     // comparable urban heart; the urban+suburban share only nudges the
     // envelope. Density is expressed by `core_density`/`suburban_density`
@@ -2683,11 +3761,19 @@ impl RegionType {
     fn classify(seed: u64, x: i32, z: i32, water: WaterGeometry, urban_scale: f64) -> RegionType {
         let urban = urbanization_field(seed, x, z, water, urban_scale);
         let landform = Landform::classify(seed, x, z, water);
-        if urban > 0.72 {
+        // Thresholds are profile-aware. The previous fixed 0.72/0.50/0.28
+        // bands made a 6km x 10km mainland overwhelmingly rural even when
+        // the manifest requested a city. Keep a compact core, but widen the
+        // urban and suburban bands according to the requested urban target.
+        let urban_target = urban_scale.clamp(0.05, 0.9);
+        let core_threshold = (0.66 - urban_target * 0.20).clamp(0.48, 0.66);
+        let urban_threshold = (0.42 - urban_target * 0.35).clamp(0.18, 0.42);
+        let suburban_threshold = (0.20 - urban_target * 0.25).clamp(0.05, 0.20);
+        if urban > core_threshold {
             RegionType::UrbanCore
-        } else if urban > 0.5 {
+        } else if urban > urban_threshold {
             RegionType::Urban
-        } else if urban > 0.28 {
+        } else if urban > suburban_threshold {
             RegionType::Suburban
         } else {
             match landform {
@@ -2734,6 +3820,7 @@ impl OccupancyGrid {
             OccLayer::Soft => crate::rules::ItemKind::Tree,
         };
         self.index.push(crate::rules::PlacedKind {
+            clearance: 0.,
             id: None,
             kind,
             cx: x as f32,
@@ -2747,6 +3834,7 @@ impl OccupancyGrid {
     /// True if the footprint touches a hard (road / building) reservation.
     fn collides_hard(&self, x: i32, z: i32, half_w: i32, half_d: i32) -> bool {
         let fp = crate::rules::Footprint {
+            rotation_y_deg: 0.,
             cx: x as f32,
             cz: z as f32,
             half_w: half_w as f32,
@@ -2858,7 +3946,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                 | "temple"
                 | "church"
                 | "parking_lot"
-                | "green_space"
+                | "convenience_store"
         );
         if !is_road && !is_building {
             continue;
@@ -2869,7 +3957,9 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         // rotation=90 is long on Z. The old branch swapped these extents for
         // the zero-degree case, causing an east-west road to carve a huge
         // north-south trench through houses and vegetation.
-        let (half_w, half_d, blend) = if is_road {
+        let (half_w, half_d, blend): (f64, f64, f64) = if entity.grounding.road_profile.is_some() {
+            if entity.rotation_y_deg == 90. { (7.0, width * 0.5 + 4.0, 18.0) } else { (width * 0.5 + 4.0, 7.0, 18.0) }
+        } else if is_road {
             let rotated_quarter_turn = (entity.rotation_y_deg.round() as i32).rem_euclid(180) == 90;
             if rotated_quarter_turn {
                 // Local width becomes world depth; local depth becomes world
@@ -2884,22 +3974,58 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             // those dimensions into world axes before baking their support pad.
             let (half_w, half_d) =
                 spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
-            (half_w + 1.0, half_d + 1.0, 6.0)
+            let support_margin = if entity.grounding.frontage_road_point.is_some() {2.0} else {1.0};
+            (half_w + support_margin, half_d + support_margin, 6.0)
         };
         carves.push(TerrainCarve {
+            profile: entity.grounding.road_profile.clone().map(std::sync::Arc::new),
             cx: f64::from(entity.world_x),
             cz: f64::from(entity.world_z),
             half_w,
             half_d,
             target_h_m: f64::from(entity.ground_height_m()),
-            blend_m: blend,
+            // A cubic smoothstep has maximum derivative 1.5. Use the
+            // representable raster floor (-32m) as a conservative fill bound
+            // so this pad contributes at most a 1:2 transition gradient.
+            // This does not certify the natural terrain or road longitudinal grade.
+            blend_m: blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0)),
             priority: if is_road { 10 } else { 1 },
             disturbance: if is_road { 255 } else { 160 },
         });
+        if is_building {
+            if let Some([rx,rz]) = entity.grounding.frontage_road_point {
+                if let Some(anchor) = entity.anchors.first() {
+                    carves.push(TerrainCarve {
+                        profile: None,
+                        cx: (f64::from(anchor.world_x)+f64::from(rx))*0.5,
+                        cz: (f64::from(anchor.world_z)+f64::from(rz))*0.5,
+                        half_w: (f64::from(anchor.world_x)-f64::from(rx)).abs()*0.5+2.,
+                        half_d: (f64::from(anchor.world_z)-f64::from(rz)).abs()*0.5+2.,
+                        target_h_m: f64::from(entity.ground_height_m()),
+                        blend_m: 2., priority: 2, disturbance:160,
+                    });
+                }
+            }
+            // Generated entrance aprons are part of the engineered support
+            // contract, so the final raster can meet the door without a
+            // graph-only promise.
+            for anchor in &entity.anchors {
+                carves.push(TerrainCarve {
+                    profile: None,
+                    cx: f64::from(anchor.world_x),
+                    cz: f64::from(anchor.world_z),
+                    half_w: 2.0,
+                    half_d: 2.0,
+                    target_h_m: f64::from(entity.ground_height_m()),
+                    blend_m: 2.0,
+                    priority: 1,
+                    disturbance: 160,
+                });
+            }
+        }
     }
-    // Higher-priority pads (roads) must win when several overlap a cell, so
-    // sort ascending and apply in that order — the last write overwrites, so
-    // the road pad ends up on top of any neighbouring building pad.
+    // Keep deterministic ordering for metadata; geometry is the maximum of
+    // independent, fill-only support envelopes, not an order-dependent blend.
     carves.sort_by(|a, b| a.priority.cmp(&b.priority));
     carves
 }
@@ -2915,6 +4041,40 @@ fn terrain_height_with_geometry_carved(
     water: WaterGeometry,
     carves: &[TerrainCarve],
 ) -> i16 {
+    (terrain_height_metres(seed, x, z, water, carves) * 4.).clamp(-128., 1024.) as i16
+}
+
+/// Unquantized metre evaluator. Quantization belongs at the storage boundary,
+/// not in the natural/engineering source function.
+fn terrain_height_zoned(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    zoning: Option<&zoning::ZoningMask>,
+) -> f64 {
+    let Some(mask) = zoning else {
+        return terrain_height_metres(seed, x, z, water, carves);
+    };
+    let natural = terrain_height_metres(seed, x, z, water, &[]);
+    if carves.is_empty() || mask.protected_at(x, z) {
+        return natural;
+    }
+    let engineered = apply_terrain_carves(natural, x, z, carves);
+    if engineered <= natural {
+        return natural;
+    }
+    engineered.min(natural + mask.fill_capacity_at(x, z))
+}
+
+fn terrain_height_metres(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+) -> f64 {
     let xf = f64::from(x);
     let zf = f64::from(z);
     // Landform field is continuous in world space: valley -> plain -> hill ->
@@ -2933,10 +4093,11 @@ fn terrain_height_with_geometry_carved(
         + mesoscale_relief(seed, x, z, water)
         + detail * (3.0 + landform.max(0.0) * 0.18)
         + 14.0;
-    // Erosion carves valleys into wild ground only; the water branches below
+    // Approximate valley carving shapes wild ground; this is not an erosion
+    // or sediment-transport solver. The water branches below
     // then clamp the lake/river bed, and settled land is masked to zero.
-    let natural = natural + erosion_carve(seed, x, z, water);
-    let mut terrain = match water.kind {
+    let natural = natural + approximate_valley_carve(seed, x, z, water);
+    let terrain = match water.kind {
         WaterKind::Lake => {
             let radius = lake_radius_at(xf, zf, water);
             // The natural height is capped near the waterline so a steep
@@ -2965,46 +4126,60 @@ fn terrain_height_with_geometry_carved(
             }
         }
         WaterKind::River => {
-            let half_width = river_half_width_at(
-                zf - water.center_z + water.half_depth,
-                (water.half_depth * 2.0) as u32,
-                water.half_width,
-            );
-            let distance = (xf - water.center_x).abs();
-            // The water surface is the fixed 0 datum. Inside the channel the
-            // river bed sits below it (a shallow channel of a few metres so
-            // the water is never a zero-thickness disc). On the shore the
-            // terrain rises smoothly from the bed to a height that is ALWAYS
-            // above the water surface: a floodplain dip must never let the
-            // sea climb onto dry land, so the far-shore height is clamped to
-            // at least one metre above datum. This mirrors mapgen4's rule
-            // that elevation 0 is the shoreline and land is elevation > 0.
-            let shore_target = natural.max(1.5);
-            if distance < half_width {
-                let depth_t = (distance / half_width.max(1.0)).clamp(0.0, 1.0);
-                let bed = -5.0 + depth_t * depth_t * 4.0;
-                bed.max(shore_target * 0.2 - 6.0).max(-7.0)
-            } else if distance < half_width * 1.35 {
-                let t = ((distance - half_width) / (half_width * 0.35)).clamp(0.0, 1.0);
-                let smooth_t = t * t * (3.0 - 2.0 * t);
-                // Start from the channel-bed level at the waterline and ease
-                // into the (above-water) shore target.
-                -4.0 + (shore_target + 4.0) * smooth_t
+            let min_z = water.center_z - water.half_depth;
+            let max_z = water.center_z + water.half_depth;
+            if !(min_z..=max_z).contains(&zf) {
+                // The authored river footprint is finite in world Z.
+                natural
             } else {
-                shore_target
+                let half_width = river_half_width_at(
+                    zf - min_z,
+                    (water.half_depth * 2.0) as u32,
+                    water.half_width,
+                );
+                let distance = (xf - water.center_x).abs();
+                let shore_target = natural.max(1.5);
+                if distance < half_width {
+                    let depth_t = (distance / half_width.max(1.0)).clamp(0.0, 1.0);
+                    let bed = -5.0 + depth_t * depth_t * 4.0;
+                    bed.max(shore_target * 0.2 - 6.0).max(-7.0)
+                } else if distance < half_width * 1.35 {
+                    let t = ((distance - half_width) / (half_width * 0.35)).clamp(0.0, 1.0);
+                    let smooth_t = t * t * (3.0 - 2.0 * t);
+                    -4.0 + (shore_target + 4.0) * smooth_t
+                } else {
+                    shore_target
+                }
             }
         }
         WaterKind::None => natural,
     };
-    // Apply terrain carving: a pad flattens its footprint to the road/building
-    // target height and blends back to the natural terrain over a smooth ring.
-    // Higher-priority pads (roads) win when several overlap the same cell.
+    // Combine independent fill envelopes. Repeatedly blending the previous
+    // result stacks unrelated ramps and makes the result order-dependent.
+    // Raster clamping is part of the natural datum for engineering as well.
+    apply_terrain_carves(terrain, x, z, carves)
+}
+fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -> f64 {
+    let xf = f64::from(x);
+    let zf = f64::from(z);
+    let base_terrain = terrain.clamp(-32.0, 256.0);
+    let mut terrain = base_terrain;
+    let mut graded_influence=false;
+    let mut full_priority=i32::MIN;
+    let mut full_target=base_terrain;
     for carve in carves {
         let dx = (xf - carve.cx).abs();
         let dz = (zf - carve.cz).abs();
         let outside_x = dx - carve.half_w;
         let outside_z = dz - carve.half_d;
         let outside = outside_x.max(outside_z);
+        let target = carve.profile.as_ref().and_then(|p|p.height_at(xf,zf)).unwrap_or(carve.target_h_m);
+        let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p|base_terrain + f64::from(p.max_fill_mm)/1000.);
+        if carve.profile.is_some() && outside < carve.blend_m { graded_influence = true; }
+        if outside <= 0. && carve.priority >= full_priority {
+            if carve.priority > full_priority { full_target=base_terrain; }
+            full_priority=carve.priority; full_target=full_target.max(target);
+        }
         // A generated pad is an earthwork fill, not an implicit excavation.
         // Never lower existing terrain to an entity's center sample: doing so
         // creates pits when a footprint crosses a higher contour and is
@@ -3012,14 +4187,19 @@ fn terrain_height_with_geometry_carved(
         // excavate later; generated roads/buildings may only raise or gently
         // meet the natural surface.
         if outside <= 0.0 {
-            terrain = terrain.max(carve.target_h_m);
-        } else if outside < carve.blend_m && carve.target_h_m > terrain {
+            terrain = terrain.max(target.min(limit));
+        } else if outside < carve.blend_m && target > base_terrain {
             let t = (outside / carve.blend_m).clamp(0.0, 1.0);
             let smooth_t = t * t * (3.0 - 2.0 * t);
-            terrain = carve.target_h_m + (terrain - carve.target_h_m) * smooth_t;
+            let fill = target + (base_terrain - target) * smooth_t;
+            terrain = terrain.max(fill.min(limit));
         }
     }
-    (terrain.mul_add(4.0, 0.0)).clamp(-128.0, 1_024.0) as i16
+    // A neighbouring blended fill cannot overwrite a validated hard support
+    // surface. New graded worlds resolve overlaps by road/building priority;
+    // legacy worlds without a graded influence retain their old envelopes.
+    if graded_influence && full_priority!=i32::MIN { terrain=full_target; }
+    terrain.clamp(-32., 256.)
 }
 
 /// Climate moisture field in world space (0 = arid, 1 = humid).
@@ -3053,39 +4233,10 @@ fn humidity_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     (shore_damp + band + elevation_effect).clamp(0.0, 1.0)
 }
 
-#[cfg(test)]
-fn lake_radius(x: f64, z: f64, scene_width: u32, scene_depth: u32) -> f64 {
-    lake_radius_at(
-        x,
-        z,
-        legacy_water_geometry(WaterKind::Lake, scene_width, scene_depth, 0.0),
-    )
-}
-
 fn lake_radius_at(x: f64, z: f64, water: WaterGeometry) -> f64 {
     let dx = (x - water.center_x) / water.half_width.max(1.0);
     let dz = (z - water.center_z) / water.half_depth.max(1.0);
     dx * dx + dz * dz
-}
-
-#[cfg(test)]
-fn surface_kind(
-    seed: u64,
-    x: i32,
-    z: i32,
-    height: i16,
-    water: WaterKind,
-    scene_width: u32,
-    scene_depth: u32,
-    river_half_m: f64,
-) -> u8 {
-    surface_kind_with_geometry(
-        seed,
-        x,
-        z,
-        height,
-        legacy_water_geometry(water, scene_width, scene_depth, river_half_m),
-    )
 }
 
 fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: WaterGeometry) -> u8 {
@@ -3100,21 +4251,22 @@ fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: Wat
             }
         }
         WaterKind::River => {
-            let distance = (f64::from(x) - water.center_x).abs();
-            let half_width = river_half_width_at(
-                f64::from(z) - water.center_z + water.half_depth,
-                (water.half_depth * 2.0) as u32,
-                water.half_width,
-            );
-            if distance < half_width {
-                return 3;
-            }
-            if distance < half_width * 1.35 {
-                // Shore transition: wet sand / tidal mud at the waterline,
-                // easing into the above-water surface further out. Kept as a
-                // mud/sand surface (not water) so the bay reads as one body
-                // with a natural wet edge instead of scattered puddles.
-                return 4;
+            let z = f64::from(z);
+            let min_z = water.center_z - water.half_depth;
+            let max_z = water.center_z + water.half_depth;
+            if (min_z..=max_z).contains(&z) {
+                let distance = (f64::from(x) - water.center_x).abs();
+                let half_width = river_half_width_at(
+                    z - min_z,
+                    (water.half_depth * 2.0) as u32,
+                    water.half_width,
+                );
+                if distance < half_width {
+                    return 3;
+                }
+                if distance < half_width * 1.35 {
+                    return 4;
+                }
             }
         }
         WaterKind::None => {}
@@ -3123,7 +4275,10 @@ fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: Wat
     // has cut the terrain down near the water datum and the flow is strong,
     // mark the channel as wet mud so rivers read as water courses on the
     // ground instead of grass grooves.
-    if water.kind != WaterKind::None && height < 8 && erosion_carve(seed, x, z, water) < -14.0 {
+    if water.kind != WaterKind::None
+        && height < 8
+        && approximate_valley_carve(seed, x, z, water) < -14.0
+    {
         return 4;
     }
     if height < -12 {
@@ -3244,6 +4399,8 @@ fn generate_entities_with_geometry(
         landmarks,
         geometry,
         &serde_json::Value::Null,
+        None,
+        None,
     )
     .0
 }
@@ -3256,7 +4413,7 @@ fn generate_entities_with_profile(
     geometry: WaterGeometry,
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
-    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style).0
+    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None).0
 }
 
 fn generate_entities_with_profile_report(
@@ -3265,10 +4422,14 @@ fn generate_entities_with_profile_report(
     landmarks: &[LandmarkSpec],
     geometry: WaterGeometry,
     style: &serde_json::Value,
+    road_plan: Option<&road_network::RoadNetworkPlan>,
+    development_plan: Option<&DevelopmentPlan>,
 ) -> (
     Vec<EntityInstance>,
     Option<(usize, crate::rules::PlacementOutcome)>,
+    Vec<DevelopmentProposal>,
 ) {
+    let mut development_proposals = Vec::new();
     let mut entities = generate_entities_template(seed, scene, landmarks, geometry);
     // When a normalized settlement intent is present for a water scene, the
     // generic intent planner owns ordinary buildings. Remove only the legacy
@@ -3304,7 +4465,7 @@ fn generate_entities_with_profile_report(
     // reaches into one.
     let road_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
-        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk"))
+        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk" | "boardwalk"))
         .map(|entity| {
             (
                 entity.world_x,
@@ -3338,6 +4499,11 @@ fn generate_entities_with_profile_report(
                     | "church"
                     | "parking_lot"
                     | "green_space"
+                    | "shopping_mall"
+                    | "office_tower"
+                    | "convenience_store"
+                    | "night_market"
+                    | "community_plaza"
             )
         })
         .map(|entity| {
@@ -3425,10 +4591,7 @@ fn generate_entities_with_profile_report(
                 return false;
             }
         }
-        matches!(
-            entity.kind.as_str(),
-            "lake" | "river" | "bridge" | "causeway" | "reed"
-        ) || entity.entity_id.starts_with("gis.")
+        is_water_compatible_entity_kind(&entity.kind)
             || !footprint_intersects_water(entity, geometry, 1.0)
     });
     let explicit_settlement = generation_settlement(style);
@@ -3440,7 +4603,15 @@ fn generate_entities_with_profile_report(
             Some("wilderness") => append_natural_content(seed, scene, &mut entities),
             Some("pastoral") => append_pastoral_intent_content(seed, scene, &mut entities),
             Some("city" | "town") if style.get("landUseProfile").is_some() => {
-                append_modern_landuse_content(seed, scene, &mut entities, style)
+                append_modern_landuse_content(
+                    seed,
+                    scene,
+                    &mut entities,
+                    style,
+                    road_plan,
+                    development_plan,
+                    &mut development_proposals,
+                )
             }
             Some("city" | "town") => append_generic_land_content(seed, scene, &mut entities),
             Some(_) => append_generic_land_content(seed, scene, &mut entities),
@@ -3452,7 +4623,15 @@ fn generate_entities_with_profile_report(
                     .unwrap_or(false);
                 if !natural_only {
                     if style.get("landUseProfile").is_some() {
-                        append_modern_landuse_content(seed, scene, &mut entities, style);
+                        append_modern_landuse_content(
+                            seed,
+                            scene,
+                            &mut entities,
+                            style,
+                            road_plan,
+                            development_plan,
+                            &mut development_proposals,
+                        );
                     } else {
                         append_generic_land_content(seed, scene, &mut entities);
                     }
@@ -3469,6 +4648,14 @@ fn generate_entities_with_profile_report(
     // Content planners run after the template retain pass, so enforce the
     // final road/building clearance once all generated details exist.
     sanitize_natural_detail_clearance(&mut entities);
+    // User-authored identity is defined by Manifest membership, never by a
+    // string prefix. Restore authored records filtered by procedural-only
+    // sanitation so rules audit fails explicitly instead of hiding a subject.
+    for landmark in landmarks {
+        if !entities.iter().any(|e| e.entity_id == landmark.entity_id) {
+            entities.push(landmark_to_entity(landmark));
+        }
+    }
     // rulesMode = "rules": the declarative rules engine drives final placement.
     // The template generator still proposes positions, but every proposed
     // entity is re-validated by place_all(): violations are retried (move /
@@ -3487,7 +4674,8 @@ fn generate_entities_with_profile_report(
     let mut placement_outcome = None;
     if rules_mode == "rules" {
         let proposed_count = entities.len();
-        let (rule_entities, outcome) = apply_rules_mode(seed, scene, geometry, style, entities);
+        let (rule_entities, outcome) =
+            apply_rules_mode(seed, scene, geometry, style, landmarks, entities, road_plan);
         entities = rule_entities;
         placement_outcome = Some((proposed_count, outcome));
         sanitize_natural_detail_clearance(&mut entities);
@@ -3499,7 +4687,25 @@ fn generate_entities_with_profile_report(
     }
     rebase_buildings_to_surface(seed, geometry, &mut entities);
     rebase_generated_surfaces_to_ground(seed, geometry, &mut entities);
-    (entities, placement_outcome)
+    if let Some(plan) = road_plan {
+        let planned: BTreeMap<_, _> = plan
+            .entities()
+            .into_iter()
+            .chain(
+                development_plan
+                    .map(DevelopmentPlan::building_entities)
+                    .unwrap_or_default(),
+            )
+            .map(|e| (e.entity_id.clone(), e))
+            .collect();
+        for e in &mut entities {
+            if let Some(source) = planned.get(&e.entity_id) {
+                *e = source.clone();
+                e.normalize_spatial_semantics();
+            }
+        }
+    }
+    (entities, placement_outcome, development_proposals)
 }
 
 /// Re-validate / re-place the template-generated entities through the rules
@@ -3512,7 +4718,9 @@ fn apply_rules_mode(
     scene: &SceneSpec,
     water: WaterGeometry,
     style: &serde_json::Value,
+    landmarks: &[LandmarkSpec],
     proposed: Vec<EntityInstance>,
+    road_plan: Option<&road_network::RoadNetworkPlan>,
 ) -> (Vec<EntityInstance>, crate::rules::PlacementOutcome) {
     // Object rules location: <repo>/assets/objects (resolved from the caller).
     let rules_dir = rules_dir_from_style(style);
@@ -3523,12 +4731,76 @@ fn apply_rules_mode(
     let registry = crate::rules::ObjectRegistry::load_dir(&rules_dir)
         .unwrap_or_else(|error| panic!("rules mode registry became unavailable: {error}"));
 
-    let ctx = rules_placement_context(seed, scene, water);
-    // Every proposed entity that has a matching descriptor becomes one request.
-    // Entities without a descriptor (landmarks, water bodies) pass through.
+    // Authored landmarks are fixed spatial anchors, not candidates for the
+    // procedural placer. Keep them in the output, and remove only generated
+    // volumetric entities that would enter their authored footprint. This is a
+    // generic manifest rule: it protects any authored landform, building,
+    // bridge or other landmark without naming a Shenzhen coordinate.
+    let authored_ids: std::collections::BTreeSet<_> =
+        landmarks.iter().map(|l| l.entity_id.as_str()).collect();
+    let authored: Vec<EntityInstance> = proposed
+        .iter()
+        .filter(|e| authored_ids.contains(e.entity_id.as_str()))
+        .cloned()
+        .collect();
     let mut requests = Vec::new();
     let mut passthrough = Vec::new();
     for e in proposed {
+        let is_authored = authored_ids.contains(e.entity_id.as_str());
+        if is_authored {
+            passthrough.push(e);
+            continue;
+        }
+        let authored_collision = authored.iter().any(|fixed| {
+            let fixed_is_mass = matches!(
+                fixed.kind.as_str(),
+                "building"
+                    | "urban_building"
+                    | "building_tower"
+                    | "shopping_mall"
+                    | "office_tower"
+                    | "convenience_store"
+                    | "hill"
+                    | "mountain"
+                    | "rock_mountain"
+            );
+            // Authored landforms own their complete footprint. Do not let
+            // procedural lamps, trees, benches or other details be generated
+            // inside the mountain/hill volume and then make the fixed landmark
+            // fail its own audit. Buildings also clear authored building masses.
+            let fixed_landform =
+                matches!(fixed.kind.as_str(), "hill" | "mountain" | "rock_mountain");
+            let generated_kind = !authored_ids.contains(e.entity_id.as_str());
+            let blocked_by_landform = fixed_landform && generated_kind;
+            let blocked_by_building = fixed_is_mass
+                && matches!(
+                    e.kind.as_str(),
+                    "building"
+                        | "urban_building"
+                        | "building_tower"
+                        | "residential_block"
+                        | "residential_tower"
+                        | "residential_home"
+                        | "resort_lodge"
+                        | "commercial_center"
+                        | "entertainment_center"
+                        | "school"
+                        | "town_hall"
+                        | "market"
+                        | "industrial"
+                        | "shopping_mall"
+                        | "office_tower"
+                        | "convenience_store"
+                );
+            (blocked_by_landform || blocked_by_building)
+                && e.computed_bounds().min_x < fixed.computed_bounds().max_x
+                && e.computed_bounds().max_x > fixed.computed_bounds().min_x
+                && e.computed_bounds().min_z < fixed.computed_bounds().max_z
+                && e.computed_bounds().max_z > fixed.computed_bounds().min_z
+        });
+        if authored_collision {
+            continue;
+        }
         let desc = registry
             .descriptors
             .values()
@@ -3557,9 +4829,74 @@ fn apply_rules_mode(
         }
     }
 
-    let outcome = crate::rules::place_all(&registry, &requests, &ctx, seed);
-    // Merge: rule-placed entities + descriptor-less passthrough.
+    let source_zones = road_plan
+        .and_then(|_| LandUseProfile::from_style(style))
+        .map(|p| plan_landuse_zones(scene, &p));
+    let source_zoning = source_zones
+        .as_deref()
+        .map(|z| zoning::ZoningMask::new(scene, z).expect("computed planning zones are valid"));
+    let terrain_context = TerrainContext {
+        seed,
+        water,
+        precise: height_encoding_from_style(style).expect("validated height precision")
+            == HeightEncoding::Millimetre,
+        zoning: source_zoning.as_ref(),
+    };
+    let road_carves = road_plan
+        .map(|p| {
+            let mut entities = p.entities();
+            entities.extend(p.site_entities());
+            for e in &mut entities {
+                e.normalize_spatial_semantics();
+            }
+            plan_terrain_carves(&entities)
+        })
+        .unwrap_or_default();
+    let designed_height = |x, z| terrain_context.height(x, z, &road_carves);
+    let outcome = with_height_placement_context(seed, scene, water, &designed_height, |ctx| {
+        crate::rules::place_all(&registry, &requests, ctx, seed)
+    });
+    // A move fallback can relocate a generated object into an authored mass even
+    // when its proposal was clear. Apply the same fixed-landmark reservation to
+    // the committed result before merging passthrough landmarks.
     let mut merged = outcome.placed.clone();
+    merged.retain(|e| {
+        let generated_kind = !authored_ids.contains(e.entity_id.as_str());
+        !authored.iter().any(|fixed| {
+            (matches!(fixed.kind.as_str(), "hill" | "mountain" | "rock_mountain")
+                || (matches!(
+                    fixed.kind.as_str(),
+                    "building"
+                        | "building_tower"
+                        | "shopping_mall"
+                        | "office_tower"
+                        | "convenience_store"
+                ) && matches!(
+                    e.kind.as_str(),
+                    "building"
+                        | "urban_building"
+                        | "building_tower"
+                        | "residential_block"
+                        | "residential_tower"
+                        | "residential_home"
+                        | "resort_lodge"
+                        | "commercial_center"
+                        | "entertainment_center"
+                        | "school"
+                        | "town_hall"
+                        | "market"
+                        | "industrial"
+                        | "shopping_mall"
+                        | "office_tower"
+                        | "convenience_store"
+                )))
+                && generated_kind
+                && e.computed_bounds().min_x < fixed.computed_bounds().max_x
+                && e.computed_bounds().max_x > fixed.computed_bounds().min_x
+                && e.computed_bounds().min_z < fixed.computed_bounds().max_z
+                && e.computed_bounds().max_z > fixed.computed_bounds().min_z
+        })
+    });
     merged.extend(passthrough);
     (merged, outcome)
 }
@@ -3581,50 +4918,42 @@ fn rules_dir_from_style(style: &serde_json::Value) -> std::path::PathBuf {
         .unwrap_or_else(|| cwd.join("assets").join("objects"))
 }
 
-/// Build the rules PlacementContext for a scene (natural terrain queries).
-/// Closures are leaked to 'static so the context can be passed around freely
-/// (audit / place_all both take borrowed contexts).
-fn rules_placement_context(
+/// Scope environment closures to the consumer; repeated generation must not
+/// leak one heap allocation per query via Box::leak.
+#[cfg(test)]
+fn with_rules_placement_context<T>(
     seed: u64,
     scene: &SceneSpec,
     water: WaterGeometry,
-) -> crate::rules::PlacementContext<'static> {
-    let scene_w = scene.width_m;
-    let scene_d = scene.depth_m;
-    let natural_height =
-        move |x: i32, z: i32| terrain_height_with_geometry(seed, x, z, water) as f32 / 4.0;
-    let height_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(natural_height));
-    let water_level = move |x: i32, z: i32| match water.kind {
-        WaterKind::None => None,
-        WaterKind::Lake => {
-            if lake_radius_at(x as f64, z as f64, water) < 1.0 {
-                Some(f32::MAX)
-            } else {
-                None
-            }
-        }
-        WaterKind::River => {
-            let half_width = river_half_width_at(
-                z as f64 - water.center_z + water.half_depth,
-                (water.half_depth * 2.0) as u32,
-                water.half_width,
-            );
-            if (x as f64 - water.center_x).abs() < half_width {
-                Some(f32::MAX)
-            } else {
-                None
-            }
-        }
+    run: impl FnOnce(&crate::rules::PlacementContext<'_>) -> T,
+) -> T {
+    let height = |x, z| terrain_height_with_geometry(seed, x, z, water) as f32 / 4.0;
+    with_height_placement_context(seed, scene, water, &height, run)
+}
+
+fn with_height_placement_context<T>(
+    seed: u64,
+    scene: &SceneSpec,
+    water: WaterGeometry,
+    height: &dyn Fn(i32, i32) -> f32,
+    run: impl FnOnce(&crate::rules::PlacementContext<'_>) -> T,
+) -> T {
+    let water_point = |x, z| {
+        water
+            .contains_point(f64::from(x), f64::from(z))
+            .then_some(f32::MAX)
     };
-    let water_leak: &'static dyn Fn(i32, i32) -> Option<f32> = Box::leak(Box::new(water_level));
-    let slope_at = move |x: i32, z: i32| local_slope(seed, x, z, scene_w, scene_d, 8, 8) as f32;
-    let slope_leak: &'static dyn Fn(i32, i32) -> f32 = Box::leak(Box::new(slope_at));
-    let slope_at_footprint = move |x: i32, z: i32, half_w: i32, half_d: i32| {
-        local_slope(seed, x, z, scene_w, scene_d, half_w, half_d) as f32
+    let water_footprint = |fp: &crate::rules::Footprint| {
+        water.intersects_axis_aligned(
+            f64::from(fp.cx),
+            f64::from(fp.cz),
+            f64::from(fp.half_w),
+            f64::from(fp.half_d),
+        )
     };
-    let slope_footprint_leak: &'static dyn Fn(i32, i32, i32, i32) -> f32 =
-        Box::leak(Box::new(slope_at_footprint));
-    let biome_at = move |x: i32, z: i32| {
+    let slope = |x, z| slope_from_height(&height, x, z, 8, 8);
+    let footprint_slope = |x, z, hw, hd| slope_from_height(&height, x, z, hw, hd);
+    let biome = |x, z| {
         let h = humidity_field(seed, x, z, water);
         if h > 0.55 {
             crate::rules::Biome::Forest
@@ -3634,22 +4963,19 @@ fn rules_placement_context(
             crate::rules::Biome::Grassland
         }
     };
-    let biome_leak: &'static dyn Fn(i32, i32) -> crate::rules::Biome =
-        Box::leak(Box::new(biome_at));
-    let hazard_at = move |x: i32, z: i32| {
-        if local_slope(seed, x, z, scene_w, scene_d, 8, 8) > 30.0 {
+    let hazard = |x, z| {
+        if slope(x, z) > 30. {
             vec![crate::rules::HazardKind::Cliff]
         } else {
-            Vec::new()
+            vec![]
         }
     };
-    let hazard_leak: &'static dyn Fn(i32, i32) -> Vec<crate::rules::HazardKind> =
-        Box::leak(Box::new(hazard_at));
-    crate::rules::PlacementContext {
-        height_at: height_leak,
-        water_level: water_leak,
-        slope_at: slope_leak,
-        slope_at_footprint: Some(slope_footprint_leak),
+    run(&crate::rules::PlacementContext {
+        height_at: &height,
+        water_level: &water_point,
+        water_intersects: Some(&water_footprint),
+        slope_at: &slope,
+        slope_at_footprint: Some(&footprint_slope),
         bounds: (
             scene.origin_x,
             scene.origin_z,
@@ -3657,9 +4983,27 @@ fn rules_placement_context(
             scene.origin_z + scene.depth_m as i32,
         ),
         grounding_tolerance: 0.5,
-        biome_at: Some(biome_leak),
-        hazard_at: Some(hazard_leak),
-    }
+        biome_at: Some(&biome),
+        hazard_at: Some(&hazard),
+    })
+}
+
+/// Same slope metric as local_slope, but derived from the caller's actual
+/// terrain. A baked audit must not silently resample unrelated natural hills.
+fn slope_from_height(height: &dyn Fn(i32, i32) -> f32, x: i32, z: i32, hw: i32, hd: i32) -> f32 {
+    let base = height(x, z);
+    let corners = [
+        (x.saturating_sub(hw), z.saturating_sub(hd)),
+        (x.saturating_add(hw), z.saturating_sub(hd)),
+        (x.saturating_sub(hw), z.saturating_add(hd)),
+        (x.saturating_add(hw), z.saturating_add(hd)),
+    ];
+    corners
+        .into_iter()
+        .map(|(x, z)| (height(x, z) - base).abs())
+        .fold(0., f32::max)
+        / (hw.max(hd).saturating_mul(2)).max(1) as f32
+        * 100.
 }
 
 /// Audit already-generated entities against the declarative rules engine
@@ -3700,60 +5044,29 @@ pub fn audit_scene(
     let registry = crate::rules::ObjectRegistry::load_dir(rules_dir)?;
     // Default height: natural (uncarved) terrain — an approximation; callers
     // that audit a baked world should pass the baked heightfield instead.
-    let natural_height = |x: i32, z: i32| {
-        terrain_height(
-            seed,
-            x,
-            z,
-            WaterKind::None,
-            scene.width_m,
-            scene.depth_m,
-            0.0,
-        ) as f32
-            / 4.0
-    };
+    let natural_height =
+        |x: i32, z: i32| terrain_height_with_geometry(seed, x, z, water) as f32 / 4.;
     let height_at = opts.height_at.unwrap_or(&natural_height);
     let slope_half = opts.slope_half.unwrap_or((8, 8));
     let ctx = crate::rules::PlacementContext {
         height_at,
-        water_level: &|x, z| match water.kind {
-            WaterKind::None => None,
-            // A point "in water" means its surface kind is water (lake radius
-            // < 1.0 or within the river half-width). Report a very high water
-            // level so the rules engine's height<=water test fires.
-            WaterKind::Lake => {
-                if lake_radius_at(x as f64, z as f64, water) < 1.0 {
-                    Some(f32::MAX)
-                } else {
-                    None
-                }
-            }
-            WaterKind::River => {
-                let half_width = river_half_width_at(
-                    z as f64 - water.center_z + water.half_depth,
-                    (water.half_depth * 2.0) as u32,
-                    water.half_width,
-                );
-                if (x as f64 - water.center_x).abs() < half_width {
-                    Some(f32::MAX)
-                } else {
-                    None
-                }
-            }
+        water_level: &|x, z| {
+            water
+                .contains_point(f64::from(x), f64::from(z))
+                .then_some(f32::MAX)
         },
-        slope_at: &|x, z| {
-            local_slope(
-                seed,
-                x,
-                z,
-                scene.width_m,
-                scene.depth_m,
-                slope_half.0,
-                slope_half.1,
-            ) as f32
-        },
-        slope_at_footprint: Some(&|x, z, half_w, half_d| {
-            local_slope(seed, x, z, scene.width_m, scene.depth_m, half_w, half_d) as f32
+        water_intersects: Some(&|fp| {
+            water.intersects_axis_aligned(
+                f64::from(fp.cx),
+                f64::from(fp.cz),
+                f64::from(fp.half_w),
+                f64::from(fp.half_d),
+            )
+        }),
+        slope_at: &|x, z| slope_from_height(height_at, x, z, slope_half.0, slope_half.1),
+        slope_at_footprint: Some(&|x, z, hw, hd| {
+            let (hw, hd) = opts.slope_half.unwrap_or((hw, hd));
+            slope_from_height(height_at, x, z, hw, hd)
         }),
         bounds: (
             scene.origin_x,
@@ -3775,15 +5088,7 @@ pub fn audit_scene(
         }),
         // Hazard: very steep ground = cliff (reuse the slope query).
         hazard_at: Some(&|x, z| {
-            let s = local_slope(
-                seed,
-                x,
-                z,
-                scene.width_m,
-                scene.depth_m,
-                slope_half.0,
-                slope_half.1,
-            );
+            let s = slope_from_height(height_at, x, z, slope_half.0, slope_half.1);
             if s > 30.0 {
                 vec![crate::rules::HazardKind::Cliff]
             } else {
@@ -3794,6 +5099,88 @@ pub fn audit_scene(
     Ok(crate::rules::audit_entities(
         entities, &registry, &ctx, seed,
     ))
+}
+
+/// Audit final baked data without repairing persisted entities. Only authored
+/// landmarks absent from the index are converted from pre-bake intent. Both
+/// bake and CLI must use this entry point so their coverage cannot drift.
+pub fn audit_baked_scene(
+    seed: u64,
+    scene: &SceneSpec,
+    landmarks: &[LandmarkSpec],
+    entities: &[EntityInstance],
+    water: WaterGeometry,
+    rules_dir: &Path,
+    terrain: &BakedTerrain,
+) -> WorldgenResult<crate::rules::ValidationReport> {
+    if !terrain.matches_scene(scene) {
+        return Err(TerrainError("heightfield does not match scene".into()).into());
+    }
+    terrain.require_complete()?;
+    let mut entity_ids = std::collections::BTreeSet::new();
+    for entity in entities {
+        if entity.entity_id.trim().is_empty()
+            || !entity_ids.insert(&entity.entity_id)
+            || ![
+                entity.width_m,
+                entity.depth_m,
+                entity.height_m,
+                entity.scale,
+            ]
+            .iter()
+            .all(|v| v.is_finite() && *v > 0.)
+            || !entity.rotation_y_deg.is_finite()
+            || entity.width_m > 100_000.
+            || entity.depth_m > 100_000.
+        {
+            return Err(
+                TerrainError(format!("invalid/duplicate entity {}", entity.entity_id)).into(),
+            );
+        }
+        entity.grounding.validate(&entity.entity_id)?;
+    }
+    let mut audit_entities = entities.to_vec();
+    for landmark in landmarks {
+        if !audit_entities
+            .iter()
+            .any(|e| e.entity_id == landmark.entity_id)
+        {
+            let mut authored = landmark_to_entity(landmark);
+            rebase_entities_to_baked_surface(std::slice::from_mut(&mut authored), terrain);
+            audit_entities.push(authored);
+        }
+    }
+    // Water landmarks may extend beyond the cropped scene. Land entities may
+    // not rely on clamped lookup to hide a missing/out-of-scene centre.
+    for entity in &audit_entities {
+        if !matches!(entity.kind.as_str(), "lake" | "river")
+            && terrain.height(entity.world_x, entity.world_z).is_none()
+        {
+            return Err(TerrainError(format!(
+                "entity {} has no baked centre sample",
+                entity.entity_id
+            ))
+            .into());
+        }
+    }
+    let height_at = |x, z| {
+        terrain
+            .height_clamped(x, z)
+            .expect("complete baked terrain")
+    };
+    audit_scene(
+        seed,
+        scene,
+        landmarks,
+        &audit_entities,
+        water,
+        rules_dir,
+        AuditOptions {
+            height_at: Some(&height_at),
+            slope_half: None,
+        },
+    )
+    .map_err(|error| WorldgenError::InvalidRules(error.to_string()))
 }
 
 /// Return the highest natural/banked terrain sample under an object's footprint.
@@ -3834,7 +5221,17 @@ fn is_grounded_entity_kind(kind: &str) -> bool {
     is_building_kind(kind)
         || matches!(
             kind,
-            "tree" | "rock" | "bush" | "grass_clump" | "fallen_log"
+            "tree"
+                | "rock"
+                | "bush"
+                | "grass_clump"
+                | "fallen_log"
+                | "fence"
+                | "guardrail"
+                | "boardwalk"
+                | "scenic_belt"
+                | "mudflat"
+                | "mangrove"
         )
 }
 
@@ -3842,7 +5239,7 @@ fn rebase_buildings_to_surface(seed: u64, water: WaterGeometry, entities: &mut [
     for entity in entities {
         // Buildings and natural details use the same highest-footprint sample
         // contract. Roads/bridges/water keep their own roadbed/deck semantics.
-        if is_grounded_entity_kind(&entity.kind) {
+        if is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none() {
             entity.world_y = entity
                 .world_y
                 .max(footprint_surface_ceiling_m(seed, entity, water));
@@ -3865,7 +5262,7 @@ fn rebase_grounded_entities_to_carved_surface(
 ) {
     for entity in entities
         .iter_mut()
-        .filter(|entity| is_grounded_entity_kind(&entity.kind))
+        .filter(|entity| is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none())
     {
         let (half_w, half_d) =
             spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
@@ -3882,7 +5279,10 @@ fn rebase_grounded_entities_to_carved_surface(
                 ceiling = ceiling.max(sample);
             }
         }
-        entity.world_y = entity.world_y.max(ceiling.ceil() as i32);
+        let anchor_offset = entity.ground_height_m() - entity.world_y as f32;
+        entity.world_y = entity
+            .world_y
+            .max((ceiling - f64::from(anchor_offset)).ceil() as i32);
     }
 }
 
@@ -3907,7 +5307,7 @@ fn rebase_generated_surfaces_to_ground(
 
     for entity in entities.iter_mut().filter(|entity| {
         entity.entity_id.starts_with("generated.")
-            && matches!(entity.kind.as_str(), "road" | "sidewalk")
+            && matches!(entity.kind.as_str(), "road" | "sidewalk" | "boardwalk")
     }) {
         let natural_m = f64::from(terrain_height_with_geometry(
             seed,
@@ -3927,28 +5327,52 @@ fn rebase_generated_surfaces_to_ground(
     }
 }
 
-fn rebase_entities_to_baked_surface(
+/// Reconcile unplanned grounded entities against the authoritative baked heightfield.
+/// Explicit frontage platforms remain fixed: audit a mismatch, never ceil/rebase
+/// the source obligation to conceal it.
+/// Post-bake CLI audits use this same contract as `bake_world`.
+pub fn rebase_entities_to_baked_surface(
     entities: &mut [EntityInstance],
-    baked_samples: &BTreeMap<i64, f32>,
+    baked_samples: &BakedTerrain,
 ) {
     for entity in entities
         .iter_mut()
-        .filter(|entity| is_grounded_entity_kind(&entity.kind))
+        .filter(|entity| is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none())
     {
         let (half_w, half_d) =
             spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
         let mut ceiling = f32::NEG_INFINITY;
         for dz in -(half_d.ceil() as i32)..=(half_d.ceil() as i32) {
             for dx in -(half_w.ceil() as i32)..=(half_w.ceil() as i32) {
-                let key =
-                    (i64::from(entity.world_x + dx) << 32) | ((entity.world_z + dz) as u32 as i64);
-                if let Some(height) = baked_samples.get(&key) {
-                    ceiling = ceiling.max(*height);
+                if let Some(height) = baked_samples.height(entity.world_x + dx, entity.world_z + dz)
+                {
+                    ceiling = ceiling.max(height);
                 }
             }
         }
         if ceiling.is_finite() {
-            entity.world_y = entity.world_y.max(ceiling.ceil() as i32);
+            let offset = entity.ground_height_m() - entity.world_y as f32;
+            entity.world_y = entity.world_y.max((ceiling - offset).ceil() as i32);
+        }
+    }
+}
+
+/// Generation-only baseline reconciliation for terrain-following transport.
+/// Keep authored elevations fixed, and never feed this metadata update back
+/// into another carve pass (that would cause an ever-rising fill feedback loop).
+fn rebase_generated_transport_to_baked_surface(
+    entities: &mut [EntityInstance],
+    landmarks: &[LandmarkSpec],
+    terrain: &BakedTerrain,
+) {
+    for entity in entities.iter_mut().filter(|e| {
+        e.entity_id.starts_with("generated.")
+            && matches!(e.kind.as_str(), "road" | "sidewalk")
+            && !landmarks.iter().any(|l| l.entity_id == e.entity_id)
+    }) {
+        if let Some(h) = terrain.height(entity.world_x, entity.world_z) {
+            let offset = entity.ground_height_m() - entity.world_y as f32;
+            entity.world_y = (h - offset).ceil() as i32;
         }
     }
 }
@@ -3979,7 +5403,7 @@ fn sanitize_generated_transport_collisions(entities: &mut Vec<EntityInstance>) {
 fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
     let road_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
-        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk"))
+        .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk" | "boardwalk"))
         .map(|entity| {
             (
                 entity.world_x,
@@ -4089,6 +5513,11 @@ fn is_building_kind(kind: &str) -> bool {
             | "church"
             | "parking_lot"
             | "green_space"
+            | "shopping_mall"
+            | "office_tower"
+            | "convenience_store"
+            | "night_market"
+            | "community_plaza"
     )
 }
 
@@ -4314,6 +5743,8 @@ fn append_pastoral_intent_content(
         half_depth: 0.0,
         scene_width_m: scene.width_m,
         scene_depth_m: scene.depth_m,
+        terrain_origin_x: scene.origin_x,
+        terrain_origin_z: scene.origin_z,
         smooth_rolling: false,
     };
     let mut serial = 750_000_u32;
@@ -4568,11 +5999,87 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
     }
 }
 
+fn projected_road_corridor_intersects(
+    params: &CityFormParams,
+    scene: &SceneSpec,
+    x: i32,
+    z: i32,
+    half_w: i32,
+    half_d: i32,
+) -> bool {
+    let center_x = scene.origin_x + (scene.width_m / 2) as i32;
+    let center_z = scene.origin_z + (scene.depth_m / 2) as i32;
+    let min_x = scene.origin_x + 80;
+    let max_x = scene.origin_x + scene.width_m as i32 - 80;
+    let min_z = scene.origin_z + 80;
+    let max_z = scene.origin_z + scene.depth_m as i32 - 80;
+    let hit_ew = |road_z: i32, cross: i32| {
+        (z - road_z).abs() <= half_d + cross && x + half_w >= min_x && x - half_w <= max_x
+    };
+    let hit_ns = |road_x: i32, cross: i32| {
+        (x - road_x).abs() <= half_w + cross && z + half_d >= min_z && z - half_d <= max_z
+    };
+    match params.road_grid {
+        RoadGrid::Grid | RoadGrid::Loose => {
+            if hit_ew(center_z, 6) || hit_ns(center_x, 6) {
+                return true;
+            }
+            let spacing = if scene.width_m.max(scene.depth_m) >= 5_000 {
+                params.road_spacing_m.min(120).max(32) as usize
+            } else {
+                params.road_spacing_m.max(32) as usize
+            };
+            for road_z in (min_z..max_z).step_by(spacing) {
+                if (road_z - center_z).abs() >= 24 && hit_ew(road_z, 5) {
+                    return true;
+                }
+            }
+            for road_x in (min_x..max_x).step_by(spacing) {
+                if (road_x - center_x).abs() >= 24 && hit_ns(road_x, 5) {
+                    return true;
+                }
+            }
+        }
+        RoadGrid::RiverAxis | RoadGrid::ValleyAxis => {
+            if hit_ew(center_z, 6) {
+                return true;
+            }
+            let spacing = if scene.width_m.max(scene.depth_m) >= 5_000 {
+                params.road_spacing_m.min(120).max(32) as usize
+            } else {
+                params.road_spacing_m.max(32) as usize
+            };
+            for road_x in (min_x..max_x).step_by(spacing) {
+                if (road_x - center_x).abs() >= 120 && hit_ns(road_x, 5) {
+                    return true;
+                }
+            }
+            for road_z in (min_z..max_z).step_by(spacing.saturating_mul(2)) {
+                if (road_z - center_z).abs() >= 120 && hit_ew(road_z, 5) {
+                    return true;
+                }
+            }
+        }
+        RoadGrid::Radial => {
+            // Radial rings are generated around the core; use the two axial
+            // spines as a conservative reservation. Ring-specific collision
+            // is handled by the final rules audit and bounded engineering.
+            if hit_ew(center_z, 6) || hit_ns(center_x, 6) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn append_modern_landuse_content(
     seed: u64,
     scene: &SceneSpec,
     entities: &mut Vec<EntityInstance>,
     style: &serde_json::Value,
+    road_plan: Option<&road_network::RoadNetworkPlan>,
+    development_plan: Option<&DevelopmentPlan>,
+    development_proposals: &mut Vec<DevelopmentProposal>,
 ) {
     let params = CityFormParams::resolve(style);
     let min_x = scene.origin_x + 80;
@@ -4599,8 +6106,84 @@ fn append_modern_landuse_content(
     // claim their strips first, buildings then avoid them, and vegetation /
     // greenspace only fills leftover soft ground. This prevents trees on
     // roads, houses cutting into hillsides, and lawns covering buildings.
+    let planned_roads = road_plan.map(|p| p.entities()).unwrap_or_default();
     let mut occ = OccupancyGrid::new(scene.width_m, scene.depth_m);
-    let mut add = |kind: &str, x: i32, z: i32, width: f32, depth: f32, height: f32| {
+    for road in &planned_roads {
+        let (hw, hd) = spatial_half_extents(road.width_m, road.depth_m, road.rotation_y_deg);
+        occ.mark(
+            road.world_x,
+            road.world_z,
+            hw.ceil() as i32 + 3,
+            hd.ceil() as i32 + 3,
+            OccLayer::Hard,
+        );
+    }
+    let planned_sites = development_plan
+        .map(DevelopmentPlan::building_entities)
+        .unwrap_or_default();
+    for site in &planned_sites {
+        let (hw, hd) = spatial_half_extents(site.width_m, site.depth_m, site.rotation_y_deg);
+        occ.mark(
+            site.world_x,
+            site.world_z,
+            hw as i32 + 2,
+            hd as i32 + 2,
+            OccLayer::Hard,
+        );
+    }
+    entities.extend(planned_roads.iter().cloned());
+    entities.extend(planned_sites.iter().cloned());
+    let source_zones = road_plan
+        .and_then(|_| LandUseProfile::from_style(style))
+        .map(|p| plan_landuse_zones(scene, &p));
+    let source_zoning = source_zones
+        .as_deref()
+        .map(|z| zoning::ZoningMask::new(scene, z).expect("computed planning zones are valid"));
+    let source_water = water_geometry(water_kind(style), &[], scene, style);
+    let terrain_context = TerrainContext {
+        seed,
+        water: source_water,
+        precise: height_encoding_from_style(style).expect("validated height precision")
+            == HeightEncoding::Millimetre,
+        zoning: source_zoning.as_ref(),
+    };
+    let candidate_identity = std::cell::RefCell::new(None::<String>);
+    let mut add = |kind: &str, x: i32, z: i32, width: f32, depth: f32, height: f32| -> bool {
+        let planned_id = candidate_identity.borrow_mut().take();
+        if development_plan.is_some()
+            && (crate::settlement::is_building(kind)
+                || matches!(kind, "canal" | "railway" | "parking_lot"))
+        {
+            development_proposals.push(proposals::deferred(
+                &scene.scene_id,
+                development_proposals.len(),
+                kind,
+                x,
+                z,
+                width,
+                depth,
+                height,
+            ));
+            return false; // A request without a parcel cannot emit an entity.
+        }
+        // Agriculture now comes from verified landcover fields, never a
+        // renderer-sized box that has no road/soil ownership contract.
+        if development_plan.is_some() && matches!(kind, "farmland" | "pasture") {
+            return false;
+        }
+        if road_plan.is_some() && (kind == "road-ew" || kind == "road-ns" || kind == "sidewalk") {
+            return false;
+        }
+        if !planned_roads.is_empty()
+            && occ.collides_hard(
+                x,
+                z,
+                (width * 0.5).ceil() as i32,
+                (depth * 0.5).ceil() as i32,
+            )
+        {
+            return false;
+        }
         let entity_kind = kind
             .strip_suffix("-ew")
             .or_else(|| kind.strip_suffix("-ns"))
@@ -4643,6 +6226,22 @@ fn append_modern_landuse_content(
         // `width` is its running length (along the strip) and `depth` its
         // cross-section, so the boundary check only constrains the cross
         // direction and lets the length reach the scene edge.
+        if scene.width_m.max(scene.depth_m) >= 5_000
+            && is_building
+            && projected_road_corridor_intersects(
+                &params,
+                scene,
+                x,
+                z,
+                (width * 0.5).ceil() as i32,
+                (depth * 0.5).ceil() as i32,
+            )
+        {
+            // Roads are authored later in this planner, so reserve their
+            // deterministic corridors before civic/land-use objects exist.
+            // This is the road-first invariant without a second placement pass.
+            return false;
+        }
         if is_road {
             // For both EW and NS strips, `depth` is the cross-section width
             // and `width` is the running length. Only constrain the cross
@@ -4661,7 +6260,7 @@ fn append_modern_landuse_content(
                     && x <= scene_max_x
             };
             if !inside_cross {
-                return;
+                return false;
             }
         } else {
             let half_width = (width * 0.5).ceil() as i32;
@@ -4671,7 +6270,7 @@ fn append_modern_landuse_content(
                 || z - half_depth < min_z
                 || z + half_depth > max_z
             {
-                return;
+                return false;
             }
         }
         // Slope guard: bulk parcels and roads must not cut into a mountainside.
@@ -4686,7 +6285,11 @@ fn append_modern_landuse_content(
                 (width * 0.5).ceil() as i32,
                 (depth * 0.5).ceil() as i32,
             );
-            let max_slope = if is_building {
+            let max_slope = if is_road {
+                // Keep the authored road contract strict. A road that cannot
+                // be graded within 8% must be rejected before it is fixed.
+                8.0
+            } else if is_building {
                 30.0
             } else if matches!(entity_kind, "mountain_forest" | "tree" | "bush") {
                 70.0
@@ -4694,7 +6297,7 @@ fn append_modern_landuse_content(
                 30.0
             };
             if slope > max_slope {
-                return;
+                return false;
             }
         }
         // Collision guard against already-placed hard surfaces. Roads claim
@@ -4709,7 +6312,31 @@ fn append_modern_landuse_content(
         if is_road {
             // Roads claim corridors and may cross each other.
         } else if is_bulk && occ.collides_hard(x, z, half_w, half_d) {
-            return;
+            return false;
+        }
+        if !planned_roads.is_empty() && (is_building || entity_kind == "parking_lot") {
+            let water = legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.);
+            let mut proposed = generated_intent_entity(
+                "generated.preflight".into(),
+                entity_kind,
+                x,
+                z,
+                0,
+                width,
+                depth,
+                height,
+            );
+            proposed.world_y = footprint_surface_ceiling_m(seed, &proposed, water);
+            proposed.normalize_spatial_semantics();
+            if road_network::building_fill_conflicts(&terrain_context, &planned_roads, &proposed)
+                || road_network::building_fill_conflicts(
+                    &terrain_context,
+                    &planned_sites,
+                    &proposed,
+                )
+            {
+                return false;
+            }
         }
         // Claim this footprint: roads reserve hard space; everything else is
         // soft and does not block neighbours.
@@ -4729,11 +6356,11 @@ fn append_modern_landuse_content(
             0.0,
         )) / 4;
         entities.push(EntityInstance {
-            rotation_y_deg: 0.0,
+            rotation_y_deg: if kind.ends_with("-ns") { 90.0 } else { 0.0 },
             grounding: GroundingSpec::default(),
             anchors: Vec::new(),
             bounds: None,
-            entity_id: format!("generated.landuse-{kind}.{serial}"),
+            entity_id: planned_id.unwrap_or_else(|| format!("generated.landuse-{kind}.{serial}")),
             asset_id: format!("prop.{entity_kind}"),
             kind: entity_kind.to_owned(),
             world_x: x,
@@ -4745,6 +6372,7 @@ fn append_modern_landuse_content(
             height_m: height,
         });
         serial += 1;
+        true
     };
     // Multi-core layout: place a full commercial/school cluster at the primary
     // core and lighter civic clusters at each secondary core so the road
@@ -4854,7 +6482,11 @@ fn append_modern_landuse_content(
     // river forms add an axial spine; loose suburban forms use wider spacing.
     match params.road_grid {
         RoadGrid::Grid | RoadGrid::Loose => {
-            let spacing = params.road_spacing_m;
+            let spacing = if scene.width_m.max(scene.depth_m) >= 5_000 {
+                params.road_spacing_m.min(120)
+            } else {
+                params.road_spacing_m
+            };
             // Always lay a primary cross through the scene so every profile
             // keeps a connected core even on small test scenes.
             add(
@@ -4947,7 +6579,11 @@ fn append_modern_landuse_content(
             add("road-ns", primary.0, primary.1, spine_length, 10.0, 0.24);
         }
         RoadGrid::RiverAxis | RoadGrid::ValleyAxis => {
-            let spacing = params.road_spacing_m;
+            let spacing = if scene.width_m.max(scene.depth_m) >= 5_000 {
+                params.road_spacing_m.min(120)
+            } else {
+                params.road_spacing_m
+            };
             add(
                 "road-ew",
                 center_x,
@@ -5029,8 +6665,20 @@ fn append_modern_landuse_content(
             add("road_sign", offset, center_z - 14, 1.6, 0.9, 3.0);
         }
     }
-    for z in (min_z..max_z).step_by(120) {
-        for x in (min_x..max_x).step_by(120) {
+    let parcel_offset = if scene.width_m.max(scene.depth_m) >= 5_000 {
+        60
+    } else {
+        0
+    };
+    let parcel_min_x = min_x + parcel_offset;
+    let parcel_min_z = min_z + parcel_offset;
+    let parcel_step = if scene.width_m.max(scene.depth_m) >= 5_000 {
+        240
+    } else {
+        120
+    };
+    for z in (parcel_min_z..max_z).step_by(parcel_step) {
+        for x in (parcel_min_x..max_x).step_by(parcel_step) {
             let roll = signed_noise(seed.rotate_left(163), x, z);
             let urban_scale = (urban_ratio + suburban_ratio).clamp(0.1, 1.0);
             let region = RegionType::classify(
@@ -5045,6 +6693,8 @@ fn append_modern_landuse_content(
                     half_depth: 0.0,
                     scene_width_m: scene.width_m,
                     scene_depth_m: scene.depth_m,
+                    terrain_origin_x: scene.origin_x,
+                    terrain_origin_z: scene.origin_z,
                     smooth_rolling: false,
                 },
                 urban_scale,
@@ -5153,6 +6803,73 @@ fn append_modern_landuse_content(
                     }
                 }
             }
+        }
+    }
+    // Generate from the precomputed land-use zones. This is the first
+    // generation-before-entities parcel pass: each accepted footprint consumes
+    // a zone of the requested kind, while `add` remains the hard placement
+    // gate for roads, slope, water and collision.
+    let planning_profile = LandUseProfile {
+        theme: params.form,
+        urban_core_ratio: urban_ratio,
+        suburban_ratio,
+        green_ratio,
+        farm_ratio,
+        forest_ratio,
+        pasture_ratio,
+        reserve_ratio,
+    };
+    // Road-first scenes consume BuildingPlan; never generate zone-sized
+    // building/green-space proxies from an unrelated legacy parcel layout.
+    if development_plan.is_none() {
+        let planned_zones = plan_landuse_zones(scene, &planning_profile);
+        let parcel_plan = plan_parcels(&planned_zones);
+        // Entity generation consumes the same ParcelPlan that is persisted later;
+        // it must not independently reinterpret zone geometry.
+        for parcel in &parcel_plan.parcels {
+            let (kind, height) = match parcel.land_use.as_str() {
+                "urban" if params.form == CityForm::LowDensitySuburban => {
+                    ("residential_home", 8.0_f32)
+                }
+                "urban" => ("residential_block", 9.0 + params.core_density as f32 * 16.0),
+                "rural" => ("farmland", 0.2_f32),
+                "nature" => ("green_space", 0.2_f32),
+                _ => continue,
+            };
+            let candidate_x = parcel.world_x + (parcel.width_m / 2) as i32;
+            let candidate_z = parcel.world_z + (parcel.depth_m / 2) as i32;
+            if projected_road_corridor_intersects(
+                &params,
+                scene,
+                candidate_x,
+                candidate_z,
+                (parcel.width_m as f32 * 0.5).ceil() as i32 + 2,
+                (parcel.depth_m as f32 * 0.5).ceil() as i32 + 2,
+            ) {
+                continue;
+            }
+            *candidate_identity.borrow_mut() =
+                Some(crate::settlement::planned_entity_id(&parcel.id));
+            let _ = add(
+                kind,
+                candidate_x,
+                candidate_z,
+                parcel.width_m as f32,
+                parcel.depth_m as f32,
+                height,
+            );
+        }
+        for public_space in &parcel_plan.public_spaces {
+            *candidate_identity.borrow_mut() =
+                Some(crate::settlement::planned_entity_id(&public_space.id));
+            let _ = add(
+                "green_space",
+                public_space.world_x + (public_space.width_m / 2) as i32,
+                public_space.world_z + (public_space.depth_m / 2) as i32,
+                public_space.width_m as f32,
+                public_space.depth_m as f32,
+                0.2,
+            );
         }
     }
     add("pasture", max_x - 120, max_z - 120, 100.0, 90.0, 0.2);
@@ -5270,43 +6987,59 @@ fn profile_ratio(style: &serde_json::Value, key: &str, fallback: f64) -> f64 {
         .clamp(0.0, 1.0)
 }
 
-fn footprint_intersects_water(entity: &EntityInstance, water: WaterGeometry, margin: f64) -> bool {
-    if water.kind == WaterKind::None {
-        return false;
-    }
-    let half_x = f64::from(entity.width_m) * 0.5 + margin;
-    let half_z = f64::from(entity.depth_m) * 0.5 + margin;
-    let samples = [
-        (f64::from(entity.world_x), f64::from(entity.world_z)),
-        (
-            f64::from(entity.world_x) - half_x,
-            f64::from(entity.world_z) - half_z,
-        ),
-        (
-            f64::from(entity.world_x) - half_x,
-            f64::from(entity.world_z) + half_z,
-        ),
-        (
-            f64::from(entity.world_x) + half_x,
-            f64::from(entity.world_z) - half_z,
-        ),
-        (
-            f64::from(entity.world_x) + half_x,
-            f64::from(entity.world_z) + half_z,
-        ),
-    ];
-    samples.iter().any(|(x, z)| match water.kind {
-        WaterKind::Lake => lake_radius_at(*x, *z, water) < 1.0,
-        WaterKind::River => {
-            let half_width = river_half_width_at(
-                *z - water.center_z + water.half_depth,
-                (water.half_depth * 2.0) as u32,
-                water.half_width,
-            );
-            (*x - water.center_x).abs() < half_width
+fn is_water_compatible_entity_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "lake" | "river" | "canal" | "bridge" | "causeway" | "mudflat" | "mangrove" | "reed"
+    )
+}
+
+fn landmark_requires_land(kind: &str) -> bool {
+    !matches!(
+        kind,
+        "river" | "lake" | "canal" | "bridge" | "causeway" | "mudflat" | "mangrove" | "reed"
+    )
+}
+
+/// Fail closed before baking: authored landmarks are rendered directly by
+/// the HTML adapter, so they must be checked even when procedural placement
+/// later filters or omits their entity record. Water-compatible infrastructure
+/// and wetland kinds are explicitly exempted by `landmark_requires_land`.
+fn validate_authored_landmarks_clear_water(
+    landmarks: &[LandmarkSpec],
+    scene: &SceneSpec,
+    water: WaterGeometry,
+) -> WorldgenResult<()> {
+    for landmark in landmarks {
+        if landmark_requires_land(&landmark.entity_type)
+            && footprint_intersects_water(&landmark_to_entity(landmark), water, 0.0)
+        {
+            return Err(WorldgenError::LandmarkIntersectsWater {
+                landmark: landmark.entity_id.clone(),
+                scene: scene.scene_id.clone(),
+            });
         }
-        WaterKind::None => false,
-    })
+    }
+    Ok(())
+}
+
+pub fn landmark_to_entity(landmark: &LandmarkSpec) -> EntityInstance {
+    EntityInstance {
+        rotation_y_deg: landmark.rotation_y_deg,
+        grounding: landmark.grounding.clone(),
+        anchors: landmark.anchors.clone(),
+        bounds: landmark.bounds,
+        entity_id: landmark.entity_id.clone(),
+        asset_id: landmark.asset_id.clone(),
+        kind: landmark.entity_type.clone(),
+        world_x: landmark.world_x,
+        world_z: landmark.world_z,
+        world_y: landmark.world_y,
+        scale: 1.0,
+        width_m: landmark.width_m as f32,
+        depth_m: landmark.depth_m as f32,
+        height_m: landmark.height_m as f32,
+    }
 }
 
 fn generate_entities_template(
@@ -5318,10 +7051,10 @@ fn generate_entities_template(
     let mut entities = Vec::new();
     for landmark in landmarks {
         entities.push(EntityInstance {
-            rotation_y_deg: 0.0,
-            grounding: GroundingSpec::default(),
-            anchors: Vec::new(),
-            bounds: None,
+            rotation_y_deg: landmark.rotation_y_deg,
+            grounding: landmark.grounding.clone(),
+            anchors: landmark.anchors.clone(),
+            bounds: landmark.bounds,
             entity_id: landmark.entity_id.clone(),
             asset_id: landmark.asset_id.clone(),
             kind: landmark.entity_type.clone(),
@@ -5348,7 +7081,15 @@ fn generate_entities_template(
     let has_real_city = landmarks.iter().any(|l| {
         matches!(
             l.entity_type.as_str(),
-            "road" | "building" | "building_tower" | "storefront"
+            "road"
+                | "building"
+                | "building_tower"
+                | "storefront"
+                | "shopping_mall"
+                | "office_tower"
+                | "convenience_store"
+                | "community_plaza"
+                | "night_market"
         )
     });
     if has_real_city {
@@ -5976,6 +7717,147 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
+    fn authored_identity_does_not_require_landmark_prefix() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let authored: LandmarkSpec = serde_json::from_value(serde_json::json!({
+            "entityId":"my-city-hall","name":"City hall","type":"building",
+            "purpose":"civic","description":"Required subject","sceneId":"scene-0",
+            "worldX":200,"worldZ":200,"worldY":50,"widthM":20,"depthM":10,
+            "heightM":10,"assetId":"prop.building"
+        }))
+        .unwrap();
+        let mut style = serde_json::json!({});
+        style["rulesDir"] = serde_json::json!(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects")
+        );
+        let water = water_geometry(WaterKind::None, &[], &scene, &style);
+        let (entities, _) = apply_rules_mode(
+            42,
+            &scene,
+            water,
+            &style,
+            std::slice::from_ref(&authored),
+            vec![landmark_to_entity(&authored)],
+            None,
+        );
+        assert_eq!(entities.len(), 1);
+        assert_eq!(
+            (
+                entities[0].world_x,
+                entities[0].world_z,
+                entities[0].world_y
+            ),
+            (200, 200, 50)
+        );
+    }
+
+    #[test]
+    fn rules_reject_pond_entirely_enclosed_between_sample_points() {
+        let scene = SceneSpec {
+            scene_id: "pond".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let water = WaterGeometry {
+            kind: WaterKind::Lake,
+            center_x: 203.,
+            center_z: 203.,
+            half_width: 1.,
+            half_depth: 1.,
+            scene_width_m: 512,
+            scene_depth_m: 512,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
+            smooth_rolling: false,
+        };
+        let registry = crate::rules::ObjectRegistry::load_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"),
+        )
+        .unwrap();
+        let descriptor = registry
+            .descriptors
+            .values()
+            .find(|d| d.matches_kind("building"))
+            .unwrap();
+        let fp = crate::rules::Footprint {
+            rotation_y_deg: 0.,
+            cx: 200.,
+            cz: 200.,
+            half_w: 20.,
+            half_d: 20.,
+        };
+        assert!(
+            fp.sample_points()
+                .iter()
+                .all(|(x, z)| !water.contains_point(f64::from(*x), f64::from(*z)))
+        );
+        with_rules_placement_context(7, &scene, water, |ctx| {
+            assert!(matches!(
+                crate::rules::check_hard(
+                    descriptor,
+                    &fp,
+                    ctx,
+                    &[crate::rules::constraint::Constraint::NotInWater],
+                    &[]
+                ),
+                Err(crate::rules::RejectReason::InWater)
+            ));
+        });
+    }
+
+    #[test]
+    fn manifest_rejects_duplicate_landmarks_rotation_overflow_and_empty_scenes() {
+        let mut m: WorldManifest = serde_json::from_str(include_str!(
+            "../../../../examples/shenzhen-bay-minimal.manifest.json"
+        ))
+        .unwrap();
+        let original = m.clone();
+        m.landmarks.push(m.landmarks[0].clone());
+        assert!(m.validate().is_err());
+        m = original.clone();
+        m.landmarks[0].rotation_y_deg = f32::NAN;
+        assert!(m.validate().is_err());
+        m = original.clone();
+        m.scenes[0].origin_x = i32::MAX;
+        assert!(m.validate().is_err());
+        m = original;
+        m.scenes.clear();
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn baked_rebase_respects_center_pivot_and_offsets() {
+        let scene = SceneSpec {
+            scene_id: "pivot".into(),
+            width_m: 16,
+            depth_m: 16,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(0, 0, 16, 16, &12_i16.to_le_bytes().repeat(256))
+            .unwrap();
+        let mut entity = generated_intent_entity("pivot".into(), "building", 8, 8, 0, 4., 4., 10.);
+        entity.grounding.pivot = GroundingPivot::Center;
+        entity.grounding.bottom_offset_m = 0.25;
+        rebase_entities_to_baked_surface(std::slice::from_mut(&mut entity), &terrain);
+        assert_eq!(entity.world_y, 8);
+        assert!(entity.ground_height_m() >= 3.);
+    }
+
+    #[test]
     fn default_world_is_valid() {
         WorldManifest::default_demo().validate().unwrap();
     }
@@ -6032,6 +7914,49 @@ mod tests {
             matches!(result, Err(WorldgenError::InvalidRules(message)) if message.contains("requires style.rulesMode"))
         );
         let _ = std::fs::remove_dir_all(output);
+    }
+
+    #[test]
+    fn terrain_domain_and_precision_are_validated_before_bake() {
+        let mut m = WorldManifest::default_demo();
+        m.style["heightPrecision"] = serde_json::json!(false);
+        assert!(m.validate().is_err());
+        m.style["heightPrecision"] = serde_json::json!("mysterious");
+        assert!(m.validate().is_err());
+        m.style["heightPrecision"] = serde_json::json!("millimeter");
+        assert!(m.validate().is_ok());
+        m.style["terrainDomain"] =
+            serde_json::json!({"originX":0,"originZ":0,"widthM":999,"depthM":1000});
+        assert!(m.validate().is_err());
+        m.style["terrainDomain"] =
+            serde_json::json!({"originX":0,"originZ":0,"widthM":1000,"depthM":1000,"ignored":true});
+        assert!(m.validate().is_err());
+        m.style["terrainDomain"] =
+            serde_json::json!({"originX":0,"originZ":0,"widthM":1000,"depthM":1000});
+        assert!(m.validate().is_ok());
+        let mut scene = m.scenes[0].clone();
+        scene.origin_x = -200;
+        scene.origin_z = 500;
+        let geometry = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
+        assert_eq!(geometry.terrain_origin_x, -200);
+        assert_eq!(geometry.terrain_origin_z, 500);
+    }
+
+    #[test]
+    fn precise_height_is_from_continuous_source_not_rescaled_legacy_steps() {
+        let water = legacy_water_geometry(WaterKind::None, 512, 512, 0.);
+        let (bytes, _, _, _) = generate_chunk_encoded(7, 0, 0, 64, 64, water, &[], true, None);
+        let payload = HeightPayload::parse(&bytes, 64, 64).unwrap();
+        assert!((0..payload.count).any(|i| payload.raw(i).rem_euclid(250) != 0));
+        for z in 0..64 {
+            for x in 0..64 {
+                let source = terrain_height_metres(7, x, z, water, &[]);
+                let actual = payload.metres((z * 64 + x) as usize);
+                assert!((actual - source).abs() <= 0.000500001);
+                let legacy = terrain_height_with_geometry(7, x, z, water) as f64 / 4.;
+                assert!((legacy - source).abs() < 0.25 + 1e-9);
+            }
+        }
     }
 
     #[test]
@@ -6153,7 +8078,7 @@ mod tests {
             height_m: 6.0,
         };
         building.normalize_spatial_semantics();
-        assert_eq!(building.anchors[0].direction, "east");
+        assert_eq!(building.anchors[0].direction, "west");
         assert_eq!(building.anchors[0].target.as_deref(), Some("road"));
     }
 
@@ -6468,10 +8393,19 @@ mod tests {
             entity.world_y as i16 * 4,
             "rotated building pad did not extend along world Z"
         );
+        assert_eq!((carves[0].half_w, carves[0].half_d), (11., 41.));
         assert_eq!(
-            terrain_height_with_geometry_carved(20260903, 439, 400, water, &carves),
-            terrain_height_with_geometry_carved(20260903, 439, 400, water, &[]),
-            "rotated building pad incorrectly extended along world X"
+            terrain_disturbance_at(439, 400, &carves),
+            0,
+            "world X must be an embankment, not the rotated building support pad"
+        );
+        // Adaptive earthwork now legitimately extends beyond the old 6m ring.
+        // Outside its computed support radius, the natural terrain is unchanged.
+        let far_x = 400 + (carves[0].half_w + carves[0].blend_m).ceil() as i32 + 1;
+        assert_eq!(
+            terrain_height_with_geometry_carved(20260903, far_x, 400, water, &carves),
+            terrain_height_with_geometry_carved(20260903, far_x, 400, water, &[]),
+            "rotated building fill altered its far field"
         );
     }
 
@@ -6479,6 +8413,7 @@ mod tests {
     fn terrain_semantics_match_the_baked_raster_contract() {
         let water = legacy_water_geometry(WaterKind::None, 128, 128, 0.0);
         let carve = TerrainCarve {
+            profile: None,
             cx: 32.0,
             cz: 32.0,
             half_w: 12.0,
@@ -6489,7 +8424,7 @@ mod tests {
             disturbance: 255,
         };
         let (height, surface, lod2, terrain) =
-            generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, &[carve]);
+            generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, std::slice::from_ref(&carve));
         assert_eq!(height.len(), 64 * 64 * 2);
         assert_eq!(surface.len(), 64 * 64);
         assert_eq!(lod2.len(), 3);
@@ -6541,10 +8476,138 @@ mod tests {
     }
 
     #[test]
+    fn filtered_carves_keep_all_payload_bytes_including_derivative_halo() {
+        for (base_x, base_z) in [(0, 0), (-100, 200)] {
+            let water = legacy_water_geometry(WaterKind::None, 512, 512, 0.);
+            let carves = vec![
+                TerrainCarve {
+                    profile: None,
+                    cx: f64::from(base_x) + 34.,
+                    cz: f64::from(base_z) + 16.,
+                    half_w: 1.,
+                    half_d: 8.,
+                    target_h_m: 100.,
+                    blend_m: 1.5,
+                    priority: 1,
+                    disturbance: 160,
+                },
+                TerrainCarve {
+                    profile: None,
+                    cx: f64::from(base_x) - 2000.,
+                    cz: f64::from(base_z) - 2000.,
+                    half_w: 1.,
+                    half_d: 1.,
+                    target_h_m: 100.,
+                    blend_m: 1.5,
+                    priority: 1,
+                    disturbance: 160,
+                },
+            ];
+            let filtered: Vec<_> = carves
+                .iter()
+                .cloned()
+                .filter(|c| carve_intersects_chunk(c, base_x, base_z, 32, 32))
+                .collect();
+            assert_eq!(filtered.len(), 1);
+            assert_eq!(
+                generate_chunk_with_geometry(7, base_x, base_z, 32, 32, water, &carves),
+                generate_chunk_with_geometry(7, base_x, base_z, 32, 32, water, &filtered)
+            );
+        }
+    }
+
+    #[test]
+    fn chunk_carve_filter_excludes_distant_pads_and_keeps_blend_ring() {
+        let near = TerrainCarve {
+            profile: None,
+            cx: 520.,
+            cz: 520.,
+            half_w: 8.,
+            half_d: 8.,
+            target_h_m: 2.,
+            blend_m: 6.,
+            priority: 1,
+            disturbance: 160,
+        };
+        let far = TerrainCarve {
+            profile: None,
+            cx: 2_000.,
+            cz: 2_000.,
+            half_w: 8.,
+            half_d: 8.,
+            target_h_m: 2.,
+            blend_m: 6.,
+            priority: 1,
+            disturbance: 160,
+        };
+        assert!(carve_intersects_chunk(&near, 0, 0, 512, 512));
+        assert!(!carve_intersects_chunk(&far, 0, 0, 512, 512));
+        assert!(carve_intersects_chunk(&near, 512, 512, 16, 16));
+    }
+
+    #[test]
+    fn planned_fill_does_not_make_the_observed_chunk_boundary_cliff() {
+        let water = legacy_water_geometry(WaterKind::None, 1800, 1800, 0.0);
+        let building = generated_intent_entity(
+            "generated.test".into(),
+            "residential_home",
+            1520,
+            842,
+            1,
+            22.,
+            22.,
+            0.2,
+        );
+        let carves = plan_terrain_carves(&[building]);
+        assert!(carves[0].blend_m >= 96.);
+        for z in 830..870 {
+            let left = terrain_height_with_geometry_carved(20260905, 1535, z, water, &carves);
+            let right = terrain_height_with_geometry_carved(20260905, 1536, z, water, &carves);
+            assert!(
+                (left - right).abs() <= 16,
+                "quarter-metre seam step at {z}: {}",
+                (left - right).abs()
+            );
+        }
+    }
+
+    #[test]
+    fn overlapping_fill_envelopes_are_order_independent() {
+        let water = legacy_water_geometry(WaterKind::None, 1000, 1000, 0.);
+        let a = TerrainCarve {
+            profile: None,
+            cx: 400.,
+            cz: 400.,
+            half_w: 10.,
+            half_d: 10.,
+            target_h_m: 12.,
+            blend_m: 80.,
+            priority: 1,
+            disturbance: 160,
+        };
+        let b = TerrainCarve {
+            profile: None,
+            cx: 410.,
+            cz: 412.,
+            target_h_m: 16.,
+            ..a.clone()
+        };
+        for z in (380..490).step_by(3) {
+            for x in (380..490).step_by(3) {
+                assert_eq!(
+                    terrain_height_with_geometry_carved(42, x, z, water, &[a.clone(), b.clone()]),
+                    terrain_height_with_geometry_carved(42, x, z, water, &[b.clone(), a.clone()])
+                );
+            }
+        }
+    }
+
+    #[test]
     fn generated_pads_never_excavate_higher_natural_ground() {
         let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
         let natural = terrain_height_with_geometry_carved(20260829, 400, 400, water, &[]);
         let carve = TerrainCarve {
+            profile: None,
             cx: 400.0,
             cz: 400.0,
             half_w: 50.0,
@@ -6555,7 +8618,7 @@ mod tests {
             disturbance: 160,
         };
         assert_eq!(
-            terrain_height_with_geometry_carved(20260829, 400, 400, water, &[carve]),
+            terrain_height_with_geometry_carved(20260829, 400, 400, water, std::slice::from_ref(&carve)),
             natural,
             "generated pad excavated natural ground"
         );
@@ -6565,6 +8628,7 @@ mod tests {
     fn terrain_carve_flattens_pad_and_blends_to_natural() {
         let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
         let carve = TerrainCarve {
+            profile: None,
             cx: 400.0,
             cz: 400.0,
             half_w: 50.0,
@@ -6578,7 +8642,7 @@ mod tests {
         // underlying natural terrain (which varies with position).
         for (x, z) in [(350, 360), (400, 400), (449, 439), (370, 425)] {
             assert_eq!(
-                terrain_height_with_geometry_carved(20260829, x, z, water, &[carve]),
+                terrain_height_with_geometry_carved(20260829, x, z, water, std::slice::from_ref(&carve)),
                 12 * 4,
                 "pad at ({x},{z}) not flattened to target"
             );
@@ -6586,29 +8650,29 @@ mod tests {
         // Far outside the pad the natural terrain is untouched.
         let natural_at = terrain_height_with_geometry_carved(20260829, 700, 700, water, &[]);
         assert_eq!(
-            terrain_height_with_geometry_carved(20260829, 700, 700, water, &[carve]),
+            terrain_height_with_geometry_carved(20260829, 700, 700, water, std::slice::from_ref(&carve)),
             natural_at,
             "far field altered by carve"
         );
         // Inside the pad the terrain is flat (zero local slope).
-        let a = terrain_height_with_geometry_carved(20260829, 380, 400, water, &[carve]);
-        let b = terrain_height_with_geometry_carved(20260829, 420, 400, water, &[carve]);
-        let c = terrain_height_with_geometry_carved(20260829, 400, 380, water, &[carve]);
+        let a = terrain_height_with_geometry_carved(20260829, 380, 400, water, std::slice::from_ref(&carve));
+        let b = terrain_height_with_geometry_carved(20260829, 420, 400, water, std::slice::from_ref(&carve));
+        let c = terrain_height_with_geometry_carved(20260829, 400, 380, water, std::slice::from_ref(&carve));
         assert_eq!(a, b, "pad not flat along X");
         assert_eq!(a, c, "pad not flat along Z");
         // The blend ring is continuous (each step bounded) so no cliff appears.
         let mut max_step = 0_i16;
         for z in 430..450 {
             for x in 440..460 {
-                let here = terrain_height_with_geometry_carved(20260829, x, z, water, &[carve]);
+                let here = terrain_height_with_geometry_carved(20260829, x, z, water, std::slice::from_ref(&carve));
                 max_step = max_step.max(
                     (here
-                        - terrain_height_with_geometry_carved(20260829, x - 1, z, water, &[carve]))
+                        - terrain_height_with_geometry_carved(20260829, x - 1, z, water, std::slice::from_ref(&carve)))
                     .abs(),
                 );
                 max_step = max_step.max(
                     (here
-                        - terrain_height_with_geometry_carved(20260829, x, z - 1, water, &[carve]))
+                        - terrain_height_with_geometry_carved(20260829, x, z - 1, water, std::slice::from_ref(&carve)))
                     .abs(),
                 );
             }
@@ -6624,7 +8688,7 @@ mod tests {
     }
 
     #[test]
-    fn erosion_carves_valleys_but_keeps_city_flat() {
+    fn approximate_valley_carves_valleys_but_keeps_city_flat() {
         let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
         // City centre: high urbanisation => erosion must be zero so the built
         // area and its terrain stay flat (a city sits on a level pad).
@@ -6632,7 +8696,7 @@ mod tests {
         let mut carved_sum = 0.0;
         for z in (450..550).step_by(10) {
             for x in (450..550).step_by(10) {
-                let c = erosion_carve(20260829, x, z, water);
+                let c = approximate_valley_carve(20260829, x, z, water);
                 if c != 0.0 {
                     urban_cells += 1;
                     carved_sum += c;
@@ -6641,6 +8705,7 @@ mod tests {
         }
         // Some cells in the very heart may still be rural by noise, but the
         // majority of the central 100x100 must be untouched.
+        assert!(carved_sum <= 0.0, "erosion must not raise terrain");
         assert!(
             urban_cells <= 40,
             "erosion touched {urban_cells} central city cells (expected <= 40)"
@@ -6649,7 +8714,7 @@ mod tests {
         for z in (100..900).step_by(23) {
             for x in (100..900).step_by(23) {
                 assert!(
-                    erosion_carve(20260829, x, z, water) <= 0.0,
+                    approximate_valley_carve(20260829, x, z, water) <= 0.0,
                     "erosion raised terrain at ({x},{z})"
                 );
             }
@@ -6660,7 +8725,7 @@ mod tests {
             .flat_map(|z| {
                 (100..900)
                     .step_by(7)
-                    .map(move |x| erosion_carve(20260829, x, z, water))
+                    .map(move |x| approximate_valley_carve(20260829, x, z, water))
             })
             .filter(|c| *c < -2.0)
             .count();
@@ -6670,10 +8735,10 @@ mod tests {
         );
         // Erosion stays continuous across chunk boundaries (it is a pure
         // function of world coordinates).
-        let a = erosion_carve(20260829, 511, 200, water);
-        let b = erosion_carve(20260829, 512, 200, water);
-        let c = erosion_carve(20260829, 200, 511, water);
-        let d = erosion_carve(20260829, 200, 512, water);
+        let a = approximate_valley_carve(20260829, 511, 200, water);
+        let b = approximate_valley_carve(20260829, 512, 200, water);
+        let c = approximate_valley_carve(20260829, 200, 511, water);
+        let d = approximate_valley_carve(20260829, 200, 512, water);
         assert!((a - b).abs() < 4.0, "erosion jumps across X chunk seam");
         assert!((c - d).abs() < 4.0, "erosion jumps across Z chunk seam");
     }
@@ -6727,6 +8792,39 @@ mod tests {
     }
 
     #[test]
+    fn water_crossing_is_detected_between_legacy_samples() {
+        let water = WaterGeometry {
+            kind: WaterKind::River,
+            center_x: 100.0,
+            center_z: 100.0,
+            half_width: 8.0,
+            half_depth: 100.0,
+            scene_width_m: 200,
+            scene_depth_m: 200,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
+            smooth_rolling: false,
+        };
+        let entity = EntityInstance {
+            entity_id: "edge-crossing".into(),
+            asset_id: "test".into(),
+            kind: "building".into(),
+            world_x: 130,
+            world_z: 100,
+            world_y: 0,
+            scale: 1.0,
+            width_m: 100.0,
+            depth_m: 400.0,
+            height_m: 10.0,
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        assert!(footprint_intersects_water(&entity, water, 0.0));
+    }
+
+    #[test]
     fn river_landmark_keeps_entities_out_of_water() {
         let scene = SceneSpec {
             scene_id: "scene-0".to_owned(),
@@ -6777,6 +8875,90 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn authored_land_building_intersecting_river_fails_closed() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let river = LandmarkSpec {
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "landmark.river".into(),
+            asset_id: "water.river".into(),
+            entity_type: "river".into(),
+            scene_id: "scene-0".into(),
+            world_x: 500,
+            world_z: 500,
+            world_y: 0,
+            width_m: 300,
+            depth_m: 600,
+            height_m: 1,
+            name: "test river".into(),
+            purpose: "water".into(),
+            description: "finite test river".into(),
+        };
+        let building = LandmarkSpec {
+            entity_type: "shopping_mall".into(),
+            entity_id: "landmark.mall-on-water".into(),
+            asset_id: "building.mall".into(),
+            name: "bad mall".into(),
+            purpose: "negative test".into(),
+            description: "must be rejected".into(),
+            scene_id: "scene-0".into(),
+            world_x: 500,
+            world_z: 500,
+            world_y: 100,
+            width_m: 80,
+            depth_m: 60,
+            height_m: 20,
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        let water = water_geometry(WaterKind::River, &[river], &scene, &serde_json::Value::Null);
+        assert!(matches!(
+            validate_authored_landmarks_clear_water(&[building], &scene, water),
+            Err(WorldgenError::LandmarkIntersectsWater { .. })
+        ));
+    }
+
+    #[test]
+    fn river_membership_is_finite_in_world_z_for_placement() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let water = WaterGeometry {
+            kind: WaterKind::River,
+            center_x: 500.0,
+            center_z: 500.0,
+            half_width: 100.0,
+            half_depth: 200.0,
+            scene_width_m: 1_000,
+            scene_depth_m: 1_000,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
+            smooth_rolling: false,
+        };
+        with_rules_placement_context(42, &scene, water, |ctx| {
+            assert!(ctx.water(500, 500).is_some());
+            assert!(ctx.water(500, 100).is_none());
+            assert!(ctx.water(500, 900).is_none());
+        });
     }
 
     #[test]
@@ -7281,6 +9463,25 @@ mod tests {
                 &manifest.style,
             );
             SceneIndex {
+                land_use_budget: None,
+                land_use_zones: Vec::new(),
+                settlement_graph: None,
+                parcel_plan: None,
+                road_network_plan: None,
+                development_plan: None,
+                landcover_plan: None,
+                landcover_surfaces: None,
+                development_proposals: Vec::new(),
+                natural_terrain: NaturalTerrainSnapshot::authored_water(
+                    42,
+                    &scene.scene_id,
+                    scene.width_m,
+                    scene.depth_m,
+                    "none",
+                    0.0,
+                    0.0,
+                ),
+                engineered_terrain: EngineeredTerrainSnapshot::default(),
                 scene_id: scene.scene_id.clone(),
                 width_m: scene.width_m,
                 depth_m: scene.depth_m,
@@ -7291,6 +9492,8 @@ mod tests {
                 chunk_count_z: scene.depth_m.div_ceil(STREAM_CHUNK_METERS),
                 chunks: Vec::new(),
                 landmarks: Vec::new(),
+                access_graph: AccessGraph::default(),
+                access_surfaces: Vec::new(),
                 entities,
             }
         };
@@ -7330,6 +9533,7 @@ mod tests {
         let dense = profile_entities("dense-core", 7, 3_000, 3_000);
         let loose = profile_entities("low-density-suburban", 7, 3_000, 3_000);
         let dense_roads = dense.iter().filter(|e| e.kind == "road").count();
+
         let loose_roads = loose.iter().filter(|e| e.kind == "road").count();
         assert!(
             loose_roads < dense_roads,
@@ -7391,6 +9595,8 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 6_000,
             scene_depth_m: 10_000,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         };
         let mut max_step = 0_i16;
@@ -7420,6 +9626,8 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 6_000,
             scene_depth_m: 10_000,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         };
         let mut zones = BTreeSet::new();
@@ -7481,6 +9689,8 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: 3_000,
             scene_depth_m: 3_000,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         };
         let mut farmland_on_mountain = 0_usize;
@@ -7545,8 +9755,35 @@ mod tests {
             half_depth: 0.0,
             scene_width_m: width,
             scene_depth_m: depth,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
             smooth_rolling: false,
         }
+    }
+
+    #[test]
+    fn profile_aware_region_bands_do_not_collapse_large_city_to_rural_only() {
+        let water = legacy_water_geometry(WaterKind::None, 6_000, 10_000, 0.0);
+        let mut urbanish = 0usize;
+        let mut ruralish = 0usize;
+        for z in (0..10_000).step_by(120) {
+            for x in (0..6_000).step_by(120) {
+                match RegionType::classify(20260905, x, z, water, 0.264) {
+                    RegionType::UrbanCore | RegionType::Urban | RegionType::Suburban => {
+                        urbanish += 1
+                    }
+                    RegionType::Rural | RegionType::Forest | RegionType::Mountain => ruralish += 1,
+                }
+            }
+        }
+        assert!(
+            urbanish > 500,
+            "large city profile produced too few urban cells: {urbanish}"
+        );
+        assert!(
+            ruralish > 100,
+            "large scene lost rural transition: {ruralish}"
+        );
     }
 
     #[test]
@@ -7629,5 +9866,110 @@ mod tests {
             "chunk seam at (511/512, 5000) jumped {left:?} -> {right:?}"
         );
         let _ = seen;
+    }
+    #[test]
+    fn landuse_zones_follow_core_to_rim_spatial_prior() {
+        let scene = SceneSpec {
+            scene_id: "spatial".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let profile = LandUseProfile::default_demo();
+        let zones = plan_landuse_zones(&scene, &profile);
+        let center_x = scene.width_m as f64 * 0.5;
+        let center_z = scene.depth_m as f64 * 0.5;
+        let radius = |zone: &LandUseZone| {
+            let x = zone.world_x as f64 + zone.width_m as f64 * 0.5;
+            let z = zone.world_z as f64 + zone.depth_m as f64 * 0.5;
+            ((x - center_x).powi(2) + (z - center_z).powi(2)).sqrt()
+        };
+        let urban = zones
+            .iter()
+            .filter(|zone| zone.kind == "urban")
+            .map(radius)
+            .sum::<f64>()
+            / zones.iter().filter(|zone| zone.kind == "urban").count() as f64;
+        let nature = zones
+            .iter()
+            .filter(|zone| zone.kind == "nature")
+            .map(radius)
+            .sum::<f64>()
+            / zones.iter().filter(|zone| zone.kind == "nature").count() as f64;
+        assert!(urban < nature, "urban zones should be closer to the core");
+    }
+    #[test]
+    fn balanced_zone_areas_match_budget_without_edge_sliver_bias() {
+        let m = WorldManifest::default_demo();
+        let profile = LandUseProfile::default_demo();
+        for (w, d) in [(512, 512), (1000, 713), (6000, 10000)] {
+            let mut scene = m.scenes[0].clone();
+            scene.width_m = w;
+            scene.depth_m = d;
+            let zones = plan_landuse_zones(&scene, &profile);
+            let total = f64::from(w) * f64::from(d);
+            assert_eq!(
+                zones
+                    .iter()
+                    .map(|z| u64::from(z.width_m) * u64::from(z.depth_m))
+                    .sum::<u64>(),
+                u64::from(w) * u64::from(d)
+            );
+            let norm =
+                (profile.urban_target() + profile.rural_target() + profile.nature_target()).max(1.);
+            for (kind, target) in [
+                ("urban", profile.urban_target() / norm),
+                ("rural", profile.rural_target() / norm),
+                ("nature", profile.nature_target() / norm),
+            ] {
+                let area = zones
+                    .iter()
+                    .filter(|z| z.kind == kind)
+                    .map(|z| f64::from(z.width_m) * f64::from(z.depth_m))
+                    .sum::<f64>();
+                assert!(
+                    (area / total - target).abs() < 0.05,
+                    "{w}x{d} {kind}: {} vs {target}",
+                    area / total
+                );
+            }
+        }
+        let mut scene = m.scenes[0].clone();
+        scene.width_m = 512;
+        scene.depth_m = 512;
+        let profile = LandUseProfile {
+            urban_core_ratio: 0.,
+            suburban_ratio: 0.,
+            farm_ratio: 0.,
+            pasture_ratio: 0.,
+            green_ratio: 0.,
+            forest_ratio: 0.,
+            reserve_ratio: 0.,
+            ..profile
+        };
+        let zones = plan_landuse_zones(&scene, &profile);
+        assert!(zones.iter().all(|z| z.kind == "unassigned"));
+        let plan = plan_parcels(&zones);
+        assert!(plan.parcels.is_empty());
+        validate_parcel_plan(&plan).unwrap();
+    }
+    #[test]
+    fn ordinary_green_space_does_not_raise_neighboring_terrain() {
+        let green = generated_intent_entity(
+            "generated.green".into(),
+            "green_space",
+            406,
+            406,
+            56,
+            30.,
+            30.,
+            0.2,
+        );
+        assert!(
+            plan_terrain_carves(&[green]).is_empty(),
+            "landcover is not a building support pad"
+        );
     }
 }

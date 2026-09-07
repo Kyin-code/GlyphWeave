@@ -84,6 +84,7 @@ fn footprint_for(
     let rotation_y_deg = source_rotation + if rotated { 90.0 } else { 0.0 };
     let (half_w, half_d) = spatial_half_extents(width, depth, rotation_y_deg);
     Footprint {
+            rotation_y_deg,
         cx,
         cz,
         half_w: half_w as f32 + desc.geometry.clearance,
@@ -97,6 +98,7 @@ fn build_entity(
     cand: Candidate,
     rotated: bool,
     world_y: i32,
+    origin: Candidate,
 ) -> EntityInstance {
     let (entity_id, asset_id, kind, scale, width, depth, height) = source
         .map(|source| {
@@ -125,7 +127,7 @@ fn build_entity(
                 desc.geometry.height,
             )
         });
-    EntityInstance {
+    let mut entity = EntityInstance {
         entity_id,
         asset_id,
         kind,
@@ -146,8 +148,31 @@ fn build_entity(
         anchors: source
             .map(|source| source.anchors.clone())
             .unwrap_or_default(),
-        bounds: source.and_then(|source| source.bounds),
+        bounds: None,
+    };
+    // Anchors are world-space facts. A fallback move or quarter-turn must
+    // transform them with the owner, not copy coordinates from the old site.
+    for anchor in &mut entity.anchors {
+        let dx = i64::from(anchor.world_x) - i64::from(origin.x);
+        let dz = i64::from(anchor.world_z) - i64::from(origin.z);
+        let (dx, dz) = if rotated { (dz, -dx) } else { (dx, dz) };
+        anchor.world_x =
+            (i64::from(cand.x) + dx).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        anchor.world_z =
+            (i64::from(cand.z) + dz).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        if rotated {
+            anchor.direction = match anchor.direction.as_str() {
+                "north" => "west",
+                "west" => "south",
+                "south" => "east",
+                "east" => "north",
+                other => other,
+            }
+            .to_owned();
+        }
     }
+    entity.bounds = Some(entity.computed_bounds());
+    entity
 }
 
 /// Shared committed occupancy index for the rule placement pipeline.
@@ -299,10 +324,12 @@ fn place_one_with_source(
             cand,
             rot,
             ctx.height(cand.x, cand.z).round() as i32,
+            centre,
         );
         let placed_id = entity.entity_id.clone();
         outcome.placed.push(entity);
         placed.push(PlacedKind {
+            clearance: desc.geometry.clearance,
             id: Some(placed_id),
             // Relations/collision are based on the runtime entity kind, not
             // the descriptor's category. This matters for specialised
@@ -342,6 +369,19 @@ pub fn kind_to_str(kind: super::schema::ItemKind) -> String {
         super::schema::ItemKind::Bench => "bench".into(),
         super::schema::ItemKind::BusStop => "bus_stop".into(),
         super::schema::ItemKind::FoodStall => "food_stall".into(),
+        super::schema::ItemKind::Mountain => "mountain".into(),
+        super::schema::ItemKind::Hill => "hill".into(),
+        super::schema::ItemKind::ShoppingMall => "shopping_mall".into(),
+        super::schema::ItemKind::OfficeTower => "office_tower".into(),
+        super::schema::ItemKind::ConvenienceStore => "convenience_store".into(),
+        super::schema::ItemKind::Fence => "fence".into(),
+        super::schema::ItemKind::Guardrail => "guardrail".into(),
+        super::schema::ItemKind::Boardwalk => "boardwalk".into(),
+        super::schema::ItemKind::ScenicBelt => "scenic_belt".into(),
+        super::schema::ItemKind::Mudflat => "mudflat".into(),
+        super::schema::ItemKind::NightMarket => "night_market".into(),
+        super::schema::ItemKind::CommunityPlaza => "community_plaza".into(),
+        super::schema::ItemKind::Mangrove => "mangrove".into(),
         super::schema::ItemKind::Other => "other".into(),
     }
 }
@@ -474,9 +514,55 @@ phase = "building"
     }
 
     #[test]
+    fn relocated_and_rotated_anchor_keeps_local_door_offset() {
+        let desc: ObjectDescriptor = toml::from_str(
+            r#"
+            id="test_house"
+            kind="building"
+            [placement]
+            phase="building"
+        "#,
+        )
+        .unwrap();
+        let source = PlacementSource {
+            entity_id: "house".into(),
+            asset_id: "house".into(),
+            kind: "building".into(),
+            width_m: 12.,
+            depth_m: 8.,
+            height_m: 6.,
+            scale: 1.,
+            rotation_y_deg: 0.,
+            grounding: Default::default(),
+            bounds: None,
+            anchors: vec![crate::worldgen::SpatialAnchor {
+                id: "door".into(),
+                world_x: 100,
+                world_z: 195,
+                direction: "north".into(),
+                target: Some("road".into()),
+            }],
+        };
+        let origin = Candidate { x: 100, z: 200 };
+        let target = Candidate { x: 120, z: 240 };
+        let entity = build_entity(&desc, Some(&source), target, true, 0, origin);
+        assert_eq!(
+            (entity.anchors[0].world_x, entity.anchors[0].world_z),
+            (115, 240)
+        );
+        assert_eq!(entity.anchors[0].direction, "west");
+        assert_eq!(entity.bounds.unwrap().min_x, entity.computed_bounds().min_x);
+        assert_eq!(
+            (source.anchors[0].world_x, source.anchors[0].world_z),
+            (100, 195)
+        );
+    }
+
+    #[test]
     fn placement_index_checkpoint_rolls_back_speculative_entries() {
         let mut index = PlacementIndex::new();
         index.push(PlacedKind {
+            clearance: 0.,
             id: Some("committed".into()),
             kind: super::super::schema::ItemKind::Building,
             cx: 10.0,
@@ -487,6 +573,7 @@ phase = "building"
         });
         let checkpoint = index.checkpoint();
         index.push(PlacedKind {
+            clearance: 0.,
             id: Some("speculative".into()),
             kind: super::super::schema::ItemKind::Tree,
             cx: 10.0,
@@ -517,6 +604,7 @@ phase = "building"
             slope_at: &|_, _| 2.0,
             slope_at_footprint: None,
             bounds: (0, 0, 200, 200),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -539,6 +627,7 @@ phase = "building"
             slope_at: &|_, _| 0.0,
             slope_at_footprint: None,
             bounds: (0, 0, 500, 500),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -583,6 +672,7 @@ phase = "building"
             slope_at: &|_, _| 0.0,
             slope_at_footprint: None,
             bounds: (0, 0, 500, 500),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,
@@ -627,6 +717,7 @@ phase = "building"
             slope_at: &|_, _| 2.0,
             slope_at_footprint: None,
             bounds: (0, 0, 200, 200),
+            water_intersects: None,
             grounding_tolerance: 0.5,
             biome_at: None,
             hazard_at: None,

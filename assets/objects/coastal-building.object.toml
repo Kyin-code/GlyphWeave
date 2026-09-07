@@ -1,0 +1,24 @@
+id = "coastal_building"
+kind = "building"
+applies_to = ["shopping_mall", "office_tower", "convenience_store", "community_plaza", "night_market"]
+tags = ["building", "coastal", "has_entrance"]
+[geometry]
+footprint = [20.0, 16.0]
+height = 8.0
+clearance = 2.0
+[environment]
+on_ground = true
+not_in_water = true
+max_slope = 15
+[[relations.avoid]]
+kind = "road"
+distance = 2.0
+[[relations.avoid]]
+kind = "water"
+distance = 5.0
+[placement]
+phase = "building"
+priority = 26
+attempts = 16
+allow_rotate = true
+fallback = "move"
