@@ -167,3 +167,9 @@ A 修订队列关闭。没有授权自动推进 B/C、Git 提交或证据清理�
 主 Agent 已按用户授权提交并推送A：42cb4973fe6fdf985d21ee2a1f4be3c0ce10382b，origin/refactor/authoritative-baked-audit，注释标签milestone-a-accepted；远端main未动。新增精简证据归档，不再只有ignored work中的本地签收文件；大型产物仍仅本地保留，归档不是完整复验包。详情见milestone-a-publication.zh-CN.md。
 
 后续仍采用外部DS v4.1f实现、主 Agent检查/管理。里程碑B计划与合同见milestone-b-plan.zh-CN.md和milestone-b-acceptance.zh-CN.md。当前仅派B-01：独立临路地块与真实庭院，消除development固定楼框+2m假设；任务见ds-v41f-b01-task.zh-CN.md。B-02至B-05只是队列，不授权执行。禁止worker提交/推送和自动扩展到C；本轮主 Agent没有实现B业务代码或启动agent。
+
+## B-01～B-05完整任务授权（最新）
+
+用户要求一次性提供并执行B-01～B-05，不再逐阶段等待派发。任务入口：G:/difyllmwiki/GlyphWeave/docs/collaboration/ds-v41f-b01-b05-runbook.zh-CN.md；B-02～B-05详细任务已补齐，B-01及共同计划/合同已同步。
+
+按顺序实现与自测，接口/工程正确后继续下一阶段；主Agent最终集中检查。任务仅包含功能、写入范围、验收和交付要求。保留生成/内存/巡检预算与A安全合同，worker仍不得提交Git、修改A冻结证据或自行签收B/C。没有启动agent或执行B业务代码。

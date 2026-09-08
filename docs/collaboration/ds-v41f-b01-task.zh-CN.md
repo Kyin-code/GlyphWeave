@@ -1,6 +1,6 @@
 # 可直接转交 DS v4.1f：B-01 独立临路地块与真实庭院
 
-状态：首批可执行任务。只执行 B-01，不执行整个B；完成后停，交主 Agent 验收。
+状态：B完整开发任务的第一阶段。按 ds-v41f-b01-b05-runbook.zh-CN.md 连续执行；本阶段实现及自测通过后进入B-02。
 
 ## 0. 目标（一句话）
 
@@ -139,4 +139,4 @@ Node源码没改无需全套重跑；tree/diff检查必做：corepack pnpm doc-t
 - 自然源/保护/已存在实体的保持证据；
 - 全场仍有何质量失败及本次局部scope；预算、失败尝试、未验证项、后台句柄。
 
-状态只写 ready_for_review，不写B完成，不重新改写A结论。未做项标not_run/unknown，不造hash或费用。无需复制A全证据链。完成后停止，等主 Agent复验后再派B-02；**不得 git add/commit/push/reset/clean/checkout/switch/stash/merge/rebase，不得启动其他agent。**
+阶段状态只写 ready_for_review，不写B完成，不重新改写A结论。未做项标not_run/unknown，不造hash或费用。无需复制A全证据链。完成本阶段自测后按总任务书进入B-02；**不得 git add/commit/push/reset/clean/checkout/switch/stash/merge/rebase，不得启动其他agent。**
