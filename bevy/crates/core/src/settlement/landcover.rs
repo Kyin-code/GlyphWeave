@@ -13,6 +13,12 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+// Test-only accounting of real narrow-phase calls, not elapsed-time estimates.
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static FOOTPRINT_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 const EPS: f64 = 1e-9;
 const MAX_YARD_GRADE: f64 = 0.25;
 type Point = [f64; 2];
@@ -316,6 +322,8 @@ pub(super) fn footprint_intersects_entity(
     rx: f64,
     rz: f64,
 ) -> bool {
+    #[cfg(test)]
+    FOOTPRINT_CHECKS.with(|count| count.set(count.get() + 1));
     let (sin, cos) = f64::from(e.rotation_y_deg).to_radians().sin_cos();
     let hw = f64::from(e.width_m) * f64::from(e.scale) * 0.5;
     let hd = f64::from(e.depth_m) * f64::from(e.scale) * 0.5;

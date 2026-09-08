@@ -1,10 +1,60 @@
 # GlyphWeave third-party notices
 
-本文件记录当前仓库中已确认的第三方代码和资源状态。GlyphWeave 自有代码继续使用 MIT 许可证；本文件不把第三方资产、算法参考或未来候选依赖重新许可为 MIT。
+本文件记录当前仓库中已确认的第三方代码和资源状态。GlyphWeave 自有代码继续使用 MIT 许可证；本文件不把第三方资产、算法参考或未来候选依赖重新许可为 MIT。本文件是发布工程盘点，不是法律意见，也不代表已完成法律合规认证。
+
+## 2026-09-08 锁文件库存
+
+机器可读证据：
+
+- `bevy/work/collaboration/review/release-license-inventory.json`
+- 生成命令：`node scripts/collaboration/license-inventory.mjs --out bevy/work/collaboration/review/release-license-inventory.json`
+- `bevy/Cargo.lock` SHA256：`D6A21933A42ABD3E99842FACC7AAF4120FA386E5657C340C63227C5ABFF9C804`
+- `pnpm-lock.yaml` SHA256：`A3AE8F0235DA396A09DEEC199308965EA22BB3FE3F106697797C3EFBB51388F6`
+
+### Rust
+
+- `bevy/Cargo.lock` 共 518 个包；`cargo metadata --locked` 解析到 518 个包，缺失 0。
+- 主要许可证表达式：`MIT OR Apache-2.0` 287、`MIT` 97、`Apache-2.0 OR MIT` 34、`MIT/Apache-2.0` 20、`Apache-2.0` 13，其余为 Zlib/BSD/Unlicense/MIT-0/CC0/ISC/OFL/LLVM-exception 等。
+- 含 GPL/LGPL 选项的 3 个包均为双/多许可，可使用非 copyleft 选项：`r-efi@5.3.0`、`r-efi@6.0.0`（`MIT OR Apache-2.0 OR LGPL-2.1-or-later`）、`self_cell@1.2.2`（`Apache-2.0 OR GPL-2.0-only`）。
+- 未发现只有强制 copyleft 单一许可的 Rust 锁定依赖。
+
+### npm / pnpm
+
+- `pnpm-lock.yaml` 的 `packages:` 段共 347 个锁定包。
+- 当前平台已安装并可解析许可证元数据的包为 224 个；`pnpm licenses list --prod --json` 与 `pnpm licenses list --dev --json` 分两次执行，避免整表因缺少可选包索引而失败。
+- 122 个锁定包是当前平台未安装的可选原生包（esbuild/sharp/lightningcss/oxlint/rolldown/tailwindcss 等非 Windows x64 变体或 fsevents）。
+- 1 个锁定包仍无许可证元数据：`@cloudflare/workerd-windows-64@1.20260701.1`。`pnpm licenses list --json` 因 `ERR_PNPM_MISSING_PACKAGE_INDEX_FILE` 失败；本仓库不自动执行 `pnpm install` 改动依赖。该项明确标为未解析，不能当作许可清单通过。
+- 含 copyleft 表达式的已解析包：`lightningcss@1.32.0` 与 `lightningcss-win32-x64-msvc@1.32.0` 为 `MPL-2.0`（构建工具链）；`@img/sharp-win32-x64@0.34.5` 为 `Apache-2.0 AND LGPL-3.0-or-later`（可选原生图像处理包）。是否随最终分发取决于发布包实际包含的内容，不能仅凭字符串删除依赖或宣称全 MIT。
+
+## Vendored 代码与资产
+
+| 项目 | 仓库路径 | 许可证 / 状态 | 证据 |
+|---|---|---|---|
+| Three.js r178 | `adapters/html/vendor/three/**` | MIT，完整文本已随源码和导出的 preview 分发 | `adapters/html/vendor/three/LICENSE`，SHA256 `bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601`；上游 `https://raw.githubusercontent.com/mrdoob/three.js/r178/LICENSE` |
+| Quaternius Stylized Nature | `assets/third_party/quaternius/stylized-nature/**` | CC0-1.0 | `stylized-nature/License_Standard.txt`，SHA256 `120710e542c3ebaf83856c4eb55b4a1e680593b39302eba7fdc5d942dfe78c58`；上游 `https://quaternius.com/packs/stylizednaturemegakit.html` |
+| Quaternius building OBJ/MTL | `assets/third_party/quaternius/buildings/**` | 来源未证实；候选 pack 页面声明 CC0 | `buildings/NOTICE.txt`，SHA256 `d7870936fd9caf1fbf90606ea97a92c890b8801ccdbcec2b7dfd15d644f9aa2e`；必须解决精确来源后再声明发布级许可完成 |
+
+导出 preview 现在包含：
+
+- `preview/vendor/three/LICENSE`
+- `assets/THIRD_PARTY_NOTICES.md`
+- `assets/licenses/quaternius-stylized-nature-CC0.txt`
+- `assets/licenses/quaternius-buildings-NOTICE.txt`
+
+## 复现
+
+```powershell
+cargo metadata --manifest-path bevy/Cargo.toml --locked --format-version 1
+pnpm licenses list --prod --json
+pnpm licenses list --dev --json
+node scripts/collaboration/license-inventory.mjs --out bevy/work/collaboration/review/release-license-inventory.json
+```
+
+发布前必须重新执行上述命令，并把 runtime、manifest、world 与导出 preview 的 hash 写入发布记录。锁文件变化后不得复用本文件的旧计数。
 
 ## 当前状态
 
-截至 2026-09-06：
+截至 2026-09-08：
 
 - `Mapgen4`、`symbios-ground`、`WorldEngine` 和 `FastNoiseLite` **没有作为 Cargo 依赖集成**。
 - 当前 Rust 自然地形代码是 GlyphWeave 自己的实现，其中部分设计受到这些项目启发。

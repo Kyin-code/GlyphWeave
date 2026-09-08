@@ -1,0 +1,4 @@
+# Preserve intentional formatting in historical, hash-referenced reports.
+# Markdown hard line breaks use two trailing spaces; other paths stay strict.
+docs/collaboration/a-t1-result.zh-CN.md whitespace=-blank-at-eol
+docs/collaboration/a-d1-r2-luna-result.zh-CN.md whitespace=-blank-at-eof

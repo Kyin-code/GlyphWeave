@@ -133,7 +133,7 @@ pub(super) fn reconcile(
                     candidate.rotation_y_deg,
                 );
                 let fp = Footprint {
-            rotation_y_deg: candidate.rotation_y_deg,
+                    rotation_y_deg: candidate.rotation_y_deg,
                     cx: candidate.world_x as f32,
                     cz: candidate.world_z as f32,
                     half_w: hw as f32 + desc.geometry.clearance,

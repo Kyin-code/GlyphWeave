@@ -851,18 +851,57 @@ mod tests {
     #[test]
     fn negative_millimetre_frontage_is_not_raised_by_legacy_quarter_metre_rebasing() {
         // Actual first failed r48 maximum-world site; no full work/ fixture dependency.
-        let m:WorldManifest=serde_json::from_str(include_str!("../../../../../examples/maximum-local-height-frontage.manifest.json")).unwrap();
-        let scene=&m.scenes[0];let water=super::super::water_geometry(super::super::water_kind(&m.style),&m.landmarks,scene,&m.style);
+        let m: WorldManifest = serde_json::from_str(include_str!(
+            "../../../../../examples/maximum-local-height-frontage.manifest.json"
+        ))
+        .unwrap();
+        let scene = &m.scenes[0];
+        let water = super::super::water_geometry(
+            super::super::water_kind(&m.style),
+            &m.landmarks,
+            scene,
+            &m.style,
+        );
         let site:RoadsideSite=serde_json::from_value(serde_json::json!({"program":{"requestId":"urban-homes","kind":"residential_home","heightM":8},"id":"generated.frontage.regression","roadId":"road","worldX":3788,"worldZ":4920,"widthM":24,"depthM":24,"supportLevelM":-2,"supportLevelMm":-1354,"frontageRoadPoint":[3788,4896],"rotationYDeg":0,"naturalMinM":-6.666,"naturalMaxM":-3.232})).unwrap();
-        let e=site.entity();let expected=serde_json::to_value(&e).unwrap();let mut entities=vec![e];
-        let carves=super::super::plan_terrain_carves(&entities);
-        super::super::rebase_grounded_entities_to_carved_surface(m.world.seed,water,&mut entities,&carves);
-        assert_eq!(serde_json::to_value(&entities[0]).unwrap(),expected,"a precise planned platform must not pass through quarter-metre rounding/ceil");
-        let local=SceneSpec{scene_id:"regression".into(),width_m:32,depth_m:32,origin_x:3772,origin_z:4904,seed_offset:0};
-        for mm in [-1354,-1353] {let mut t=BakedTerrain::new(&local).unwrap();t.insert_chunk(local.origin_x,local.origin_z,32,32,&encode_millimetres(32,32,vec![f64::from(mm)/1000.;32*32]).unwrap()).unwrap();
-            super::super::rebase_entities_to_baked_surface(&mut entities,&t);
-            assert_eq!(serde_json::to_value(&entities[0]).unwrap(),expected,"even wrong terrain must be audited, not silently heal the planned entity");
+        let e = site.entity();
+        let expected = serde_json::to_value(&e).unwrap();
+        let mut entities = vec![e];
+        let carves = super::super::plan_terrain_carves(&entities);
+        super::super::rebase_grounded_entities_to_carved_surface(
+            m.world.seed,
+            water,
+            &mut entities,
+            &carves,
+        );
+        assert_eq!(
+            serde_json::to_value(&entities[0]).unwrap(),
+            expected,
+            "a precise planned platform must not pass through quarter-metre rounding/ceil"
+        );
+        let local = SceneSpec {
+            scene_id: "regression".into(),
+            width_m: 32,
+            depth_m: 32,
+            origin_x: 3772,
+            origin_z: 4904,
+            seed_offset: 0,
+        };
+        for mm in [-1354, -1353] {
+            let mut t = BakedTerrain::new(&local).unwrap();
+            t.insert_chunk(
+                local.origin_x,
+                local.origin_z,
+                32,
+                32,
+                &encode_millimetres(32, 32, vec![f64::from(mm) / 1000.; 32 * 32]).unwrap(),
+            )
+            .unwrap();
+            super::super::rebase_entities_to_baked_surface(&mut entities, &t);
+            assert_eq!(
+                serde_json::to_value(&entities[0]).unwrap(),
+                expected,
+                "even wrong terrain must be audited, not silently heal the planned entity"
+            );
         }
     }
-
 }

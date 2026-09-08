@@ -1,0 +1,10 @@
+   Compiling glyphweave-core v0.2.0 (G:\difyllmwiki\GlyphWeave\bevy\crates\core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.30s
+     Running unittests src\lib.rs (bevy\target\debug\deps\glyphweave_core-8de7fde86f45ba1c.exe)
+
+running 1 test
+{"entities":786,"format":"glyphweave.real-ecology-equivalence","indexedChecks":48484,"indexedUs":1815233,"linearChecks":4583094907,"linearUs":361172384,"outputBlake3":"fd941ff18394a926a7d32280fdc518d06dad3671ab1c13f2851badc6bd38a7e2","patches":38825,"plants":342379,"rejections":1,"sceneId":"scene-0","verifyIndexedChecks":874,"verifyIndexedUs":2456797,"verifyLinearChecks":241034816,"verifyLinearUs":20361751,"world":"\\\\?\\G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\milestone-a-final-r51-20260908-v2","worldRevision":"bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0"}
+test settlement::ecology::tests::real_world_dir_linear_indexed_ecology_equivalence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 392 filtered out; finished in 426.84s
+

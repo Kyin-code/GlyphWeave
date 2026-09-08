@@ -1,0 +1,142 @@
+{
+  "format": "glyphweave.milestone-a-compact-archive",
+  "version": 1,
+  "status": "milestone-A-accepted",
+  "worldQualityStatus": "fail",
+  "scope": "compact preserved-byte evidence, not full runtime/world/browser archive",
+  "files": [
+    {
+      "archiveFile": "main-acceptance.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-u1-20260909\\milestone-a-main-acceptance.json",
+      "bytes": 20840,
+      "sha256": "050519495578d0317c8c3e06bf056832abd7fb1a1f89d73b6bf8da471c2ee2af"
+    },
+    {
+      "archiveFile": "candidate-r3-u1.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\final-acceptance-r3-u1-rebound.json",
+      "bytes": 21382,
+      "sha256": "d7689f9c9ebd6b6a34c9952cc741a165f26946f4016e59202bdb965d2dd907c9"
+    },
+    {
+      "archiveFile": "worker-receipt-r3-u1.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\receipt-r3-u1.json",
+      "bytes": 7328,
+      "sha256": "2947434ba3facce6f03a3c3d36533a3984555e20b04706734565a779cdbc552f"
+    },
+    {
+      "archiveFile": "inspector-identity-u1.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-u1-20260909\\identity-review.json",
+      "bytes": 6900,
+      "sha256": "57efc464145747356bdf43bbce24097600bd038bd8cf91af9ef88ed1d5019994"
+    },
+    {
+      "archiveFile": "inspector-utc-tests.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-u1-20260909\\independent-utc-retest.json",
+      "bytes": 5161,
+      "sha256": "7c5fb9366ea8f913ee32afc74b1c4b80875db3efda88035aee1baaf3341aabb8"
+    },
+    {
+      "archiveFile": "inspector-closure.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-u1-20260909\\control-check.json",
+      "bytes": 1299,
+      "sha256": "3bee780bebeb044ea232a6d5f3fdbc57c8305692af1e5aead19e5a0a1e4827cf"
+    },
+    {
+      "archiveFile": "inspector-node-tests.txt",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-u1-20260909\\node-tests.log",
+      "bytes": 17398,
+      "sha256": "55d4185cfd4a47ffccefa45a274f0755ed83cb6a7381916323eaea1943fcd875"
+    },
+    {
+      "archiveFile": "generation-process.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\process.json",
+      "bytes": 1669,
+      "sha256": "eddcb735ec14b99817cf4b61246afc6b9d4e5c545b20a53097f184521718153b"
+    },
+    {
+      "archiveFile": "generation-samples.jsonl",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\samples.jsonl",
+      "bytes": 80465,
+      "sha256": "17e15aa9b4fd4df79f5ab14062ef7b5673b742fc01052bb9de824b8e469d1f63"
+    },
+    {
+      "archiveFile": "gate-process.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\process.json",
+      "bytes": 1661,
+      "sha256": "b4d9319caa828dbbc2b781ee512d2bf216371e64fc3d8e689f1e7ca681b2607c"
+    },
+    {
+      "archiveFile": "gate-samples.jsonl",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\samples.jsonl",
+      "bytes": 11511,
+      "sha256": "1cef4c7e4109e30a6b77bb030bdf448d2eca54a40733c0acd2c6400439f97acd"
+    },
+    {
+      "archiveFile": "world-quality-gate.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world-quality-gate.json",
+      "bytes": 2403,
+      "sha256": "cedc4ec0f536c070e485c823aad39dfcae44245c1ac6bd2acf53a9202ed4f84c"
+    },
+    {
+      "archiveFile": "quality-report.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\quality-report.json",
+      "bytes": 609967,
+      "sha256": "2881ad5581c43215a2bf4f7f7917f1b5f39b06264501644b7c6541e6e8f6c05d"
+    },
+    {
+      "archiveFile": "world.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world.json",
+      "bytes": 998,
+      "sha256": "833453465ca289d7263acd2e6a4dcc9a2f928660560cb1b5579a4156d020249b"
+    },
+    {
+      "archiveFile": "world-tree-comparison.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r2-20260909\\independent-world-tree-comparison.json",
+      "bytes": 536,
+      "sha256": "dd9bfce77d69ea0a7789918b60d8d0185b1fd53ff735f02ff297ba53d7abd20d"
+    },
+    {
+      "archiveFile": "browser-independent-replay.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r2-20260909\\independent-browser-replay.json",
+      "bytes": 5354,
+      "sha256": "70661365cbe8e744bab417883c40eb2a3c045b4eb8796aa7d1bd05f5ef93a737"
+    },
+    {
+      "archiveFile": "source-manifest-r3.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\source-manifest-r3.json",
+      "bytes": 116812,
+      "sha256": "7d1c8b21584b782e9f1744ce18a2928ae605670ecaebda2929be4cc099f15a7b"
+    },
+    {
+      "archiveFile": "runtime-r3.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\runtime-r3.json",
+      "bytes": 966,
+      "sha256": "8308861274f44f8a3136fdb7356513df0715d34a1bb9da97350bef7d22c9758b"
+    },
+    {
+      "archiveFile": "license-inventory.json",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\review\\release-license-inventory.json",
+      "bytes": 452995,
+      "sha256": "2b974a13c788543eff524ebc56400bee9e2af53990eccb34e53da696e8ad9e6a"
+    },
+    {
+      "archiveFile": "workspace-tests.txt",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\sika-a10-workspace-test-final-v2.log",
+      "bytes": 42114,
+      "sha256": "95dd5495be79fa4260cd199ab4e7b51bd28ea5eff9d0d3af6a8ae13addbe87f8"
+    },
+    {
+      "archiveFile": "ecology-equivalence.txt",
+      "originalPath": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\sika-a05-final-v2.log",
+      "bytes": 1052,
+      "sha256": "fa933c7aa03a8f9cb0425eda294cc08af7350cd7fb36e5c056a2cadab0f82cf6"
+    }
+  ],
+  "excluded": [
+    "Generated runtime executables and Cargo build caches",
+    "Full scene/height/surface payloads and generated preview",
+    "Full 240-chunk raw browser observation (about 32 MB)",
+    "Other historical work directories"
+  ],
+  "pathPolicy": "Original absolute paths preserved for traceability. Archive filenames are the portable lookup. Old source manifests describe historical snapshots, not a fresh checkout with arbitrary line endings."
+}

@@ -1,5 +1,5 @@
 import { makeGradedRoad } from './render/road-profile.js'
-import { verticesOverlapChunks } from './core/render-stream.js'
+import { verticesOverlapChunks, createPreviewResourceTracker } from './core/render-stream.js'
 import { loadPreviewScene, createRenderStream } from './core/render-stream.js'
 import { createEcologyRenderer } from './render/ecology.js'
 import { loadLandUseLedger } from './core/world.js'
@@ -44,6 +44,115 @@ let ecologyRenderer = null
 let activeChunkKeys = new Set()
 let nearBuildToken = 0
 let renderNearFrame = null
+const previewResources = createPreviewResourceTracker()
+let frameAssets = [], nearDrawing = false
+let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
+const previewPageId = crypto.randomUUID()
+function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
+function releasePreviewFrame() {
+  renderNearFrame = null
+  ecologyRenderer?.dispose()
+  previewResources.release(frameRoots())
+  nearGroupRoot?.clear()
+  entityMeshCache.clear(); entityGroupCache.clear(); chunkDataCache.clear(); frameAssets = []
+  const fx = window.__nearFx
+  if (fx) { for (const pass of fx.composer?.passes ?? []) pass.dispose?.(); fx.composer?.dispose(); window.__nearFx = null }
+  window.__steppeGrassLayers = []
+}
+// Detached observation: callers can mutate their copy, never renderer state.
+Object.defineProperty(window, '__previewStats', {value: () => {
+  const plantIds = [], renderedPatchIds = [], accessSurfaceIds = [], renderedEntityInstanceIds = [], renderedEntityInstanceSources = []
+  const drawableGeometry = object => {
+    let meshCount = 0, geometryCount = 0, instanceCount = 0
+    object.traverse(child => {
+      if (!(child.isMesh || child.isInstancedMesh) || !child.geometry) return
+      const count = child.isInstancedMesh ? Number(child.count) : 1
+      if (!Number.isFinite(count) || count <= 0) return
+      meshCount += 1; geometryCount += 1
+      if (child.isInstancedMesh) instanceCount += count
+    })
+    return {meshCount, geometryCount, instanceCount}
+  }
+  nearScene?.traverse(object => {
+    if (object.name?.startsWith('ecology-batch:')) plantIds.push(...object.userData.ecologyInstances.map(p => p.id))
+    if (object.isMesh && object.name?.startsWith('access:')) accessSurfaceIds.push(object.name)
+    if (object.isMesh && object.name?.startsWith('landcover:')) renderedPatchIds.push(object.name.slice('landcover:'.length))
+    if (object.userData?.sourceEntityId) {
+      const geometry = drawableGeometry(object)
+      const valid = geometry.meshCount > 0 && geometry.geometryCount > 0
+      renderedEntityInstanceIds.push(object.userData.sourceEntityId)
+      renderedEntityInstanceSources.push({id: object.userData.sourceEntityId, source: 'object',
+        objectUuid: object.uuid, type: object.type, name: object.name || '', ...geometry,
+        valid, reason: valid ? null : 'no-drawable-geometry'})
+    }
+    if (Array.isArray(object.userData?.entityInstanceBindings)) {
+      const meshes = []
+      object.traverse(child => { if (child.isInstancedMesh && child.geometry) meshes.push(child) })
+      const meshByUuid = new Map(meshes.map(mesh => [mesh.uuid, mesh]))
+      for (const binding of object.userData.entityInstanceBindings) {
+        const parts = Array.isArray(binding.parts) ? binding.parts : []
+        let valid = Number.isSafeInteger(binding.instanceIndex) && binding.instanceIndex >= 0
+          && Number.isSafeInteger(binding.count) && binding.instanceIndex < binding.count
+          && parts.length > 0
+        const checkedParts = parts.map(part => {
+          const mesh = meshByUuid.get(part.batchUuid)
+          const partValid = Boolean(mesh) && Number.isSafeInteger(part.instanceIndex) && part.instanceIndex >= 0
+            && part.instanceIndex < mesh.count && part.geometryUuid === mesh.geometry?.uuid
+            && Number.isSafeInteger(part.instanceCount) && part.instanceCount === mesh.count
+          if (!partValid) valid = false
+          return {...part, instanceCount: mesh?.count ?? part.instanceCount, partValid}
+        })
+        renderedEntityInstanceIds.push(binding.id)
+        renderedEntityInstanceSources.push({id: binding.id, source: 'instances',
+          instanceIndex: binding.instanceIndex, count: binding.count, parts: checkedParts,
+          valid, reason: valid ? null : 'invalid-instance-binding'})
+      }
+    }
+  })
+  previewResources.observe(frameRoots())
+  const streamPayload = window.glyphweaveFeedback?.visualChecks?.renderStream
+  const patchIds = Array.isArray(streamPayload?.patchIds) ? streamPayload.patchIds : []
+  const nonMeshPatchIds = Array.isArray(streamPayload?.nonMeshPatchIds) ? streamPayload.nonMeshPatchIds : []
+  return structuredClone({format: 'glyphweave.preview-observation', version: 1, pageId: previewPageId,
+    worldRevision: world?.revision, sceneId: scene?.sceneId, ...previewState,
+    highDetailChunk: window.glyphweaveFeedback?.visualChecks?.highDetailChunk,
+    loadedChunks: window.glyphweaveFeedback?.visualChecks?.loadedChunks ?? [],
+    stream: renderStream?.stats() ?? null, payload: streamPayload,
+    plantIds, accessSurfaceIds, patchIds, renderedPatchIds, nonMeshPatchIds,
+    renderedEntityInstanceIds,
+    renderedEntityInstanceSources,
+    renderedEntityIds: [...new Set(renderedEntityInstanceIds)].sort(),
+    caches: {terrain: chunkDataCache.size, entityMeshes: entityMeshCache.size, entityGroups: entityGroupCache.size},
+    resources: previewResources.stats(), ecology: ecologyRenderer?.stats() ?? null,
+    renderer: nearRenderer ? {geometries: nearRenderer.info.memory.geometries, textures: nearRenderer.info.memory.textures,
+      drawCalls: nearRenderer.info.render.calls} : null,
+    heap: performance.memory ? {usedBytes: performance.memory.usedJSHeapSize, source: 'performance.memory', gc: false} : null,
+    gpuBytes: null})
+}})
+function requestNearDraw() {
+  const requested = ++nearBuildToken
+  previewState = {...previewState, status: 'loading', requestedGeneration: requested, error: null}
+  if (!nearDrawing) void drainNearDraws()
+  return requested
+}
+async function drainNearDraws() {
+  nearDrawing = true
+  try {
+    let token
+    do {
+      token = nearBuildToken
+      try {
+        await drawNear(token)
+      } catch (error) {
+        if (token === nearBuildToken) {
+          previewState = {...previewState, status: 'failed', error: String(error.message || error)}
+          info.textContent = '2.5D load failed; retry the same focus: ' + previewState.error
+          console.error('2.5D render failed', error)
+        }
+      }
+    } while (token !== nearBuildToken)
+  } finally { nearDrawing = false }
+}
 
 window.glyphweaveSubmitFeedback = async (feedback) => {
   const payload = {
@@ -210,6 +319,8 @@ async function loadScene() {
   const loaded = await loadPreviewScene(world.scenes[sceneSelect.selectedIndex], world.revision)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
+  nearBuildToken++
+  renderStream?.dispose()
   scene = loaded
   renderStream = loaded.renderStream ? createRenderStream(loaded) : null
   draw()
@@ -358,8 +469,7 @@ function drawStrategic() {
   drawStrategicOverlays(ox, oz, scale)
 }
 
-async function drawNear() {
-  const buildToken = ++nearBuildToken
+async function drawNear(buildToken) {
   const THREE = await import('three')
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
@@ -378,6 +488,7 @@ async function drawNear() {
     import('three/addons/postprocessing/OutputPass.js'),
   ]).then(modules => ({ EffectComposer: modules[0].EffectComposer, RenderPass: modules[1].RenderPass, BokehPass: modules[2].BokehPass, UnrealBloomPass: modules[3].UnrealBloomPass, ShaderPass: modules[4].ShaderPass, OutputPass: modules[5].OutputPass })) : null
   if (buildToken !== nearBuildToken) return
+  releasePreviewFrame()
   const viewport = document.querySelector('#viewport')
   const viewportWidth = viewport.clientWidth
   const viewportHeight = viewport.clientHeight
@@ -541,7 +652,7 @@ async function drawNear() {
   })
   window.__nearControls = nearControls
   window.__nearCamera = nearCamera
-  window.__focusAt = (x, z) => { window.__nearFocusOverride = { x, z }; nearPreset = 'focus'; mode = 'near'; draw() }
+  window.__focusAt = (x, z) => { window.__nearFocusOverride = { x, z }; nearPreset = 'focus'; mode = 'near'; draw(); return nearBuildToken }
   window.__chunkNav = (dx, dz) => {
     const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
     if (!focusChunk) return
@@ -669,8 +780,14 @@ async function drawNear() {
     }
     return built
   }
+  const addRendered = (entity, object) => {
+    if (!object) return null
+    if (entity?.entityId && object.userData) object.userData.sourceEntityId = entity.entityId
+    group.add(object)
+    return object
+  }
   const addEntityToGroup = (entity, built) => {
-    if (built) group.add(built)
+    addRendered(entity, built)
   }
   const heightFields = []
   const waterTextures = []
@@ -693,11 +810,13 @@ async function drawNear() {
         fetch(`../scenes/${scene.sceneId}/${chunk.surfaceFile}`),
         chunk.terrainFile ? fetch(`../scenes/${scene.sceneId}/${chunk.terrainFile}`) : Promise.resolve(null),
       ])
+      if (!heightResponse.ok || !surfaceResponse.ok || (terrainResponse && !terrainResponse.ok)) throw new Error('Terrain chunk HTTP failure')
       heightView = decodeHeightPayload(await heightResponse.arrayBuffer(),chunk.validWidthM,chunk.validDepthM)
       const expectedEncoding=world.sidecar?.heightEncoding==='gwhm-v1-i32le-millimeter'?'millimeter':'quarter-meter'
       if(heightView.encoding!==expectedEncoding)throw new Error('Height encoding disagrees with world sidecar')
       surface = new Uint8Array(await surfaceResponse.arrayBuffer())
       terrain = terrainResponse ? new Uint8Array(await terrainResponse.arrayBuffer()) : null
+      if (buildToken !== nearBuildToken) return
       chunkDataCache.set(cacheKey, { heightView, surface, terrain })
     }
     const width = chunk.validWidthM; const depth = chunk.validDepthM
@@ -951,19 +1070,19 @@ async function drawNear() {
     if (focusChunk && !isHarbourOverview && !isSkyline && !['bridge', 'river', 'pagoda', 'park', 'station', 'ferris_wheel', 'boat', 'building_tower', 'mangrove', 'nature_reserve', 'food_stall'].includes(landmark.type) && !inFocusChunk(landmark)) continue
     const type = landmark.type
     if (['rock_mountain', 'mountain', 'hill', 'shopping_mall', 'office_tower', 'convenience_store', 'fence', 'guardrail', 'boardwalk', 'scenic_belt', 'mudflat', 'night_market', 'community_plaza'].includes(type)) {
-      group.add(makeCoastalFeature(groundedLandmark, THREE))
+      addRendered(groundedLandmark, makeCoastalFeature(groundedLandmark, THREE))
       continue
     }
     if (type === 'bridge') {
-      group.add(makeBridgeStructure(landmark, THREE, heightAt))
+      addRendered(landmark, makeBridgeStructure(landmark, THREE, heightAt))
       continue
     }
     if (type === 'food_stall') {
-      group.add(makeFoodStall(landmark, THREE))
+      addRendered(landmark, makeFoodStall(landmark, THREE))
       continue
     }
     if (type === 'mangrove' || type === 'nature_reserve') {
-      group.add(makeMangrove(landmark, THREE))
+      addRendered(landmark, makeMangrove(landmark, THREE))
       continue
     }
     if (type === 'pavilion') {
@@ -983,7 +1102,7 @@ async function drawNear() {
       roof.position.y = landmark.heightM * .82
       pavilion.add(roof)
       pavilion.position.set(landmark.worldX, landmark.worldY, landmark.worldZ)
-      group.add(pavilion)
+      addRendered(landmark, pavilion)
       continue
     }
     if (type === 'pagoda') {
@@ -1013,11 +1132,11 @@ async function drawNear() {
       spire.position.y = landmark.heightM * .72 + (floors - 1) * landmark.heightM * .3 + landmark.heightM * .22
       pagoda.add(spire)
       pagoda.position.set(landmark.worldX, landmark.worldY - landmark.heightM * .72, landmark.worldZ)
-      group.add(pagoda)
+      addRendered(landmark, pagoda)
       continue
     }
     if (type === 'building_tower') {
-      group.add(makeHongKongTower(groundedLandmark, THREE))
+      addRendered(groundedLandmark, makeHongKongTower(groundedLandmark, THREE))
       continue
     }
     if (type === 'park') {
@@ -1111,7 +1230,7 @@ async function drawNear() {
         park.add(tree)
       }
       park.position.set(landmark.worldX, landmark.worldY, landmark.worldZ)
-      group.add(park)
+      addRendered(landmark, park)
       continue
     }
     if (type === 'station') {
@@ -1142,7 +1261,7 @@ async function drawNear() {
       track.position.set(0, .2, landmark.depthM * .5)
       station.add(track)
       station.position.set(landmark.worldX, landmark.worldY, landmark.worldZ)
-      group.add(station)
+      addRendered(landmark, station)
       continue
     }
     if (type === 'ferris_wheel') {
@@ -1176,7 +1295,7 @@ async function drawNear() {
         wheel.add(leg)
       }
       wheel.position.set(landmark.worldX, landmark.worldY, landmark.worldZ)
-      group.add(wheel)
+      addRendered(landmark, wheel)
       continue
     }
     if (type === 'boat') {
@@ -1197,7 +1316,7 @@ async function drawNear() {
       funnel.position.set(landmark.widthM * .22, 8.6, 0)
       boat.add(funnel)
       boat.position.set(landmark.worldX, landmark.worldY, landmark.worldZ)
-      group.add(boat)
+      addRendered(landmark, boat)
       continue
     }
     const isWater = type === 'lake' || type === 'river'
@@ -1248,7 +1367,7 @@ async function drawNear() {
     else marker.scale.set(landmark.widthM, landmark.heightM, landmark.depthM)
     marker.position.set(landmark.worldX, isWater ? .15 : landmark.worldY + landmark.heightM / 2, landmark.worldZ)
     if (isWater) { marker.castShadow = false; marker.receiveShadow = false; marker.renderOrder = 10 }
-    group.add(marker)
+    addRendered(landmark, marker)
   }
   const inActiveChunk = entity => activeChunks.some(chunk => entity.worldX >= chunk.worldX && entity.worldX < chunk.worldX + chunk.validWidthM && entity.worldZ >= chunk.worldZ && entity.worldZ < chunk.worldZ + chunk.validDepthM)
   // Legacy manifest vegetation is deliberately not rendered as primitive fallback
@@ -1300,16 +1419,16 @@ async function drawNear() {
     if (entity.kind === 'tree' || entity.kind === 'rock') continue
     if (entity.kind === 'storefront') {
       if (isStreetView && !inStreetFrame(entity)) continue
-      group.add(makeStorefront(entity, THREE))
+      addRendered(entity, makeStorefront(entity, THREE))
       continue
     }
     if (entity.kind === 'food_stall') {
-      group.add(makeFoodStall(entity, THREE))
+      addRendered(entity, makeFoodStall(entity, THREE))
       continue
     }
     if (entity.kind === 'pedestrian') {
       const person = makePedestrian(entity, THREE)
-      group.add(person)
+      addRendered(entity, person)
       person.userData.actorKind = entity.kind
       animatedActors.push({ object: person, baseZ: entity.worldZ, phase: (entity.worldX + entity.worldZ) * .01, speed: .06 })
       continue
@@ -1319,12 +1438,12 @@ async function drawNear() {
       const skylineMaterial = new THREE.MeshStandardMaterial({ color: entity.kind === 'building_tower' ? '#536b78' : '#665f5b', roughness: .7, metalness: .2 })
       const skylineBuilding = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM, height, entity.depthM), skylineMaterial)
       skylineBuilding.position.set(entity.worldX, entity.worldY + height / 2, entity.worldZ)
-      group.add(skylineBuilding)
+      addRendered(entity, skylineBuilding)
       continue
     }
     if (entity.kind === 'bridge' && scene.landmarks.some(landmark => landmark.entityId === entity.entityId)) continue
     if (entity.kind === 'bridge') {
-      group.add(makeBridgeStructure(entity, THREE, heightAt))
+      addRendered(entity, makeBridgeStructure(entity, THREE, heightAt))
       continue
     }
     if (entity.kind === 'mountain_forest' || entity.kind === 'nature_reserve' || entity.kind === 'green_space') {
@@ -1426,15 +1545,15 @@ async function drawNear() {
       continue
     }
     if (entity.kind === 'water_well') {
-      group.add(makeWaterWell(entity, THREE))
+      addRendered(entity, makeWaterWell(entity, THREE))
       continue
     }
     if (entity.kind === 'road_sign') {
-      group.add(makeRoadSign(entity, THREE))
+      addRendered(entity, makeRoadSign(entity, THREE))
       continue
     }
     if (entity.kind === 'street_lamp') {
-      group.add(makeStreetLamp(entity, THREE))
+      addRendered(entity, makeStreetLamp(entity, THREE))
       continue
     }
     const zoneKinds = ['parking_lot', 'commercial_center', 'entertainment_center', 'school', 'residential_block', 'canal', 'farmland', 'mountain_forest', 'green_space', 'temple', 'church', 'pasture', 'nature_reserve']
@@ -1491,7 +1610,7 @@ async function drawNear() {
       }
     } else if (entity.kind === 'lamp') {
       group.remove(prop)
-      group.add(makeStreetLamp(entity, THREE))
+      addRendered(entity, makeStreetLamp(entity, THREE))
       continue
     } else if (entity.kind === 'bridge') {
       for (const side of [-1, 1]) {
@@ -1513,7 +1632,7 @@ async function drawNear() {
       }
     }
     if (['bush', 'rock', 'tree'].includes(entity.kind)) prop.userData.vegetation = true
-    group.add(prop)
+    addRendered(entity, prop)
     if (entity.kind === 'car' || entity.kind === 'pedestrian') {
       prop.userData.actorKind = entity.kind
       animatedActors.push({ object: prop, baseZ: entity.worldZ, phase: (entity.worldX + entity.worldZ) * .01, speed: entity.kind === 'car' ? .12 : .06 })
@@ -1525,12 +1644,18 @@ async function drawNear() {
   for (const [kind, file] of [['tree', 'CommonTree_1.gltf'], ['bush', 'Bush_Common.gltf'], ['rock', 'Pebble_Round_1.gltf']]) {
     try { prototypes.set(kind, (await loader.loadAsync(`../assets/${file}`)).scene) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
   }
+  frameAssets.push(...prototypes.values())
+  if (buildToken !== nearBuildToken) return
   let buildingPrototype
   try { buildingPrototype = await objLoader.loadAsync('../assets/2Story_GableRoof.obj') } catch (error) { console.warn('asset load failed: 2Story_GableRoof.obj', error) }
+  if (buildingPrototype) frameAssets.push(buildingPrototype)
+  if (buildToken !== nearBuildToken) return
   const buildingVariants = []
   for (const file of ['1Story_GableRoof.obj', '2Story_Wide.obj', '2Story_RoundRoof.obj']) {
     try { buildingVariants.push(await objLoader.loadAsync(`../assets/${file}`)) } catch (error) { console.warn(`asset load failed: ${file}`, error) }
   }
+  frameAssets.push(...buildingVariants)
+  if (buildToken !== nearBuildToken) return
   // Pavement meshes are authored by Rust on the final raster. Do not round
   // coordinates, divide Y by four, re-ground, or invent missing paths here.
   for (const surface of scene.accessSurfaces ?? []) {
@@ -1608,6 +1733,16 @@ async function drawNear() {
       inst = buildTreeInstances(list, THREE, terrainAt, worldWind)
       entityMeshCache.set(cacheKey, inst)
     }
+    const eligibleTreeIds = list.filter(entity => {
+      const terrain = terrainAt?.(entity.worldX, entity.worldZ)
+      return !terrain || (terrain.disturbance <= .04 && terrain.surface !== 3 && terrain.slope < .78 && terrain.wetness > .12)
+    }).map(entity => entity.entityId)
+    const treeParts = inst.children.filter(child => child.isInstancedMesh && child.geometry)
+      .map(child => ({batchUuid: child.uuid, geometryUuid: child.geometry.uuid, part: child.name || child.type}))
+    inst.userData.entityInstanceBindings = eligibleTreeIds.map((id, instanceIndex) => ({
+      id, instanceIndex, count: eligibleTreeIds.length,
+      parts: treeParts.map(part => ({...part, instanceIndex, instanceCount: inst.children.find(child => child.uuid === part.batchUuid)?.count ?? 0}))
+    }))
     inst.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
     group.add(inst)
     if (inst.userData?.wind) window.__treeWind = inst.userData.wind
@@ -1622,6 +1757,12 @@ async function drawNear() {
       rockInst = buildRockInstances(activeRocks, THREE)
       entityMeshCache.set(rockCacheKey, rockInst)
     }
+    const rockParts = rockInst.children.filter(child => child.isInstancedMesh && child.geometry)
+      .map(child => ({batchUuid: child.uuid, geometryUuid: child.geometry.uuid, part: child.name || child.type}))
+    rockInst.userData.entityInstanceBindings = activeRocks.map((entity, instanceIndex) => ({
+      id: entity.entityId, instanceIndex, count: activeRocks.length,
+      parts: rockParts.map(part => ({...part, instanceIndex, instanceCount: rockInst.children.find(child => child.uuid === part.batchUuid)?.count ?? 0}))
+    }))
     rockInst.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
     group.add(rockInst)
   }
@@ -1631,11 +1772,11 @@ async function drawNear() {
     if (plannedBuildingIds.has(entity.entityId)) continue
     if (landmarkEntityIds.has(entity.entityId)) continue
     if (['rock_mountain', 'mountain', 'hill', 'shopping_mall', 'office_tower', 'convenience_store', 'fence', 'guardrail', 'boardwalk', 'scenic_belt', 'mudflat', 'night_market', 'community_plaza'].includes(entity.kind)) {
-      group.add(makeCoastalFeature({ ...entity, type: entity.kind, worldY: groundedRenderY(entity) }, THREE))
+      addRendered(entity, makeCoastalFeature({ ...entity, type: entity.kind, worldY: groundedRenderY(entity) }, THREE))
       continue
     }
     if (entity.kind === 'mangrove') {
-      group.add(makeMangrove(entity, THREE))
+      addRendered(entity, makeMangrove(entity, THREE))
       continue
     }
     if (entity.kind === 'tree') continue
@@ -1653,7 +1794,7 @@ async function drawNear() {
       const sign = new THREE.Mesh(new THREE.BoxGeometry(5, 2.2, .2), new THREE.MeshStandardMaterial({ color: '#c9b28a', roughness: .8 }))
       sign.position.set(0, 4.2, entity.depthM / 2 + .3)
       prop.add(sign)
-      group.add(prop)
+      addRendered(entity, prop)
       continue
     }
     if (!prototype) continue
@@ -1661,7 +1802,7 @@ async function drawNear() {
     prop.userData.sourceEntityId = entity.entityId
     fitAssetToEntity(prop, entity, THREE, entity.kind === 'tree' ? { width: .7, depth: .7, height: 5 } : entity.kind === 'bush' ? { width: 1.5, depth: 1.5, height: 1.2 } : { width: 1, depth: 1, height: 1 })
     prop.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
-    group.add(prop)
+    addRendered(entity, prop)
   }
   // Shadows are costly with thousands of meshes; enable them only on the
   // terrain and built structures in the focus chunk, not vegetation/rocks,
@@ -1690,6 +1831,7 @@ async function drawNear() {
   window.glyphweaveFeedback.visualChecks.loadedChunks = activeChunks.map(chunk => `${chunk.chunkX},${chunk.chunkZ}`)
   window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
+  previewState = {...previewState, status: 'ready', completedGeneration: buildToken, error: null}
   renderNearFrame = () => {
     if (!nearRenderer || !nearCamera || !nearScene) return
     // Do not call OrbitControls.update() here: update() dispatches `change`,
@@ -1812,10 +1954,7 @@ function draw() {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('near', isNearMode)
   }
-  if (mode === 'strategic') drawStrategic(); else drawNear().catch(error => {
-    console.error('2.5D render failed', error)
-    info.textContent = `2.5D 加载失败：${error?.message || error}`
-  })
+  if (mode === 'strategic') drawStrategic(); else requestNearDraw()
 }
 const bindClick = (id, handler) => {
   const element = document.querySelector(id)

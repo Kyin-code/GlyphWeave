@@ -1,0 +1,185 @@
+{
+  "taskId": "A-FINAL-R3-U1",
+  "status": "ready_for_review",
+  "authority": "ds-v4.1f-candidate",
+  "branch": "refactor/authoritative-baked-audit",
+  "head": "6020fbe2713e8c79c1b2934b244402dc93e1df14",
+  "checker": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.mjs",
+    "bytes": 21347,
+    "sha256": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+  },
+  "checkerTest": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.test.mjs",
+    "bytes": 18470,
+    "sha256": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+  },
+  "resultDoc": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-r3-u1-result.zh-CN.md",
+    "bytes": 4420,
+    "sha256": "b8d0747cb4d0bb6937a5be98b29806b5a97b09140d2eba3c385a2a80d0457f85"
+  },
+  "originalR3Candidate": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\final-acceptance-r3.json",
+    "bytes": 21382,
+    "sha256": "d5b1aa9fb2725a96692b99045bc0423a85b227661418416c58dc02cc3379d433"
+  },
+  "reboundR3Candidate": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\final-acceptance-r3-u1-rebound.json",
+    "bytes": 21382,
+    "sha256": "d7689f9c9ebd6b6a34c9952cc741a165f26946f4016e59202bdb965d2dd907c9"
+  },
+  "r3DirectCheck": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-check-u1.json",
+    "bytes": 299,
+    "sha256": "8804fbd0696290b6c380a0d068df9ac6d5925d3b7f4649c2940a45718ef3b666",
+    "exitCode": 1,
+    "actualCheckId": "evidence.R3.checker",
+    "note": "Only the expected old checker self-binding bytes mismatch; no measurement/world content check ran before it."
+  },
+  "r3ReboundCheck": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-rebound-check-u1.json",
+    "bytes": 1299,
+    "sha256": "3bee780bebeb044ea232a6d5f3fdbc57c8305692af1e5aead19e5a0a1e4827cf",
+    "exitCode": 0,
+    "closureStatus": "pass",
+    "readiness": "ready_for_review",
+    "evidenceFiles": 38,
+    "logs": 18
+  },
+  "inspectorUtcCounterexample": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-20260909\\backward-utc-rebound-candidate.json",
+    "bytes": 21372,
+    "sha256": "33bf9f4bd7f43b41e8870cdab72cb9945900c8a811e14f3e77e8ccfd1df5b6cf"
+  },
+  "utcReboundCandidate": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-rebound-u1.json",
+    "bytes": 21372,
+    "sha256": "0ace2dbd554368b2b5b2de84758ac00b3fb5dea567ea18f4a33eaa2849250f1b"
+  },
+  "utcDirectCheck": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-check-u1.json",
+    "bytes": 299,
+    "sha256": "8804fbd0696290b6c380a0d068df9ac6d5925d3b7f4649c2940a45718ef3b666",
+    "exitCode": 1,
+    "actualCheckId": "evidence.R3.checker",
+    "note": "Direct original counterexample is stopped first by the same expected old checker self-binding increment."
+  },
+  "utcReboundCheck": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-rebound-check-u1.json",
+    "bytes": 286,
+    "sha256": "e7695b359200fcfe1ac95d06d11534bce555785936598ce82edfd9aeca3f5905",
+    "exitCode": 1,
+    "actualCheckId": "generation.sample-utc-order",
+    "actualReason": "generation sample UTC moves backwards at row 1"
+  },
+  "rebindTool": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\rebind-script-bindings-u1.mjs",
+    "bytes": 1869,
+    "sha256": "17e0de71e2e046eb6d78bc5123651c21146ed0b10e8e0b1ca23ec7d48b79b4ce",
+    "changedFields": [
+      "evidence[33].bytes",
+      "evidence[33].sha256",
+      "evidence[34].bytes",
+      "evidence[34].sha256",
+      "checker.bytes",
+      "checker.sha256",
+      "checkerTest.bytes",
+      "checkerTest.sha256"
+    ]
+  },
+  "commands": [
+    {
+      "command": "node --test scripts/collaboration/check-final-acceptance.test.mjs",
+      "exitCode": 0,
+      "passed": 40,
+      "failed": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\check-final-acceptance-test-u1.log"
+    },
+    {
+      "command": "node --test scripts/collaboration/*.test.mjs",
+      "exitCode": 0,
+      "passed": 252,
+      "failed": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\all-collaboration-tests-u1.log"
+    },
+    {
+      "command": "node --check scripts/collaboration/check-final-acceptance.mjs && node --check scripts/collaboration/check-final-acceptance.test.mjs",
+      "exitCode": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\node-check-u1.log"
+    },
+    {
+      "command": "check-final-acceptance --acceptance original R3 candidate --out r3-candidate-check-u1.json",
+      "exitCode": 1,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-check-u1.log"
+    },
+    {
+      "command": "check-final-acceptance --acceptance U1 rebound R3 candidate --out r3-candidate-rebound-check-u1.json",
+      "exitCode": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-rebound-check-u1.log"
+    },
+    {
+      "command": "check-final-acceptance --acceptance inspector UTC counterexample --out backward-utc-check-u1.json",
+      "exitCode": 1,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-check-u1.log"
+    },
+    {
+      "command": "check-final-acceptance --acceptance U1 rebound UTC counterexample --out backward-utc-rebound-check-u1.json",
+      "exitCode": 1,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-rebound-check-u1.log"
+    },
+    {
+      "command": "corepack pnpm doc-tree:check",
+      "exitCode": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\doc-tree-u1.log"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0,
+      "log": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\git-diff-check-u1.log"
+    }
+  ],
+  "positiveCases": [
+    {
+      "name": "generation equal UTC",
+      "result": "accepted"
+    },
+    {
+      "name": "gate equal UTC",
+      "result": "accepted"
+    },
+    {
+      "name": "R3 rebound candidate",
+      "result": "pass / ready_for_review"
+    }
+  ],
+  "negativeCases": [
+    {
+      "name": "generation UTC backwards",
+      "expected": "generation.sample-utc-order",
+      "actual": "generation.sample-utc-order",
+      "exitCode": 1
+    },
+    {
+      "name": "gate UTC backwards",
+      "expected": "gate.sample-utc-order",
+      "actual": "gate.sample-utc-order",
+      "exitCode": 1
+    },
+    {
+      "name": "inspector backward UTC rebound",
+      "expected": "generation.sample-utc-order",
+      "actual": "generation.sample-utc-order",
+      "exitCode": 1
+    }
+  ],
+  "unverified": [],
+  "runningHandles": [],
+  "backgroundProcesses": [],
+  "gitWrites": false,
+  "originalWorldUntouched": true,
+  "originalRuntimeUntouched": true,
+  "originalEvidenceUntouched": true,
+  "fDriveUntouched": true,
+  "extraAgentsStarted": false
+}

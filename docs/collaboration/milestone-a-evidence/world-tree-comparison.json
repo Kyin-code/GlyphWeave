@@ -1,0 +1,19 @@
+{
+  "oldFiles": 1781,
+  "newFiles": 1781,
+  "equal": 1779,
+  "onlyOld": [],
+  "onlyNew": [],
+  "differences": [
+    {
+      "file": "generation-report.json",
+      "old": "19e5ed144419bf02c47a92b5c2425d922f8d3724ba5ec46f0942ac68bbae9ba5",
+      "new": "ee9654cd3018d96b18b6bd854ae6b37fd0ddc325ef18504a0245b38d9f1bc235"
+    },
+    {
+      "file": "preview/app.js",
+      "old": "5be6fa4f93f80f3640ff9802bafb3a405261515ef109c01eca9a8599eaebaca1",
+      "new": "eee6692e26bbfa0e0715fa595522b3a5bc7b50426021b5abe145479665da3098"
+    }
+  ]
+}

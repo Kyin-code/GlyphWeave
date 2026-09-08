@@ -1,0 +1,38 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "name": "Rust local-height frontage maximum world",
+  "seed": 7,
+  "renderMode": "2.5d",
+  "revision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+  "generatorRevision": "worldgen-2026-09-08-r51-stable-v1-transport-identity",
+  "patchChainHash": "",
+  "scenes": [
+    "scenes/scene-0/scene.json"
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "sidecar": {
+    "format": "glyphweave-sidecar",
+    "version": 1,
+    "authoritativeForTerrain": true,
+    "gemapRole": "identity-anchor",
+    "sceneIndexRoot": "scenes/",
+    "heightPrecisionM": 0.001,
+    "heightEncoding": "gwhm-v1-i32le-millimeter",
+    "lodHeightPrecisionM": 0.25,
+    "terrainSemantics": {
+      "format": "glyphweave-terrain-semantics",
+      "version": 1,
+      "bytesPerCell": 4,
+      "channels": [
+        "slope_degrees_u8",
+        "curvature_signed_u8",
+        "wetness_u8",
+        "disturbance_u8"
+      ]
+    }
+  },
+  "waterLevelM": null
+}

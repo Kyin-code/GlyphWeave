@@ -1,0 +1,471 @@
+{
+  "format": "glyphweave.main-agent-milestone-decision",
+  "version": 1,
+  "decisionDateLocal": "2026-09-09",
+  "timezone": "Asia/Shanghai",
+  "recordedAtUtc": "2026-09-08T17:05:18.326Z",
+  "authority": "main-agent-acceptance",
+  "status": "milestone-A-accepted",
+  "milestone": "A",
+  "scope": "stable-foundation-A-01-through-A-10",
+  "worldQualityStatus": "fail",
+  "wholeWorldQualityPass": false,
+  "milestoneCAccepted": false,
+  "head": "6020fbe2713e8c79c1b2934b244402dc93e1df14",
+  "gitState": "reviewed-working-tree-not-committed",
+  "candidate": {
+    "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/ds-final-r3-u1/final-acceptance-r3-u1-rebound.json",
+    "bytes": 21382,
+    "sha256": "d7689f9c9ebd6b6a34c9952cc741a165f26946f4016e59202bdb965d2dd907c9"
+  },
+  "checker": {
+    "path": "G:/difyllmwiki/GlyphWeave/scripts/collaboration/check-final-acceptance.mjs",
+    "bytes": 21347,
+    "sha256": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+  },
+  "checkerTest": {
+    "path": "G:/difyllmwiki/GlyphWeave/scripts/collaboration/check-final-acceptance.test.mjs",
+    "bytes": 18470,
+    "sha256": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+  },
+  "workerReceipt": {
+    "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/ds-final-r3-u1/receipt-r3-u1.json",
+    "bytes": 7328,
+    "sha256": "2947434ba3facce6f03a3c3d36533a3984555e20b04706734565a779cdbc552f"
+  },
+  "runtime": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+    "bytes": 23109120,
+    "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+  },
+  "auditRuntime": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-audit-r1\\release\\glyphweave.exe",
+    "bytes": 23172096,
+    "sha256": "e414d4ae08fb7b66a05671d3d32db463f2870df5b149b73ff4ebd9648520c4da"
+  },
+  "manifest": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+    "bytes": 28724,
+    "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+  },
+  "world": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world.json",
+    "bytes": 998,
+    "sha256": "833453465ca289d7263acd2e6a4dcc9a2f928660560cb1b5579a4156d020249b",
+    "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0"
+  },
+  "parity": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-parity-r2b\\parity.json",
+    "bytes": 549107,
+    "sha256": "623e0fd4f25425124ad8dc03c5dc22da6226b5bc19c2c7fb0b814867fd5973e8",
+    "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0"
+  },
+  "browserObservation": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-observation-r2b.json",
+    "bytes": 31741123,
+    "sha256": "231dbc1bf525dc5f58cd03daeaaf4a9b10dfd49f94a584cc22f335ed79578995"
+  },
+  "measurements": {
+    "generation": {
+      "status": "measured",
+      "operation": "generate-world",
+      "process": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\process.json",
+        "bytes": 1669,
+        "sha256": "eddcb735ec14b99817cf4b61246afc6b9d4e5c545b20a53097f184521718153b"
+      },
+      "samples": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\samples.jsonl",
+        "bytes": 80465,
+        "sha256": "17e15aa9b4fd4df79f5ab14062ef7b5673b742fc01052bb9de824b8e469d1f63"
+      },
+      "executable": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+        "bytes": 23109120,
+        "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+      },
+      "manifest": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+        "bytes": 28724,
+        "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+      },
+      "output": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b",
+      "exitCode": 0,
+      "elapsedSeconds": 264.41066,
+      "timeoutSeconds": 600,
+      "maxPrivateMiB": 8192,
+      "sampledPeakPrivateBytes": 1131696128,
+      "peakWorkingSetBytes": 1098334208,
+      "sampleCount": 516
+    },
+    "gate": {
+      "status": "measured",
+      "operation": "world-quality-gate",
+      "process": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\process.json",
+        "bytes": 1661,
+        "sha256": "b4d9319caa828dbbc2b781ee512d2bf216371e64fc3d8e689f1e7ca681b2607c"
+      },
+      "samples": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\samples.jsonl",
+        "bytes": 11511,
+        "sha256": "1cef4c7e4109e30a6b77bb030bdf448d2eca54a40733c0acd2c6400439f97acd"
+      },
+      "executable": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+        "bytes": 23109120,
+        "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+      },
+      "manifest": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+        "bytes": 28724,
+        "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+      },
+      "output": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b",
+      "exitCode": 1,
+      "elapsedSeconds": 38.2008743,
+      "timeoutSeconds": 600,
+      "maxPrivateMiB": 8192,
+      "sampledPeakPrivateBytes": 1455783936,
+      "peakWorkingSetBytes": 1368526848,
+      "sampleCount": 74
+    }
+  },
+  "reviewDocument": {
+    "path": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md",
+    "bytes": 9675,
+    "sha256": "5b8141eebee1eef26b929cce347320cb8b21467326871a60cad072bfaf1d13a5"
+  },
+  "inspectorEvidence": [
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/identity-review.json",
+      "bytes": 6900,
+      "sha256": "57efc464145747356bdf43bbce24097600bd038bd8cf91af9ef88ed1d5019994"
+    },
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/independent-utc-retest.json",
+      "bytes": 5161,
+      "sha256": "7c5fb9366ea8f913ee32afc74b1c4b80875db3efda88035aee1baaf3341aabb8"
+    },
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/control-check.json",
+      "bytes": 1299,
+      "sha256": "3bee780bebeb044ea232a6d5f3fdbc57c8305692af1e5aead19e5a0a1e4827cf"
+    },
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/node-tests.log",
+      "bytes": 17398,
+      "sha256": "55d4185cfd4a47ffccefa45a274f0755ed83cb6a7381916323eaea1943fcd875"
+    },
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/doc-tree.log",
+      "bytes": 79,
+      "sha256": "bd8b3d329ab2ecb3a2a63f934178d135406c8c0a69ed9594e74b5a7c877cab45"
+    },
+    {
+      "path": "G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/diff-check.log",
+      "bytes": 2708,
+      "sha256": "bfc307624b8a3bb43aa267aab9014b74c898fdd978572d405014b21da78da62f"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "A-01",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-01.source-manifest",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\source-manifest-r2.json",
+          "bytes": 116221,
+          "sha256": "78a8a985e1c47255802f0fb53348433e8199942ca98384153471824f2ff6aca6"
+        },
+        {
+          "requirement": "A-01.runtime",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\runtime-r2.json",
+          "bytes": 966,
+          "sha256": "92d71bc051109adb8115ed30310bb514690b8f1d2ff76a92ed4ad08219807f28"
+        },
+        {
+          "requirement": "A-01.source-manifest-r3",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\source-manifest-r3.json",
+          "bytes": 116812,
+          "sha256": "7d1c8b21584b782e9f1744ce18a2928ae605670ecaebda2929be4cc099f15a7b"
+        },
+        {
+          "requirement": "A-01.runtime-r3",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\runtime-r3.json",
+          "bytes": 966,
+          "sha256": "8308861274f44f8a3136fdb7356513df0715d34a1bb9da97350bef7d22c9758b"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-02",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-02.frontage-review",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t1-main-review.zh-CN.md",
+          "bytes": 6347,
+          "sha256": "233df448fede9185832bfcef7ffb34f62c18144e7ed19968d8b26776d6e77e69"
+        },
+        {
+          "requirement": "A-02.quality-report",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\quality-report.json",
+          "bytes": 609967,
+          "sha256": "2881ad5581c43215a2bf4f7f7917f1b5f39b06264501644b7c6541e6e8f6c05d"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-03",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-03.historical-worldgen-regression",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\sika-a10-workspace-test-final-v2.log",
+          "bytes": 42114,
+          "sha256": "95dd5495be79fa4260cd199ab4e7b51bd28ea5eff9d0d3af6a8ae13addbe87f8"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-04",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-04.generation-process",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\process.json",
+          "bytes": 1669,
+          "sha256": "eddcb735ec14b99817cf4b61246afc6b9d4e5c545b20a53097f184521718153b"
+        },
+        {
+          "requirement": "A-04.generation-samples",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\generation-measurement-r2b\\samples.jsonl",
+          "bytes": 80465,
+          "sha256": "17e15aa9b4fd4df79f5ab14062ef7b5673b742fc01052bb9de824b8e469d1f63"
+        },
+        {
+          "requirement": "A-04.gate-process",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\process.json",
+          "bytes": 1661,
+          "sha256": "b4d9319caa828dbbc2b781ee512d2bf216371e64fc3d8e689f1e7ca681b2607c"
+        },
+        {
+          "requirement": "A-04.gate-samples",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\samples.jsonl",
+          "bytes": 11511,
+          "sha256": "1cef4c7e4109e30a6b77bb030bdf448d2eca54a40733c0acd2c6400439f97acd"
+        },
+        {
+          "requirement": "A-04.world",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world.json",
+          "bytes": 998,
+          "sha256": "833453465ca289d7263acd2e6a4dcc9a2f928660560cb1b5579a4156d020249b"
+        },
+        {
+          "requirement": "A-04.gate-report",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world-quality-gate.json",
+          "bytes": 2403,
+          "sha256": "cedc4ec0f536c070e485c823aad39dfcae44245c1ac6bd2acf53a9202ed4f84c"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-05",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-05.reused-ecology-equivalence",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\sika-a05-final-v2.log",
+          "bytes": 1052,
+          "sha256": "fa933c7aa03a8f9cb0425eda294cc08af7350cd7fb36e5c056a2cadab0f82cf6"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-06",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-06.parity",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-parity-r2b\\parity.json",
+          "bytes": 549107,
+          "sha256": "623e0fd4f25425124ad8dc03c5dc22da6226b5bc19c2c7fb0b814867fd5973e8"
+        },
+        {
+          "requirement": "A-06.render-stream",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\render-stream-r2b.json",
+          "bytes": 28732,
+          "sha256": "59b5565d23186289e77c0a278edbab7a8c704d3424874c3c478b052da5c7d0a1"
+        },
+        {
+          "requirement": "A-06.maximum-world",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\maximum-world-r2b.json",
+          "bytes": 1671,
+          "sha256": "c76f0460b7026546d93f677e97393cbcc5e5d85c4c3268bca88281f5bfc54490"
+        },
+        {
+          "requirement": "A-06.frontage",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\frontage-r2b.json",
+          "bytes": 50792,
+          "sha256": "91fd439d1711fd0399debe652fe99f99dc6aac762664c53118ebdb6ca81b27c3"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-07",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-07.measurement-browser",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-browser-r2b.json",
+          "bytes": 32818993,
+          "sha256": "6368e2d1ae47330f9bb9b77c23b1c65c795998ff1ff8d6b715eca33445c5386e"
+        },
+        {
+          "requirement": "A-07.measurement-observation",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-observation-r2b.json",
+          "bytes": 31741123,
+          "sha256": "231dbc1bf525dc5f58cd03daeaaf4a9b10dfd49f94a584cc22f335ed79578995"
+        },
+        {
+          "requirement": "A-07.stage-s-control",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\control-tree-browser-r2b.json",
+          "bytes": 4700077,
+          "sha256": "9687ee7cac92181a7d229c8b9be12f9cf78c336fc8361c1824b6bb62c66c47cd"
+        },
+        {
+          "requirement": "A-07.stage-s-tests",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\stage-s-tests.log",
+          "bytes": 10098,
+          "sha256": "fd588ff93930385a65087355732ff34630cf406a0d3085fa40bd242f389543ba"
+        },
+        {
+          "requirement": "A-07.adapter-manifest",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\served-adapter-manifest-r2b.json",
+          "bytes": 17156,
+          "sha256": "c2a4bd2ed2f667de06551b1c53597dd8dbb55c63aa3847d2354fd21e510db68c"
+        },
+        {
+          "requirement": "A-07.server-evidence",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\server-r2b.json",
+          "bytes": 1190,
+          "sha256": "3a06f15ad14e199a4230571673b56d742f80c39160d3dbae6f91429533715400"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-08",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-08.quality-report",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\quality-report.json",
+          "bytes": 609967,
+          "sha256": "2881ad5581c43215a2bf4f7f7917f1b5f39b06264501644b7c6541e6e8f6c05d"
+        },
+        {
+          "requirement": "A-08.gate-report",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b\\world-quality-gate.json",
+          "bytes": 2403,
+          "sha256": "cedc4ec0f536c070e485c823aad39dfcae44245c1ac6bd2acf53a9202ed4f84c"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-09",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-09.license-inventory",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\review\\release-license-inventory.json",
+          "bytes": 452995,
+          "sha256": "2b974a13c788543eff524ebc56400bee9e2af53990eccb34e53da696e8ad9e6a"
+        },
+        {
+          "requirement": "A-09.third-party-notices",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\THIRD_PARTY_NOTICES.md",
+          "bytes": 6787,
+          "sha256": "9c0486654b47590cb829dce469d862e06b9900272a947f71f37ea3d6e8acbf1e"
+        },
+        {
+          "requirement": "A-09.three-license",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\LICENSE",
+          "bytes": 1081,
+          "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+        },
+        {
+          "requirement": "A-09.building-notice",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\NOTICE.txt",
+          "bytes": 1289,
+          "sha256": "d7870936fd9caf1fbf90606ea97a92c890b8801ccdbcec2b7dfd15d644f9aa2e"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    },
+    {
+      "id": "A-10",
+      "status": "accepted",
+      "evidence": [
+        {
+          "requirement": "A-10.stage-s-tests",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\stage-s-tests.log",
+          "bytes": 10098,
+          "sha256": "fd588ff93930385a65087355732ff34630cf406a0d3085fa40bd242f389543ba"
+        },
+        {
+          "requirement": "A-10.signoff-doc",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-signoff-r2.zh-CN.md",
+          "bytes": 4977,
+          "sha256": "f3c7623906c0592ce08adde7b54f767fd9a86e66e5b5528e0bd94fd1d093cfb1"
+        },
+        {
+          "requirement": "A-10.all-collaboration-tests",
+          "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\all-collaboration-tests-r2.log",
+          "bytes": 15818,
+          "sha256": "cc10bfe5d988ee8c89af8d7c8b9bc88330fd8753b7913859366f2089168fd517"
+        }
+      ],
+      "scopeAndReuseDetails": "G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md"
+    }
+  ],
+  "retainedQualityFailures": [
+    "\"scene-0\" automatic road targets remain out of reach after \"segment_budget_exhausted\"",
+    "\"scene-0\" purpose-area allocation or realization remains incomplete",
+    "\"scene-0\" landcover remains unrealized",
+    "\"scene-0\" ecology density budget has 1 unfilled plants",
+    "\"scene-0\" land-use planning or realization remains incomplete",
+    "\"scene-0\" road-first land-use development remains incomplete"
+  ],
+  "unresolved": [
+    {
+      "id": "quaternius-building-provenance",
+      "scope": "exact upstream asset pack not verified; not publication clearance"
+    },
+    {
+      "id": "workerd-license-metadata",
+      "scope": "@cloudflare/workerd-windows-64@1.20260701.1 metadata unresolved"
+    },
+    {
+      "id": "evidence-archive",
+      "scope": "ignored work evidence remains local; no archive/commit performed"
+    }
+  ],
+  "verificationLimits": [
+    "No generation, gate, Rust compilation, full browser traversal or linear benchmark rerun in U1 review.",
+    "Rust/geometry/world/browser evidence reused within previously reviewed source and content identity bounds.",
+    "Hash bindings are content identity checks, not cryptographic attestation of execution or authorship.",
+    "Natural routing integrity is not hydraulic safety or proof of physical erosion."
+  ],
+  "blockingFindings": [],
+  "nextAction": "Stop A repair queue; preserve evidence. Await separately approved B/C scope and budget. No Git writes or cleanup authorized."
+}

@@ -1,0 +1,67 @@
+{
+  "failures": [
+    "\"scene-0\" automatic road targets remain out of reach after \"segment_budget_exhausted\"",
+    "\"scene-0\" purpose-area allocation or realization remains incomplete",
+    "\"scene-0\" landcover remains unrealized",
+    "\"scene-0\" ecology density budget has 1 unfilled plants",
+    "\"scene-0\" land-use planning or realization remains incomplete",
+    "\"scene-0\" road-first land-use development remains incomplete"
+  ],
+  "format": "glyphweave.world-quality-gate",
+  "inputs": [
+    "validate-world",
+    "scale-audit",
+    "quality-report",
+    "rules-audit.json"
+  ],
+  "metrics": {
+    "assets": {
+      "entries": 7,
+      "missing": []
+    },
+    "naturalTerrain": {
+      "scene-0": {
+        "basinCount": 1703,
+        "boundaryOutletCount": 71,
+        "closedSinkCount": 1628,
+        "cycles": 0,
+        "descendingEdges": 0,
+        "edgeCount": 57141,
+        "integrityErrors": [],
+        "invalidEdges": 0,
+        "invalidSamples": 0,
+        "nodeCount": 58844,
+        "scope": "sampled-routing-integrity-not-hydraulic-safety",
+        "sourceAreaM2": 60000000,
+        "status": "pass",
+        "terminalAreaM2": 60000000,
+        "unresolvedFlatCount": 4
+      }
+    },
+    "rules": {
+      "blocked_entrances": 0,
+      "checked_items": 786,
+      "disconnected_roads": 0,
+      "floating_items": 0,
+      "geometry_collisions": 0,
+      "out_of_bounds": 0,
+      "passed_items": 786,
+      "rejected_items": 0,
+      "slope_too_high": 0,
+      "submerged_items": 0
+    }
+  },
+  "profile": "release",
+  "rulesMode": "rules",
+  "status": "fail",
+  "version": 1,
+  "warnings": [
+    "scene-0 ecology has 1 / 342380 planned plants without legal placement",
+    "scene-0 landcover has 50230050 m2 without surface realization",
+    "scene-0 road-first land-use development is incomplete: [] [\"remaining_land_has_no_development_or_conservation_plan\"]",
+    "scene-0: rural land realization 549168.0/47997120.0 m2; unresolved 47447952.0 m2 (whole-scene realized ratio 0.0092, target 0.8000)",
+    "scene-0: unassigned land realization 0.0/572160.0 m2; unresolved 572160.0 m2 (whole-scene realized ratio 0.0000, target 0.0100)",
+    "scene-0: urban land realization 190782.0/2400720.0 m2; unresolved 2209938.0 m2 (whole-scene realized ratio 0.0032, target 0.0400)"
+  ],
+  "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0"
+}

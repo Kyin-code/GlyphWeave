@@ -1,0 +1,151 @@
+[
+  {
+    "name": "control",
+    "expectedId": null,
+    "exitCode": 0,
+    "closureStatus": "pass",
+    "readiness": "ready_for_review",
+    "missing": [],
+    "candidateStatus": "ready_for_review",
+    "checks": [
+      {
+        "id": "closure",
+        "status": "pass",
+        "reason": "verified generation runtime, audit runtime, manifest, world/parity cross-binding, observation, 38 evidence files and 18 logs"
+      }
+    ],
+    "measurements": {
+      "generation": "measured",
+      "gate": "measured"
+    },
+    "identity": {
+      "runtime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+        "bytes": 23109120,
+        "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+      },
+      "auditRuntime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-audit-r1\\release\\glyphweave.exe",
+        "bytes": 23172096,
+        "sha256": "e414d4ae08fb7b66a05671d3d32db463f2870df5b149b73ff4ebd9648520c4da"
+      },
+      "manifest": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+        "bytes": 28724,
+        "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+      },
+      "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+      "parity": "623e0fd4f25425124ad8dc03c5dc22da6226b5bc19c2c7fb0b814867fd5973e8"
+    }
+  },
+  {
+    "name": "original-utc-negative",
+    "expectedId": "generation.sample-utc-order",
+    "exitCode": 1,
+    "closureStatus": "incomplete",
+    "readiness": "incomplete",
+    "missing": [],
+    "candidateStatus": "ready_for_review",
+    "checks": [
+      {
+        "id": "generation.sample-utc-order",
+        "status": "fail",
+        "reason": "generation sample UTC moves backwards at row 1"
+      }
+    ]
+  },
+  {
+    "name": "gate-utc-negative",
+    "expectedId": "gate.sample-utc-order",
+    "exitCode": 1,
+    "closureStatus": "incomplete",
+    "readiness": "incomplete",
+    "missing": [],
+    "candidateStatus": "ready_for_review",
+    "checks": [
+      {
+        "id": "gate.sample-utc-order",
+        "status": "fail",
+        "reason": "gate sample UTC moves backwards at row 1"
+      }
+    ]
+  },
+  {
+    "name": "generation-equal-positive",
+    "expectedId": null,
+    "exitCode": 0,
+    "closureStatus": "pass",
+    "readiness": "ready_for_review",
+    "missing": [],
+    "candidateStatus": "ready_for_review",
+    "checks": [
+      {
+        "id": "closure",
+        "status": "pass",
+        "reason": "verified generation runtime, audit runtime, manifest, world/parity cross-binding, observation, 38 evidence files and 18 logs"
+      }
+    ],
+    "measurements": {
+      "generation": "measured",
+      "gate": "measured"
+    },
+    "identity": {
+      "runtime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+        "bytes": 23109120,
+        "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+      },
+      "auditRuntime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-audit-r1\\release\\glyphweave.exe",
+        "bytes": 23172096,
+        "sha256": "e414d4ae08fb7b66a05671d3d32db463f2870df5b149b73ff4ebd9648520c4da"
+      },
+      "manifest": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+        "bytes": 28724,
+        "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+      },
+      "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+      "parity": "623e0fd4f25425124ad8dc03c5dc22da6226b5bc19c2c7fb0b814867fd5973e8"
+    }
+  },
+  {
+    "name": "gate-equal-positive",
+    "expectedId": null,
+    "exitCode": 0,
+    "closureStatus": "pass",
+    "readiness": "ready_for_review",
+    "missing": [],
+    "candidateStatus": "ready_for_review",
+    "checks": [
+      {
+        "id": "closure",
+        "status": "pass",
+        "reason": "verified generation runtime, audit runtime, manifest, world/parity cross-binding, observation, 38 evidence files and 18 logs"
+      }
+    ],
+    "measurements": {
+      "generation": "measured",
+      "gate": "measured"
+    },
+    "identity": {
+      "runtime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+        "bytes": 23109120,
+        "sha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8"
+      },
+      "auditRuntime": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-audit-r1\\release\\glyphweave.exe",
+        "bytes": 23172096,
+        "sha256": "e414d4ae08fb7b66a05671d3d32db463f2870df5b149b73ff4ebd9648520c4da"
+      },
+      "manifest": {
+        "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+        "bytes": 28724,
+        "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+      },
+      "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+      "parity": "623e0fd4f25425124ad8dc03c5dc22da6226b5bc19c2c7fb0b814867fd5973e8"
+    }
+  }
+]

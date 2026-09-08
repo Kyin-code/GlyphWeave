@@ -1,0 +1,179 @@
+{
+  "result": {
+    "status": "pass",
+    "componentStatus": "pass",
+    "coverageFlags": {
+      "entityCoverage": "pass",
+      "heightCoverage": "pass"
+    },
+    "checks": [
+      {
+        "id": "coverage-and-budgets",
+        "status": "pass",
+        "reason": "240 chunks, three same-page revisits, entity/height source identities and fixed budgets verified"
+      },
+      {
+        "id": "coverage.entities",
+        "status": "pass",
+        "reason": "authoritative non-ecology and natural entity IDs are present in actual browser scene-graph/instance observations in every ready phase"
+      },
+      {
+        "id": "coverage.heights",
+        "status": "pass",
+        "reason": "browser height requests match independent per-chunk bytes/hash/encoding"
+      }
+    ],
+    "unverified": [
+      "Parity producer provenance is external; no semantic quality-gate verdict.",
+      "GPU byte allocation is not exposed; only actual renderer object counts are checked."
+    ]
+  },
+  "counts": {
+    "coverage": 240,
+    "warm": 3,
+    "revisit": 9,
+    "retry": 2,
+    "late": 2
+  },
+  "elapsed": 1393592,
+  "observationEqualsBrowserEmbedded": true,
+  "pageIds": [
+    "9d2864b2-12f5-4dfd-b57f-fef699b4b80e"
+  ],
+  "errors": [],
+  "faults": {
+    "networkRetry": {
+      "version": 1,
+      "status": "pass",
+      "pageId": "9d2864b2-12f5-4dfd-b57f-fef699b4b80e",
+      "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+      "target": {
+        "sceneId": "scene-0",
+        "key": "0:0",
+        "url": "http://127.0.0.1:8196/scenes/scene-0/render-chunks/0-0-fd962261f0754d125cd01227c32b32983b9e2b709a3badb66b26567750bff308.json"
+      },
+      "recovery": {
+        "sceneId": "scene-0",
+        "key": "0:0"
+      },
+      "oldToken": 257,
+      "newToken": 258,
+      "phase": "retry",
+      "diagnostic": "Failed to fetch",
+      "failedState": {
+        "format": "glyphweave.preview-observation",
+        "version": 1,
+        "pageId": "9d2864b2-12f5-4dfd-b57f-fef699b4b80e",
+        "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+        "sceneId": "scene-0",
+        "status": "failed",
+        "requestedGeneration": 257,
+        "completedGeneration": 256,
+        "error": "Failed to fetch",
+        "loadedChunks": [],
+        "stream": {
+          "version": 1,
+          "generation": 255,
+          "pending": 0,
+          "peakPending": 1,
+          "cacheEntries": 1,
+          "loadedChunks": [
+            "11:19"
+          ],
+          "residentBytes": 147149,
+          "attempts": 253,
+          "requests": 252,
+          "bytesFetched": 171741190,
+          "discarded": 0,
+          "failures": 1,
+          "lastError": "Failed to fetch"
+        },
+        "plantIds": [],
+        "accessSurfaceIds": [],
+        "patchIds": [],
+        "renderedPatchIds": [],
+        "nonMeshPatchIds": [],
+        "renderedEntityInstanceIds": [],
+        "renderedEntityInstanceSources": [],
+        "renderedEntityIds": [],
+        "caches": {
+          "terrain": 0,
+          "entityMeshes": 0,
+          "entityGroups": 0
+        },
+        "resources": {
+          "created": {
+            "geometries": 50809,
+            "materials": 49197,
+            "textures": 1778,
+            "instances": 171
+          },
+          "released": {
+            "geometries": 50809,
+            "materials": 49197,
+            "textures": 1778,
+            "instances": 171
+          }
+        },
+        "ecology": {
+          "revision": "r39-chunk-instancing-v1",
+          "totalPlanned": 0,
+          "activePlants": 0,
+          "activeBatches": 0,
+          "matrixBytes": 0,
+          "templates": 0,
+          "builds": 180,
+          "evictions": 180,
+          "indexBuilds": 254
+        },
+        "renderer": {
+          "geometries": 1,
+          "textures": 1,
+          "drawCalls": 13
+        },
+        "heap": {
+          "usedBytes": 6320421599,
+          "source": "performance.memory",
+          "gc": false
+        },
+        "gpuBytes": null,
+        "observedAtMs": 1379315
+      },
+      "injectedAtMs": 1379309,
+      "failedAtMs": 1379315,
+      "newRequestedAtMs": 1379315,
+      "completedAtMs": 1384085
+    },
+    "lateResponse": {
+      "version": 1,
+      "status": "pass",
+      "pageId": "9d2864b2-12f5-4dfd-b57f-fef699b4b80e",
+      "worldRevision": "bcc8328c0618ac78756a37bd7eaf013db8098a4f9a73aec19e583822242e52c0",
+      "target": {
+        "sceneId": "scene-0",
+        "key": "0:0",
+        "url": "http://127.0.0.1:8196/scenes/scene-0/render-chunks/0-0-fd962261f0754d125cd01227c32b32983b9e2b709a3badb66b26567750bff308.json"
+      },
+      "recovery": {
+        "sceneId": "scene-0",
+        "key": "11:19"
+      },
+      "oldToken": 260,
+      "newToken": 261,
+      "phase": "late",
+      "injectedAtMs": 1388715,
+      "heldAtMs": 1388723,
+      "newRequestedAtMs": 1388723,
+      "releasedAtMs": 1388724,
+      "deliveredAtMs": 1388741,
+      "completedAtMs": 1392984,
+      "delivery": {
+        "url": "http://127.0.0.1:8196/scenes/scene-0/render-chunks/0-0-fd962261f0754d125cd01227c32b32983b9e2b709a3badb66b26567750bff308.json",
+        "status": 200,
+        "bytes": 1070945,
+        "sha256": "fd962261f0754d125cd01227c32b32983b9e2b709a3badb66b26567750bff308",
+        "requestFinished": true
+      }
+    }
+  }
+}

@@ -1,0 +1,2458 @@
+{
+  "format": "glyphweave.final-source-manifest",
+  "version": 1,
+  "generatedAtUtc": "2026-09-08T16:38:09.8160533Z",
+  "branch": "refactor/authoritative-baked-audit",
+  "head": "6020fbe2713e8c79c1b2934b244402dc93e1df14",
+  "fileCount": 612,
+  "files": [
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\LICENSE",
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\NOTICE.txt",
+      "sha256": "d7870936fd9caf1fbf90606ea97a92c890b8801ccdbcec2b7dfd15d644f9aa2e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\tests\\inventory_preserving.rs",
+      "sha256": "89733db68e4b29569e1b6fa5f41642376cd05de694956624c7f94c92911d6deb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\tests\\preview_parity.rs",
+      "sha256": "f6234e5f4e03801f402175896ef366abe566a09e1cb190aa07369f602c709b04"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\preview_stream_audit.rs",
+      "sha256": "cab0601963de28f39feec29effb0c1b6fc608eb00d1020072f5fc7ec3d5aabd6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\ecology_spatial.rs",
+      "sha256": "ab2204b5537378c84d9e81d84a9cdd25f1abb90dd33796eda5d369339013d1da"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\entity_identity.rs",
+      "sha256": "c4a2196a760e680c11823d724fd36c075665166a9d0b9748d56bb2247ec47b14"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-r2-luna-result.zh-CN.md",
+      "sha256": "0f2b2afbc3ab266b53772bd97d8fa71ab7f43ae05b69a49fc5a8a8da7f5c128d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-r2-main-review.zh-CN.md",
+      "sha256": "4b300aa416fc20ff01d87f4d8f53ccc76ce88c20ec728411681f4af4eaf5e60c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-r2-terra-result.zh-CN.md",
+      "sha256": "566f5315a1b13d95d324679470e3f54e6035033cfcfa843ebd1f74d1c28f04c6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-result.zh-CN.md",
+      "sha256": "d166ecb7de4c8bac60c4520651532221441fe02ac46ccecf5c742e4da3fe0a8a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-review-01.zh-CN.md",
+      "sha256": "e8534e47f1cf7022e1b3fa21f321a117c47794f47027cc82a4b3420dd09a899d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d1-review-02.zh-CN.md",
+      "sha256": "9f38053ea7b0e99972aab1c41ab69b3ffe3b2c527fd6c53d35015ff3275bf28a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d2-parity-contract.zh-CN.md",
+      "sha256": "eb4409ace57cdf2b8482794dd70096c1af2fa812443d0c95368a18f00469ad0a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d2-result.zh-CN.md",
+      "sha256": "576c9d7c5b0f6a74583592f5a32132f735de0d237843c5da8dcd5b6ba384d0a7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d2-review-01.zh-CN.md",
+      "sha256": "b11ce95aa5869a1b09562465307514d3fb1337e7080bde3f418c93163b0aa7af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d3a-source-parity-task.zh-CN.md",
+      "sha256": "c2ae151eba6c9bf7dcfe6d5e0e0a2ba08e04bf8b4d362cbf510ddd876458d9af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-d3b-license-preflight.zh-CN.md",
+      "sha256": "b9cd9d1a68e9b4142d1ea4fcb68c5f9e7a576bd356f06981bd29293ece9fa86c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-inspection-01.zh-CN.md",
+      "sha256": "d6e99fcbef9c2e649208ed53813b72f4779cfc912900db6179b337248f76f7b1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-inspection-r1.zh-CN.md",
+      "sha256": "e05147f99e50425e06c41e87e922aa6e495828c49d1874ae7faf2b240069b998"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-inspection-r2.zh-CN.md",
+      "sha256": "78201ac971d60d4e565861f2049746ad8e9e4cb5bf68fe2f3a773e0f978fa915"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-signoff-r1.zh-CN.md",
+      "sha256": "34799df501192ba4805e95812671e6b32b2eb5fac5ccf325b2de0b33aa88d009"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-signoff-r2.zh-CN.md",
+      "sha256": "f3c7623906c0592ce08adde7b54f767fd9a86e66e5b5528e0bd94fd1d093cfb1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-signoff-r3.zh-CN.md",
+      "sha256": "4e65d83546bb2427e8a9122563d3b78934234fd05c36d1cdf3aa6f4436e2cb21"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-signoff.zh-CN.md",
+      "sha256": "7e55e779add6de968eeffecd5dd1b42cca85749469375a70548b886bd9ad85ba"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t1-main-review.zh-CN.md",
+      "sha256": "233df448fede9185832bfcef7ffb34f62c18144e7ed19968d8b26776d6e77e69"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t1-r1-luna-result.zh-CN.md",
+      "sha256": "fb7c687f2075cc94cce5983c6ddea3b55e45bcb3b000fab72d42f7000fca369f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t1-r1-terra-result.zh-CN.md",
+      "sha256": "bc577ce9cafc8d80c31432f3d6d1603d5217de6b16226cec1765dc84c7919922"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t1-result.zh-CN.md",
+      "sha256": "06baa4a8e2b764e3a3690d325cd390f8a435d132a9c05dd414e7dc8db69a44de"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t2-main-review.zh-CN.md",
+      "sha256": "47231cc34587c8bfb0fb58ca72453b1d1b278f4d1870283a492b2dd7fa6cf7b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t2-result.zh-CN.md",
+      "sha256": "5da9e6293f0f48cb008e26f55d3b7dc2cd87a4934cfc82562b2bbb7e40dbc8e5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t3-core-task.zh-CN.md",
+      "sha256": "649e9d5f7cf570b8a05ba54c1e4d2e84c82afdc2c770f717e413de03d706a355"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-t3-result.zh-CN.md",
+      "sha256": "cacf9e9a3de34f8eb5497572d7f1af8c131e7e8d2201a25f48fcf78542f8634f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\correct-model-restart.zh-CN.md",
+      "sha256": "f67851959b4475f88f35a7f1891957504f209e06a193a4e6761594aceb7cbbc3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\day-a-t1-review-task.zh-CN.md",
+      "sha256": "718660dbe979a796d692fae6437d995c806c67d49844f565dbe65f91139e49f5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\day-r2-terra-luna-task.zh-CN.md",
+      "sha256": "1a568fb532d055ce77e56a2c75eae3defef38354c0c3d45a7afbc2660741c45e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\deepseek-v4f-a-d1-r1-prompt.zh-CN.md",
+      "sha256": "82614b37b0e70a3771f8f3959c95b6ecbfc4a155f4ceb5277a74991fc6dc5a54"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\deepseek-v4f-a-d1-r2-prompt.zh-CN.md",
+      "sha256": "68664889ea428a0d36c00868c8f7ec352300a6864b6cbbea2b48f76673b9f792"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\ds-v41f-final-r2-task.zh-CN.md",
+      "sha256": "dbbc402f514e9a759252bef7f9dbf00c7d1e0dd625598d3c10cbd8e055c1b8c2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\ds-v41f-final-r3-task.zh-CN.md",
+      "sha256": "7053e22d02d98497f9c93f7472d386d5d0ada785dc39974f05d343b286eb5f36"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\ds-v4f-final-signoff-r1-prompt.zh-CN.md",
+      "sha256": "e35a2c3e37287aabcd83b3ffcb95aa2a3fb49197fadec8a3af8ce14764b397ad"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\milestone-1-continuation.zh-CN.md",
+      "sha256": "7ddb57716650723288ac8c4baba66b3fc4fed3010f83afab179a5836a8dd508c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\milestone-a-completion-report.zh-CN.md",
+      "sha256": "5abd593ee4e1599208b44df0b5423cad36c2bf91dff261ddecc25cdf22673592"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\model-routing-incident.zh-CN.md",
+      "sha256": "4ef520890aa54d57817ca233489a4da07831d6480a14c17efd03d39551cfca9a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\release-reproducibility.zh-CN.md",
+      "sha256": "d0164a34dc2b973e6211bf87d90a4d4d969a36b8ac244d7d7e5e5dadaca57332"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\audit-input.mjs",
+      "sha256": "e2be02035445b6b28b1a661a94ba132aee075f25dd49bc4e0c4328525eddec2d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\audit-input.test.mjs",
+      "sha256": "1e024bbaf5bf0e58a46dc765d53a8220e41a7a15da4b6413d611d7d03637aa71"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-evidence.mjs",
+      "sha256": "4609b41b2a8c2e00b10783c496b6b63d5aba63179274109be8ba674498a53b64"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-evidence.test.mjs",
+      "sha256": "3ca07450e2f52ca8feea350951e3aa688407974cb97510dad3076a6b4de70a63"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.mjs",
+      "sha256": "dcc56ca27880308ed5beff36b0ba9622608c4f3c5b86c3f28ab9f7d0f103663e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.test.mjs",
+      "sha256": "fb9e8c5aeaa208e310690301e4efcfab03143ea4389c79da44e2e01516542a50"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-preview-world.mjs",
+      "sha256": "cd30ebf7646caa545214a6363cbf61aa64c951764ef36cd4e53a379e7baed89d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-preview-world.test.mjs",
+      "sha256": "85f29fb90fc6bd77c9244958e79f587dd564c5159000027bf1bec222c4440537"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\license-inventory.mjs",
+      "sha256": "47d4a5536e453330269c67375ba4a789fa0bc7dd6b4032f9b212c83d6e867715"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\preview-instance-observation.test.mjs",
+      "sha256": "7573ea2d80e3e8a472bb4442023a77bc4c57ad49b103ec35aeb6a9ae1e033423"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.agents\\skills\\glyphweave-map-generator\\README.md",
+      "sha256": "1a198e88a0c5fade872570a60f2d335ab7155f7e15022749e97518d130087e67"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.agents\\skills\\glyphweave-map-generator\\SKILL.md",
+      "sha256": "957abf38afc286af0c980b725527d7208aacf033f2e0dc37452da761d426acb2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.githooks\\pre-commit",
+      "sha256": "b0a5403725590e34c14698e3e35770b13d61fc0ada7b8221b75b8ceba6c767b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.github\\workflows\\bevy-client-build.yml",
+      "sha256": "8ead08056b170542bc771a4039000bcf2efea2b7e3d4f9a223d3680a3cec5383"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.github\\workflows\\bevy-fps-budget.yml",
+      "sha256": "39fc44f63df7302e0c514157b47f736830e11d832e2a48e9c92b3e77c397c289"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.gitignore",
+      "sha256": "44a012ca7216630f984fb21a487e4cd3c8045f3a32014ec9eb13268dad5af4ca"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.oxlintrc.json",
+      "sha256": "d8b799ac12b97dbd264aa34a1e88bd2e9cb8d200a09dcf4b047ac703483b41b7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\.pre-commit-config.yaml",
+      "sha256": "dc569a89ee7f6026692ed23298c5315c6a8384cac239abea74e4b0642fb9f3a3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\AGENTS.md",
+      "sha256": "0f64cfd410f98ea147fa4ad4aea73e45b211e073d4fa1f5c5e84d1beb19deb4f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\LICENSE",
+      "sha256": "eff4b4c57f95a0bb0434a8e9174c5d316fea32533996ece402aa08340d458d04"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\README.ja.md",
+      "sha256": "30facf3933b85edc029614725c3e72543932de1de738bf19ab74ace4ca2da1ee"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\README.md",
+      "sha256": "8fbf9845c95b15c3e08bcc6c01d936649e647a064861be0b50c97f456f395ac0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\README.zh.md",
+      "sha256": "68adcc412a43dcfee5c8cff6255c4e4dd472eb84a3b04eb972f2d078dcb07bae"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\THIRD_PARTY_NOTICES.md",
+      "sha256": "9c0486654b47590cb829dce469d862e06b9900272a947f71f37ea3d6e8acbf1e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\godot\\main.gd",
+      "sha256": "5bc9a1c1d18d40355945cad0d4911ef50f859c0239f7aa28dc918bebbc38821b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\godot\\main.tscn",
+      "sha256": "720b4fadf1f93cdfc198462880a61b5acac43135e6c9acdce377dbe838f61778"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\godot\\project.godot",
+      "sha256": "5eddb9952a5f3bb4485a188cde80831b22d3106135357eacfcc19892e5aef86d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\app.js",
+      "sha256": "eee6692e26bbfa0e0715fa595522b3a5bc7b50426021b5abe145479665da3098"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\camera.js",
+      "sha256": "7493ed386193e3edbc27e137def92c590c62a10e76b079290958988fcd9c77b3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\height.js",
+      "sha256": "8cd15164f8771dfc7516bbfaf7a90d50779503d480715b4b66a5eb0c6e222164"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\render-stream.js",
+      "sha256": "53fc5125e880aaa94b6b926de8891e2d02900bb732445a2ac1e53eb1c899cc31"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\shared.js",
+      "sha256": "afd9a584e8e26d9b282374daf606cf3311f7728b8df7f55f4ab49aebef877346"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\state.js",
+      "sha256": "3fdf939a706fce2e68f939c85eae337604b77b2ca797772d2efbb84ebfdf8cdc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\three.js",
+      "sha256": "350792346db596c5c11cf51fd992774838e6aa3812130658c2c4f63efc240582"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\core\\world.js",
+      "sha256": "adcbcc4314ed304f06ff2b8e9225eb29e196b99b2d02baf1ae10916682deb644"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\index.html",
+      "sha256": "0f07d3ccf2c2e8e853186c64b1b19d70bc124cd3c2e643fbabdc541079b9df9d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\buildings.js",
+      "sha256": "5250b36b61485c7ce6ff91e8d7875f295e15fa2fe9cdaeba79b9d06917ebe2bc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\ecology.js",
+      "sha256": "9765d0d25cfd02038bfd981d69e152c48b2db847157a58e9dbf30f5f86849230"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\grass.js",
+      "sha256": "20ea93f50a1b4467132e6746a20bcb8300597ed4e8bfc3766f9efb91939c087b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\postfx.js",
+      "sha256": "bcd81d0d2a8bcf42309d001cdfa4fa59e10ef01f05bc347e76ee5c4ff072e13c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\presets\\materials.js",
+      "sha256": "958e88a13ea0d92c15ca475027b8b514c269c466f60ec72319c8efbde186e9a5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\props.js",
+      "sha256": "d0f824d4afd2b5b9c0806ea9fa3a2e4605c042aa73df463e9477bbc0e61c3b08"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\road-profile.js",
+      "sha256": "aec80eaa9989730ccdf052cbefee2fcdba416d614e31ba8229cb82c08117fd8a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\sky.js",
+      "sha256": "2f50b7b0fb2906d7d907c4bc82e3509cd686f50b7897672ead867f42b88d8f16"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\terrain.js",
+      "sha256": "fd3ce6c934a72943e07965a970767bb5e98cc334c4498efd3bdcd65fa4a4871f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\vegetation.js",
+      "sha256": "34a5756559e339c523500d0a08ebadf4ff46adf17a80029a7cd65cefffe439bc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\water.js",
+      "sha256": "40603e8c79802d045188cba15bf711592b29d9420ea4237564e6bb7b7f957c7f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\render\\wind.js",
+      "sha256": "4655a1dc87678bd51c57e906252215cc6fed9500b0692ba7719364d2167e7d33"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\build\\three.core.js",
+      "sha256": "562b72799ef1145f77997ece49a34f578422873757b0a13e41d76dcbfb776f06"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\build\\three.module.js",
+      "sha256": "bc0d236927f5163414e7c59a5567257dfe925f1929ce0a151ac4185dc45ca5a2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\controls\\OrbitControls.js",
+      "sha256": "b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\loaders\\GLTFLoader.js",
+      "sha256": "caba6c51cfd8c7d5313bd7705a54b76bc0a7199d9822ecc497c5311eaffe8e5e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\loaders\\OBJLoader.js",
+      "sha256": "e3ceb6a8ed48ca146049a8f0879c7acbf884d430f2e728779af26c6ea3a57c65"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\BokehPass.js",
+      "sha256": "5b9b0bc5cee6e24b2417da95f40eb2d178943c2ffbacbc4c2993a89d0597bfb3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\EffectComposer.js",
+      "sha256": "4b8c855f28eed2570bed898adc0ab89c585a8a281ecb6d905c09d00697f9f50a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\MaskPass.js",
+      "sha256": "7cd08eee9d5d6f5578beaddbdcbe9c384f6873810af27f22ab7db3ceeb127aa3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\OutputPass.js",
+      "sha256": "f5b81c96e76b6b28b4b3ba8c41c4aeb982b1e03f3d82883242d951b2ab082fa2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\Pass.js",
+      "sha256": "444b409c235ead986893c472e720da1b779a56985c7d10b279c7944b52bd61c5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\RenderPass.js",
+      "sha256": "fd91229aacc5830e3984b0f2bdefcf566163ea028f4c1f1ab233fa6665a133ac"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\ShaderPass.js",
+      "sha256": "e2500a5913b26bbf5148ceaae644c6edcff06a18b01494ee37bf856353d2ab9d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\postprocessing\\UnrealBloomPass.js",
+      "sha256": "d92742959879b461f25348b2abddc7ca0d48527e7718340bcfa29fa771e2799a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\shaders\\BokehShader.js",
+      "sha256": "c47a17eae9f70405025a5149a68f1265de5d5dba5d61282927fb94b0bb3d0619"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\shaders\\CopyShader.js",
+      "sha256": "a33057d5ac91c43304c186ac0e8816e62bb2ed471d3a00ff3018dfd5c0389718"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\shaders\\LuminosityHighPassShader.js",
+      "sha256": "5044f780b6e6cf863947f64c36fe1587132f7fbe395ada863cd1e5f0388dcf1e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\shaders\\OutputShader.js",
+      "sha256": "353479f77a8d7e2629d49ccac9fc2f5dbfdda5442e0adf867b00377a2fcb0cb2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\adapters\\html\\vendor\\three\\examples\\jsm\\utils\\BufferGeometryUtils.js",
+      "sha256": "cbcfe1864abedcc0122cb893373918fe14469491717a34ca6efcc38551805765"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\glyphweave.registry.json",
+      "sha256": "f83156f9092670ded6b01ef86bf8a1fbce0db1da71b4840b183b0a901a592c92"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\bridge.object.toml",
+      "sha256": "0e95a12f5439248ca84b8eeb35070b247e159d933e8c88fabf772fc80eba3c5d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\building.object.toml",
+      "sha256": "f7f9267cca11439669f03da9683b28cba799037045f87ac398487737bf9f491a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\canal.object.toml",
+      "sha256": "9aa76260406d9aae914ed57f9b2075bf51acf40181772b2424537cc5a705328e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\civic-public.object.toml",
+      "sha256": "be4479569f8ec76f9546b8aa41cbf6fa9742868fc10530f9ec2f80979052f5c3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\civic.object.toml",
+      "sha256": "1c85fb7f5e38ce48d5a25fd02fa636aae0a750e5601b0a776318456d92c53e48"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\coastal-building.object.toml",
+      "sha256": "0110fadc4e59108b7d29b8876b6dcd7789682acdbc6c8f297349f83995af342a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\coastal-landform.object.toml",
+      "sha256": "3a61ab664d7f5eb52e67b7acfe7951813f166f066db0dd7a9a6865d69b7c36f7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\coastal-landscape.object.toml",
+      "sha256": "1030dc6e4a5ab105dd53f33038d7369fa73f6e0d93abfa85208e230138568cbe"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\coastal-linear.object.toml",
+      "sha256": "2eae018b87722ca74a497d816e8892d50fdc9601143e1609549f9adac25461c4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\commerce.object.toml",
+      "sha256": "57d361310cbbf972dcaf07c7ffa88321908776cd123ceb58fdae62fb545074c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\education.object.toml",
+      "sha256": "50ba173e44b473581cb1aa88b8e3e846d0534275f7b569f894c2ffddedce7c91"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\industry.object.toml",
+      "sha256": "9a4f81d9030844cb82152b0f0377555de383287baf0e42762d770abc4f44d878"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\landscape.object.toml",
+      "sha256": "c7bc907ed869b60591e39ec00ce820cbcd80a40ce101ba9994fb8eafafe51a1b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\parking.object.toml",
+      "sha256": "e8b98b91df5889f982cf7683c939c1bcd9c64c8f7dc021922b286eccfc1717e1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\road.object.toml",
+      "sha256": "08b772dbe94091160cfc8272650bad2528affeeb7c4c134eb67819a6b98d80ed"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\rock.object.toml",
+      "sha256": "aeaeab414ea42badfd5a72d14f7b84cbc44dc4794a0f00478b650511db26bf33"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\storefront.object.toml",
+      "sha256": "b12730f3cb120d9b6064c3c966f66d000ec99607a8ff9d06f24667bf6b446d46"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\transport.object.toml",
+      "sha256": "86984ab5f29f530aa3f2c677ecf774c1bbf92d7052729f33d2b9898c1ace26fc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\tree.object.toml",
+      "sha256": "cc45a88bb90f5a1d83e3ac2726f9cb6122eb880e37a15f430c5e035cce48a2c6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\utility.object.toml",
+      "sha256": "532691d9b2674b29d6c22468a8905cea61e716fb7a0367288f725dc95d761aae"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\objects\\water-edge.object.toml",
+      "sha256": "ad38288c0d23df81b313ea6c669f7e7687241a63cca12c2f58fa7097de649983"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\README.md",
+      "sha256": "1330b7934fa8d40f782cb8a7330e0bdfd2207e3f30e9c8a76e1070b8a74a8dc2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\1Story_GableRoof.mtl",
+      "sha256": "df444d1a27b4835b84aba082df313d20161b1a3c1cd454082c365abfc49bbde2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\1Story_GableRoof.obj",
+      "sha256": "a667359bd0160feb4808658115b4955fe0c72cea5451767593bbe625ccc7f1e3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_GableRoof.mtl",
+      "sha256": "263e162b9b10091c54569ea2bc6992ba8b26ff4f8e5ca77b83465189eff9f3b9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_GableRoof.obj",
+      "sha256": "2009ce773683592982aeb52a423361ff6bd0c7b5139056708ae0330e2fc0b990"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_RoundRoof.mtl",
+      "sha256": "3b5fb929ab4df3e5d856aef2ad23b77b9b7112a8f203d85d98c04a757dd125aa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_RoundRoof.obj",
+      "sha256": "425d1d04d9a2b47e076f635af8535c94d19b9dbb59a8738a5234c8223ae793b0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_Wide.mtl",
+      "sha256": "70f94c72e1e7f304a165cc4c238066089cb4f2da24bfa0ad94a02cdfcf950a3c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\buildings\\2Story_Wide.obj",
+      "sha256": "132c802c6b5a97cb2afadc516580578c7818a22ed54a5b20ac4735f9d74574b7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Bark_NormalTree.png",
+      "sha256": "f36e94fdd73255347325b998e02a0b2575fdf714b0315bfe5e8ff34bc8e13603"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Bark_NormalTree_Normal.png",
+      "sha256": "852f6155404b8c39e100e41e26970e02a6a5c81b482d3726618dab28e3ad03a2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Bush_Common.bin",
+      "sha256": "a5e1a773c8ba78fd9c05a8b342131eba4879302a8fddd2c5186cab9ee1ef4966"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Bush_Common.gltf",
+      "sha256": "77811fca92610cb254713d3d49d5029ab6cf13050c3afb61aa942786a7b2ca90"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\CommonTree_1.bin",
+      "sha256": "9dd689e84e1aa2f5b08db8def591254d582783c73737af54ba0d89b3e549c3ae"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\CommonTree_1.gltf",
+      "sha256": "b51cdea6545edb51d102dd6c27caafe62aa75e3c328ac8f9039f4e7bfd690bfa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Leaves_NormalTree.png",
+      "sha256": "171ad1c8fa6ddde351a3b3c9e2b1457d5c7a4a43ba4fd55a83801029db797151"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Leaves_NormalTree_C.png",
+      "sha256": "998612bdf0b76a22f5f54d65cd7a457815d2842d89653fa4348a4ebb42933ad3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Leaves_TwistedTree_C.png",
+      "sha256": "0e459b56b14c0e81b1b7cf3d1e8c6f0bb71790eb6c46bb02a76a922d8df646ea"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\License_Standard.txt",
+      "sha256": "120710e542c3ebaf83856c4eb55b4a1e680593b39302eba7fdc5d942dfe78c58"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\PathRocks_Diffuse.png",
+      "sha256": "85a04abb2c136fee53b376daf3b7d7f96fdf3966de0258dff6fe2b24da792b23"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Pebble_Round_1.bin",
+      "sha256": "f3dacef3243ccaaad7df2beb5c72574a38fb3eae45357e1b5e2b40200d51c375"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\assets\\third_party\\quaternius\\stylized-nature\\Pebble_Round_1.gltf",
+      "sha256": "9f6261c81134915e73cf35eb4e37076238fd1e79434515ac686d15cbd1f779ab"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\.gitignore",
+      "sha256": "5dbd47e4d2219e58d6f2a654c9ef4e7a48bf171686bfe59238325fe6330770fc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\API_NOTES.md",
+      "sha256": "95561be8e3bc553d99792a7ac608097180f445e05e5bc88b6f90074abdc17364"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\Cargo.lock",
+      "sha256": "d6a21933a42abd3e99842facc7aaf4120fa386e5657c340c63227c5abff9c804"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\Cargo.toml",
+      "sha256": "ec0930375d273135ec6727f9f3b00c36ace5bf3c4283a163844a2eaf48671594"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\fonts\\NotoSansCJKsc-GlyphWeave.otf",
+      "sha256": "a734d2e6e589d53db37be8a38b8702eb8690c991f5b642415496f91b33dd6b6a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\fonts\\NotoSansMono-Regular.ttf",
+      "sha256": "65b5e2b2c4a1fba9ae8be1f026cb35b03dcb8886d9b2a4147054fde12f7e767d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\fonts\\OFL-NotoSansCJK.txt",
+      "sha256": "88f117575237307bdd86a17ef15e21790fc9a662fe4dfb103ca1ca077f0d9982"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\fonts\\README.md",
+      "sha256": "7b30a74479f515189d67c60f2c249d388851f7eeed4ccdc5131a87671025d7fa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\fonts\\generate_atlas.py",
+      "sha256": "8cf3ad94ca4a0f9a8941055b44042ac1cf2eeb9510b9303fb655b68085bd7a75"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\textures\\atlas-ansi-16.png",
+      "sha256": "6234603faadb106be45eb66ccb2093744c9206f6027508d8cfc8b323369148b8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\textures\\atlas-cogmind.png",
+      "sha256": "abd05aa15fb6533a641a561fecaec8269a366c5c8aa08b722ad07497c07e37ae"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\assets\\textures\\atlas-fortress-pixel.png",
+      "sha256": "c2690d67e15c0d4435ae1aed74343e7429dc07baa9b0a88451eaf4b67df55ef3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\Cargo.toml",
+      "sha256": "dc3508bcec5632dce935e31ce770852cb05862e033e7a6f7ce9cb2a61df1833f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\camera.rs",
+      "sha256": "8b5514108b089ee002f453ec64e0b3c37169428148a6e1c7796c73550cc88f62"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\gameplay.rs",
+      "sha256": "3cd21306109fee09bc47632bd1aa85df668bb7bea21d044751cc38d5c9c345bc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\gameplay_demo.rs",
+      "sha256": "b9dd6c7b2012e9e871e509977233b254ce6df103592cf39d443f74a394d322f3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\input.rs",
+      "sha256": "30826c175b19415c8227c70df4ba9d2a831a1bc065cbf30711ab59626526fbb9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\main.rs",
+      "sha256": "be75fffbf88d24a8093b7a69de0cfe4fdd1d90ec00415caa0386828676e9d4d1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\perf.rs",
+      "sha256": "6ab11b36de7269135d846892982689590320864ce89dd831b3e45fa1b71a013c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\preset.rs",
+      "sha256": "b3653ad7ff4296746103f7c7d5abab85f46be430c506ddad8af408ee5631d9ef"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\render\\atlas.rs",
+      "sha256": "2c735567f532e6d6b29791bb75daa5a8e633307c63da802b952c1897f4311b47"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\render\\mod.rs",
+      "sha256": "d1e2148343b68bb4fd5e62b5a30e9d7169ca6ac1ce9824c962df55f81518821b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\render\\tilemap.rs",
+      "sha256": "6e494f9c54e9abf48e8631980e8095c07d607f23d3866166ef4da041fa1f9c92"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\render_sync.rs",
+      "sha256": "fec11104e4aa8c2fc389e57de670643ef626f5de763c2a5ae7d24d3d1a9ed091"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\resource.rs",
+      "sha256": "6a6af9d4382168f701846fa78215d0805b0c0143119e2672d4eac699e91918a6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\scenario.rs",
+      "sha256": "80b774e83d3de8104e905b799b7fdd01b04fd5566ebd646e4a752aa22992204e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\tool.rs",
+      "sha256": "31691f2ce7ab956247490fd02efb069922c49d03617fc7204c8e5c5a1cc09f3a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\ui.rs",
+      "sha256": "bc8042825fe38d5ce97295010f3944e527adadc2c65db7ebecf416aada79771b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\viewport.rs",
+      "sha256": "f230f055562038d1eec59b4cfeaa1101436fb6b068c0e44064cc1de29232ef40"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\app\\src\\voxel_adapter.rs",
+      "sha256": "9e5802c7bd31651753700d436eb131858d635d58f988816d0634072a4b159e45"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\Cargo.toml",
+      "sha256": "6ab685264a6604a3f0c1a8e9fb4d4ce62acfbe5cf90b20c5b4ae318c6973b631"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\src\\main.rs",
+      "sha256": "8070d1148067a0652257e4953ac848fdbd43f1f249fea19244bfb85bced5d4b3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\src\\road_corridor.rs",
+      "sha256": "08e63e22cc990479afb3e7812a4278f46fdc0a1d28a6f79d78bb0a0e91c572d3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\cli\\tests\\baked_audit.rs",
+      "sha256": "0fc8ae0ffeced2936b7a84f068357fddcb01686f8276dce8d6b564c2f3589690"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\Cargo.toml",
+      "sha256": "7c31bf2040da3cf5724fe1378fad5f77bdc4f12123077c67ba7e6454030b9c5b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\baked_terrain.rs",
+      "sha256": "7b59dedd76fa4e8abcb08e6a23eff8bebba2cb77e160e618af68d27cbd95ee47"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\chunk.rs",
+      "sha256": "87394008ffa5db4dcf3828cbd1d56cc864a59f31e4538186ba432d320046dc18"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\coords.rs",
+      "sha256": "6c0614b2a486804a4d509c2a688c6727534f17068048f58be887d92964d88cfb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\edit.rs",
+      "sha256": "54c2eb827117c297e7e1094b6a07edcbd53e1cc9aecc0cc3e568386c0e568122"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\engineering.rs",
+      "sha256": "344dff1815b9850f5ed91d4334832f512da775a8798db29fb342056851e07cb6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\error.rs",
+      "sha256": "caa7b48148038ca5e19c306f008d8a7af01471cf56301482dcc3269b971f8152"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gameplay\\command.rs",
+      "sha256": "831470d178b7126d38960cec03ccb29f4c9a11643172e32f520c40daa084488d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gameplay\\mod.rs",
+      "sha256": "0bdfad63ea0d049997ce3841a76a99c583ac304b98fd8e61366e050f73dce84c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gameplay\\sim.rs",
+      "sha256": "2f2208260c7d93b3ab6a1fd0dfb7ee1337e436f54aabf2633c04c9c49db7cda2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gameplay\\snapshot.rs",
+      "sha256": "a55ba6e34ef23bc04edc6e7b6b4e2042c0ae946be9fb3da919dc699c7ac793cd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gameplay\\state.rs",
+      "sha256": "02acc2ba88fdbcb7e19fe50b1b1415f53b1dd3252af7b018762b41be443ec964"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\gemap.rs",
+      "sha256": "40866137deeff2da65f46204c41d469873bd22906cf2acdf435add52747429bf"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\height_payload.rs",
+      "sha256": "f9647659367162d321cd3da8906990965b34d1292fc713da49f41a4f28c99abe"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\intent.rs",
+      "sha256": "a3de163b96f80c5a3bc51669c41c53cceb4648bb0d82fdaca60303dc67a5cc64"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\layer.rs",
+      "sha256": "a39f9ba0bc575be6e68b48d158d1c074e8f7aa7609bfbd22a4131a08c9b2ceea"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\lib.rs",
+      "sha256": "d99b0aef21c20c2e04f37031385b171b95e2b3c4af076fd8ef7f6c3b8f6e8532"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\migration\\mod.rs",
+      "sha256": "7ceaabc75e715d447f467e4454dd032c4c2427bc63993522e7e51327779e70a2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\migration\\v2.rs",
+      "sha256": "18a1ca8fba3ce642bcc688c28e69b55c3c2b6d97ddedfac5d79450e65619ffe1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\natural.rs",
+      "sha256": "9527dbc96adc2974e7235b62b5aac2bbb81ea901c3d566f0e131d5b88869b6d6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\preview_stream.rs",
+      "sha256": "f1a91e5b4ba3f08d423bf1db6eb441c1ba583f3b2d6e338188550712477a96ea"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\audit.rs",
+      "sha256": "99db9255768b5460b1e4b57d2ba86d33f324d32e1dca9bef6a5b44177b2c2550"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\constraint.rs",
+      "sha256": "18d0ddd6da17240050f791ce95cbab6ea1e486928ff19e77824cf478412de468"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\errors.rs",
+      "sha256": "fb0e6cfe218dae927614b591867f6f42e99a8640c07ebecfde5ae604c8395ff1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\loader.rs",
+      "sha256": "129726d4a669f905c3c0d87e0a5f2f1694482319f2d3ac925d3bfa8d13459f50"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\mod.rs",
+      "sha256": "692bf3521db909313112ba7de44674e6a435a585061cc5a9aaab25384ee4c6f8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\placement.rs",
+      "sha256": "7c1dd119ee2367d29a6ca89ca42b848d73d1497a65eeace5e78f740abcb48f9f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\schema.rs",
+      "sha256": "ca7c9b3a96cd6687b071df3e552d780ad26a94ed61388f5698bd785e6d43ffdc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\rules\\validator.rs",
+      "sha256": "69b9ea414268db418eb4b89b0b8df6af720cc5dd2719f0cefa3af0d727796e24"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement.rs",
+      "sha256": "31c7b77b018f8e8d744f9c5a4f839ab83952e6f252762b62661cb5c5ae928691"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\agriculture.rs",
+      "sha256": "8ac1a83c59dedc5d96aced97a467f30111794c066a3890755c161fc92a7f66aa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\development.rs",
+      "sha256": "053b90ea8e095dc10af988a669b9f0d5d86326a55b2585caaefb5c6dd17933ee"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\ecology.rs",
+      "sha256": "329cfdb9d2199dbcd028d54ca294e234247f589fefe3bc32aff4fe0733350c38"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\farm_access.rs",
+      "sha256": "f0240d5093f8f13673dc0271ae352438854beb39adef6404715ff1086f33ed9b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\farm_program.rs",
+      "sha256": "461875968b8a84975e72cea124ea39f8d77685d20bf0a2469b173ae15f3fe85d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\landcover.rs",
+      "sha256": "c11cc8fde436d99f56e770d89707cb9032ccba24938c3f15aa14775a40e72337"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\landuse_ledger.rs",
+      "sha256": "b53ba76f3cc260712ab7cf54c7f9446911d98510b1bd967b93d93b47c38affc6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\pedestrian_index.rs",
+      "sha256": "74860ed6e3a9d0a88d551ac2717877d6d927974bd2eb3f5911a66380ad5e4d57"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\settlement\\proposals.rs",
+      "sha256": "4ff68ad20bfc9ab0a49ca7a9606c41c4807e4f04cbb90c797b90cf082539517f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\archive.rs",
+      "sha256": "ce15325624c03ed95cb5eadb5b599cff7094509630fecbb410f9ed476b8bc4eb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\bitpack.rs",
+      "sha256": "55a3732df9c016a96c9408d4038aa4f1ccce853f24436284601951ffb6f21b1b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\canonical.rs",
+      "sha256": "d91db88d6b19a1fb0c9e4ab148405c650ad68a06b80749f8863015d3a2b5ff47"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\codec.rs",
+      "sha256": "5f8e3dd34f9a12ffaeeab39547081d73922c9ceb6c5b5ec8cf0d3499995c11f9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\mod.rs",
+      "sha256": "62a1eecd16c8538e88535c3c197379b4995546f7e707bd2785952753b0e7b018"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\storage\\model.rs",
+      "sha256": "50734085e8dbb5bb4c74b37a34de8b8c7416524ab51c145a1371f75127e935a6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\tile.rs",
+      "sha256": "7438434c5b52d9a324f02a31f66006338df7f15049e60ed93e6cea092dae5f5f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\chunk.rs",
+      "sha256": "7f437b7924e20e85bd6704de0d4dc2a513dbabce49b811b8e5ef988a938baea8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\coords.rs",
+      "sha256": "2ffeca3c6f69202767c00b74b9e029ec4580a581bf58ac13ebff93f7c2535893"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\mod.rs",
+      "sha256": "344fbf94b0cfa3c173a7cd5180bde1f3fcc0008cd50ac194ad8f78d0168a6175"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\region.rs",
+      "sha256": "3de4894078fdd7c786dd8d47e9639ad49083915e6e28fe42b904b23a2cce9b6a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\registry.rs",
+      "sha256": "de2e7c9577e69af9bc92671c72f9f6f0789acb06cf5dd54546ed858b994eb675"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\voxel\\world.rs",
+      "sha256": "420fe816e624cd761881be4f61b8d628b080e9448589d404cc6f75380393be82"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\world.rs",
+      "sha256": "9b43486813c03544e4c3e547b387627ea688a267c953a08070edc366df8e898d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen.rs",
+      "sha256": "cb7d2577f1e18989c7f9bff1abbf3754c8476e8d6e7f34de90a1847322c445b5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\access.rs",
+      "sha256": "e2ba76fe02b979ac877c8152ccd878b63f3bcd58d5825217bc4b2a86234b6b04"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\access_surface.rs",
+      "sha256": "ec9f0940e2f3a446b912c017add09df9a58fe590e12a0a3fab1af5941268aeb5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\auto_roads.rs",
+      "sha256": "03ac7b0fd88dd5fb6fefb25a7257c81c64d0c38818e033d5fdb485d6414d4c1d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\engineered_placement.rs",
+      "sha256": "020935b328f1c46f9a1b292ab453d02d8815f8bfba2580ce6f49ee26fb0993a5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\frontage.rs",
+      "sha256": "9a95494a4bf8e66cedf63b2ce7d4686349e585c0eae5ade104df3a5cc34daf0f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\joint_frontage.rs",
+      "sha256": "227212543c022e8b69b0daed6ada8ba20bf87dea65765d92d2186bb606f58e49"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\road_alignment.rs",
+      "sha256": "4828a8f7d9682fb82a81182e49cbb21469cd0a9e6be36f5e02c3eadce7d3b773"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\road_extensions.rs",
+      "sha256": "76c488c1a093068c2b8ddc117992cbe6a9179acd27460cfecd59971bb9236a0e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\road_network.rs",
+      "sha256": "53d2fe10820a73f3739ebcf3a2f0a3b9cb35af3ff7ba887c93b225464e2b9eb4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\road_profile.rs",
+      "sha256": "54bf0bb5513b3b08b87dc9dab7399d0380819dc5a015172a9452a0b4c793f9b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\services.rs",
+      "sha256": "db741827b5717f6cdf0444a80e055feb31405b66e80b7bc8ed9d360d5e53f98b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\terrain_context.rs",
+      "sha256": "8976ce34b2a6613d49a66942eaddc96b9107a0461f0e49d0fb9e582ac9ea95eb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\water_query.rs",
+      "sha256": "f2f0d21c763a14cfaffc9255b8bada16531cce3ee12967497c8c3ca5e072f19e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\zoning.rs",
+      "sha256": "68827091deaa3f8ebd934a4a9e6bb4dfd06d1b34eb51c628c7eaf6c9c2b89c5d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\zoning_distance.rs",
+      "sha256": "ec17d28f613e9f668a2dcb4aee3db605209dfee5ab22370aa437e08eddc45d4e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\web\\index.html",
+      "sha256": "a80f32dd0bec7fb245183adf9bb25a51b72193c4a14f473dfab3872b856cc98f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260901-check-1.md",
+      "sha256": "ca8e27f30ab026b0f8af992fe0cdf0f564e0e692913ca36c3222dd456b7f1f45"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-acceptance-list-1.md",
+      "sha256": "9cc9048b034446f848cc61e08b042de9ed6900ce598bf36023eb1f5c580e4472"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-10.md",
+      "sha256": "dc3faa50b7358199f5a22c91a4929e0e4c491917546b721bdb41fb652109f1eb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-11.md",
+      "sha256": "c8b35d5ba3403bc2cdb971610f80202468c485d4b00bc022715c5c0c71ae3e08"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-12.md",
+      "sha256": "265dcba6152c3adc362e965e009ecdbc38ad315d46ec26efb8be609ce167c070"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-13.md",
+      "sha256": "831fc92315313d77d0f126675762ce28ef5d502e282331350f497d37ac47e34a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-14.md",
+      "sha256": "715a7c830fccb405c64f3d06c8f9444ef6617958d32eede9f5e91cd8ac581423"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-15.md",
+      "sha256": "cc15ed36c9baa0fbb1889a7bfc08ea69204e3c41d5bd7a6dba9f33b204442833"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-16.md",
+      "sha256": "a1d4271724013bc0679d140cc6ca62065435311db6a5be0e04082b19ecec560a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-17.md",
+      "sha256": "9c421b6fd7f5f4a88aa829f954142aad87cbe90ad382817ecaa4da5cb1b411a1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-18.md",
+      "sha256": "8192503addbc3f62cde1c7a9d57231930e623f545077f9654b857a5b24c5146c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-19.md",
+      "sha256": "96f8d64648c3ca868237dd237168769a47f374cf77551c34cd6d4b637bf0bfdb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-2.md",
+      "sha256": "5563dd8542a00ad6c44beeb5140b9d98d451ca5a3b95288bda67775c762262da"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-20.md",
+      "sha256": "3a442abb49b7e3b0462d6ed67af39a5a9e926e55966483526d477f46d1d69d8a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-21.md",
+      "sha256": "09de7739d1e0f635802324411ff6e4f17b430cb461dfa4d419b9e671ad25bc2a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-22.md",
+      "sha256": "50ebb5277a1d7176232543b258cc8ea3f76dfd362f96ba7af3858b24f00b7609"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-23.md",
+      "sha256": "f0e35f16123485f81e269b729302d80554e6ed1e239ca97f9ef701c8ad1ae82a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-24.md",
+      "sha256": "ef97b7aa38d0d9d0f2d07a570de8d2f8dbb574f7ad90de2408a7cb0182aa3a5b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-25.md",
+      "sha256": "5dd116549c766be1407922bc1ec29c051544aecff93b184a2990ce943ba40d26"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-3.md",
+      "sha256": "a556550b5c1777571ebe41b31754e21c5ab64e39f6061de5ce4e02fc291458f9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-4.md",
+      "sha256": "a6d0e3c99ee0d0d4a96d5b5d446d0c3bec9be45f5bbf45481eabaea445d43edb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-5.md",
+      "sha256": "44620df126272db371499933ab0ec213bc537c39730e6f126e4c31abfd0072a0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-6.md",
+      "sha256": "ffa3d40c035845bc8f588d27ec69ac3d092febeb4e6da2dea4c4d7b6b9bc254b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-7.md",
+      "sha256": "e4fd39619b17ad2f98651920ac30e4ae9f6272a6455b706c9d959ba9b34ed04c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-8.md",
+      "sha256": "510fd86929fe50f372beba572a6f9c53542940c3021856011da052604c788a6f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260902-check-9.md",
+      "sha256": "115b32bf429b7185b85bc20a7ef041baf29ce02b3dd0111b14b70e698df7a569"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260903-check-28.md",
+      "sha256": "153bff5027e4b5f07ae3af1a2eef9d63da0819296d8361c929faaff256ec30fe"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260903-check-29.md",
+      "sha256": "e2531b1effac6e6c5b817db78fc14315930be49d449674f71b582bcd661226b9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260903-check-30.md",
+      "sha256": "e673616170156f0e32e8ed06a603d414075c97c4431c08edeea45f57397ec412"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260903-check-31.md",
+      "sha256": "49eadfbe90540d4e700b2a8cc631f5168fbf1fde7519ec6e2ab91fdc308c0ad0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260903-check-4.md",
+      "sha256": "616b396d10da559a2455a3f506c881cc5c3db8c7ba459faee00ee40c52ad25ec"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-32.md",
+      "sha256": "5b9a57446064d1d0af42ed7adf5ef725ab7b5b6e40b1de070ecc40d1f582a0d1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-33.md",
+      "sha256": "7ee0d696efbbbedf7f321e674f43d990b22b5d197adea71edf421b9cb30ad52c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-34.md",
+      "sha256": "916f2455cf713619b689ee2377f02d2f41d9da20db66bdd079b96ffd9cc83868"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-35.md",
+      "sha256": "ea142b08949f259138cf380bfd0963aca1ffac1673717f4684f1b38830311606"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-36.md",
+      "sha256": "9e297ca04b43ecdad9f63b634c3bba2f4d56f810cb92eb1a151eb64ffd700dff"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260904-check-37.md",
+      "sha256": "c2d4843f02528f17fce49e3d4f1bdc88adec2727684d1e4ad1be16693ab419c2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260905-access-surface-and-earthwork.zh-CN.md",
+      "sha256": "442a60b6ba17286727fd3dc0d6578b5694ea33084cf74adc38791e7dc93a56ec"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260905-access-v2-acceptance-status.zh-CN.md",
+      "sha256": "8b772bd29f8588c303c6e90981acaac5527d54b529c865de8e556d55ae2fe5f1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260905-modern-world-generation-architecture.zh-CN.md",
+      "sha256": "b722e035a81d51da7f4618bce269baed8ba64ded781b4922e8facf074659f899"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260905-refactor-bake-cli-audit.zh-CN.md",
+      "sha256": "449abe8612013a2ccf7177270b71741eedc5e70d0a0a9dd7ba585f9e4efd31c3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-agriculture-surface-realization.zh-CN.md",
+      "sha256": "189be864ed091800f01e263f6f05d0a24f57896d672bd465caa96bc69f63e49b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-human-settlement-morphology-research.zh-CN.md",
+      "sha256": "c73ea79feaa17610718a876ab44bd63f3a9d95a333e4934715872529bd37fa79"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-landcover-candidate-plan.zh-CN.md",
+      "sha256": "d838cd5356c6b952e8c6b8e127accdd2adc3e648bed151aaa8f909abab0b6449"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-lowland-road-network-implementation.zh-CN.md",
+      "sha256": "f72353569798fdb7944e57fe899735aa788706b3e3c775db02f2f018100c7fbd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-natural-human-development-roadmap.zh-CN.md",
+      "sha256": "9d515279f4076c71f497292dabb44a351e32339b4768a33d4e8c90a30a58c406"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-natural-terrain-generation-research.zh-CN.md",
+      "sha256": "dfd09df154d494f9c3435c79757e85e30ef471f89a7d04918636e304ecc71d4a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-planning-partition-v2-implementation.zh-CN.md",
+      "sha256": "ed99a7534b7eba70ec57368971a9329e93a5ab3e48f36ae338d772d14b260d4e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-road-first-development-ownership.zh-CN.md",
+      "sha256": "48d4f1b12742a3c201a328047e5654f3129ae2ee90d176075b36b5711e28a38f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\20260906-yard-surface-realization.zh-CN.md",
+      "sha256": "d809371cdce8ce1f0a7701851175999da6d258b5a54bc4d723c479c67701e879"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\acceptance-contract.zh-CN.md",
+      "sha256": "7a3ac09fe80619405892210fa75a164d9b7f15699a7d046afe2d3790412dbbb8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\checkpoint-before-external-agent.zh-CN.md",
+      "sha256": "dda84cc7880b70565d7a7cf8b8e1053cbd23aae6c4f488632d54eb305fa613a9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\deepseek-v4f-forward-prompt.zh-CN.md",
+      "sha256": "cafa22d2b392f5a42fb24f04d3025ed0ac042bb16d6568467a0c36d0e09bb4ad"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\status.zh-CN.md",
+      "sha256": "5ff37879b172479fedab3ee4a12edfa40e425e5e47d634b1898dad46eac93193"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\dual-agent-collaboration.zh-CN.md",
+      "sha256": "422c5476b69d07caf991757b220046e07b96382a1051c9f89d4d1fe38e9169b9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\game-plan.md",
+      "sha256": "6bedcf81d3ad7cf6a0b7cdd4f821fc6a2a062ebb76af62b723f9811e5a3aa795"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\game-todo.md",
+      "sha256": "e0af7364509fc40188c6473f24a2b6a59540cc48f943e83ce5bfd729aa8011bc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\glyphweave-world-todo.zh-CN.md",
+      "sha256": "e7634ff432ebc3ae9291eb02fa3b3420eaa2dc9a70fbd243df1106f8c37411c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\html-rendering-handoff.zh-CN.md",
+      "sha256": "82a34b1a1381a3e7a03bca0de35d83bce9ec8baf038e10b65a7e680ed9de1d7e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\mapgen4-hydrology-plan.zh-CN.md",
+      "sha256": "808fcc73e2f7ffa0b28322a78aeabc2e4176766452f0aa975671930654b97ac2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\milestone-a-agent-task.zh-CN.md",
+      "sha256": "56269a728c9b759c17b6533081d196a433a1f5a1a4f02c588906723870f89def"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\milestone-a-deepseek-task.zh-CN.md",
+      "sha256": "d9e942a2290d5ec318211a04889f822e7c79fc159fe7c4c7cd32b509ce719cc1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\milestone-c-agent-task.zh-CN.md",
+      "sha256": "f3a122ce57d6c0f6dcaa1e37a34e8ff08354e85c62c3ac2601d47d2ef8e7d73e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\modern-mainland-morphology.zh-CN.md",
+      "sha256": "cf37c8c5d44a846e4bef167b7fc6aab4de806cbd5d8451c7db7e1efb9323ac28"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\nanjing-yangtze-bridge-scale-audit.zh-CN.md",
+      "sha256": "4929b836e87d9c8e2bb96c1c0bcab5496e60c2650c74663ca355fe9b18789a33"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\procedural-world-generator.zh-CN.md",
+      "sha256": "d1df60b83426d1d590dd11ab745bc736fbca5bb3cf09a9d4cf8b34067aef5fa6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r23-height-precision-and-terrain-domain.zh-CN.md",
+      "sha256": "5544ed41379013a397dc55ca978b0cd5cef73242b49070930e69dfaaaa601601"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r24-zoned-planning-and-terrain-protection.zh-CN.md",
+      "sha256": "72e8969122b52faa71849da8f720e74da2021d26d60fbaa9f5947104a9c6d692"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r25-purpose-cover-ledger.zh-CN.md",
+      "sha256": "8590f1110b0ea4597df76daf7ddc0f5cc73e500b62eb94f27c16981562ed23c4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r26-explicit-service-program.zh-CN.md",
+      "sha256": "1869d779d95ddaa70f112c23c3cc677937ab13e4e7f1f458c9800603012fa0c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r27-joint-frontage-and-housing-minimum.zh-CN.md",
+      "sha256": "582f86df3e552a84e1f9adada3f4636aaf8bc59ab2507c9fafcb4b3d9d1392de"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r28-conservation-ground-surface.zh-CN.md",
+      "sha256": "539025598c6fbcde3941ed4b81b1f2b66823d2532153d16fa86ea30e1db161ac"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r37-ecology-positive-audit-and-exact-clearance.zh-CN.md",
+      "sha256": "ab2703a314c7323c2ffaa41a10ddec432f95fd103f6495be672c68fbd8a16bab"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r38-area-driven-ecology-and-shortfalls.zh-CN.md",
+      "sha256": "172105547296442d57531c032e3ea0219472596b893c527701a415c0a5d8f944"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r39-ecology-chunk-instancing.zh-CN.md",
+      "sha256": "02e9b9430c94a4a71d4e05eaec3ca17f584cb475cbf3276b04020365331d7dd5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r40-bounded-farm-access-detours.zh-CN.md",
+      "sha256": "396b1b7bba7e3a6d58d27b7480751ec8784e23f96cce6686fe403a6eece77973"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r41-explicit-multiscale-field-program.zh-CN.md",
+      "sha256": "f5c593683760ce455e3633324e93047f111ebd4447cd1956f03b83813d6fa93a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r42-exact-protection-distance-index.zh-CN.md",
+      "sha256": "78878b85d86bb3a367b88a3142cd4519641daa252fcce97e47fb33bbc8b69f48"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r43-maximum-world-baseline-and-process-measurement.zh-CN.md",
+      "sha256": "04b77101b65f2e80f04314239fb6d0edaf6bf614496d6f7f4d277e1eb35d1dcd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r44-authoritative-render-stream.zh-CN.md",
+      "sha256": "a05425294b6ba16aaef0fee68e693a2cf4ca096dd67b2d77f24339cf3e8e65ad"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r45-natural-road-corridor-design.zh-CN.md",
+      "sha256": "6e9ae4229eb7eb24801265268408e8004aa571c24c18365add6345e0ad71a915"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r46-graded-roads-in-world-bake.zh-CN.md",
+      "sha256": "0bb877a693682cea1585ed5b52ff77b0128357a8418ab3609a50a44a680b3d4e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r47-automatic-road-growth.zh-CN.md",
+      "sha256": "3e9c95b1aaf26237a4bd624515ffb295b149997281a10cc10c8a9f28cc7d3009"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r48-local-height-frontage.zh-CN.md",
+      "sha256": "f6af308b74882739baeee1e91b4b0b773ab71fda193a6f017effa442b65527c3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\r49-pedestrian-index-and-fixed-frontage.zh-CN.md",
+      "sha256": "096907a014211f4c707120b9bff3761896b64fbeaed4724bcdc9f5156177d19e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\rules-engine-final-notes.zh-CN.md",
+      "sha256": "4a746346c4b0106f8ded123b4f71532bfc35ad139ec12a998564317ee5ac6f92"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\rules-engine-mvp.zh-CN.md",
+      "sha256": "28b24005030762ea12858d1d4d43413b90a33203ec90451d4dad90387d737058"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\superpowers\\plans\\2026-07-07-bevy-p1-foundation.md",
+      "sha256": "5ca0531223b8a0054e1b3655ec2183d52140365622ea6d5a29a2e87bef3994ed"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\superpowers\\plans\\2026-07-11-gemap-v3-voxel-storage.md",
+      "sha256": "17d1ea8e9ee412f1198779208e5177a36c4c88f7dd725901f8403a7ec0f2e163"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\superpowers\\specs\\2026-07-07-bevy-p1-foundation-design.md",
+      "sha256": "3d06d9bbca3de0da9ceac6424204ae87b1c769a1fb13a6b8c819446d706a8c99"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\superpowers\\specs\\2026-07-07-bevy-p2-editor-ui-design.md",
+      "sha256": "6ac51cd1f35fcb424ab6cf288312dab9449e6923ef17a0fef05a1dedb00aa4f3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\terrain-render-contract.zh-CN.md",
+      "sha256": "1eec263a517c36864b230a6db0f88d26504bcd9a596ebdfeae3dc3524d6a1c3e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\terrain-visual-baselines.zh-CN.md",
+      "sha256": "15819083e57e744c36e1cbe842bdcc64da7cc2c6b9cbffa59769e4c1786a4e94"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\urban-natural-generation-plan.zh-CN.md",
+      "sha256": "9cbc45e1f1a90542f2b0b8cc5c427a13d0ea81719afb53b4bda9011dcb868ce3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\west-lake-scale-audit.zh-CN.md",
+      "sha256": "595059913c3cc74bd2ec798a5cad4fc8193a6068ab81873582bc61742308ad51"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\world-baselines\\inner-mongolia-steppe.baseline.json",
+      "sha256": "ad19d5745ee9ede1529cfdf723a7a15db30fa80ac85231fcdc0c83f5960a64c9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\world-baselines\\shenzhen-bay-gis.baseline.json",
+      "sha256": "4819bbe96d38dccd3aef33f2cea35423e351f747f242f19fdd710854653f42d7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\world-baselines\\shenzhen-bay.baseline.json",
+      "sha256": "226e965202ffebb28cd0e28e31a4358663d6ba2a70ea26af16873f4d6802cb7e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\world-baselines\\west-lake.baseline.json",
+      "sha256": "d7fabf480e81fba2403852d81b40510233862a779404fd73b60f126852def24e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\aethra-mega.gemap",
+      "sha256": "ad92a15a17c5e326e9a317692bb2c45e3c2caa4b9bafc70dbc68b971e30c0555"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\automatic-road-growth.manifest.json",
+      "sha256": "e109a03551bbc8319de1631ec8aa82258fb284ca01b1afd51b1121df4f17b129"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\badlands-wadi.gemap",
+      "sha256": "6b09f3a8a40bc54ed8bf85abda3c3c779fdf8a7722303064011bfe282e9783c2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\dragon_island.gemap",
+      "sha256": "28c057e8f427693bb8caabfa885d39bbade8e93460f62cd965a99996591125c3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\graded-road-extensions.manifest.json",
+      "sha256": "6ea7192b9552cb5261bc060fc4f3f1ec7cc266cd2081ac60096f2e349d3b1e8d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\hong-kong-victoria-harbour.manifest.json",
+      "sha256": "99c651bfb55f5eedfd873811dcb0bff0daca4bd65ffd180be422a7b8617c1496"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\inner-mongolia-steppe.manifest.json",
+      "sha256": "b51e04d8705d4e248e96f4dada97abd0a3f0646cc5d3ca7f2a59b3e1b6bdfbce"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\local-height-frontage.manifest.json",
+      "sha256": "cd5686aa288d01241420cdb31b751e69d3f47d89ced6e4c0ad31d30f969860f8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-6x10km.manifest.json",
+      "sha256": "26647877a2f3d18d8d243f0463cbfa3024d93433d3d41c4de2e391028ac189a9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-automatic-road-growth.manifest.json",
+      "sha256": "dc22ffeaad14d1b10be1bf72647397adc648d8ad9ca25aa0bba027baa6de9361"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-graded-road-extensions.manifest.json",
+      "sha256": "65678c131e9602fa2b06a010aae2dc2aafd4895cb2003b36b5bf560831e1945e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+      "sha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\multiscale-farms.manifest.json",
+      "sha256": "267614920e1fb2f95bf97a24a6a4d183e7246cd5891b1d8bfd66c0536c74e51f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\nanjing-yangtze-bridge.manifest.json",
+      "sha256": "59b6299a052a268fc4ef00cb222bff57d4de3d54340238d866f835b87b14f614"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\service-program-joint-plains.manifest.json",
+      "sha256": "c0530060a661d73b0585b21512db7ad522689778a3d14e2d764e857c61dc7d0e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\service-program-plains.manifest.json",
+      "sha256": "2b05716e91a9ed610ff0cb159dea40325a35e0d0838134bc7f36829df1ca53ea"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\shenzhen-bay-clearance.manifest.json",
+      "sha256": "388cb7584ee9c18e018213b4c73efd8d7bd9d15cc336453b52964796b8ff4ffb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\shenzhen-bay-gis.manifest.json",
+      "sha256": "4b6d6362009bd21789836c4325488e85f7d3b530f41fa7ab1d7cc281ca5369eb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\shenzhen-bay-minimal.manifest.json",
+      "sha256": "4954bbff834ad766091bf5d1584944c293ae499773edd3e40776b6fb73f22628"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\shenzhen-bay.manifest.json",
+      "sha256": "588b3da76d1dd53e26fbb2847221902e767c502cc355733a847299f482877882"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\urban-road-corridor-study.json",
+      "sha256": "710abc8f5e284b5f3b7dc450ef16e3de10f879af5a5a64cd4a5fb90250ddc4cd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\examples\\west-lake-1km.manifest.json",
+      "sha256": "c99f3c4ae1ad54d0a0d1e7df9ea9ed1c056de4459fefcedef31fed02a5a32f24"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\README.md",
+      "sha256": "a1b6ae7228045da2f3b83df4f8ca6ab2de281ba7a27c328b95b6d2cb5c299769"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\SHA256SUMS",
+      "sha256": "80613d3244a4516d1b9cd0e2840b4df1f89275035589d0a607dbe078b053ea92"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\definitions.json",
+      "sha256": "9bb04b23234925d5544121fe181b73cc7edfd9dc815f1e38f06467450115fdb0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\bad-path\\manifest.json",
+      "sha256": "3434d7d9e04eef9e978a58b3e9e5ed409ad7f1a32520607d9c0b977c91345a32"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\corrupt-hash\\manifest.json",
+      "sha256": "32e5b0827c203dd3ecf8941beb62986c7253ba91dd11161115f0e48a6a5387af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\corrupt-hash\\regions\\0.0\\chunks\\0000000000000000000000000000000000000000000000000000000000000000.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\corrupt-hash\\regions\\0.0\\region.json",
+      "sha256": "f459671dde572b593d032054127e895a77887daefc9094eba2bf87e409dc3100"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\duplicate-entry\\recipe.json",
+      "sha256": "f9ce59f535c3962d494b0c882d3310376861bd113619aacfff170f045044e2a3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\truncated-binary\\manifest.json",
+      "sha256": "32e5b0827c203dd3ecf8941beb62986c7253ba91dd11161115f0e48a6a5387af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\truncated-binary\\regions\\0.0\\chunks\\6fb8aa806afb1aa7595e3c076df1971ed4e26468ef9daf10e4fc3857901bee91.bin",
+      "sha256": "dbb4495ab295c35e5b6e82d3581fa0851328c01da3a7b3e1629beedacf665720"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\truncated-binary\\regions\\0.0\\region.json",
+      "sha256": "9bf424059e707a0414eea908633458eb7d1a40ace1349b15d7fe2abc104e2214"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-invalid\\zip-bomb-limit\\recipe.json",
+      "sha256": "c77f9c7e00c16346127e0d92fc1def6eef7914db122af83c37e2a659bf24d10c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\empty-world\\manifest.json",
+      "sha256": "f3ffc489bfcdd9403bb3a6ca80084e5890275dfbc21c772af6bf26ffdf5c47fa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\independent-regions\\manifest.json",
+      "sha256": "e00b221282e25ec7bceb70423e1ed8cf392738eaa61861cdf371867a5b3ee625"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\independent-regions\\regions\\0.0\\chunks\\6fb8aa806afb1aa7595e3c076df1971ed4e26468ef9daf10e4fc3857901bee91.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\independent-regions\\regions\\0.0\\region.json",
+      "sha256": "9bf424059e707a0414eea908633458eb7d1a40ace1349b15d7fe2abc104e2214"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\independent-regions\\regions\\1.0\\chunks\\6fb8aa806afb1aa7595e3c076df1971ed4e26468ef9daf10e4fc3857901bee91.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\independent-regions\\regions\\1.0\\region.json",
+      "sha256": "6edf63594e9d13d904674301fe6519e5c9bcdffbee61094af5b81691f83d83f2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\multi-palette-cross-byte\\manifest.json",
+      "sha256": "ef269aa32324671468e8ce7e7c869f8a2b941b3ece17a9eab0a9473da5fa360e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\multi-palette-cross-byte\\regions\\0.0\\chunks\\61323af0c75c20bf183fb8e623d75cb1d02b3bdd078a67e5ee59b2fef6d447c2.bin",
+      "sha256": "8a2dd63e36c991aeebfbfbe249499de249fd803aa8866f696022dffe2eb31b3e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\multi-palette-cross-byte\\regions\\0.0\\region.json",
+      "sha256": "2012fddf197dfb60320a42e4c2591a41027335c3e2de83793169cf67834d6b9f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\manifest.json",
+      "sha256": "d748c14d2d76836957213b3c27cb01bbf5d3e4fc42c60404b4dae47ec8ef1743"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-1.0\\chunks\\2d1fd4459102b1e567846f35bc31589dfad3a9bda9785825d40955bb354492a4.bin",
+      "sha256": "e72e8678596357704c7a02e5a2f009c54f3c8fe31cd5be0808bebab7790b5b42"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-1.0\\chunks\\8b5fa2826f1c7e97af70a9a857ffd14857f20f592d8ff6443e6a09ecb541112d.bin",
+      "sha256": "fb54b52abb761a4e214f267fc26ac347a1d31225a4a6186a1919ef2e90c24c9e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-1.0\\chunks\\e38f80a1c7152e314254a4ab8e8bf88e6eaf631a9826a34bd984d602b036363f.bin",
+      "sha256": "ca1c292519f1ce4e05f20108ac9b9a7e9cbad09721fb3a28d5de6b5942da1c7f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-1.0\\region.json",
+      "sha256": "bc7cd09ba801883f22f2df4bc4814aa9e9ada1de6b928425d09c4c14802355b9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-2.0\\chunks\\8b5fa2826f1c7e97af70a9a857ffd14857f20f592d8ff6443e6a09ecb541112d.bin",
+      "sha256": "fb54b52abb761a4e214f267fc26ac347a1d31225a4a6186a1919ef2e90c24c9e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\-2.0\\region.json",
+      "sha256": "80f886b661e923cb8839e63480ae779673b07952c68b7766fe1d5566d5710331"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-1\\chunks\\1ee14108c79ff2ef6f254b0e5c8f566fe66f574e6a6748a53b0f9528a623f86b.bin",
+      "sha256": "668e13682381bad29a7d5bb369cbe8248d9b99345fd882474a1d945b63aa2d9b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-1\\chunks\\67d7f513cbfd8b62f8d85466bbe9288b99f773c298db0235c8ba292d7175096e.bin",
+      "sha256": "9d0138d777b7cd3c7636225fe3e2dbc85aa7e2d697ed9996a55183ac7f9bfffc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-1\\chunks\\be3955c23d668fa7b65a4052381143dc25d4a2f06c7079483da276f17aa74fa0.bin",
+      "sha256": "6f19bb24cacdc8077824ff504650bd488b070f627c532f8d6f4b6286edd3b0e6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-1\\region.json",
+      "sha256": "765a1e468b7041d785912d5139ed373a9e83d454dd8f1a86ece2d02ea51742f2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-2\\chunks\\67d7f513cbfd8b62f8d85466bbe9288b99f773c298db0235c8ba292d7175096e.bin",
+      "sha256": "9d0138d777b7cd3c7636225fe3e2dbc85aa7e2d697ed9996a55183ac7f9bfffc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.-2\\region.json",
+      "sha256": "9cf7dd4201862c28ed3911ff48238132e67f2194dfa0c08557b4ee09ab6b77eb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.0\\chunks\\05ec363901d940aebad6961a1f67803320a5894e7e3557b3cf08b26a9dd841a1.bin",
+      "sha256": "ed57a66f224448548069c9a852b522cac11a57fb6eb2ea4dcee86b8d63351de6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.0\\chunks\\60f2cf6165af0fbe322f04ac1a87d4ec21d0979d33f16c8cf89fec42fb191972.bin",
+      "sha256": "9202e5c8364aba6dfd8f9c5ee67232d563369762f739c69557f7eb343588307d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.0\\chunks\\a519835337b3e534e62530cc8b2b21bf2ccb3b0d845f4c33a4a341cb0ba6199a.bin",
+      "sha256": "c14848c18bf896e508fbe4bb7a7b128c69cb0601cf65220a0793dccf57bac297"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\negative-boundaries\\regions\\0.0\\region.json",
+      "sha256": "f44d6b84c904695ffca4ef1e30cc191795be3ed3f4ebbaf5adda2a31893f6585"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\one-block-origin\\manifest.json",
+      "sha256": "32e5b0827c203dd3ecf8941beb62986c7253ba91dd11161115f0e48a6a5387af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\one-block-origin\\regions\\0.0\\chunks\\6fb8aa806afb1aa7595e3c076df1971ed4e26468ef9daf10e4fc3857901bee91.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\one-block-origin\\regions\\0.0\\region.json",
+      "sha256": "9bf424059e707a0414eea908633458eb7d1a40ace1349b15d7fe2abc104e2214"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\shared-sections\\manifest.json",
+      "sha256": "cb90444c2c1da648e9715005964a5c52aac2140355f187fe1a0edaf06d3542c2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\shared-sections\\regions\\0.0\\chunks\\6fb8aa806afb1aa7595e3c076df1971ed4e26468ef9daf10e4fc3857901bee91.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\shared-sections\\regions\\0.0\\region.json",
+      "sha256": "259edb32b0c930fd0ed96b666294fde9f745c62f037210b3e800f1d8962cf421"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\unknown-namespaced-block\\manifest.json",
+      "sha256": "c646a92b6dbb43e999712e4acbef22e9f09aade301f8d996b31eb60d5540c398"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\unknown-namespaced-block\\regions\\0.0\\chunks\\39a149112660d7c0eb85ff79fffa9f6f9a61b99a65d9241cd41b7b070f7dfd27.bin",
+      "sha256": "d839a3521723b8a55d09d8eed9848940b284828e4d09218202c3ee11046bc16d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expanded\\v3-valid\\unknown-namespaced-block\\regions\\0.0\\region.json",
+      "sha256": "5a099e285f7abcac31b57b09c6990b034b6b3bda4f45cc99a0190f2524c44d11"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\expectations.json",
+      "sha256": "e0e5cd27715c4c158b8e7ec6e908f7cd62bfd1c76e3782319d2aa403e87f8354"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\generate.py",
+      "sha256": "6d0df0eca7ccc331afcfae1c7ecf314200d9a32883e98c09fb3ec8a4e30f9dbb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v2\\SHA256SUMS",
+      "sha256": "5add48f0bba608dadd824fb42a88750d396108dba3e28612d2a0fda08b6f6847"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v2\\flat-v1.gemap",
+      "sha256": "a3cc46e59771ebd0fc9e53220d6a42c98d18967cc96c81e616939e2c6e527020"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v2\\layered-v2.gemap",
+      "sha256": "f2675f320d1caa96ba9aa01fe639ffe99c3371efbfa6fc9e53407e6cc63e0b8b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-invalid\\bad-path.gemap",
+      "sha256": "5ba4a504d2d8404f165e9ddcf2cf7d9539ca4aa33b289cc122c7048b9b01d94f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-invalid\\corrupt-hash.gemap",
+      "sha256": "807483a492df5e06174bf1eda05f584c8e7f5eeabc0dae4fa12462dc5c7581fa"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-invalid\\duplicate-entry.gemap",
+      "sha256": "08a0cfff7bc58a64a524ad83fe64eea7b6babca7dd56dc5ff2f1491faffc195d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-invalid\\truncated-binary.gemap",
+      "sha256": "6385b2bd32377e38c0128a1eea874535b4410dff1d073f24f44c6c62ab571579"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-invalid\\zip-bomb-limit.gemap",
+      "sha256": "efeea41416e7133b908baad39a538d09801849ac2a702a46a0a576b9c03670db"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\empty-world.gemap",
+      "sha256": "75afca191da9ccaa336829fb451237bfb0070ca724be3ae0ec7961912a6ba988"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\independent-regions.gemap",
+      "sha256": "ccc9880be0bb45e06c23b4317e3609b60e622a1fd93ba6d60fe2825955618525"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\multi-palette-cross-byte.gemap",
+      "sha256": "61f8eceeee3d0068906df446eaf4dadf9381aeee7411b6c140be18c2cbdd6c82"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\negative-boundaries.gemap",
+      "sha256": "9865c92782e00241981a56a728a6c99eaa4708a0413d7a14d74589cd0a13d0d8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\one-block-origin.gemap",
+      "sha256": "a49bf2dbe52d5774b0461e94becbb5f0b390dfe6b9bb0632becd58d95038850b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\shared-sections.gemap",
+      "sha256": "bacd3d48fe4161d495abe325643a308dc1aa116f6e309893a2cc1969f03532c2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\fixtures\\gemap\\v3-valid\\unknown-namespaced-block.gemap",
+      "sha256": "fdcbb926bd2e20f23d3110c75470e1349304051177f9d1b5a377193ada65c35b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\index.html",
+      "sha256": "2974fd7a4b8e44c505f560ed09d461ba88f027a0fe05d77842889e69249b3550"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\media\\aethra-mega-hd-compressed.png",
+      "sha256": "9ad33d9cae4a47a8495649a4230b6ba1fbface57df483690b77f93061262fdc9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\media\\badlands-wadi-hd-compressed.png",
+      "sha256": "6405acdcbec5ebb4e829dc54ac2e4af3e02294019415daba7f2b784beed1b7b4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\media\\dragon_island.png",
+      "sha256": "72375d70398a5cee479cf771a68baca85d1af22866a3515bc1f6be3e48c1c169"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\media\\map-ansi16-small.png",
+      "sha256": "04371f3128cdf402453bdc7db3046ad7f334da8485180c7cfe3952e6d417f6d5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\mui\\en\\translation.json",
+      "sha256": "27544f18d65caf8a4f58b5a5071f6d3484b1c2d4f7a33be07a54fea39c5b5e39"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\mui\\zh_CN\\translation.json",
+      "sha256": "2ce058dd79ebb3d7239aa56ebde99eee5bfd3b6fc142b5eed4c4a1748a762569"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\package-lock.json",
+      "sha256": "0ecb2eebe228d3b45d99d5871d3d5be4dc834edf312e40be89387e9b17106beb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\package.json",
+      "sha256": "a1352c83f7dfc8214f6dcf45e8dbfe5454acde7bfff97c1f901a8578320d6ed4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\pnpm-lock.yaml",
+      "sha256": "a3ae8f0235da396a09deec199308965ea22bb3fe3f106697797c3efbb51388f6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\pnpm-workspace.yaml",
+      "sha256": "af3ec9d231d35fa6bef29fafd7fdc20f25ac0b852303fe229bee8a0c782a42b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\public\\favicon.svg",
+      "sha256": "82ab43ea3fff2833cb10c0c3aa430120bc262c756312e5305c244e8eecbd2170"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\public\\icons.svg",
+      "sha256": "dbddadb99d79166ade9e1c2f9ce46a61d17c19685d9f8666274f9fbe43657df6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\schemas\\gemap-v3-manifest.schema.json",
+      "sha256": "2a1b3cea86b44d6d8ce00ed0c7ce23d9435ddb71048e8901182d7cb1b0b355a9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\schemas\\gemap-v3-region.schema.json",
+      "sha256": "0609961e6f36edee993b388729cdc0c645c85b8332422e80086a35529b2d17b7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\build-bevy-web.sh",
+      "sha256": "5084a5d5f79db35dc71a36aeacf4e5a19756988115f6095f51dc30cca598156c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\canvas-perf-benchmark.mjs",
+      "sha256": "85cb0cfec8b48723a46bedd4ea1c09d0d3d0f9fdacacd0f55292bc168d11f90e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-automatic-roads.mjs",
+      "sha256": "7013ab0dd70662e076130f1a59d406a55bb6095e5759363aa7d58ef5fc7f6d59"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-bevy-fps.sh",
+      "sha256": "950c7660b870cba2cbf92c015da1eae6881ab17652d890e11188191287b82c5f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-ecology-drawcalls.mjs",
+      "sha256": "5eeb8486fb47c9414f90cef9b521a9502efa5ff50c46cca802c786b651217cdc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-frontage.mjs",
+      "sha256": "d022cb4190b230108a55668c980e8a8e36224fcdbe074f8a995482555990e71a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-height-preview-mismatch.mjs",
+      "sha256": "e82ed7b618088c54bf8102e674faa21eef63b891ac7b05234fe0d39d3d2227bf"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-landuse-ledger-preview.mjs",
+      "sha256": "3ccc6149487933dd45f08e5ee50b87df3a383aeccf5e36a1c25921b0b79cb49f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-maximum-preview.mjs",
+      "sha256": "bfe67be5b08973f96bc3b0fcf0e4ef1a486e8c6abeb141679691a1b8f85fe98c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-maximum-world.mjs",
+      "sha256": "c8f6c3da36281af88ee44fc59df53741e13f1ba2321015ddf1749ec80e51f248"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-camera.mjs",
+      "sha256": "edbf7072b5bc6cc1e371bf5ad106b5a9a8424b83610e058cb2e11d10f7d4c59a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-conservation.mjs",
+      "sha256": "e11d3faf77de91e3adbae43753104407b74f4ef54be13738ce0474d2097ade45"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-farm-access.mjs",
+      "sha256": "ddc73a358b2b5cf965ee618ebab14d0c0d0424a19f1a82d243aa333a21a4bd04"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-frontage.mjs",
+      "sha256": "fb7f7598108d983d4a0e1c480df8705cdf7ead1fbc277866fe3156afac68f914"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-graded-roads.mjs",
+      "sha256": "613976d00e5cbb761faf6277b0a9a821bc853a5c1fdd9770d1d185c84bc823b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-joint.mjs",
+      "sha256": "a3bc386de97a017ef8f631531b2d6fac8d68478611392b3cc781f7d7a65c2bbd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-preview-services.mjs",
+      "sha256": "69b8a366e46eb8630626637a6f0512034df236c344d3910e25be8916c6aa971e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-render-stream.mjs",
+      "sha256": "105ff6458c0d695ebcf8eb3df47e7a584b7866077a6831f73fb5e9b71d12bb49"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\check-road-corridor.mjs",
+      "sha256": "47640b82ded72318c34286d1a7792da434f479efcf6a89867db330316c5ead61"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\ecology-instancing.test.mjs",
+      "sha256": "7a2260b0e3217cb5b70361cc71ea095de96ea688eae0fd0e32dc9779c9824959"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\generate-grand-map.mjs",
+      "sha256": "d14b9abe292ea88538cf53dea2fced712377cfe0d8597e5b7cc0e9eacbf0eae9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\generate-tree.mjs",
+      "sha256": "81b45eeabb8c8985b616d5f30a7125bc4d55beaa7972e3c7a50ce86df69857e4"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\height-payload.test.mjs",
+      "sha256": "9bad843cb513e7b2d7c0b5dbcf4adb678cff365a59e6069b283d578ae55cbddd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\measure-world-bake.ps1",
+      "sha256": "8214572717716c267a99898ff318dc34daf5ee894db2e46803590e127dace770"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\planned-home.test.mjs",
+      "sha256": "98065b93735ac694059316cf16bc2306ad9565735ab12557c3e76b8cfef21092"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\planned-service.test.mjs",
+      "sha256": "1b93dafa4c551f380a13cb24c2eb45a82da35c6d77fd2a7b9ae37f8f39643e7f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\render-stream.test.mjs",
+      "sha256": "5735a3556868f560d7a5528d3fe146b8c0827d98edc5ba235900febfca73ea03"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\road-profile.test.mjs",
+      "sha256": "22c5ff6dc0f2e97a76ce4860bbc3f27d39b8c6079562eb8126bd01a7d4fbca1d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\api-doc.d.mts",
+      "sha256": "59869886815b93406dac90eaa1b8c13a3b3d1d52f238798f392ddf6c3de16e8f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\api-doc.mjs",
+      "sha256": "785e767990f6a76bfdf6fc6734856e3f2e963b35f4a6a00a355361a890d03e67"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\api-doc.test.mjs",
+      "sha256": "239d117716fc779c2c0c00a02d125b070db518f940e0722cfce6c05a81069b76"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\chat-tools.mjs",
+      "sha256": "694d6c20d6bb358f556f3a2ae4fe207441eaa9e90bd61e31bdcb286ab310bc19"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\chat.d.mts",
+      "sha256": "3cf46a57a7ba4a316816fe40bd2cc45218ccd58343193ccb661845883baf07db"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\chat.mjs",
+      "sha256": "08a4bd56fc749e526eef410abab4a62927c047a62e14565f46e88dc5c60d876c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\gemap-api.d.mts",
+      "sha256": "993ea7b375f155a5b550dd18ce9f369ff11af7ef3e10062b0e5166ad626e25fe"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\gemap-api.mjs",
+      "sha256": "48bdc7854e8fd9063385a11d47f4bb753951e8fa99744ee1a2507f41485b9aab"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\gemap-api.test.mjs",
+      "sha256": "bfee49b36502d8b3646aef8735fa182ef1cb8333b2845a4bd563b61c4e54ef1a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\gemap-runtime.test.mjs",
+      "sha256": "331875abe86c2808c6e90c0e4914499e1547f6f0b3ff4d1f04e6d68ddf4db60c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\gemap-runtime.ts",
+      "sha256": "b201b672979d8ffd38edc7096f2730bbb505799db54643da1d97d8a4fdea6f24"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\index.mjs",
+      "sha256": "87e1614cf984a86c8b48e81ae6c8539064e074b7f07ac4f065e0cf6a04ece0c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-convert.d.mts",
+      "sha256": "6fa162d4dd4eddcb81c47d7fd68970e7efbcf32ce23e42e528ae636d42a10256"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-convert.mjs",
+      "sha256": "766bb6404da377c2fb757ea2e79caac2eba3712eac2c44c655af2a9b77cb5a94"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-render-svg.d.mts",
+      "sha256": "b676587d89ebf8e01cc8cdbc411e4b8b4b9a712bda6fcb8f7a5bb3461fe6f99d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-render-svg.mjs",
+      "sha256": "e39c7694021a0431be053e427732d89a4c08b0d0fec069eee851d9f0e668d083"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-render.d.mts",
+      "sha256": "b427a60e894396e22afc0531d0a291e9a9c08bed85c036570bb32c84cc2b0bb2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-render.mjs",
+      "sha256": "d1793c70da86c38ab033778583b49ca2cdfa31ed805d2df2f8f1dddf8f1b0e0f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-shared.mjs",
+      "sha256": "f5c6fbe5110ef01754f99f4f9947158648df3e01d29e9bdfbda2ad3bac02e6c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\map-shared.test.mjs",
+      "sha256": "41c7845e8524b250f404960ed52e917a7ecf18f70f97f02262a9f5a305367792"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\server\\presets-catalog.mjs",
+      "sha256": "896b8829f8bcd2ea6a1c39f1800ee8246a5ac60cd2eb678fdb5567e330006b62"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\App.tsx",
+      "sha256": "855cc05e7a172ed355b707040a722a3f25640d3b5179a15c49815c6d788eb553"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\assets\\hero.png",
+      "sha256": "881ffbcaafc212e49addad08846a5b82761355fa20624253af3477ba33262c5c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\assets\\react.svg",
+      "sha256": "3399542686404e9c4285d5cf56897724e3cb1e7562b3d86711f99c2dd916f0b3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\assets\\vite.svg",
+      "sha256": "bd6235c6c517f55592c2b97adc22fed24327270b2d2648aa198ffe487c8e12af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\Titlebar.tsx",
+      "sha256": "5637197b269786bdc50949e0fd4d024eb477f1013bb0af6af2e31bb7d126b460"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\canvas\\MapCanvas.tsx",
+      "sha256": "1f4a7d034dec8689d4ef195e25404e068ec0a4ff9a4f3d19e33993b859bcf43c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\canvas\\Minimap.tsx",
+      "sha256": "60b2d8b6e5af1d70307efd5f571f9b10f1e5eca9491a4d3f3b11edb75f3eb4ac"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\canvas\\TileBatchLayer.tsx",
+      "sha256": "6d3ffacef1de0486b0c5b3eb61aed3d81bec02c9573ab6a90d9b3d9872cc8e9f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\canvas\\TileCell.tsx",
+      "sha256": "3fd8254ce858985e88b2ebecc17f38534705c37ccea0c29b2ad44af8888ef85f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\pages\\EditorPage.tsx",
+      "sha256": "9611a0a1b2910d400edabb39ed8d6d3e30c94e01641ffdd6fd8a9ce0f9733be0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\pages\\HomePage.tsx",
+      "sha256": "ce629f138cbf33cc1b3a39136b13f642768aa3c92d9e8a0fd18e56e8210d4963"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\pages\\ThemeWorkshop.tsx",
+      "sha256": "a7ffb2bd2f7ff0826796a7f0873472348d380356583350ada3915963c4869454"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\ChatPanel.tsx",
+      "sha256": "e5c4a4e36a9dda0c80255f98f3ed184f497bd7c6caa7b3ee1436efe8c62388bb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\ExportPanel.tsx",
+      "sha256": "e33f5e19982b0db7a7fd05f0b2db4f4d72c3e968aedbd1b7b12a3696147a6912"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\LayersPanel.tsx",
+      "sha256": "c85591b9dc9e4e4fccf8d459723e8e741b54bdca113681273a0560a5441f15e7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\PresetsPanel.tsx",
+      "sha256": "6d9f96ea34a827cc0eebbcf5afc08583d5b7b409e54282a88bfef044ee4bcc6a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\SettingsPanel.tsx",
+      "sha256": "f9b5f1af2b8ec5fec5ed01b3427d070344288da3167a13899d66190306e20d98"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\panels\\TilePalette.tsx",
+      "sha256": "7c6790f77d6f32bbd65b7177f017f95b21a2b2947945d25c432f76a7a34d2e66"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\toolbar\\Toolbar.tsx",
+      "sha256": "7d1d3a86e0b674d82af6234bcbfde36bff3ce345bb3f9257c27c07c27d7b2f88"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\button.tsx",
+      "sha256": "2f1ae57ead6c34698f2326070a132f41fc869b54d8f30070336cacd1649c65f0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\card.tsx",
+      "sha256": "4bf8c82ad7deda4e625105647c40c3a27f5d69ea81cd4ad0a3837e198f98bfe2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\dialog.tsx",
+      "sha256": "97dc382ad0d0d2a6d4b2179dc55107b012759918aa4ffee7bbe9f4f2bac01bc9"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\input.tsx",
+      "sha256": "96a49a981e294b6b9652a53fd4bfabc2f942d29180a80ba16bc82ccc955841ff"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\label.tsx",
+      "sha256": "94c0197dad14b20b7c5bd080e6c2de798f522008b99f082aad2c42f1f4da2d1c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\radio-group.tsx",
+      "sha256": "036d6c19141029afd5775238f5ffde68f3ec03e8aab6cd8d1b0047241e90c53a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\scroll-area.tsx",
+      "sha256": "5a97886b1c332acd2c5507883719071089814519b3141f87cd2a00439f84dc7f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\select.tsx",
+      "sha256": "bb61bc6dae9e7d5d557c16d58a6594e7a72b217f1802ce16de3b593168309d2e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\separator.tsx",
+      "sha256": "151ae0e5ed68bbfd35586c9b24f6cfaf4020d31d4f6a264a410f1d79180f2409"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\tabs.tsx",
+      "sha256": "9d8ea202b1a08885708423830232014b4f2d2b9040b80f237d38272a274e039c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\toggle-group.tsx",
+      "sha256": "070827219870571a89da214ebb014aef7a3505d68828489ab93461c85e2e01cf"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\toggle.tsx",
+      "sha256": "fa350a34057f2b866abf11bad7d4151032e236fed76a3ffd3f4164df3ccf480c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\components\\ui\\tooltip.tsx",
+      "sha256": "13ec287273e9b9055df48c965aae9891b46984344d23c2ff0cf30b1ca5ef7ed3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\constants\\ascii-glyphs.ts",
+      "sha256": "759d4a62a56bfb37081c2f5ef664767f787eb207a8b036abbad7da3b16d9a9cd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\constants\\demo-map.ts",
+      "sha256": "232cc2dd4b1a96cded6c79cce7fe3a54b830ecca2b8417c2f0360b25410fc6ee"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\constants\\presets.ts",
+      "sha256": "7a0809eed3d3f700b13c691f13d7babaedd078da595f25dabc6e6e161698baf8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\constants\\themes.ts",
+      "sha256": "d22cc9d6b985042510963be18f36f45ba76ca37e669dffa66f4435845e03be96"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\constants\\tiles.ts",
+      "sha256": "4c685d8f62b155eaad01006038fb78e82775cdd0296e8996453df5e8aefbe59c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\hooks\\useCanvas.ts",
+      "sha256": "e1b2031ab9f511ed08a82db8728552860782f1e0a343cfa3f115d13fb12b51e1"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\hooks\\useKeyboard.ts",
+      "sha256": "3d6c3016f72ed82f99d8c3290f0f9b3bf059e530e2f16931a8e58141eb2d0d0a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\i18n.ts",
+      "sha256": "8a0dc39905d56dc93e8dbb366a29add25e55fb32239f5577efd3594bb9cfc426"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\index.css",
+      "sha256": "4a1157cac032eec3594d4a32603582a25927f434525ff98c2d657f0ded5299d5"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap-import.test.ts",
+      "sha256": "f131be701528a14bbee49870c5e74fb3ae837591743b46ae55cc4f8b697b0b17"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap-import.ts",
+      "sha256": "30a0b391c34fd529bf674a131bf7c89fe5909e9e3ce342ff639364e7f85a7789"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap-schema.test.ts",
+      "sha256": "c549fb5befaf12d8568cb84a644d1da2915614df097c6465397649836e4bc99d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\bitpack.test.ts",
+      "sha256": "d662dfb12b7120eea855f28c0e6117181ea664c18704d9cf452a6a663a4a8d3e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\bitpack.ts",
+      "sha256": "1798abd498e0efea20d2e710ceebe635d29c551f99f6224acafcb49161315469"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\builder.test.ts",
+      "sha256": "e9003cbf3d789567665a4417ca2788fa42d2b1cb1cf3e6f63e7f759311a0b471"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\builder.ts",
+      "sha256": "110454aa552b5d68ff6c481c56a451ab92d3fe6c2335644bd1c540eb7dd9b1ae"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\canonical.test.ts",
+      "sha256": "0998c0dc52279eeb4dbba028d0f7871b28895aa7426442dc217ce243c01cc625"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\canonical.ts",
+      "sha256": "745f1d2df01c5672b51c649091b0b8c5719bf33b58e9ce7c52f610097e629e00"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\codec.test.ts",
+      "sha256": "4738f6bc629f345abf4ca35ea87c8611d18b854a89a43713432dabda6a7ad2f8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\codec.ts",
+      "sha256": "62689c226be94eaee26a1415a99ca055c208e90cc9cb5be5559c6d41049a7006"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\errors.ts",
+      "sha256": "ef9c29dd755635e9fe451a5e14b63d50a115dc31ffba49a75474d2e4043847fb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\index.ts",
+      "sha256": "44c0c495d048715b5b552631e67f46373914aa1daf4fb6ee89a52b982bc2a076"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\migration.test.ts",
+      "sha256": "01e59cd083208de69b36844664d7dd2cf8c49fd14528be76790b9f4a0721cfc3"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\migration.ts",
+      "sha256": "9a5b028cb14fa4679ceb8294f55c29767b9a58870e700a8818f4ccf45e0b6f1f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\types.ts",
+      "sha256": "a12b34b17307730014f75ffa19296b8cb117b88854c561bd7827a89196de1a0b"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\validation.ts",
+      "sha256": "25b50cfcc72f61000da1a9cabf0f4072ac8a7a577a0cec1bf06943fd2daccb5e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\zip.test.ts",
+      "sha256": "a11b72ebae7def4df0b1e8fbfc975c73a84da421a5781c5f2fed017bd0ba1a5d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\gemap\\zip.ts",
+      "sha256": "648258a350af3b624d6d1568db4a408d9b71a87a1e5feeb2ce5b511d4b643bda"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\image-convert.test.ts",
+      "sha256": "ac96a7f2af2667a886ab5bdd7eb4517cba4db26f150ae37870af108e4d0ac06d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\image-convert.ts",
+      "sha256": "a0069b99cdf682f31ed8beb75328da61180e5705393ad86c052fddc7f3961656"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\map-core.test.ts",
+      "sha256": "cdcd0b8077c32825ded4cd500ca3f7e2ff7a7f35dab8fa2ffb5f86172496b79d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\map-core.ts",
+      "sha256": "5395e291310b853b55a92139284ad3ade23fa08da211d8fb15d667c47a04cccd"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\map-tools.ts",
+      "sha256": "5106999dd514db85b08e92b2a624da438c3e722d4cdcd750216dcb0ebffb7e6e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\map-validate.test.ts",
+      "sha256": "7a6c3fe633d3d336300e905622351a777b0161f8fc4a67e358ed3045f8c5fc15"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\map-validate.ts",
+      "sha256": "db8a1077db33881b3dd18e0e4e6a2f775267bd42a718371cf40c424606aa975d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-batches.test.ts",
+      "sha256": "efb3dd287662a483712c0ae15f2e92142c61b8c23e61aeaa3b310eab34f7867c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-batches.ts",
+      "sha256": "119548fa441b271f1430e06671a7b1e93987e7c0fb50410fd577eb3bccb636f6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-surface-protocol.d.mts",
+      "sha256": "399214615158815162311d3ea544cc3cca9ca0a4b59862e9127b29f0906f65dc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-surface-protocol.mjs",
+      "sha256": "fd8403320b0d5b3892a263faff1014f9c6b771d64499bfbfb8963ba5f50c8e1c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-surface.test.ts",
+      "sha256": "d8594006febe7225c0399ec16ad63a6585d6bd3b728687591d9780d1c83edd33"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\render-surface.ts",
+      "sha256": "0c28fbcaa76a5340ac2c18671c9fac16da5953ae0689886971b134e006437279"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\ascii.ts",
+      "sha256": "de7f66fdf9e7c06d107a3a3c78e50210b7627332aa18724d181af3c1bb6c76cf"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\index.ts",
+      "sha256": "aa7e9e0704df9c080d62a5046573245201530307e5e8a81967fd1209992fa5b7"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\pixel.ts",
+      "sha256": "c783f3481f3a69ef038bf84358a22208aec418217fe32eabc36ff0a6a164f591"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\register.ts",
+      "sha256": "23153801bd4234c63f897246276f6499f06296c8d6bdfb22daefa588aab991b2"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\voronoi.ts",
+      "sha256": "0adfa29726397a6e490d1aaca9092f2169413002a732be61d0aa370ef37a24ce"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\surfaces\\voxel.ts",
+      "sha256": "4a00f0639d8b01d0a1a5c2ae69d09d0e1e665acd888378d0ed19a2a0036cff38"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\theme-registry.test.ts",
+      "sha256": "fb9cb47871780b2860ad950c906dc76ee3de1fe92a42431be793d196bd06e467"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\theme-registry.ts",
+      "sha256": "cf0aaf4668e0a37db2fe3b2c58a9bd1ef4356753ab8c09ae9cd50754404cc195"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\tile-history.test.ts",
+      "sha256": "b1808639c805c03f0ca00008ff39520d186e20d7fe22a61afd5a00755289722a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\tile-history.ts",
+      "sha256": "587964a5f2a3f594644838059ffe30bd34cd8de1cb8d90fbb6640b40951077c8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\utils.ts",
+      "sha256": "74a147991a119f1c4cdc25a4d9b22713632fa32eb136e55ab6939b006d71b9d6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\viewport.test.ts",
+      "sha256": "c13612e6967b03303125a19c5e68d8b085c6b5edbdc47d5aabb0c5a12046e2bb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\viewport.ts",
+      "sha256": "d37a1fe05ed123be16062c3bcfd020b7d6628a605fa69911088071dc45081f65"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\voxel-map.test.ts",
+      "sha256": "380abd00fc4d484ce084ef3a3e11077a58728556c0cc8de886d99e9e0eb8401e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\lib\\voxel-map.ts",
+      "sha256": "4052f3fefbd0352ee6839cc1864061e64541a079d62542be2a5d3febec284d0c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\main.tsx",
+      "sha256": "ea83afdb0771e6971be897be4c5ebf02e510b99c00cec32325985d225be2d9af"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\stores\\map-store.test.ts",
+      "sha256": "f28b116f1a22096318e4c51b1807758146776e0f11fedcbf428f8fe678a14ae0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\stores\\map-store.ts",
+      "sha256": "eebef851a23d183ea45a708ea75cffffc301991df0815d3ed79782ac7048c4ad"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\stores\\ui-store.ts",
+      "sha256": "337322b3e1f4c0770e4d80c136ca01e63b3de08f827c0606f80a0b1614ccc8ef"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\types\\index.ts",
+      "sha256": "e8d33e2119867d2166e3f1b2046f1d08a5c42770f6043e18d0b1d3a229a105d0"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\src\\worker.ts",
+      "sha256": "311a6c4938395b86732c5c747a161baa5bc2d2bbdbb87ad26be44285e8563d2d"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\tools\\gis-convert-to-manifest.js",
+      "sha256": "b16a91372296f7fe805525d5eae49f24975fc97c3fc28ccb55d3557095c0f83a"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\tools\\gis-fetch-overpass.js",
+      "sha256": "b191af362b7a2a0c7d175a9f979fbaa57deddb3f37af116388b9078154c9f3d6"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\tsconfig.app.json",
+      "sha256": "7375e65592242b43155ed8dcd7534f36b1d42bf10db178570bd388cb6e74d15e"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\tsconfig.json",
+      "sha256": "1ea6f4a73e5185ff91b2d7b2fe4b1b31a6fdda943ecea2f446c074d4dacb2722"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\tsconfig.node.json",
+      "sha256": "0ba35ad3da0eaed1d1c66b96f1d6ee97adae800cd8211d227b00c4cc79dc9172"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\vite.config.ts",
+      "sha256": "2aedab72fb78b16263a25dc12724380c9ead396a7616c18db1dad12eb87cbf1f"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\vitest.config.ts",
+      "sha256": "35e280d86db3d95a774488c73b42878232e166e202893b52aa47451a21c19feb"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\work.txt",
+      "sha256": "d93ce1143b2536f17a27b7bad27afb2370e888f9838d4ec751905e628aa00b22"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\wrangler.bevy.jsonc",
+      "sha256": "8370e78179004abc75f3e8e0900a98220f9a44d453818e072f2de3d649d2a1cc"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\wrangler.jsonc",
+      "sha256": "1a3f5f69bd61ae6f7a8590c086b152ba4555640ec0dd3386e9661b340ab61e31"
+    }
+  ]
+}

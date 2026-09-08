@@ -1,7 +1,5 @@
 {
-  "version": 1,
-  "license": "CC0-1.0",
-  "source": "Quaternius Stylized Nature MegaKit Standard",
+  "version": 2,
   "assets": {
     "prop.tree": {
       "format": "gltf",
@@ -9,7 +7,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-cylinder"
+      "collision": "generated-cylinder",
+      "license": "CC0-1.0",
+      "source": "Quaternius Stylized Nature MegaKit Standard",
+      "provenance": "confirmed by stylized-nature/License_Standard.txt and https://quaternius.com/packs/stylizednaturemegakit.html"
     },
     "prop.bush": {
       "format": "gltf",
@@ -17,7 +18,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0",
+      "source": "Quaternius Stylized Nature MegaKit Standard",
+      "provenance": "confirmed by stylized-nature/License_Standard.txt and https://quaternius.com/packs/stylizednaturemegakit.html"
     },
     "prop.rock": {
       "format": "gltf",
@@ -25,7 +29,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0",
+      "source": "Quaternius Stylized Nature MegaKit Standard",
+      "provenance": "confirmed by stylized-nature/License_Standard.txt and https://quaternius.com/packs/stylizednaturemegakit.html"
     },
     "prop.building": {
       "format": "obj",
@@ -34,7 +41,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
+      "source": "Quaternius building assets; exact pack unresolved",
+      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.small": {
       "format": "obj",
@@ -43,7 +53,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
+      "source": "Quaternius building assets; exact pack unresolved",
+      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.wide": {
       "format": "obj",
@@ -52,7 +65,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
+      "source": "Quaternius building assets; exact pack unresolved",
+      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.round": {
       "format": "obj",
@@ -61,7 +77,10 @@
       "unit": "meter",
       "origin": "asset",
       "forward": "+z",
-      "collision": "generated-box"
+      "collision": "generated-box",
+      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
+      "source": "Quaternius building assets; exact pack unresolved",
+      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
     }
   }
 }

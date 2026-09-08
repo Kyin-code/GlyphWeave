@@ -15,6 +15,10 @@ use crate::settlement::{
     realize_infrastructure_plan, realize_parcel_plan, validate_parcel_plan,
 };
 mod access;
+#[path = "worldgen/entity_identity.rs"]
+mod entity_identity;
+pub use entity_identity::{ENTITY_ID_SCHEME, EntityCandidateKey, EntityChangeKind, EntityChangeApproval, EntityInventoryMode, EntityInventoryChange, EntityInventoryAudit, audit_entity_inventory};
+use entity_identity::CandidateIds;
 mod access_surface;
 pub use access::{AccessGraph, AccessLink, AccessPoint, build_access_graph};
 pub use access_surface::{AccessSurface, bake_access_surfaces, validate_access_surfaces};
@@ -43,7 +47,7 @@ use thiserror::Error;
 pub const WORLD_FORMAT: &str = "glyphweave-world";
 pub const WORLD_VERSION: u32 = 1;
 /// Bump when the serialized world semantics or deterministic bake algorithm changes.
-pub const WORLD_GENERATOR_REVISION: &str = "worldgen-2026-09-07-r49-indexed-pedestrian-clearance";
+pub const WORLD_GENERATOR_REVISION: &str = "worldgen-2026-09-08-r51-stable-v1-transport-identity";
 pub const STREAM_CHUNK_METERS: u32 = 512;
 pub const MIN_SCENE_METERS: u32 = 512;
 pub const MAX_SCENE_WIDTH_METERS: u32 = 6_000;
@@ -2178,7 +2182,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 &manifest.style,
                 road_plan.as_ref(),
                 development_plan.as_ref(),
-            );
+            )?;
         if let Some((proposed_count, outcome)) = placement_outcome {
             let mut by_reason = BTreeMap::<String, usize>::new();
             for reject in &outcome.rejected {
@@ -2330,18 +2334,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         baked_samples.require_complete()?;
         rebase_entities_to_baked_surface(&mut entities, &baked_samples);
         rebase_generated_transport_to_baked_surface(&mut entities, &landmarks, &baked_samples);
+        // The graph and persisted access surfaces are derived from this final
+        // entity slice. Fixed frontage is protected inside
+        // `place_generated_entrances`; do not restore an entity after graph
+        // construction, because that would make the graph stale.
         let mut access_graph =
             access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
-        // Planned frontage entrances are already a Rust-owned engineering
-        // contract; generic fallback must not rotate them away from the road.
-        for planned in entities.iter_mut().filter(|e| e.grounding.frontage_road_point.is_some()) {
-            let expected = road_plan.as_ref().and_then(|p| p.roadside_sites.iter().find(|s| s.id == planned.entity_id));
-            if let Some(site) = expected {
-                let authoritative = site.entity();
-                *planned = authoritative;
-                planned.normalize_spatial_semantics();
-            }
-        }
         // Final planned/authored obligations cannot be deleted to improve a gate.
         let protected_access_ids: std::collections::BTreeSet<String> = landmarks
             .iter()
@@ -2951,6 +2949,10 @@ fn write_html_preview_modules(preview: &Path) -> WorldgenResult<()> {
             include_bytes!("../../../../adapters/html/vendor/three/build/three.core.js"),
         ),
         (
+            "vendor/three/LICENSE",
+            include_bytes!("../../../../adapters/html/vendor/three/LICENSE"),
+        ),
+        (
             "vendor/three/build/three.module.js",
             include_bytes!("../../../../adapters/html/vendor/three/build/three.module.js"),
         ),
@@ -3187,9 +3189,24 @@ fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
     }
     fs::write(
         assets.join("LICENSE.txt"),
+        b"GlyphWeave preview asset notices\n\nThis bundle includes third-party assets.\nSee THIRD_PARTY_NOTICES.md and licenses/ for the component notices.\n",
+    )?;
+    fs::create_dir_all(assets.join("licenses"))?;
+    fs::write(
+        assets.join("licenses").join("quaternius-stylized-nature-CC0.txt"),
         include_bytes!(
             "../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"
         ),
+    )?;
+    fs::write(
+        assets
+            .join("licenses")
+            .join("quaternius-buildings-NOTICE.txt"),
+        include_bytes!("../../../../assets/third_party/quaternius/buildings/NOTICE.txt"),
+    )?;
+    fs::write(
+        assets.join("THIRD_PARTY_NOTICES.md"),
+        include_bytes!("../../../../THIRD_PARTY_NOTICES.md"),
     )?;
     // Rewrite source-relative registry paths to the self-contained published
     // preview asset bundle. The generated preview must not point back into the
@@ -4402,6 +4419,7 @@ fn generate_entities_with_geometry(
         None,
         None,
     )
+    .expect("valid candidate identity")
     .0
 }
 
@@ -4413,7 +4431,7 @@ fn generate_entities_with_profile(
     geometry: WaterGeometry,
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
-    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None).0
+    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None).expect("valid candidate identity").0
 }
 
 fn generate_entities_with_profile_report(
@@ -4424,13 +4442,15 @@ fn generate_entities_with_profile_report(
     style: &serde_json::Value,
     road_plan: Option<&road_network::RoadNetworkPlan>,
     development_plan: Option<&DevelopmentPlan>,
-) -> (
+) -> WorldgenResult<(
     Vec<EntityInstance>,
     Option<(usize, crate::rules::PlacementOutcome)>,
     Vec<DevelopmentProposal>,
-) {
+)> {
+    let ids = CandidateIds::new(&scene.scene_id);
     let mut development_proposals = Vec::new();
-    let mut entities = generate_entities_template(seed, scene, landmarks, geometry);
+    let mut entities = generate_entities_template(seed, scene, landmarks, geometry, &ids);
+    ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
     // When a normalized settlement intent is present for a water scene, the
     // generic intent planner owns ordinary buildings. Remove only the legacy
     // generated building filler; authored/GIS landmarks and water/transport
@@ -4600,8 +4620,8 @@ fn generate_entities_with_profile_report(
         // is important here: the planner consumes normalized intent/profile
         // fields and never branches on a place name.
         match explicit_settlement {
-            Some("wilderness") => append_natural_content(seed, scene, &mut entities),
-            Some("pastoral") => append_pastoral_intent_content(seed, scene, &mut entities),
+            Some("wilderness") => append_natural_content(seed, scene, &mut entities, &ids),
+            Some("pastoral") => append_pastoral_intent_content(seed, scene, &mut entities, &ids),
             Some("city" | "town") if style.get("landUseProfile").is_some() => {
                 append_modern_landuse_content(
                     seed,
@@ -4611,10 +4631,11 @@ fn generate_entities_with_profile_report(
                     road_plan,
                     development_plan,
                     &mut development_proposals,
+                    &ids,
                 )
             }
-            Some("city" | "town") => append_generic_land_content(seed, scene, &mut entities),
-            Some(_) => append_generic_land_content(seed, scene, &mut entities),
+            Some("city" | "town") => append_generic_land_content(seed, scene, &mut entities, &ids),
+            Some(_) => append_generic_land_content(seed, scene, &mut entities, &ids),
             None => {
                 // Legacy manifests retain their established behavior.
                 let natural_only = style
@@ -4631,20 +4652,22 @@ fn generate_entities_with_profile_report(
                             road_plan,
                             development_plan,
                             &mut development_proposals,
+                            &ids,
                         );
                     } else {
-                        append_generic_land_content(seed, scene, &mut entities);
+                        append_generic_land_content(seed, scene, &mut entities, &ids);
                     }
                 } else {
-                    append_natural_content(seed, scene, &mut entities);
+                    append_natural_content(seed, scene, &mut entities, &ids);
                 }
             }
         }
     } else if matches!(explicit_settlement, Some("city" | "town")) {
         // Water geometry is already present in the template. Add the settlement
         // on its derived banks/shoreline rather than using fixture coordinates.
-        append_waterfront_intent_settlement(seed, scene, geometry, &mut entities, style);
+        append_waterfront_intent_settlement(seed, scene, geometry, &mut entities, style, &ids);
     }
+    ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
     // Content planners run after the template retain pass, so enforce the
     // final road/building clearance once all generated details exist.
     sanitize_natural_detail_clearance(&mut entities);
@@ -4705,7 +4728,8 @@ fn generate_entities_with_profile_report(
             }
         }
     }
-    (entities, placement_outcome, development_proposals)
+    ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
+    Ok((entities, placement_outcome, development_proposals))
 }
 
 /// Re-validate / re-place the template-generated entities through the rules
@@ -5580,6 +5604,7 @@ fn append_waterfront_intent_settlement(
     water: WaterGeometry,
     entities: &mut Vec<EntityInstance>,
     style: &serde_json::Value,
+    ids: &CandidateIds,
 ) {
     let Some(settlement) = generation_settlement(style) else {
         return;
@@ -5635,20 +5660,27 @@ fn append_waterfront_intent_settlement(
             "commercial_center",
         )
     });
-    for (core_index, (core_x, core_z, positive_bank)) in cores.into_iter().enumerate() {
-        let serial = 700_000_u32 + core_index as u32 * 100;
+    for (core_x, core_z, positive_bank) in cores {
         let road_is_vertical = water.kind == WaterKind::River;
         let (road_w, road_d, road_id) = if road_is_vertical {
             (
                 (scene.depth_m.saturating_sub(80)) as f32,
                 10.0,
-                format!("generated.intent-road-ns.{serial}"),
+                ids.claim(
+                    "intent-road-ns",
+                    "road",
+                    &[i64::from(core_x), i64::from(core_z)],
+                ),
             )
         } else {
             (
                 (scene.width_m.saturating_sub(80)) as f32,
                 10.0,
-                format!("generated.intent-road-ew.{serial}"),
+                ids.claim(
+                    "intent-road-ew",
+                    "road",
+                    &[i64::from(core_x), i64::from(core_z)],
+                ),
             )
         };
         let road_y =
@@ -5681,7 +5713,7 @@ fn append_waterfront_intent_settlement(
             }
             let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
-                format!("generated.intent-{kind}.{}", serial + offset as u32),
+                ids.claim(&format!("intent-{kind}"), kind, &[i64::from(core_x), i64::from(core_z), offset as i64]),
                 kind,
                 x,
                 z,
@@ -5714,7 +5746,7 @@ fn append_waterfront_intent_settlement(
             }
             let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
-                format!("generated.intent-residential.{}", serial + 20 + row as u32),
+                ids.claim("intent-residential", "residential_block", &[i64::from(core_x), i64::from(core_z), i64::from(row)]),
                 "residential_block",
                 x,
                 z,
@@ -5734,6 +5766,7 @@ fn append_pastoral_intent_content(
     seed: u64,
     scene: &SceneSpec,
     entities: &mut Vec<EntityInstance>,
+    ids: &CandidateIds,
 ) {
     let land = WaterGeometry {
         kind: WaterKind::None,
@@ -5766,7 +5799,7 @@ fn append_pastoral_intent_content(
                     0.0,
                 )) / 4;
                 entities.push(generated_intent_entity(
-                    format!("generated.intent-rural.{serial}"),
+                    ids.claim("intent-rural", kind, &[i64::from(x), i64::from(z)]),
                     kind,
                     x,
                     z,
@@ -5789,7 +5822,7 @@ fn append_pastoral_intent_content(
                         "water_well",
                     ) {
                         entities.push(generated_intent_entity(
-                            format!("generated.intent-well.{serial}"),
+                            ids.claim("intent-well", "water_well", &[i64::from(x), i64::from(z)]),
                             "water_well",
                             well_x,
                             well_z,
@@ -5812,7 +5845,7 @@ fn append_pastoral_intent_content(
                         "residential_home",
                     ) {
                         entities.push(generated_intent_entity(
-                            format!("generated.intent-home.{serial}"),
+                            ids.claim("intent-home", "residential_home", &[i64::from(x), i64::from(z)]),
                             "residential_home",
                             home_x,
                             home_z,
@@ -5832,8 +5865,7 @@ fn append_pastoral_intent_content(
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,
 /// bushes, rocks and grass clumps over a deterministic grid, with jitter.
 /// No roads, no buildings, no paths — just open wild land.
-fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>) {
-    let mut serial = 0_u32;
+fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>, ids: &CandidateIds) {
     for z in (20..scene.depth_m.saturating_sub(8)).step_by(16) {
         for x in (20..scene.width_m.saturating_sub(8)).step_by(16) {
             let jx = signed_noise(seed.rotate_left(211), x as i32, z as i32);
@@ -5877,7 +5909,7 @@ fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<Entit
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: format!("generated.natural.{serial}"),
+                entity_id: ids.claim("natural", kind, &[i64::from(x), i64::from(z)]),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.to_owned(),
                 world_x: wx,
@@ -5888,12 +5920,11 @@ fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<Entit
                 depth_m: w,
                 height_m: h,
             });
-            serial += 1;
         }
     }
 }
 
-fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>) {
+fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>, ids: &CandidateIds) {
     let center_x = scene.origin_x + (scene.width_m / 2) as i32;
     let center_z = scene.origin_z + (scene.depth_m / 2) as i32;
     let road_y = i32::from(terrain_height(
@@ -5937,7 +5968,6 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
         depth_m: 12.0,
         height_m: 0.24,
     });
-    let mut serial = 100_000_u32;
     for z in (scene.origin_z + 40..scene.origin_z + scene.depth_m as i32 - 40).step_by(40) {
         for x in (scene.origin_x + 40..scene.origin_x + scene.width_m as i32 - 40).step_by(40) {
             if (x - center_x).abs() < 30 || (z - center_z).abs() < 30 {
@@ -5983,7 +6013,7 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: format!("generated.auto-{kind}.{serial}"),
+                entity_id: ids.claim(&format!("auto-{kind}"), kind, &[i64::from(x), i64::from(z)]),
                 asset_id: asset_id.to_owned(),
                 kind: kind.to_owned(),
                 world_x: x,
@@ -5994,7 +6024,6 @@ fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<
                 depth_m: depth,
                 height_m: height,
             });
-            serial += 1;
         }
     }
 }
@@ -6080,6 +6109,7 @@ fn append_modern_landuse_content(
     road_plan: Option<&road_network::RoadNetworkPlan>,
     development_plan: Option<&DevelopmentPlan>,
     development_proposals: &mut Vec<DevelopmentProposal>,
+    ids: &CandidateIds,
 ) {
     let params = CityFormParams::resolve(style);
     let min_x = scene.origin_x + 80;
@@ -6148,8 +6178,20 @@ fn append_modern_landuse_content(
         zoning: source_zoning.as_ref(),
     };
     let candidate_identity = std::cell::RefCell::new(None::<String>);
+    // Optional planner-name override for fixed singleton placements that must
+    // not share a stable-ID slot with a grid proposal of the same kind.
+    let candidate_planner = std::cell::RefCell::new(None::<String>);
     let mut add = |kind: &str, x: i32, z: i32, width: f32, depth: f32, height: f32| -> bool {
         let planned_id = candidate_identity.borrow_mut().take();
+        let planned_planner = candidate_planner.borrow_mut().take();
+        // Claim the original proposal slot before constraints or engine movement.
+        // Planned IDs remain authoritative. Transport kinds use planner names
+        // that retain their direction suffix (`landuse-road-ns`), because
+        // downstream constructors and access ordering still consume it.
+        let optional_id = planned_id.is_none().then(|| {
+            let planner = planned_planner.unwrap_or_else(|| format!("landuse-{kind}"));
+            ids.claim(&planner, kind, &[i64::from(x), i64::from(z)])
+        });
         if development_plan.is_some()
             && (crate::settlement::is_building(kind)
                 || matches!(kind, "canal" | "railway" | "parking_lot"))
@@ -6360,7 +6402,7 @@ fn append_modern_landuse_content(
             grounding: GroundingSpec::default(),
             anchors: Vec::new(),
             bounds: None,
-            entity_id: planned_id.unwrap_or_else(|| format!("generated.landuse-{kind}.{serial}")),
+            entity_id: planned_id.or(optional_id).unwrap_or_else(|| format!("generated.landuse-{kind}.{serial}")),
             asset_id: format!("prop.{entity_kind}"),
             kind: entity_kind.to_owned(),
             world_x: x,
@@ -6872,6 +6914,10 @@ fn append_modern_landuse_content(
             );
         }
     }
+    // Fixed corner pasture guarantees a pasture on small scenes; use a
+    // dedicated planner so its stable ID cannot collide with a grid pasture
+    // that happens to land on the same cell.
+    *candidate_planner.borrow_mut() = Some("landuse-pasture-corner".into());
     add("pasture", max_x - 120, max_z - 120, 100.0, 90.0, 0.2);
     let reserve_count = ((reserve_ratio * 10.0).ceil() as i32).max(1);
     for index in 0..reserve_count {
@@ -6909,7 +6955,7 @@ fn append_modern_landuse_content(
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: format!("generated.landuse-mountain_forest.{serial}"),
+                entity_id: ids.claim("landuse-forest-belt", "mountain_forest", &[i64::from(bx), i64::from(bz)]),
                 asset_id: "prop.mountain_forest".to_owned(),
                 kind: "mountain_forest".to_owned(),
                 world_x: bx,
@@ -6920,7 +6966,6 @@ fn append_modern_landuse_content(
                 depth_m: bd,
                 height_m: 16.0,
             });
-            serial += 1;
         }
     }
 }
@@ -7047,6 +7092,7 @@ fn generate_entities_template(
     scene: &SceneSpec,
     landmarks: &[LandmarkSpec],
     geometry: WaterGeometry,
+    ids: &CandidateIds,
 ) -> Vec<EntityInstance> {
     let mut entities = Vec::new();
     for landmark in landmarks {
@@ -7233,7 +7279,6 @@ fn generate_entities_template(
         let left_hi = (center_x - half_width - 90).max(left_lo + 60);
         let right_lo = center_x + half_width + 90;
         let right_hi = scene.width_m as i32 - 140;
-        let mut block_serial = 40_000_u32;
         for (band_lo, band_hi) in [(left_lo, left_hi), (right_lo, right_hi)] {
             for z in (220..scene.depth_m.saturating_sub(220)).step_by(60) {
                 for x in (band_lo..band_hi).step_by(46) {
@@ -7278,7 +7323,7 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: format!("generated.resort-lodge.{block_serial}"),
+                            entity_id: ids.claim("resort-lodge", "resort_lodge", &[i64::from(band_lo), i64::from(x), i64::from(z)]),
                             asset_id: "prop.resort-lodge".to_owned(),
                             kind: "resort_lodge".to_owned(),
                             world_x,
@@ -7296,7 +7341,7 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: format!("generated.block-tower.{block_serial}"),
+                            entity_id: ids.claim("block-tower", "building_tower", &[i64::from(band_lo), i64::from(x), i64::from(z)]),
                             asset_id: "prop.building-tower".to_owned(),
                             kind: "building_tower".to_owned(),
                             world_x,
@@ -7308,11 +7353,9 @@ fn generate_entities_template(
                             height_m: tower_h,
                         });
                     }
-                    block_serial += 1;
                 }
             }
         }
-        let mut frontage_serial = 50_000_u32;
         for side in [-1_i32, 1_i32] {
             let frontage_x = center_x + side * (half_width + 150);
             // Skip the whole shopfront row if the road-side lot would fall
@@ -7337,7 +7380,7 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: format!("generated.storefront.{frontage_serial}"),
+                    entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 0, i64::from(z)]),
                     asset_id: "prop.storefront".to_owned(),
                     kind: "storefront".to_owned(),
                     world_x: frontage_x,
@@ -7348,7 +7391,6 @@ fn generate_entities_template(
                     depth_m: 12.0,
                     height_m: height,
                 });
-                frontage_serial += 1;
             }
             // Street trees line the sidewalk between the shopfront and the
             // road: a shop sits on the pavement inner edge, the tree row runs
@@ -7361,7 +7403,6 @@ fn generate_entities_template(
             // shop) so the canopy never grows into the facade.
             let shop_wall = frontage_x - side * 6;
             let tree_x = shop_wall - side * 2;
-            let mut tree_serial = 70_000_u32 + if side < 0 { 0 } else { 10_000 };
             for z in (176..scene.depth_m.saturating_sub(120)).step_by(30) {
                 let world_z = scene.origin_z + z as i32;
                 let roll = signed_noise(seed.rotate_left(109), tree_x, world_z);
@@ -7376,7 +7417,7 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: format!("generated.street-tree.{tree_serial}"),
+                    entity_id: ids.claim("street-tree", "tree", &[i64::from(side), 0, i64::from(z)]),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
                     world_x: tree_x,
@@ -7387,7 +7428,6 @@ fn generate_entities_template(
                     depth_m: crown,
                     height_m: height,
                 });
-                tree_serial += 1;
             }
             let second_tree_x = road_axis - side * 18;
             for z in (190..scene.depth_m.saturating_sub(120)).step_by(30) {
@@ -7407,7 +7447,7 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: format!("generated.street-tree.{tree_serial}"),
+                    entity_id: ids.claim("street-tree", "tree", &[i64::from(side), 1, i64::from(z)]),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
                     world_x: second_tree_x,
@@ -7418,7 +7458,6 @@ fn generate_entities_template(
                     depth_m: crown,
                     height_m: height,
                 });
-                tree_serial += 1;
             }
             let second_row_x = frontage_x + side * 72;
             // Only a second row of shops if there is actually room for it on
@@ -7444,7 +7483,7 @@ fn generate_entities_template(
                         grounding: GroundingSpec::default(),
                         anchors: Vec::new(),
                         bounds: None,
-                        entity_id: format!("generated.storefront.{frontage_serial}"),
+                        entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 1, i64::from(z)]),
                         asset_id: "prop.storefront".to_owned(),
                         kind: "storefront".to_owned(),
                         world_x: second_row_x,
@@ -7455,7 +7494,6 @@ fn generate_entities_template(
                         depth_m: 14.0,
                         height_m: 7.0 + roll.rem_euclid(6) as f32,
                     });
-                    frontage_serial += 1;
                 }
             }
             // Inland city band: on the far side of the waterfront road from the
@@ -7470,7 +7508,6 @@ fn generate_entities_template(
                 scene.width_m as i32 - 40
             };
             if urban_lo < urban_hi {
-                let mut urban_serial = 60_000_u32 + if side < 0 { 0 } else { 20_000 };
                 for z in (220..scene.depth_m.saturating_sub(220)).step_by(36) {
                     for x in (urban_lo..urban_hi).step_by(30) {
                         let world_x = scene.origin_x + x;
@@ -7503,7 +7540,7 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: format!("generated.urban-building.{urban_serial}"),
+                            entity_id: ids.claim("urban-building", "urban_building", &[i64::from(side), i64::from(x), i64::from(z)]),
                             asset_id: "prop.building".to_owned(),
                             kind: "urban_building".to_owned(),
                             world_x,
@@ -7514,13 +7551,11 @@ fn generate_entities_template(
                             depth_m: 20.0 + roll.rem_euclid(9) as f32,
                             height_m: 8.0 + roll.rem_euclid(19) as f32,
                         });
-                        urban_serial += 1;
                     }
                 }
             }
         }
     }
-    let mut serial = 0_u32;
     for z in (24..scene.depth_m.saturating_sub(16)).step_by(32) {
         for x in (24..scene.width_m.saturating_sub(16)).step_by(32) {
             let world_x = scene.origin_x + x as i32;
@@ -7587,7 +7622,7 @@ fn generate_entities_template(
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: format!("generated.{kind}.{serial}"),
+                entity_id: ids.claim(&format!("template-{kind}"), kind, &[i64::from(x), i64::from(z)]),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.to_owned(),
                 world_x,
@@ -7598,7 +7633,6 @@ fn generate_entities_template(
                 depth_m,
                 height_m,
             });
-            serial += 1;
         }
     }
     if water != WaterKind::None {
@@ -7660,7 +7694,7 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: format!("generated.{kind}.{serial}"),
+                    entity_id: ids.claim(&format!("shore-{kind}"), kind, &[i64::from(x), i64::from(z)]),
                     asset_id: format!("prop.{kind}"),
                     kind: kind.to_owned(),
                     world_x,
@@ -7692,7 +7726,6 @@ fn generate_entities_template(
                         _ => 1.0,
                     },
                 });
-                serial += 1;
             }
         }
     }
@@ -8974,14 +9007,28 @@ mod tests {
             "preview/render/terrain.js",
             "preview/render/wind.js",
             "preview/render/presets/materials.js",
+            "preview/vendor/three/LICENSE",
             "preview/vendor/three/build/three.module.js",
             "preview/vendor/three/examples/jsm/loaders/GLTFLoader.js",
+            "assets/LICENSE.txt",
+            "assets/THIRD_PARTY_NOTICES.md",
+            "assets/licenses/quaternius-stylized-nature-CC0.txt",
+            "assets/licenses/quaternius-buildings-NOTICE.txt",
         ] {
             assert!(
                 root.join(relative).is_file(),
                 "missing preview file: {relative}"
             );
         }
+        let three_license =
+            std::fs::read_to_string(root.join("preview/vendor/three/LICENSE")).unwrap();
+        assert!(three_license.contains("The MIT License"));
+        assert!(three_license.contains("Copyright © 2010-2025 three.js authors"));
+        let building_notice =
+            std::fs::read_to_string(root.join("assets/licenses/quaternius-buildings-NOTICE.txt"))
+                .unwrap();
+        assert!(building_notice.contains("exact local file-to-pack"));
+        assert!(building_notice.contains("has not been proven"));
         std::fs::remove_dir_all(root).expect("test preview directory should be removable");
     }
 
@@ -9971,5 +10018,167 @@ mod tests {
             plan_terrain_carves(&[green]).is_empty(),
             "landcover is not a building support pad"
         );
+    }
+    #[test]
+    fn stable_v1_optional_generation_keeps_ids_when_prior_candidates_are_removed() {
+        let scene = SceneSpec {scene_id:"stable-scene".into(),width_m:512,depth_m:512,origin_x:-256,origin_z:384,seed_offset:7};
+        let style=serde_json::json!({"generationIntent":{"settlement":"wilderness"}});
+        let water=water_geometry(WaterKind::None,&[],&scene,&style);
+        let base=generate_entities_with_profile(7,&scene,&[],water,&style);
+        let repeat=generate_entities_with_profile(7,&scene,&[],water,&style);
+        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&repeat).unwrap());
+        assert!(!base.is_empty());
+        assert!(base.iter().all(|e|e.entity_id.contains(".stable-v1.")));
+        // Explicit IDs are determined by membership, even with a generated prefix.
+        let far:LandmarkSpec=serde_json::from_value(serde_json::json!({
+            "entityId":"generated.authored-keep-exact","name":"far","type":"rock","purpose":"test",
+            "description":"unrelated authored input","sceneId":scene.scene_id,"worldX":10000,"worldZ":10000,
+            "widthM":1,"depthM":1,"heightM":1,"assetId":"prop.rock"
+        })).unwrap();
+        let with_far=generate_entities_with_profile(7,&scene,&[far.clone()],water,&style);
+        assert!(with_far.iter().any(|e|e.entity_id==far.entity_id));
+        let generated:Vec<_>=with_far.iter().filter(|e|e.entity_id!=far.entity_id).collect();
+        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&generated).unwrap());
+        let first=base.iter().find(|e|matches!(e.kind.as_str(),"tree"|"rock"|"bush"|"grass_clump")).unwrap();
+        let mut blocker=far.clone();
+        blocker.entity_id="authored.blocker".into();blocker.entity_type="building".into();
+        blocker.world_x=first.world_x;blocker.world_z=first.world_z;
+        blocker.width_m=24;blocker.depth_m=24;blocker.height_m=8;blocker.asset_id="prop.building".into();
+        let filtered=generate_entities_with_profile(7,&scene,&[blocker.clone()],water,&style);
+        assert!(!filtered.iter().any(|e|e.entity_id==first.entity_id));
+        let old:BTreeMap<_,_>=base.iter().map(|e|(&e.entity_id,serde_json::to_value(e).unwrap())).collect();
+        let mut retained=0;
+        for e in filtered.iter().filter(|e|e.entity_id!=blocker.entity_id) {
+            assert_eq!(old.get(&e.entity_id),Some(&serde_json::to_value(e).unwrap()),"survivors must not be renumbered or moved");
+            retained+=1;
+        }
+        assert!(retained>10 && retained<base.len());
+        let mut other_scene=scene.clone();other_scene.scene_id="stable-other-scene".into();
+        let other=generate_entities_with_profile(7,&other_scene,&[],water,&style);
+        assert_eq!(other.len(),base.len());
+        for (a,b) in base.iter().zip(&other) {
+            assert_ne!(a.entity_id,b.entity_id);
+            let mut value=serde_json::to_value(b).unwrap();value["entityId"]=serde_json::json!(a.entity_id);
+            assert_eq!(serde_json::to_value(a).unwrap(),value,"scene namespace must not alter geometry");
+        }
+    }
+
+    #[test]
+    fn stable_v1_candidate_keys_are_bound_before_movement_and_planned_ids_stay_explicit() {
+        let scene=SceneSpec {scene_id:"slots".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
+        let a=CandidateIds::new(&scene.scene_id);
+        let mut base=vec![];
+        append_natural_content(7,&scene,&mut base,&a);
+        a.finish(&base).unwrap();
+        let b=CandidateIds::new(&scene.scene_id);
+        let extra=b.claim("unrelated-request","rock",&[1000,1000]);
+        let mut expanded=vec![generated_intent_entity(extra,"rock",1000,1000,0,1.,1.,1.)];
+        append_natural_content(7,&scene,&mut expanded,&b);
+        b.finish(&expanded).unwrap();
+        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&expanded[1..]).unwrap());
+        let mut moved=base[0].clone();moved.world_x+=1;
+        assert_eq!(moved.entity_id,base[0].entity_id);
+        let denied=audit_entity_inventory(&base[..1],&[moved],&[],EntityInventoryMode::Preserving{old_scheme:ENTITY_ID_SCHEME.into(),new_scheme:ENTITY_ID_SCHEME.into()});
+        assert_eq!(denied.status,"fail");assert!(denied.entries[0].changes.contains(&EntityChangeKind::Moved));
+        let site:road_network::RoadsideSite=serde_json::from_value(serde_json::json!({
+            "id":"generated.frontage.request.exact","roadId":"planned.road","worldX":64,"worldZ":64,
+            "widthM":24,"depthM":24,"supportLevelM":-2,"supportLevelMm":-1354,
+            "frontageRoadPoint":[64,40],"rotationYDeg":0,"naturalMinM":-2.,"naturalMaxM":-1.
+        })).unwrap();
+        let planned=site.entity();
+        assert_eq!(planned.entity_id,site.id);assert_eq!(planned.grounding.frontage_road_point,Some([64,40]));
+        let mut inventory=base.clone();inventory.push(planned.clone());
+        a.finish(&inventory).unwrap();
+        assert_eq!(serde_json::to_value(&inventory.last().unwrap()).unwrap(),serde_json::to_value(&planned).unwrap());
+        let duplicate=vec![planned.clone(),planned];
+        assert!(a.finish(&duplicate).unwrap_err().contains("duplicate"));
+    }
+
+    #[test]
+    fn stable_v1_legacy_transport_identity_coupling_is_explicit_not_blindly_migrated() {
+        let e=generated_intent_entity("generated.landuse-road-ns.200000".into(),"road",0,0,0,80.,8.,0.2);
+        assert_eq!(e.rotation_y_deg,90.);
+        let renamed=generated_intent_entity("generated.opaque.stable-v1.hash".into(),"road",0,0,0,80.,8.,0.2);
+        assert_eq!(renamed.rotation_y_deg,0.,"minimal witness: blind ID replacement changes road geometry");
+        let scene=SceneSpec {scene_id:"legacy-transport-boundary".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
+        let ids=CandidateIds::new(&scene.scene_id);let mut entities=vec![];
+        append_generic_land_content(7,&scene,&mut entities,&ids);
+        assert_eq!(entities[0].entity_id,"generated.auto-road-east-west");
+        assert_eq!(entities[1].entity_id,"generated.auto-road-north-south");
+        assert!(entities[2..].iter().all(|e|e.entity_id.contains(".stable-v1.")));
+        ids.finish(&entities).unwrap();
+    }
+
+    #[test]
+    fn stable_v1_transport_ids_preserve_direction_and_survive_unrelated_input() {
+        let scene=SceneSpec {scene_id:"stable-transport".into(),width_m:1000,depth_m:1000,origin_x:-500,origin_z:-500,seed_offset:0};
+        let style=serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.25}});
+        let water=water_geometry(WaterKind::None,&[],&scene,&style);
+        let base=generate_entities_with_profile(7,&scene,&[],water,&style);
+        let transport:Vec<_>=base.iter().filter(|e|matches!(e.kind.as_str(),"road"|"sidewalk"|"canal"|"railway")).collect();
+        assert!(!transport.is_empty());
+        for entity in &transport {
+            if entity.entity_id.starts_with("generated.landuse-") {
+                assert!(entity.entity_id.contains(".stable-v1."),"transport serial ID remained: {}",entity.entity_id);
+            }
+        }
+        let ns=transport.iter().find(|e|e.entity_id.contains("landuse-road-ns.stable-v1.")).expect("stable NS road");
+        assert_eq!(ns.rotation_y_deg,90.0,"NS direction must remain encoded after stable-ID migration");
+        let ew=transport.iter().find(|e|e.entity_id.contains("landuse-road-ew.stable-v1.")).expect("stable EW road");
+        assert_eq!(ew.rotation_y_deg,0.0,"EW direction must remain encoded after stable-ID migration");
+        let far:LandmarkSpec=serde_json::from_value(serde_json::json!({
+            "entityId":"generated.transport-unrelated-authored","name":"far","type":"rock","purpose":"test",
+            "description":"unrelated authored input","sceneId":scene.scene_id,"worldX":10000,"worldZ":10000,
+            "widthM":1,"depthM":1,"heightM":1,"assetId":"prop.rock"
+        })).unwrap();
+        let with_far=generate_entities_with_profile(7,&scene,&[far.clone()],water,&style);
+        let generated:Vec<_>=with_far.iter().filter(|e|e.entity_id!=far.entity_id).collect();
+        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&generated).unwrap());
+    }
+
+    #[test]
+    fn stable_v1_small_modern_and_pastoral_planners_keep_determinism_and_unique_ids() {
+        let scene=SceneSpec {scene_id:"small-modern".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
+        for style in [serde_json::json!({"generationIntent":{"settlement":"pastoral"}}),
+            serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.3}})] {
+            let water=water_geometry(WaterKind::None,&[],&scene,&style);
+            let a=generate_entities_with_profile(7,&scene,&[],water,&style);
+            let b=generate_entities_with_profile(7,&scene,&[],water,&style);
+            assert_eq!(serde_json::to_vec(&a).unwrap(),serde_json::to_vec(&b).unwrap());
+            assert!(a.iter().any(|e|e.entity_id.contains(".stable-v1.")));
+            let ids:std::collections::BTreeSet<_>=a.iter().map(|e|&e.entity_id).collect();assert_eq!(ids.len(),a.len());
+        }
+    }
+    #[test]
+    fn stable_v1_manifest_patch_keeps_explicit_operations_without_claiming_inventory_preservation() {
+        let mut manifest=WorldManifest::default_demo();
+        let landmark:LandmarkSpec=serde_json::from_value(serde_json::json!({
+            "entityId":"generated.authored-explicit","name":"kept","type":"rock","purpose":"test",
+            "description":"explicit membership","sceneId":manifest.scenes[0].scene_id,
+            "worldX":300,"worldZ":300,"widthM":2,"depthM":2,"heightM":1,"assetId":"prop.rock"
+        })).unwrap();
+        manifest.landmarks=vec![landmark.clone()];
+        let make_patch=|base:&WorldManifest,operations| WorldPatch {
+            format:"glyphweave-world-patch".into(),version:2,patch_id:"inventory-scope-test".into(),
+            base_revision:world_manifest_revision(base).unwrap(),parent_patch_hash:Some(base.patch_chain_hash.clone()),sequence:1,operations,
+        };
+        let moved=apply_patch(&manifest,&make_patch(&manifest,vec![PatchOperation::MoveLandmark{
+            entity_id:landmark.entity_id.clone(),world_x:301,world_z:302,world_y:-2,
+        }])).unwrap();
+        assert_eq!(moved.landmarks[0].entity_id,landmark.entity_id);
+        assert_eq!((moved.landmarks[0].world_x,moved.landmarks[0].world_z,moved.landmarks[0].world_y),(301,302,-2));
+        let mut update=moved.landmarks[0].clone();update.height_m=3;
+        let set=apply_patch(&moved,&make_patch(&moved,vec![PatchOperation::SetLandmark{landmark:update}])).unwrap();
+        assert_eq!(set.landmarks[0].height_m,3);
+        let removed=apply_patch(&set,&make_patch(&set,vec![PatchOperation::RemoveLandmark{entity_id:landmark.entity_id.clone()}])).unwrap();
+        assert!(removed.landmarks.is_empty());
+        let unknown=make_patch(&manifest,vec![PatchOperation::RemoveLandmark{entity_id:"not-authored".into()}]);
+        assert!(apply_patch(&manifest,&unknown).is_err());
+        // Patch success alone is not an approval to alter stored generated objects.
+        let old=vec![landmark_to_entity(&landmark)];
+        let new=vec![landmark_to_entity(&moved.landmarks[0])];
+        assert_eq!(audit_entity_inventory(&old,&new,&[],EntityInventoryMode::Preserving{
+            old_scheme:"legacy".into(),new_scheme:"legacy".into(),
+        }).status,"fail");
     }
 }

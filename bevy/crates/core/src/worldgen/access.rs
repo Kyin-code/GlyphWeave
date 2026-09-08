@@ -415,6 +415,10 @@ pub(super) fn place_generated_entrances(
         if !links.iter().any(|l| l.connected)
             && original.entity_id.starts_with("generated.")
             && !authored.contains(original.entity_id.as_str())
+            // A frontage station owns its door, local platform and road point
+            // as one engineering contract. If it cannot route, preserve that
+            // failed obligation; do not turn it into a different building.
+            && original.grounding.frontage_road_point.is_none()
             && (original.anchors.is_empty()
                 || (original.anchors.len() == 1 && original.anchors[0].id == "front"))
         {
@@ -694,6 +698,240 @@ mod tests {
             (original[0].world_x, original[0].world_z)
         );
         assert!(graph.links[0].required);
+    }
+
+    #[test]
+    fn fixed_frontage_entrance_is_never_reassigned_even_when_another_facade_is_reachable() {
+        let (mut entities, terrain, water) = fixture();
+        entities[0].entity_id = "generated.frontage.fixed".into();
+        entities[0].anchors[0].id = "front".into();
+        entities[0].grounding.frontage_road_point = Some([64, 25]);
+        // This blocks the fixed north-side doorway. The generic generated
+        // building test above proves that another facade remains reachable.
+        entities.push(generated_intent_entity(
+            "wall".into(),
+            "wall",
+            64,
+            57,
+            0,
+            14.,
+            1.,
+            3.,
+        ));
+        let original = entities[0].anchors.clone();
+        let graph = place_generated_entrances(&mut entities, &[], &terrain, water);
+        assert_eq!(
+            (
+                entities[0].anchors[0].world_x,
+                entities[0].anchors[0].world_z
+            ),
+            (original[0].world_x, original[0].world_z),
+        );
+        assert_eq!(graph.connected_entities, 0);
+        assert_eq!(graph.disconnected_entities, 1);
+        assert_eq!(
+            serde_json::to_value(&graph).unwrap(),
+            serde_json::to_value(build_access_graph(&entities, &terrain, water)).unwrap(),
+            "the returned graph must describe the same final fixed entity state"
+        );
+    }
+    // A-T1-R1: rotate the entire local layout, not just the building yaw.
+    // Expected cardinal vectors are explicit, independent of access::world().
+    fn fixed_frontage_cardinal_fixture(
+        yaw: i32,
+        origin: (i32, i32),
+        support_mm: i32,
+        blocked: bool,
+    ) -> (Vec<EntityInstance>, BakedTerrain, WaterGeometry) {
+        let (nx, nz, direction) = match yaw {
+            0 => (0, -1, "north"),
+            90 => (-1, 0, "west"),
+            180 => (0, 1, "south"),
+            270 => (1, 0, "east"),
+            _ => panic!("fixture requires a cardinal yaw"),
+        };
+        let scene = SceneSpec {
+            scene_id: "fixed-frontage-cardinal".into(),
+            width_m: 128,
+            depth_m: 128,
+            origin_x: origin.0,
+            origin_z: origin.1,
+            seed_offset: 0,
+        };
+        let (x, z) = (origin.0 + 64, origin.1 + 64);
+        let road_point = [x + nx * 39, z + nz * 39];
+        let site = super::super::road_network::RoadsideSite {
+            program: None,
+            id: "generated.frontage.cardinal-fixed".into(),
+            road_id: "road.cardinal".into(),
+            world_x: x,
+            world_z: z,
+            // A non-square footprint makes a missing rotation observable.
+            width_m: 14,
+            depth_m: 10,
+            support_level_m: support_mm.div_euclid(1000),
+            support_level_mm: Some(support_mm),
+            frontage_road_point: Some(road_point),
+            rotation_y_deg: yaw as f32,
+            natural_min_m: support_mm as f32 / 1000.,
+            natural_max_m: support_mm as f32 / 1000.,
+        };
+        let house = site.entity();
+        assert_eq!((house.world_x, house.world_z), (x, z));
+        assert_eq!(house.rotation_y_deg, yaw as f32);
+        assert_eq!(house.world_y, support_mm.div_euclid(1000));
+        assert_eq!(
+            house.grounding.bottom_offset_m,
+            support_mm.rem_euclid(1000) as f32 / 1000.
+        );
+        assert!((f64::from(house.ground_height_m()) - f64::from(support_mm) / 1000.).abs() < 1e-6);
+        assert_eq!(house.grounding.frontage_road_point, Some(road_point));
+        assert_eq!(house.anchors.len(), 1);
+        let anchor = &house.anchors[0];
+        assert_eq!(anchor.id, "front");
+        assert_eq!((anchor.world_x, anchor.world_z), (x + nx * 6, z + nz * 6));
+        assert_eq!(anchor.direction, direction);
+        assert_eq!(anchor.target.as_deref(), Some("road"));
+
+        let mut road = generated_intent_entity(
+            site.road_id.clone(), "road", road_point[0], road_point[1],
+            house.world_y, 100., 8., 0.2,
+        );
+        road.rotation_y_deg = yaw as f32;
+        road.grounding.bottom_offset_m = house.grounding.bottom_offset_m;
+        let mut entities = vec![house, road];
+        if blocked {
+            let mut wall = generated_intent_entity(
+                "wall.cardinal".into(), "wall", x + nx * 7, z + nz * 7,
+                support_mm.div_euclid(1000), 18., 1., 3.,
+            );
+            wall.rotation_y_deg = yaw as f32;
+            entities.push(wall);
+        }
+        let payload = encode_millimetres(
+            128, 128, vec![f64::from(support_mm) / 1000.; 128 * 128],
+        ).unwrap();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain.insert_chunk(origin.0, origin.1, 128, 128, &payload).unwrap();
+        assert_eq!(terrain.encoding(), Some(HeightEncoding::Millimetre));
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::json!({}));
+        (entities, terrain, water)
+    }
+
+    fn assert_fixed_frontage_final_graph(
+        entities: &[EntityInstance],
+        graph: &AccessGraph,
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+        case: &str,
+    ) {
+        // Reconstruct from final serialized entities, never from saved links.
+        let final_entities: Vec<EntityInstance> =
+            serde_json::from_slice(&serde_json::to_vec(entities).unwrap()).unwrap();
+        let rebuilt = build_access_graph(&final_entities, terrain, water);
+        assert_eq!(
+            serde_json::to_value(graph).unwrap(),
+            serde_json::to_value(&rebuilt).unwrap(),
+            "{case}: returned graph must describe the final entity state"
+        );
+        let surfaces = bake_access_surfaces(graph, terrain).unwrap();
+        validate_access_surfaces(&rebuilt, terrain, &surfaces).unwrap();
+        assert_eq!(
+            serde_json::to_value(&surfaces).unwrap(),
+            serde_json::to_value(bake_access_surfaces(&rebuilt, terrain).unwrap()).unwrap(),
+            "{case}: access pavement must derive from that same final graph and raster"
+        );
+    }
+
+    #[test]
+    fn fixed_frontage_cardinal_yaws_signed_mm_nonzero_origins_keep_reachable_contract() {
+        for yaw in [0, 90, 180, 270] {
+            for origin in [(-256, 384), (512, -384)] {
+                for mm in [-1354, 1354] {
+                    let case = format!("yaw={yaw} origin={origin:?} mm={mm}");
+                    let (mut entities, terrain, water) =
+                        fixed_frontage_cardinal_fixture(yaw, origin, mm, false);
+                    let before = serde_json::to_value(&entities).unwrap();
+                    let terrain_hash = terrain.content_hash().unwrap();
+                    let graph = place_generated_entrances(&mut entities, &[], &terrain, water);
+                    assert_eq!(serde_json::to_value(&entities).unwrap(), before, "{case}");
+                    assert_eq!((graph.connected_entities, graph.disconnected_entities), (1, 0), "{case}");
+                    assert_eq!(graph.links.len(), 1, "{case}");
+                    let link = &graph.links[0];
+                    assert!(link.connected && link.required, "{case}");
+                    assert_eq!(link.status, "walkable_route", "{case}");
+                    assert_eq!(link.entity_id, entities[0].entity_id, "{case}");
+                    assert_eq!(link.anchor_id, "front", "{case}");
+                    assert_eq!(link.road_id.as_deref(), Some("road.cardinal"), "{case}");
+                    let (nx, nz) = match yaw {
+                        0 => (0., -1.), 90 => (-1., 0.),
+                        180 => (0., 1.), 270 => (1., 0.), _ => unreachable!(),
+                    };
+                    let facade = point(f64::from(origin.0 + 64) + nx * 5., f64::from(origin.1 + 64) + nz * 5.);
+                    let road_edge = point(f64::from(origin.0 + 64) + nx * 35., f64::from(origin.1 + 64) + nz * 35.);
+                    assert!(distance(link.path[0], facade) < 1e-8, "{case}");
+                    assert!(distance(*link.path.last().unwrap(), road_edge) < 1e-8, "{case}");
+                    assert!((link.distance_m.unwrap() - 30.).abs() < 1e-8, "{case}");
+                    assert_fixed_frontage_final_graph(&entities, &graph, &terrain, water, &case);
+                    // This covers only the complete 128m fixture raster, not global natural/protected land.
+                    assert_eq!(terrain.content_hash().unwrap(), terrain_hash, "{case}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_frontage_cardinal_yaws_signed_mm_nonzero_origins_keep_blocked_obligation() {
+        for yaw in [0, 90, 180, 270] {
+            for origin in [(-256, 384), (512, -384)] {
+                for mm in [-1354, 1354] {
+                    let case = format!("yaw={yaw} origin={origin:?} mm={mm}");
+                    let (mut entities, terrain, water) =
+                        fixed_frontage_cardinal_fixture(yaw, origin, mm, true);
+                    let before = serde_json::to_value(&entities).unwrap();
+                    let terrain_hash = terrain.content_hash().unwrap();
+
+                    // Same geometry and entry point: remove only the fixed-contract marker.
+                    // This positive control must actually find a different facade for EVERY case.
+                    let mut generic = entities.clone();
+                    generic[0].grounding.frontage_road_point = None;
+                    let generic_before = serde_json::to_value(&generic).unwrap();
+                    let generic_graph = place_generated_entrances(&mut generic, &[], &terrain, water);
+                    assert_eq!((generic_graph.connected_entities, generic_graph.disconnected_entities), (1, 0), "{case}: alternate facade must be reachable");
+                    assert_ne!(
+                        (generic[0].anchors[0].world_x, generic[0].anchors[0].world_z),
+                        (entities[0].anchors[0].world_x, entities[0].anchors[0].world_z),
+                        "{case}: generic control must really exercise fallback"
+                    );
+                    let mut generic_after = serde_json::to_value(&generic).unwrap();
+                    generic_after[0]["anchors"] = generic_before[0]["anchors"].clone();
+                    assert_eq!(generic_after, generic_before, "{case}: fallback changes only anchors");
+                    assert_fixed_frontage_final_graph(&generic, &generic_graph, &terrain, water, &case);
+
+                    let graph = place_generated_entrances(&mut entities, &[], &terrain, water);
+                    assert_eq!(entities.len(), 3, "{case}: keep house, road and blocking wall");
+                    assert_eq!(serde_json::to_value(&entities).unwrap(), before, "{case}: keep anchors, position, yaw, roadPoint and all grounding fields");
+                    assert_eq!((graph.connected_entities, graph.disconnected_entities), (0, 1), "{case}");
+                    assert_eq!(graph.links.len(), 1, "{case}: keep the failed obligation");
+                    let link = &graph.links[0];
+                    assert!(!link.connected && link.required, "{case}");
+                    assert_eq!(link.entity_id, entities[0].entity_id, "{case}");
+                    assert_eq!(link.anchor_id, "front", "{case}");
+                    assert_eq!(link.status, "entrance_clearance_blocked", "{case}: not an arbitrary routing failure");
+                    assert!(link.road_id.is_none() && link.distance_m.is_none() && link.path.is_empty(), "{case}");
+                    assert_fixed_frontage_final_graph(&entities, &graph, &terrain, water, &case);
+                    assert!(bake_access_surfaces(&graph, &terrain).unwrap().is_empty(), "{case}");
+
+                    // A stale graph for a substituted, reachable doorway is observably different.
+                    let mut changed_door = entities.clone();
+                    changed_door[0].anchors = generic[0].anchors.clone();
+                    let changed_graph = build_access_graph(&changed_door, &terrain, water);
+                    assert_eq!(changed_graph.connected_entities, 1, "{case}");
+                    assert_ne!(serde_json::to_value(&graph).unwrap(), serde_json::to_value(&changed_graph).unwrap(), "{case}: reconstruction must notice a changed doorway");
+                    assert_eq!(terrain.content_hash().unwrap(), terrain_hash, "{case}");
+                }
+            }
+        }
     }
 
     #[test]

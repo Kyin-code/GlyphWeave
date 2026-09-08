@@ -1,0 +1,179 @@
+{
+  "receipt": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\receipt-r3-u1.json",
+    "bytes": 7328,
+    "sha256": "2947434ba3facce6f03a3c3d36533a3984555e20b04706734565a779cdbc552f"
+  },
+  "receiptBindings": [
+    {
+      "key": "checker",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.mjs",
+      "bytes": 21347,
+      "sha256": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8",
+      "pass": true
+    },
+    {
+      "key": "checkerTest",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.test.mjs",
+      "bytes": 18470,
+      "sha256": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c",
+      "pass": true
+    },
+    {
+      "key": "resultDoc",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\a-final-r3-u1-result.zh-CN.md",
+      "bytes": 4420,
+      "sha256": "b8d0747cb4d0bb6937a5be98b29806b5a97b09140d2eba3c385a2a80d0457f85",
+      "pass": true
+    },
+    {
+      "key": "originalR3Candidate",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\final-acceptance-r3.json",
+      "bytes": 21382,
+      "sha256": "d5b1aa9fb2725a96692b99045bc0423a85b227661418416c58dc02cc3379d433",
+      "pass": true
+    },
+    {
+      "key": "reboundR3Candidate",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\final-acceptance-r3-u1-rebound.json",
+      "bytes": 21382,
+      "sha256": "d7689f9c9ebd6b6a34c9952cc741a165f26946f4016e59202bdb965d2dd907c9",
+      "pass": true
+    },
+    {
+      "key": "r3DirectCheck",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-check-u1.json",
+      "bytes": 299,
+      "sha256": "8804fbd0696290b6c380a0d068df9ac6d5925d3b7f4649c2940a45718ef3b666",
+      "pass": true
+    },
+    {
+      "key": "r3ReboundCheck",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\r3-candidate-rebound-check-u1.json",
+      "bytes": 1299,
+      "sha256": "3bee780bebeb044ea232a6d5f3fdbc57c8305692af1e5aead19e5a0a1e4827cf",
+      "pass": true
+    },
+    {
+      "key": "inspectorUtcCounterexample",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\inspector-r3-20260909\\backward-utc-rebound-candidate.json",
+      "bytes": 21372,
+      "sha256": "33bf9f4bd7f43b41e8870cdab72cb9945900c8a811e14f3e77e8ccfd1df5b6cf",
+      "pass": true
+    },
+    {
+      "key": "utcReboundCandidate",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-rebound-u1.json",
+      "bytes": 21372,
+      "sha256": "0ace2dbd554368b2b5b2de84758ac00b3fb5dea567ea18f4a33eaa2849250f1b",
+      "pass": true
+    },
+    {
+      "key": "utcDirectCheck",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-check-u1.json",
+      "bytes": 299,
+      "sha256": "8804fbd0696290b6c380a0d068df9ac6d5925d3b7f4649c2940a45718ef3b666",
+      "pass": true
+    },
+    {
+      "key": "utcReboundCheck",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\backward-utc-rebound-check-u1.json",
+      "bytes": 286,
+      "sha256": "e7695b359200fcfe1ac95d06d11534bce555785936598ce82edfd9aeca3f5905",
+      "pass": true
+    },
+    {
+      "key": "rebindTool",
+      "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\rebind-script-bindings-u1.mjs",
+      "bytes": 1869,
+      "sha256": "17e0de71e2e046eb6d78bc5123651c21146ed0b10e8e0b1ca23ec7d48b79b4ce",
+      "pass": true
+    }
+  ],
+  "checker": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.mjs",
+    "bytes": 21347,
+    "sha256": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+  },
+  "test": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.test.mjs",
+    "bytes": 18470,
+    "sha256": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+  },
+  "r3": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\final-acceptance-r3.json",
+    "bytes": 21382,
+    "sha256": "d5b1aa9fb2725a96692b99045bc0423a85b227661418416c58dc02cc3379d433"
+  },
+  "r2": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\final-acceptance-r2.json",
+    "bytes": 16760,
+    "sha256": "f681f518b96a797be713e2b088780db673c248b817988e44578572390a9e415f"
+  },
+  "rebound": {
+    "path": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3-u1\\final-acceptance-r3-u1-rebound.json",
+    "bytes": 21382,
+    "sha256": "d7689f9c9ebd6b6a34c9952cc741a165f26946f4016e59202bdb965d2dd907c9"
+  },
+  "differences": [
+    {
+      "path": ".evidence.33.bytes",
+      "old": 21185,
+      "new": 21347
+    },
+    {
+      "path": ".evidence.33.sha256",
+      "old": "dcc56ca27880308ed5beff36b0ba9622608c4f3c5b86c3f28ab9f7d0f103663e",
+      "new": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+    },
+    {
+      "path": ".evidence.34.bytes",
+      "old": 17340,
+      "new": 18470
+    },
+    {
+      "path": ".evidence.34.sha256",
+      "old": "fb9e8c5aeaa208e310690301e4efcfab03143ea4389c79da44e2e01516542a50",
+      "new": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+    },
+    {
+      "path": ".checker.bytes",
+      "old": 21185,
+      "new": 21347
+    },
+    {
+      "path": ".checker.sha256",
+      "old": "dcc56ca27880308ed5beff36b0ba9622608c4f3c5b86c3f28ab9f7d0f103663e",
+      "new": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+    },
+    {
+      "path": ".checkerTest.bytes",
+      "old": 17340,
+      "new": 18470
+    },
+    {
+      "path": ".checkerTest.sha256",
+      "old": "fb9e8c5aeaa208e310690301e4efcfab03143ea4389c79da44e2e01516542a50",
+      "new": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+    }
+  ],
+  "independentlyReboundMatches": true,
+  "sourceCount": 612,
+  "sourceDeltas": [
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.mjs",
+      "before": "dcc56ca27880308ed5beff36b0ba9622608c4f3c5b86c3f28ab9f7d0f103663e",
+      "now": "1891dde0f5e9b215ba5d45d2d7220ee6239ffb7fd211ea940b8eddbb01e299e8"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\scripts\\collaboration\\check-final-acceptance.test.mjs",
+      "before": "fb9e8c5aeaa208e310690301e4efcfab03143ea4389c79da44e2e01516542a50",
+      "now": "e7c2e68f5abbfd26daa3583fa23aa86482d2d5cf1d526c3a549f0835dcf99b4c"
+    },
+    {
+      "path": "G:\\difyllmwiki\\GlyphWeave\\docs\\collaboration\\status.zh-CN.md",
+      "before": "5ff37879b172479fedab3ee4a12edfa40e425e5e47d634b1898dad46eac93193",
+      "now": "c6cd96a1fd925e5f04560ee7ef93796c0e364ba00253e7c7d13efdb8140ec246"
+    }
+  ]
+}

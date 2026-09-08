@@ -2377,34 +2377,166 @@ fn automatic_road_bake_rebuilds_choices_and_keeps_budget_shortfalls() {
 
 #[test]
 fn local_height_frontage_bakes_real_city_buildings_and_rejects_forged_plans() {
-    let input=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../examples/local-height-frontage.manifest.json");
-    let mut manifest:WorldManifest=serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
-    manifest.style["rulesDir"]=serde_json::json!(rules());
-    let dir=TestDir::new("local-height-frontage");bake_world(&manifest,&dir.0).unwrap();
-    let scene=read(&dir,"scenes/scene-0/scene.json");
-    let generated:Vec<_>=scene["entities"].as_array().unwrap().iter().filter(|e|e["entityId"].as_str().unwrap().starts_with("generated.frontage.")).collect();
-    assert!(!generated.is_empty(),"must realize actual buildings, not just report fields");
-    assert!(generated.iter().any(|e|e["grounding"]["bottomOffsetM"].as_f64().unwrap()!=0.));
-    for e in &generated {assert!(e["grounding"]["frontageRoadPoint"].is_array());}
-    let run=|command:&str|Command::new(env!("CARGO_BIN_EXE_glyphweave")).arg(command).arg(&dir.0).output().unwrap();
-    let quality=run("quality-report");assert!(quality.status.success(),"{}",String::from_utf8_lossy(&quality.stderr));
-    let report=read(&dir,"quality-report.json");let q=&report["scenes"][0];
-    assert_eq!(q["roadNetworkAudit"]["status"],"pass","{}; {}",q["roadNetworkAudit"],read(&dir,"rules-placement.json"));assert_eq!(q["landProtectionAudit"]["changedHeightSamples"],0);
-    assert_eq!(q["serviceProgramAudit"]["requested"],4);assert_eq!(q["serviceProgramAudit"]["realizedWithAccess"],4);
-    assert_eq!(q["frontageAudit"]["realizedWithAccess"].as_u64().unwrap(),generated.len() as u64);
-    assert!(q["landUseLedger"]["byPurpose"]["urban"]["physical"]["buildingsM2"].as_f64().unwrap()>0.);
-    assert!(!run("world-quality-gate").status.success());
-    assert!(read(&dir,"world-quality-gate.json")["failures"].as_array().unwrap().iter().any(|f|f.as_str().unwrap().contains("frontage")));
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/local-height-frontage.manifest.json");
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    manifest.style["rulesDir"] = serde_json::json!(rules());
+    let dir = TestDir::new("local-height-frontage");
+    bake_world(&manifest, &dir.0).unwrap();
+    let scene_path = dir.0.join("scenes/scene-0/scene.json");
+    let scene_bytes = fs::read(&scene_path).unwrap();
+    let scene: Value = serde_json::from_slice(&scene_bytes).unwrap();
+    let generated: Vec<_> = scene["entities"].as_array().unwrap().iter()
+        .filter(|e| e["entityId"].as_str().unwrap().starts_with("generated.frontage."))
+        .collect();
+    assert_eq!(generated.len(), 5, "8 requested buildings must retain the 3-home shortfall");
+    assert!(generated.iter().any(|e| e["grounding"]["bottomOffsetM"].as_f64().unwrap() != 0.));
+    for e in &generated {
+        assert!(e["grounding"]["frontageRoadPoint"].is_array());
+    }
+    let outcomes = scene["roadNetworkPlan"]["frontage"]["outcomes"].as_array().unwrap();
+    let homes = outcomes.iter().find(|o| o["request"]["id"] == "urban-homes").unwrap();
+    let shops = outcomes.iter().find(|o| o["request"]["id"] == "urban-shops").unwrap();
+    assert_eq!(homes["request"]["count"], 6);
+    assert_eq!(homes["unfilled"], 3, "the original residential deficit must not disappear");
+    assert_eq!(shops["request"]["count"], 2);
+    assert_eq!(shops["unfilled"], 0);
+
+    let run = |command: &str| Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+        .arg(command).arg(&dir.0).output().unwrap();
+    // Remove any prior report before every quality run: a failed command may
+    // leave no report, and an old report must never prove restored-scene success.
+    let fresh_quality = || -> std::process::Output {
+        let path = dir.0.join("quality-report.json");
+        if path.exists() {
+            fs::remove_file(path).unwrap();
+        }
+        run("quality-report")
+    };
+    let assert_contract = |q: &Value| {
+        assert!(q["accessGraph"].is_object(), "independent graph must be present");
+        assert_eq!(scene["accessGraph"], q["accessGraph"],
+            "persisted graph must equal the independent final-entity reconstruction");
+        assert_eq!(q["roadNetworkAudit"]["status"], "pass", "{}", q["roadNetworkAudit"]);
+        assert_eq!(q["landProtectionAudit"]["changedHeightSamples"], 0);
+        assert_eq!(q["serviceProgramAudit"]["requested"], 4);
+        assert_eq!(q["serviceProgramAudit"]["realizedWithAccess"], 4);
+        assert_eq!(q["frontageAudit"]["requested"], 8);
+        assert_eq!(q["frontageAudit"]["planned"], 5);
+        assert_eq!(q["frontageAudit"]["unfilled"], 3);
+        assert_eq!(q["frontageAudit"]["realizedWithAccess"].as_u64().unwrap(), generated.len() as u64);
+        assert!(q["landUseLedger"]["byPurpose"]["urban"]["physical"]["buildingsM2"]
+            .as_f64().unwrap() > 0.);
+    };
+    let quality = fresh_quality();
+    assert!(quality.status.success(), "{}", String::from_utf8_lossy(&quality.stderr));
+    let baseline_report = read(&dir, "quality-report.json");
+    let baseline = &baseline_report["scenes"][0];
+    assert_contract(baseline);
+    let baseline_gate_run = run("world-quality-gate");
+    assert_eq!(baseline_gate_run.status.code(), Some(1), "{}",
+        String::from_utf8_lossy(&baseline_gate_run.stderr));
+    let baseline_gate = read(&dir, "world-quality-gate.json");
+    assert_eq!(baseline_gate["status"], "fail");
+    assert!(baseline_gate["failures"].as_array().unwrap().iter().any(|f|
+        f.as_str().unwrap().contains("local-height frontage demand or realization remains incomplete")));
+
+    let entity_id = generated[0]["entityId"].as_str().unwrap();
+    let source = &scene["developmentPlan"]["buildings"].as_array().unwrap().iter()
+        .find(|b| b["entity"]["entityId"] == entity_id).unwrap()["entity"];
+    // The CLI checks the independently rebuilt ownership budget before it
+    // emits frontageAudit. development::same_entity includes anchors and
+    // grounding (only derived bounds are ignored). These are its actual
+    // diagnostic and source fields, not invented anchor-specific CLI errors.
+    for field in ["anchor", "roadPoint"] {
+        let mut changed = scene.clone();
+        let entity = changed["entities"].as_array_mut().unwrap().iter_mut()
+            .find(|e| e["entityId"] == entity_id).unwrap();
+        assert_eq!(entity["anchors"], source["anchors"]);
+        assert_eq!(entity["grounding"], source["grounding"]);
+        if field == "anchor" {
+            let x = entity["anchors"][0]["worldX"].as_i64().unwrap();
+            entity["anchors"][0]["worldX"] = serde_json::json!(x + 1);
+            assert_ne!(entity["anchors"], source["anchors"]);
+            assert_eq!(entity["grounding"], source["grounding"]);
+        } else {
+            let x = entity["grounding"]["frontageRoadPoint"][0].as_i64().unwrap();
+            entity["grounding"]["frontageRoadPoint"][0] = serde_json::json!(x + 1);
+            assert_ne!(entity["grounding"]["frontageRoadPoint"], source["grounding"]["frontageRoadPoint"]);
+            assert_eq!(entity["anchors"], source["anchors"]);
+        }
+        let mut reverted = changed.clone();
+        let original_coordinate = if field == "anchor" {
+            "/anchors/0/worldX"
+        } else {
+            "/grounding/frontageRoadPoint/0"
+        };
+        let entity = reverted["entities"].as_array_mut().unwrap().iter_mut()
+            .find(|e| e["entityId"] == entity_id).unwrap();
+        *entity.pointer_mut(original_coordinate).unwrap() =
+            generated[0].pointer(original_coordinate).unwrap().clone();
+        assert_eq!(reverted, scene, "{field} must be the only changed source field");
+        fs::write(&scene_path, serde_json::to_vec(&changed).unwrap()).unwrap();
+        let rejected = fresh_quality();
+        let diagnostic = String::from_utf8_lossy(&rejected.stderr);
+        assert_eq!(rejected.status.code(), Some(1),
+            "{entity_id} {field} mutation must be a CLI rejection, not a crash: {diagnostic}");
+        assert!(diagnostic.contains(
+            "glyphweave: persisted land-use budget differs from rebuilt entity and zone areas"),
+            "{entity_id} {field} must reject its changed source ownership: {diagnostic}");
+        assert!(!diagnostic.contains("panicked"), "{diagnostic}");
+        assert!(!dir.0.join("quality-report.json").exists(),
+            "source rejection must not reuse a previously successful report");
+        assert_eq!(read(&dir, "scenes/scene-0/scene.json"), changed,
+            "quality-report must not repair the {field} mutation");
+
+        // Restore the exact baseline bytes, run a new independent audit, then
+        // compare the new graph and all demand/realization/protection ledgers.
+        fs::write(&scene_path, &scene_bytes).unwrap();
+        let restored_quality = fresh_quality();
+        assert!(restored_quality.status.success(), "after restoring {field}: {}",
+            String::from_utf8_lossy(&restored_quality.stderr));
+        let restored_report = read(&dir, "quality-report.json");
+        let restored = &restored_report["scenes"][0];
+        assert_contract(restored);
+        for key in ["accessGraph", "frontageAudit", "serviceProgramAudit",
+            "landProtectionAudit", "roadNetworkAudit", "landUseLedger"] {
+            assert_eq!(restored[key], baseline[key], "{key} changed after restoring {field}");
+        }
+        assert_eq!(fs::read(&scene_path).unwrap(), scene_bytes,
+            "restored {field} audit must not mutate the original scene");
+    }
+    let restored_gate_run = run("world-quality-gate");
+    assert_eq!(restored_gate_run.status.code(), Some(1), "{}",
+        String::from_utf8_lossy(&restored_gate_run.stderr));
+    let restored_gate = read(&dir, "world-quality-gate.json");
+    assert_eq!(restored_gate["status"], "fail");
+    assert_eq!(restored_gate["failures"], baseline_gate["failures"],
+        "restoration must not erase or change the original gate failures");
+
     // Copy-consistent metadata edits are not source evidence.
-    let mut forged=scene.clone();forged["roadNetworkPlan"]["frontage"]["outcomes"][0]["unfilled"]=serde_json::json!(0);
-    fs::write(dir.0.join("scenes/scene-0/scene.json"),serde_json::to_vec(&forged).unwrap()).unwrap();
-    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap()).unwrap();
-    assert!(!run("quality-report").status.success());
-    fs::write(dir.0.join("scenes/scene-0/scene.json"),serde_json::to_vec(&scene).unwrap()).unwrap();
-    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),serde_json::to_vec(&scene["roadNetworkPlan"]).unwrap()).unwrap();
+    let mut forged = scene.clone();
+    forged["roadNetworkPlan"]["frontage"]["outcomes"][0]["unfilled"] = serde_json::json!(0);
+    fs::write(&scene_path, serde_json::to_vec(&forged).unwrap()).unwrap();
+    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),
+        serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap()).unwrap();
+    let forged_quality = fresh_quality();
+    assert_eq!(forged_quality.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&forged_quality.stderr)
+        .contains("road plan differs from natural raster reconstruction"),
+        "{}", String::from_utf8_lossy(&forged_quality.stderr));
+    fs::write(&scene_path, &scene_bytes).unwrap();
+    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),
+        serde_json::to_vec(&scene["roadNetworkPlan"]).unwrap()).unwrap();
     // A single-millimetre support corruption must never be accepted.
-    let e=generated[0];let x=e["worldX"].as_i64().unwrap() as usize;let z=e["worldZ"].as_i64().unwrap() as usize;
-    let path=dir.0.join("scenes/scene-0/chunk-0-0.height.bin");let mut payload=fs::read(&path).unwrap();
-    let offset=16+(z*512+x)*4;let old=i32::from_le_bytes(payload[offset..offset+4].try_into().unwrap());payload[offset..offset+4].copy_from_slice(&(old+1).to_le_bytes());fs::write(path,payload).unwrap();
-    assert!(!run("quality-report").status.success());
+    let e = generated[0];
+    let x = e["worldX"].as_i64().unwrap() as usize;
+    let z = e["worldZ"].as_i64().unwrap() as usize;
+    let path = dir.0.join("scenes/scene-0/chunk-0-0.height.bin");
+    let mut payload = fs::read(&path).unwrap();
+    let offset = 16 + (z * 512 + x) * 4;
+    let old = i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+    payload[offset..offset + 4].copy_from_slice(&(old + 1).to_le_bytes());
+    fs::write(path, payload).unwrap();
+    assert!(!fresh_quality().status.success());
 }

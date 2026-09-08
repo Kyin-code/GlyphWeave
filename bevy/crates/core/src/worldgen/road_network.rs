@@ -74,7 +74,7 @@ pub struct RoadsideSite {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub support_level_mm: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub frontage_road_point: Option<[i32;2]>,
+    pub frontage_road_point: Option<[i32; 2]>,
     pub rotation_y_deg: f32,
     pub natural_min_m: f32,
     pub natural_max_m: f32,
@@ -83,34 +83,38 @@ impl RoadsideSite {
     pub(super) fn entity(&self) -> EntityInstance {
         let s = self;
         EntityInstance {
-                entity_id: s.id.clone(),
-                asset_id: format!(
-                    "prop.{}",
-                    s.program
-                        .as_ref()
-                        .map_or("residential_home", |p| p.kind.as_str())
-                ),
-                kind: s
-                    .program
+            entity_id: s.id.clone(),
+            asset_id: format!(
+                "prop.{}",
+                s.program
                     .as_ref()
                     .map_or("residential_home", |p| p.kind.as_str())
-                    .into(),
-                world_x: s.world_x,
-                world_z: s.world_z,
-                world_y: s.support_level_mm.map_or(s.support_level_m, |mm| mm.div_euclid(1000)),
-                width_m: s.width_m as f32,
-                depth_m: s.depth_m as f32,
-                height_m: s.program.as_ref().map_or(8., |p| p.height_m as f32),
-                scale: 1.,
-                rotation_y_deg: s.rotation_y_deg,
-                grounding: GroundingSpec {
-                    frontage_road_point: s.frontage_road_point,
-                    bottom_offset_m: s.support_level_mm.map_or(0., |mm| mm.rem_euclid(1000) as f32 / 1000.),
-                    ..Default::default()
-                },
-                anchors: vec![s.front_anchor()],
-                bounds: None,
-            }
+            ),
+            kind: s
+                .program
+                .as_ref()
+                .map_or("residential_home", |p| p.kind.as_str())
+                .into(),
+            world_x: s.world_x,
+            world_z: s.world_z,
+            world_y: s
+                .support_level_mm
+                .map_or(s.support_level_m, |mm| mm.div_euclid(1000)),
+            width_m: s.width_m as f32,
+            depth_m: s.depth_m as f32,
+            height_m: s.program.as_ref().map_or(8., |p| p.height_m as f32),
+            scale: 1.,
+            rotation_y_deg: s.rotation_y_deg,
+            grounding: GroundingSpec {
+                frontage_road_point: s.frontage_road_point,
+                bottom_offset_m: s
+                    .support_level_mm
+                    .map_or(0., |mm| mm.rem_euclid(1000) as f32 / 1000.),
+                ..Default::default()
+            },
+            anchors: vec![s.front_anchor()],
+            bounds: None,
+        }
     }
     pub fn world_half_extents(&self) -> (u32, u32) {
         if matches!(self.rotation_y_deg as i32, 90 | 270) {
@@ -227,7 +231,7 @@ pub(super) fn plan_with_zones(
     let max_fill = 6.;
     let mut result = RoadNetworkPlan {
         automatic_extensions: None,
-            frontage: None,
+        frontage: None,
         extensions: vec![],
         model: if zoning.is_some() {
             "zoned-fill-envelope-lowland-frontage-v4"
@@ -1154,12 +1158,25 @@ fn verify_impl(
         }
         audit.max_final_site_fill_m = audit.max_final_site_fill_m.max(fill);
         audit.max_site_design_height_error_m = audit.max_site_design_height_error_m.max(error);
-        let precise = expected.roadside_sites.iter().find(|s|s.id==planned.entity_id).and_then(|s|s.support_level_mm);
+        let precise = expected
+            .roadside_sites
+            .iter()
+            .find(|s| s.id == planned.entity_id)
+            .and_then(|s| s.support_level_mm);
         let mismatch_mm = precise.and_then(|level| {
-            (e.world_z-hd-2..=e.world_z+hd+2).find_map(|z| (e.world_x-hw-2..=e.world_x+hw+2).find_map(|x| {let actual=final_terrain.height_millimetres(x,z);(actual!=Some(level)).then_some((x,z,level,actual))}))
+            (e.world_z - hd - 2..=e.world_z + hd + 2).find_map(|z| {
+                (e.world_x - hw - 2..=e.world_x + hw + 2).find_map(|x| {
+                    let actual = final_terrain.height_millimetres(x, z);
+                    (actual != Some(level)).then_some((x, z, level, actual))
+                })
+            })
         });
-        let precision = if precise.is_some() {0.0001} else {0.26};
-        if mismatch_mm.is_some() || error > precision || fill > expected.max_roadbed_fill_m + precision || cut > precision {
+        let precision = if precise.is_some() { 0.0001 } else { 0.26 };
+        if mismatch_mm.is_some()
+            || error > precision
+            || fill > expected.max_roadbed_fill_m + precision
+            || cut > precision
+        {
             audit.failures.push(format!("roadside site {} changed after planning: design error {error}m, fill {fill}m, cut {cut}m, support sample {mismatch_mm:?}", e.entity_id));
         } else {
             audit.realized_sites += 1;

@@ -24,10 +24,11 @@ use glyphweave_core::voxel::{
     CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
 };
 use glyphweave_core::worldgen::{
-    LandUseProfile, SceneIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
-    audit_baked_scene, bake_world, build_access_graph, footprint_intersects_water,
-    validate_access_surfaces, water_geometry, water_kind, world_manifest_revision,
-    write_demo_manifest,
+    EntityChangeApproval, EntityChangeKind, EntityInstance, EntityInventoryMode, LandUseProfile,
+    SceneIndex, WorldIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
+    audit_baked_scene, audit_entity_inventory, bake_world, build_access_graph,
+    footprint_intersects_water, validate_access_surfaces, water_geometry, water_kind,
+    world_manifest_revision, write_demo_manifest,
 };
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
@@ -71,6 +72,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "generate-procedural-world" => generate_procedural_world_command(&args[1..]),
         "generate-world" => generate_world_command(&args[1..]),
         "apply-patch" => apply_patch_command(&args[1..]),
+        "apply-patch-preserving" => apply_patch_preserving_command(&args[1..]),
         "quality-report" => quality_report_command(&args[1..]),
         "world-quality-gate" => world_quality_gate_command(&args[1..]),
         "validate-world" => validate_world_command(&args[1..]),
@@ -80,6 +82,7 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "design-road-corridor" => road_corridor::run(&args[1..], false),
         "verify-road-corridor" => road_corridor::run(&args[1..], true),
         "export-preview-stream" => export_preview_stream_command(&args[1..]),
+        "audit-preview-stream" => audit_preview_stream_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
         "dump-chunk" => dump_chunk_command(&args[1..]),
         "inspect" => inspect_command(&args[1..]),
@@ -195,6 +198,31 @@ fn export_preview_stream_command(args: &[String]) -> CliResult<()> {
         "exported render projections for {} scenes; authoritative files unchanged",
         world.scenes.len()
     );
+    Ok(())
+}
+
+fn audit_preview_stream_command(args: &[String]) -> CliResult<()> {
+    if args.len() != 2 {
+        return Err("audit-preview-stream requires WORLD_DIR OUT_DIR".into());
+    }
+    let root = fs::canonicalize(&args[0])?;
+    let parity = glyphweave_core::preview_stream_audit::audit_world(&root, Path::new(&args[1]))?;
+    let status = parity
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("fail");
+    let scene_count = parity
+        .get("scenes")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    println!(
+        "audit-preview-stream status={status} scenes={scene_count} out={}",
+        args[1]
+    );
+    if status != "pass" {
+        return Err("preview parity audit failed".into());
+    }
     Ok(())
 }
 
@@ -487,6 +515,155 @@ fn apply_patch_command(args: &[String]) -> CliResult<()> {
     let index = bake_world(&patched, Path::new(&args[2]))?;
     println!("patched world revision: {}", index.revision);
     Ok(())
+}
+
+fn apply_patch_preserving_command(args: &[String]) -> CliResult<()> {
+    if args.len() != 5 {
+        return Err(
+            "apply-patch-preserving requires BASE_WORLD MANIFEST.json PATCH.json APPROVALS.json OUTPUT_DIR"
+                .into(),
+        );
+    }
+    let base_root = fs::canonicalize(&args[0])?;
+    let output = Path::new(&args[4]);
+    if output.exists() {
+        return Err(format!("output directory already exists: {}", output.display()).into());
+    }
+    let base_world: WorldIndex =
+        serde_json::from_slice(&fs::read(base_root.join("world.json"))?)?;
+    if base_world.generator_revision.is_empty()
+        || base_world.generator_revision != glyphweave_core::worldgen::WORLD_GENERATOR_REVISION
+    {
+        return Err(format!(
+            "migration-required: base world generator revision {:?} differs from current {}; preserving mode does not rename old identities implicitly",
+            base_world.generator_revision,
+            glyphweave_core::worldgen::WORLD_GENERATOR_REVISION
+        )
+        .into());
+    }
+
+    let manifest: WorldManifest = serde_json::from_slice(&fs::read(&args[1])?)?;
+    let patch: WorldPatch = serde_json::from_slice(&fs::read(&args[2])?)?;
+    let approvals = read_inventory_approvals(Path::new(&args[3]))?;
+    let patched = apply_patch(&manifest, &patch)?;
+    let staging = inventory_staging_path(output)?;
+
+    let result = (|| -> CliResult<()> {
+        let index = bake_world(&patched, &staging)?;
+        write_generation_report(&staging, &index)?;
+        let old_entities = read_world_entities(&base_root)?;
+        let new_entities = read_world_entities(&staging)?;
+        let audit = audit_entity_inventory(
+            &old_entities,
+            &new_entities,
+            &approvals,
+            EntityInventoryMode::Preserving {
+                old_scheme: glyphweave_core::worldgen::ENTITY_ID_SCHEME.into(),
+                new_scheme: glyphweave_core::worldgen::ENTITY_ID_SCHEME.into(),
+            },
+        );
+        let mut report = serde_json::to_value(&audit)?;
+        report["baseWorld"] = serde_json::json!(base_root.display().to_string());
+        report["outputWorld"] = serde_json::json!(output.display().to_string());
+        report["generatorRevision"] =
+            serde_json::json!(glyphweave_core::worldgen::WORLD_GENERATOR_REVISION);
+        fs::write(
+            staging.join("entity-inventory-audit.json"),
+            serde_json::to_vec_pretty(&report)?,
+        )?;
+        if audit.status != "pass" {
+            return Err(format!(
+                "inventory audit failed: {}",
+                if audit.failures.is_empty() {
+                    "unknown inventory failure".into()
+                } else {
+                    audit.failures.join("; ")
+                }
+            )
+            .into());
+        }
+        fs::rename(&staging, output)?;
+        println!(
+            "preserving patch published: {} entities, revision {}",
+            new_entities.len(),
+            index.revision
+        );
+        Ok(())
+    })();
+
+    if result.is_err() && staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn inventory_staging_path(output: &Path) -> CliResult<PathBuf> {
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let name = output
+        .file_name()
+        .ok_or("output directory must have a name")?
+        .to_string_lossy();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let staging = parent.join(format!(
+        ".{name}.inventory-{}-{nonce}",
+        std::process::id()
+    ));
+    if staging.exists() {
+        return Err(format!(
+            "inventory staging path already exists: {}",
+            staging.display()
+        )
+        .into());
+    }
+    Ok(staging)
+}
+
+fn read_world_entities(root: &Path) -> CliResult<Vec<EntityInstance>> {
+    let root = fs::canonicalize(root)?;
+    let world: WorldIndex = serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
+    let mut entities = Vec::new();
+    for scene_path in &world.scenes {
+        let path = root.join(scene_path).canonicalize()?;
+        if !path.starts_with(&root) {
+            return Err("scene escapes world directory".into());
+        }
+        let scene: SceneIndex =
+            serde_json::from_reader(std::io::BufReader::new(fs::File::open(path)?))?;
+        entities.extend(scene.entities);
+    }
+    Ok(entities)
+}
+
+fn read_inventory_approvals(path: &Path) -> CliResult<Vec<EntityChangeApproval>> {
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    if value.get("format").and_then(serde_json::Value::as_str)
+        != Some("glyphweave.entity-change-approvals")
+        || value.get("version").and_then(serde_json::Value::as_u64) != Some(1)
+    {
+        return Err("unsupported entity change approvals format/version".into());
+    }
+    let items = value
+        .get("approvals")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("approvals file must contain an approvals array")?;
+    let mut approvals = Vec::with_capacity(items.len());
+    for item in items {
+        let entity_id = item
+            .get("entityId")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("approval entityId must be a string")?
+            .to_owned();
+        let change: EntityChangeKind = serde_json::from_value(
+            item.get("change")
+                .cloned()
+                .ok_or("approval change is required")?,
+        )
+        .map_err(|_| "approval change must be moved, updated, or removed")?;
+        approvals.push(EntityChangeApproval { entity_id, change });
+    }
+    Ok(approvals)
 }
 
 fn validate_world_command(args: &[String]) -> CliResult<()> {
@@ -2645,7 +2822,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave export-preview-stream WORLD_DIR\n  glyphweave design-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave verify-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave apply-patch-preserving BASE_WORLD MANIFEST.json PATCH.json APPROVALS.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave export-preview-stream WORLD_DIR\n  glyphweave design-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave verify-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
     );
 }
 

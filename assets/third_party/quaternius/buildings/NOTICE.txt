@@ -1,0 +1,28 @@
+Quaternius building assets - provenance notice
+
+The four OBJ/MTL pairs in this directory are:
+
+- 1Story_GableRoof.obj / 1Story_GableRoof.mtl
+- 2Story_GableRoof.obj / 2Story_GableRoof.mtl
+- 2Story_Wide.obj / 2Story_Wide.mtl
+- 2Story_RoundRoof.obj / 2Story_RoundRoof.mtl
+
+Quaternius publishes its free building packs with OBJ files and a CC0
+license. The candidate official pack pages checked on 2026-09-08 are:
+
+- Buildings Pack: https://quaternius.com/packs/buildings.html
+- Simple Buildings Pack: https://quaternius.com/packs/simplebuildings.html
+
+Both pages declare CC0-1.0 and OBJ distribution. Their currently published
+Google Drive archives use different filenames, so the exact local file-to-pack
+match has not been proven. This notice intentionally records that limitation;
+it must not be read as a claim that the source archive was identified.
+
+The upstream site license page, last updated 2026-08-28, now describes the
+Quaternius Asset License rather than CC0:
+https://quaternius.com/license.html
+
+Because these files were already present before this notice was added, the
+download date and the license version that applied on that date are not known
+from repository evidence. Resolve the exact source archive and applicable
+license before claiming release-grade legal clearance.

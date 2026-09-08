@@ -14,6 +14,7 @@ pub mod layer;
 pub mod migration;
 pub mod natural;
 pub mod preview_stream;
+pub mod preview_stream_audit;
 pub mod rules;
 pub mod settlement;
 pub mod storage;

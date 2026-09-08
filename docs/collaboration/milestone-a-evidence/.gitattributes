@@ -1,0 +1,6 @@
+# Preserve original evidence bytes, including historical CRLF/trailing spaces.
+# Whitespace lint still applies normally to production code and documents.
+* -text
+*.json -whitespace
+*.jsonl -whitespace
+*.txt -whitespace

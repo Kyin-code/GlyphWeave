@@ -1,0 +1,39 @@
+{
+  "format": "glyphweave.process-benchmark",
+  "version": 1,
+  "status": "failed",
+  "operation": "world-quality-gate",
+  "timestampUtc": "2026-09-08T15:34:57.5330144Z",
+  "pid": 51700,
+  "executable": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+  "executableSha256": "99374AF17E471E46E5C09185E28775FCD6661E71E025D6A45AA49F2E521B3BC8",
+  "manifest": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+  "manifestSha256": "D4FE4D8C72783067F6996621F2836FD5BBC8A154F3FB81C6D2E220FBA9154749",
+  "manifestArgument": "examples/maximum-local-height-frontage.manifest.json",
+  "output": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\measurement-world-r2b",
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 6000,
+      "depthM": 10000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "timeoutSeconds": 600,
+  "maxPrivateMiB": 8192,
+  "elapsedSeconds": 38.2008743,
+  "sampledPeakPrivateBytes": 1455783936,
+  "peakWorkingSetBytes": 1368526848,
+  "cpuSeconds": 37.34375,
+  "sampleCount": 74,
+  "lastTraceStage": "not-started",
+  "stopReason": null,
+  "exitCode": 1,
+  "osTotalMemoryKiB": 33452624,
+  "osFreeMemoryAtStartKiB": 17212716,
+  "samplesJsonl": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r2\\gate-measurement-r2b\\samples.jsonl",
+  "samplesJsonlSha256": "1CEF4C7E4109E30A6B77BB030BDF448D2ECA54A40733C0ACD2C6400439F97ACD",
+  "memoryScope": "child process only; private bytes sampled every 500ms, working set includes OS peak; excludes renderer and other processes"
+}

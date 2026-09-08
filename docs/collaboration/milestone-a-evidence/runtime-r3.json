@@ -1,0 +1,14 @@
+{
+  "format": "glyphweave.final-runtime",
+  "version": 1,
+  "branch": "refactor/authoritative-baked-audit",
+  "head": "6020fbe2713e8c79c1b2934b244402dc93e1df14",
+  "generationRuntime": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-final\\release\\glyphweave.exe",
+  "generationRuntimeSha256": "99374af17e471e46e5c09185e28775fcd6661e71e025d6a45aa49f2e521b3bc8",
+  "auditRuntime": "G:\\difyllmwiki\\GlyphWeave\\bevy\\target-r-audit-r1\\release\\glyphweave.exe",
+  "auditRuntimeSha256": "e414d4ae08fb7b66a05671d3d32db463f2870df5b149b73ff4ebd9648520c4da",
+  "inputManifest": "G:\\difyllmwiki\\GlyphWeave\\examples\\maximum-local-height-frontage.manifest.json",
+  "inputSha256": "d4fe4d8c72783067f6996621f2836fd5bbc8a154f3fb81c6d2e220fba9154749",
+  "sourceManifest": "G:\\difyllmwiki\\GlyphWeave\\bevy\\work\\collaboration\\ds-final-r3\\source-manifest-r3.json",
+  "sourceManifestSha256": "7d1c8b21584b782e9f1744ce18a2928ae605670ecaebda2929be4cc099f15a7b"
+}

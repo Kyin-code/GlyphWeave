@@ -28,6 +28,14 @@
 
 ---
 
+## Rust-first 现代地图生成：里程碑 A 已完成
+
+已签收 6 km × 10 km 候选的 **里程碑 A（稳定底座）**。这不代表全世界质量通过或里程碑 C 完成；六类内容缺口与两项来源/许可证未解析事项继续披露。
+
+- [检查员正式签收与边界](docs/collaboration/a-main-acceptance-20260909.zh-CN.md)
+- [精简证据归档](docs/collaboration/milestone-a-evidence/README.md)
+
+
 ## 这是什么
 
 **GlyphWeave** 是一款开源的无限画布地图编辑器，专为 Roguelike ASCII 艺术设计。逐格描绘地牢、放置预设房间、切换复古终端主题，并将你的世界导出为便携的 `.gemap` 文件——全在浏览器中完成。

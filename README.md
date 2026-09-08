@@ -31,6 +31,14 @@
 
 ---
 
+## Rust-first world generator: Milestone A accepted
+
+The modern-world generator has passed **Milestone A (stable foundation)** for the reviewed 6 km × 10 km candidate. This is **not** whole-world quality pass or Milestone C completion. Six content-quality gaps and two unresolved provenance/license items remain disclosed.
+
+- [Independent acceptance and scope](docs/collaboration/a-main-acceptance-20260909.zh-CN.md)
+- [Compact evidence archive](docs/collaboration/milestone-a-evidence/README.md)
+
+
 ## What Is This
 
 **GlyphWeave** is an open-source, infinite-canvas tilemap editor designed for roguelike ASCII art. Paint dungeons tile by tile, place preset rooms, switch between retro terminal themes, and export your worlds as portable `.gemap` files — all in the browser.

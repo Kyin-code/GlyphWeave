@@ -8,6 +8,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "ecology_spatial.rs"]
+mod ecology_spatial;
+use ecology_spatial::ObstacleQuery;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcologyClassSummary {
@@ -265,16 +269,23 @@ pub(super) fn realize(
     water: WaterGeometry,
     entities: &[EntityInstance],
 ) -> Result<EcologyRealization, String> {
+    let obstacles = ObstacleQuery::indexed(entities);
+    realize_with_obstacles(scene, patches, terrain, water, &obstacles)
+}
+
+fn realize_with_obstacles(
+    scene: &SceneSpec,
+    patches: &[SurfacePatch],
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    obstacles: &ObstacleQuery<'_>,
+) -> Result<EcologyRealization, String> {
     let mut result = EcologyRealization {
         model: "area-budgeted-stratified-vegetation-v3".into(),
         communities: communities(patches)?,
         ..Default::default()
     };
     let patches: BTreeMap<_, _> = patches.iter().map(|p| (p.id.as_str(), p)).collect();
-    let obstacles: Vec<_> = entities
-        .iter()
-        .filter(|e| landcover::ecology_obstacle(e))
-        .collect();
     let mut classes = BTreeMap::<String, (usize, f64, BTreeSet<String>)>::new();
     for c in &mut result.communities {
         let patch = patches[c.source_patch_id.as_str()];
@@ -284,6 +295,9 @@ pub(super) fn realize(
         entry.1 += landcover::mesh_area(patch)?;
         entry.2.insert(patch.source_cell_id.clone());
         let patch_bounds = bounds(patch);
+        // Every accepted full-size candidate lies in this patch (including EPS).
+        // Preserve the full original geometry checks and all search attempts.
+        let patch_obstacles = obstacles.query(patch_bounds);
         let mut local = vec![];
         for (budget, layer) in c.layer_budgets.iter_mut().zip(p.layers) {
             for ordinal in 0..budget.planned_count {
@@ -301,7 +315,7 @@ pub(super) fn realize(
                     patch_bounds,
                     layer.width,
                     water,
-                    &obstacles,
+                    &patch_obstacles,
                     &local,
                 ) {
                     Ok([x, z]) => {
@@ -363,11 +377,24 @@ pub(super) fn overlaps(a: &EcologyPlant, b: &EcologyPlant) -> bool {
     let r = (a.width_m + b.width_m) * 0.5;
     (a.world_x - b.world_x).abs() < r - 1e-9 && (a.world_z - b.world_z).abs() < r - 1e-9
 }
+#[cfg(test)]
 pub(super) fn verify_plant_clearance(
     plant: &EcologyPlant,
     patch: &SurfacePatch,
     water: WaterGeometry,
     entities: &[EntityInstance],
+) -> Result<(), String> {
+    verify_plant_clearance_with(plant, patch, water, |x, z, r| {
+        entities.iter().filter(|e| landcover::ecology_obstacle(e))
+            .any(|e| landcover::footprint_intersects_entity(e, x, z, r, r))
+    })
+}
+
+fn verify_plant_clearance_with(
+    plant: &EcologyPlant,
+    patch: &SurfacePatch,
+    water: WaterGeometry,
+    blocked: impl FnOnce(f64, f64, f64) -> bool,
 ) -> Result<(), String> {
     if ![
         plant.world_x,
@@ -395,11 +422,7 @@ pub(super) fn verify_plant_clearance(
     if water.intersects_axis_aligned(plant.world_x, plant.world_z, r, r) {
         return Err("ecology plant intersects water".into());
     }
-    if entities
-        .iter()
-        .filter(|e| landcover::ecology_obstacle(e))
-        .any(|e| landcover::footprint_intersects_entity(e, plant.world_x, plant.world_z, r, r))
-    {
+    if blocked(plant.world_x, plant.world_z, r) {
         return Err("ecology plant intersects hard entity".into());
     }
     Ok(())
@@ -409,6 +432,17 @@ pub(super) fn verify_contract(
     patches: &[SurfacePatch],
     water: WaterGeometry,
     entities: &[EntityInstance],
+) -> Result<(), String> {
+    // Rebuild independently from final entities; no generation index/cache is trusted.
+    let obstacles = ObstacleQuery::indexed(entities);
+    verify_contract_with_obstacles(actual, patches, water, &obstacles)
+}
+
+fn verify_contract_with_obstacles(
+    actual: &EcologyRealization,
+    patches: &[SurfacePatch],
+    water: WaterGeometry,
+    obstacles: &ObstacleQuery<'_>,
 ) -> Result<(), String> {
     let expected = communities(patches)?;
     if expected.len() != actual.communities.len() {
@@ -468,7 +502,10 @@ pub(super) fn verify_contract(
         if plant.source_patch_id != source || plant.layer != layer || plant.kind != kind {
             return Err("ecology plant provenance mismatch".into());
         }
-        verify_plant_clearance(plant, patch_map[source], water, entities)?;
+        verify_plant_clearance_with(plant, patch_map[source], water, |x, z, r| {
+            obstacles.query([x - r, x + r, z - r, z + r]).iter()
+                .any(|e| landcover::footprint_intersects_entity(e, x, z, r, r))
+        })?;
         let neighbors = by_patch.entry(source).or_default();
         if neighbors.iter().any(|p| overlaps(plant, p)) {
             return Err("ecology plants overlap".into());
@@ -689,6 +726,303 @@ mod tests {
                 verify_contract(&bad, &patches, w, &[obstacle.clone()]).is_err(),
                 "mode {mode}"
             );
+        }
+    }
+    fn spatial_test_entity(id: &str, x: i32, z: i32, w: f32, d: f32, yaw: f32) -> EntityInstance {
+        let mut e: EntityInstance = serde_json::from_value(serde_json::json!({
+            "entityId":id,"assetId":"test","kind":"rock","worldX":x,"worldZ":z,
+            "worldY":4,"widthM":w,"depthM":d,"heightM":2.,"scale":1.
+        })).unwrap();
+        e.rotation_y_deg = yaw;
+        e
+    }
+
+    fn footprint_checks() -> usize {
+        landcover::FOOTPRINT_CHECKS.with(|count| count.get())
+    }
+
+    fn assert_spatial_verify_equal(
+        actual: &EcologyRealization,
+        patches: &[SurfacePatch],
+        water: WaterGeometry,
+        entities: &[EntityInstance],
+    ) -> Result<(), String> {
+        let reference = verify_contract_with_obstacles(actual, patches, water, &ObstacleQuery::linear(entities));
+        // Each verifier constructs its own view from the supplied final entities.
+        let indexed = verify_contract(actual, patches, water, entities);
+        assert_eq!(indexed, reference, "verify must preserve the first rejection reason");
+        indexed
+    }
+
+    #[test]
+    fn indexed_and_linear_ecology_are_byte_exact_and_reduce_generation_and_verify_checks() {
+        let (scene, patches, terrain, water) = fixture();
+        let terrain_before = terrain.content_hash().unwrap();
+        for mode in 0..8 {
+            let mut entities: Vec<_> = (0..1024).map(|i| {
+                spatial_test_entity(&format!("far-{i}"), 2000 + i * 64, -2000, 2., 4., 45.)
+            }).collect();
+            let mut patches = patches.clone();
+            let mut w = water;
+            match mode {
+                0 => {},
+                1 => entities.push(spatial_test_entity("rotated", -8, 40, 30., 0.1, 45.)),
+                2 => entities.push(spatial_test_entity("blocked", 0, 48, 64., 64., 0.)),
+                3 => {
+                    let mut road = spatial_test_entity("long-road", 0, 48, 100_000., 1., 17.);
+                    road.kind = "road".into();
+                    entities.push(road);
+                },
+                4 => entities.push(spatial_test_entity("huge", 500_000, 500_000, 2_000_000., 2_000_000., 31.)),
+                5 => {
+                    patches[1].material = Material::ConservationWetland;
+                    patches[2].material = Material::ConservationGround;
+                    w = crate::worldgen::water_geometry(crate::worldgen::WaterKind::River, &[], &scene, &serde_json::json!({}));
+                },
+                6 => {
+                    let mut invalid = spatial_test_entity("invalid", 1_000_000, 1_000_000, 1., 1., 0.);
+                    invalid.scale = -1.;
+                    entities.push(invalid);
+                },
+                _ => entities.push(spatial_test_entity("partial", -8, 48, 16., 32., 0.)),
+            }
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let linear = ObstacleQuery::linear(&entities);
+            let expected = realize_with_obstacles(&scene, &patches, &terrain, w, &linear).unwrap();
+            let linear_checks = footprint_checks() - before;
+            let linear_us = started.elapsed().as_micros();
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let indexed = ObstacleQuery::indexed(&entities);
+            let actual = realize_with_obstacles(&scene, &patches, &terrain, w, &indexed).unwrap();
+            let indexed_checks = footprint_checks() - before;
+            let indexed_us = started.elapsed().as_micros();
+            assert_eq!(actual, expected, "mode {mode}: all fields, IDs, budgets and rejection order");
+            let actual_bytes = serde_json::to_vec(&actual).unwrap();
+            let expected_bytes = serde_json::to_vec(&expected).unwrap();
+            assert_eq!(actual_bytes, expected_bytes, "mode {mode}: no tolerant output comparison");
+            assert_eq!(realize(&scene, &patches, &terrain, w, &entities).unwrap(), actual);
+            let mut reversed = patches.clone();
+            reversed.reverse();
+            assert_eq!(realize(&scene, &reversed, &terrain, w, &entities).unwrap(), actual);
+
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let verify_linear = verify_contract_with_obstacles(&actual, &patches, w, &ObstacleQuery::linear(&entities));
+            let verify_linear_checks = footprint_checks() - before;
+            let verify_linear_us = started.elapsed().as_micros();
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let verify_indexed = verify_contract(&actual, &patches, w, &entities);
+            let verify_indexed_checks = footprint_checks() - before;
+            let verify_indexed_us = started.elapsed().as_micros();
+            assert_eq!(verify_indexed, verify_linear, "mode {mode}: independent verify parity");
+            assert!(verify_indexed.is_ok(), "mode {mode}");
+            if mode == 0 {
+                assert_eq!(actual.plants.len(), 43);
+                assert!(actual.rejections.is_empty());
+                assert!(indexed_checks * 10 < linear_checks);
+                assert!(verify_indexed_checks * 10 < verify_linear_checks);
+            }
+            if mode == 1 {
+                assert!(indexed_checks > 0 && indexed_checks * 10 < linear_checks);
+                assert!(verify_indexed_checks > 0 && verify_indexed_checks * 10 < verify_linear_checks);
+            }
+            if mode == 7 {
+                assert!(!actual.plants.is_empty() && !actual.rejections.is_empty());
+                assert_eq!(actual.plants.len() + actual.rejections.len(), 43);
+                assert!(actual.rejections.windows(2).all(|p| p[0].id < p[1].id));
+            }
+            if mode == 2 || mode == 4 || mode == 6 {
+                assert!(actual.plants.is_empty());
+                assert_eq!(actual.rejections.len(), 43);
+                assert_eq!(actual.status, "incomplete");
+            }
+            eprintln!("{}", serde_json::json!({
+                "format":"glyphweave.ecology-spatial-test", "mode":mode,
+                "outputBlake3":blake3::hash(&actual_bytes).to_hex().to_string(),
+                "plants":actual.plants.len(),"rejections":actual.rejections.len(),
+                "linearCandidateVisits":linear.candidate_visits.get(),
+                "indexedCandidateVisits":indexed.candidate_visits.get(),
+                "generationLinearChecks":linear_checks,"generationIndexedChecks":indexed_checks,
+                "verifyLinearChecks":verify_linear_checks,"verifyIndexedChecks":verify_indexed_checks,
+                "generationLinearUs":linear_us,"generationIndexedUs":indexed_us,
+                "verifyLinearUs":verify_linear_us,"verifyIndexedUs":verify_indexed_us
+            }));
+        }
+        assert_eq!(terrain.content_hash().unwrap(), terrain_before);
+    }
+
+    #[test]
+    fn indexed_verify_retains_negative_contract_errors_and_uses_new_final_obstacles() {
+        let (scene, patches, terrain, water) = fixture();
+        let original = realize(&scene, &patches, &terrain, water, &[]).unwrap();
+        assert!(assert_spatial_verify_equal(&original, &patches, water, &[]).is_ok());
+        for mode in 0..9 {
+            let mut bad = original.clone();
+            let expected_reason = match mode {
+                0 => {bad.plants.push(bad.plants[0].clone()); "duplicate or unplanned ecology plant"},
+                1 => {bad.plants[0].source_patch_id = "absent".into(); "ecology plant provenance mismatch"},
+                2 => {bad.plants[0].width_m = 1000.; "ecology plant footprint is outside source patch"},
+                3 => {bad.plants[0].world_x = f64::NAN; "invalid ecology plant contract"},
+                4 => {bad.plants[0].height_m = 0.; "invalid ecology plant contract"},
+                5 => {bad.plants.remove(0); "missing ecology outcome"},
+                6 => {bad.communities[0].density_per_ha += 1.; "ecology area density budget mismatch"},
+                7 => {bad.communities[0].realized_plant_count += 1; "ecology community count is not conserved"},
+                _ => {
+                    let a = &bad.plants[0];
+                    let i = bad.plants.iter().enumerate().skip(1)
+                        .find(|(_,p)| p.source_patch_id == a.source_patch_id && p.width_m <= a.width_m)
+                        .map(|(i,_)| i).unwrap();
+                    bad.plants[i].world_x = a.world_x;
+                    bad.plants[i].world_z = bad.plants[0].world_z;
+                    "ecology plants overlap"
+                },
+            };
+            assert_eq!(assert_spatial_verify_equal(&bad, &patches, water, &[]).unwrap_err(), expected_reason, "mode {mode}");
+        }
+        // A valid generation cannot serve as a clearance cache for changed final entities.
+        let p = &original.plants[0];
+        let obstacle = spatial_test_entity("new-final-blocker", p.world_x.round() as i32, p.world_z.round() as i32, 4., 4., 45.);
+        assert_eq!(assert_spatial_verify_equal(&original, &patches, water, &[obstacle]).unwrap_err(), "ecology plant intersects hard entity");
+        let blocked = [spatial_test_entity("blocked", 0, 48, 64., 64., 0.)];
+        let river = crate::worldgen::water_geometry(crate::worldgen::WaterKind::River, &[], &scene, &serde_json::json!({}));
+        assert!(river.intersects_axis_aligned(0., 48., 0.4, 0.4));
+        let water_patch = patch("water-test", -8., 40., 16., 16., Material::ConservationWetland);
+        let water_plant = EcologyPlant {world_x:0.,world_z:48.,world_y:4.,width_m:0.8,height_m:2.,..Default::default()};
+        assert_eq!(verify_plant_clearance(&water_plant, &water_patch, river, &[]).unwrap_err(), "ecology plant intersects water");
+        assert_eq!(verify_plant_clearance_with(&water_plant, &water_patch, river, |_,_,_| panic!("water must reject before obstacle query")).unwrap_err(), "ecology plant intersects water");
+        let rejected = realize(&scene, &patches, &terrain, water, &blocked).unwrap();
+        for mode in 0..4 {
+            let mut bad = rejected.clone();
+            let expected_reason = match mode {
+                0 => {bad.rejections[0].reason = "wrong-reason".into(); "invalid ecology rejection"},
+                1 => {bad.rejections.push(bad.rejections[0].clone()); "duplicate or unplanned ecology rejection"},
+                2 => {bad.rejections.remove(0); "missing ecology outcome"},
+                _ => {bad.rejections[0].source_patch_id = "absent".into(); "invalid ecology rejection"},
+            };
+            assert_eq!(assert_spatial_verify_equal(&bad, &patches, water, &blocked).unwrap_err(), expected_reason);
+        }
+    }
+
+    #[test]
+    fn indexed_candidate_search_preserves_width_water_occupied_and_exhaustion_order() {
+        let (scene, _, _, water) = fixture();
+        let domains = [[-32.,-16.,-16.,0.],[-16.,0.,32.,48.],[16.,32.,-32.,-16.]];
+        let entities = [
+            spatial_test_entity("rotated", -24, -8, 20., 0.1, 45.),
+            spatial_test_entity("boundary", 32, -24, 1., 40., 0.),
+            spatial_test_entity("far", 10000, 10000, 2., 2., 0.),
+        ];
+        let linear = ObstacleQuery::linear(&entities);
+        let indexed = ObstacleQuery::indexed(&entities);
+        let river = crate::worldgen::water_geometry(crate::worldgen::WaterKind::River,&[],&scene,&serde_json::json!({}));
+        for bounds in domains {
+            for width in [0.8,1.,1.5,2.5,4.,8.,16.,17.,f64::NAN] {
+                for w in [water,river] {
+                    for occupied_width in [0.8,4.,16.] {
+                        let center = [(bounds[0]+bounds[1])*0.5,(bounds[2]+bounds[3])*0.5];
+                        let occupied = [EcologyPlant {world_x:center[0],world_z:center[1],width_m:occupied_width,..Default::default()}];
+                        for preferred in [center,[bounds[0],bounds[2]],[bounds[1]+1e-9,bounds[3]]] {
+                            assert_eq!(
+                                landcover::choose_ecology_position(preferred,bounds,width,w,&indexed.query(bounds),&occupied),
+                                landcover::choose_ecology_position(preferred,bounds,width,w,&linear.query(bounds),&occupied)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    #[ignore = "real WORLD_DIR linear/indexed replay; coordinating agent RUN slot only"]
+    fn real_world_dir_linear_indexed_ecology_equivalence() {
+        use std::{fs::File, io::BufReader, path::{Path, PathBuf}};
+        use crate::worldgen::{SceneIndex, WorldIndex, WorldManifest};
+        fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> T {
+            serde_json::from_reader(BufReader::new(File::open(path).expect("required world JSON missing")))
+                .expect("invalid world JSON")
+        }
+        fn contained(root: &Path, path: PathBuf) -> PathBuf {
+            let real = path.canonicalize().expect("required world input missing");
+            assert!(real.starts_with(root), "world input escapes root: {}", path.display());
+            real
+        }
+        let root = PathBuf::from(std::env::var_os("WORLD_DIR")
+            .expect("WORLD_DIR is required; never default to an old work/r49 world"))
+            .canonicalize().expect("WORLD_DIR must exist");
+        let manifest: WorldManifest = read_json(&contained(&root, root.join("glyphweave.manifest.json")));
+        let world: WorldIndex = read_json(&contained(&root, root.join("world.json")));
+        assert_eq!(manifest.format, "glyphweave-world");
+        assert_eq!(manifest.version, 1);
+        assert_eq!(world.format, manifest.format);
+        assert_eq!(world.version, manifest.version);
+        assert_eq!(world.seed, manifest.world.seed);
+        assert_eq!(world.render_mode, manifest.world.render_mode);
+        assert!(!world.scenes.is_empty(), "real equivalence needs at least one scene");
+        assert_eq!(world.scenes.len(), manifest.scenes.len());
+        let mut seen = std::collections::BTreeSet::new();
+        for scene_file in &world.scenes {
+            let scene_path = contained(&root, root.join(scene_file));
+            let scene: SceneIndex = read_json(&scene_path);
+            assert!(seen.insert(scene.scene_id.clone()), "duplicate sceneId");
+            let spec = manifest.scenes.iter().find(|s| s.scene_id == scene.scene_id)
+                .expect("scene absent from manifest");
+            assert_eq!((scene.width_m,scene.depth_m,scene.origin_x,scene.origin_z),
+                       (spec.width_m,spec.depth_m,spec.origin_x,spec.origin_z));
+            let mut terrain = BakedTerrain::new(spec).unwrap();
+            for chunk in &scene.chunks {
+                let path = contained(&root, scene_path.parent().unwrap().join(&chunk.height_file));
+                // Only one bounded chunk payload is buffered at a time.
+                assert!((1..=512).contains(&chunk.valid_width_m) && (1..=512).contains(&chunk.valid_depth_m));
+                let limit = u64::from(chunk.valid_width_m) * u64::from(chunk.valid_depth_m) * 4 + 1024;
+                assert!(std::fs::metadata(&path).unwrap().len() <= limit, "oversize height chunk");
+                let bytes = std::fs::read(path).expect("height chunk unreadable");
+                terrain.insert_chunk(chunk.world_x,chunk.world_z,chunk.valid_width_m,chunk.valid_depth_m,&bytes).unwrap();
+            }
+            terrain.require_complete().unwrap();
+            let surfaces = scene.landcover_surfaces.as_ref().expect("published landcover/ecology required");
+            assert_eq!(surfaces.scene_id, spec.scene_id);
+            assert_eq!(surfaces.final_heightfield_hash, terrain.content_hash().unwrap());
+            let water = crate::worldgen::water_geometry(crate::worldgen::water_kind(&manifest.style),
+                &scene.landmarks, spec, &manifest.style);
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let linear = ObstacleQuery::linear(&scene.entities);
+            let expected = realize_with_obstacles(spec,&surfaces.patches,&terrain,water,&linear).unwrap();
+            let linear_us = started.elapsed().as_micros();
+            let linear_checks = footprint_checks() - before;
+            let expected_bytes = serde_json::to_vec(&expected).unwrap();
+            let output_hash = blake3::hash(&expected_bytes).to_hex().to_string();
+            drop(expected);
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let indexed = realize(spec,&surfaces.patches,&terrain,water,&scene.entities).unwrap();
+            let indexed_us = started.elapsed().as_micros();
+            let indexed_checks = footprint_checks() - before;
+            let indexed_bytes = serde_json::to_vec(&indexed).unwrap();
+            assert_eq!(indexed_bytes, expected_bytes, "linear/indexed full serialization differs");
+            assert_eq!(indexed_bytes, serde_json::to_vec(&surfaces.ecology).unwrap(),
+                "published ecology is not the same-input result; do not treat a mismatched world as equivalent");
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let old_verify = verify_contract_with_obstacles(&indexed,&surfaces.patches,water,&ObstacleQuery::linear(&scene.entities));
+            let verify_linear_us = started.elapsed().as_micros();
+            let verify_linear_checks = footprint_checks() - before;
+            let started = std::time::Instant::now();
+            let before = footprint_checks();
+            let new_verify = verify_contract(&indexed,&surfaces.patches,water,&scene.entities);
+            let verify_indexed_us = started.elapsed().as_micros();
+            let verify_indexed_checks = footprint_checks() - before;
+            assert_eq!(old_verify,new_verify);
+            new_verify.unwrap();
+            eprintln!("{}", serde_json::json!({"format":"glyphweave.real-ecology-equivalence","world":root,
+                "worldRevision":world.revision,"sceneId":scene.scene_id,"outputBlake3":output_hash,
+                "entities":scene.entities.len(),"patches":surfaces.patches.len(),"plants":indexed.plants.len(),
+                "rejections":indexed.rejections.len(),"linearChecks":linear_checks,"indexedChecks":indexed_checks,
+                "linearUs":linear_us,"indexedUs":indexed_us,"verifyLinearChecks":verify_linear_checks,
+                "verifyIndexedChecks":verify_indexed_checks,"verifyLinearUs":verify_linear_us,"verifyIndexedUs":verify_indexed_us}));
         }
     }
 }
