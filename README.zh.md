@@ -35,6 +35,7 @@
 - [检查员正式签收与边界](docs/collaboration/a-main-acceptance-20260909.zh-CN.md)
 - [精简证据归档](docs/collaboration/milestone-a-evidence/README.md)
 - [下一阶段：里程碑 B 计划与首批任务](docs/collaboration/milestone-b-plan.zh-CN.md)
+- [B-01～B-05 完整开发任务](docs/collaboration/ds-v41f-b01-b05-runbook.zh-CN.md)
 
 
 ## 这是什么
