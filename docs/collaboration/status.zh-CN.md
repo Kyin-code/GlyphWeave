@@ -161,3 +161,9 @@ F1/header和F2/auditInput以及原复访分支错误已通过主Agent小世界/�
 正式签收：G:/difyllmwiki/GlyphWeave/docs/collaboration/a-main-acceptance-20260909.zh-CN.md。检查员证据与机器签收：G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/inspector-r3-u1-20260909/。最新裁定接续此前 needs-changes，不改历史记录。A-01～A-10 按合同范围通过，worldQualityStatus=fail 原六类内容缺口和两项许可未解析保留；不是 whole-world-quality-pass，不是 C 完成。
 
 A 修订队列关闭。没有授权自动推进 B/C、Git 提交或证据清理。保留原数据，bevy/work 忽略证据尚未另行归档。下一阶段另行制定窄任务与预算；当前不用再让 DS 补 A。主 Agent 未提交、未启动 agent、未修改 F:/modenmapbox。
+
+## A远端发布与B首批安排（用户新授权）
+
+主 Agent 已按用户授权提交并推送A：42cb4973fe6fdf985d21ee2a1f4be3c0ce10382b，origin/refactor/authoritative-baked-audit，注释标签milestone-a-accepted；远端main未动。新增精简证据归档，不再只有ignored work中的本地签收文件；大型产物仍仅本地保留，归档不是完整复验包。详情见milestone-a-publication.zh-CN.md。
+
+后续仍采用外部DS v4.1f实现、主 Agent检查/管理。里程碑B计划与合同见milestone-b-plan.zh-CN.md和milestone-b-acceptance.zh-CN.md。当前仅派B-01：独立临路地块与真实庭院，消除development固定楼框+2m假设；任务见ds-v41f-b01-task.zh-CN.md。B-02至B-05只是队列，不授权执行。禁止worker提交/推送和自动扩展到C；本轮主 Agent没有实现B业务代码或启动agent。

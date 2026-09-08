@@ -37,6 +37,7 @@ The modern-world generator has passed **Milestone A (stable foundation)** for th
 
 - [Independent acceptance and scope](docs/collaboration/a-main-acceptance-20260909.zh-CN.md)
 - [Compact evidence archive](docs/collaboration/milestone-a-evidence/README.md)
+- [Next: Milestone B plan and first implementation task](docs/collaboration/milestone-b-plan.zh-CN.md)
 
 
 ## What Is This
