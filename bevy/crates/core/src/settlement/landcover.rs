@@ -52,6 +52,8 @@ pub struct SurfacePatch {
 pub enum Material {
     ManagedGrass,
     AccessPavement,
+    PublicOpenSpace,
+    PastureGround,
     CultivatedSoil,
     FieldHeadland,
     FarmTrack,
@@ -85,11 +87,20 @@ pub struct SurfaceAudit {
     pub headland_area_m2: f64,
     pub farm_track_area_m2: f64,
     #[serde(default)]
+    pub public_open_space_area_m2: f64,
+    #[serde(default)]
+    pub pasture_area_m2: f64,
+    #[serde(default)]
     pub conservation_ground_area_m2: f64,
     pub ecology_planned_plants: usize,
     pub ecology_realized_plants: usize,
     pub ecology_unfilled_plants: usize,
     pub unresolved_yard_m2: f64,
+    /// Unresolved yard area per owning parcel. Additive evidence only: the
+    /// totals, thresholds and ownership rules above are unchanged, and
+    /// documents written before this field still deserialize.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unresolved_yard_by_parcel: BTreeMap<String, f64>,
     pub unresolved_area_m2: f64,
     pub patches: usize,
     pub failures: Vec<String>,
@@ -391,7 +402,7 @@ pub fn realize(
             previous=now;
         }
     };
-    development::audit_landcover(plan, scene, development)?;
+    development::validate_landcover_plan(plan, scene, development)?;
     if !terrain.matches_scene(scene) {
         return Err("landcover surface terrain mismatch".into());
     }
@@ -622,6 +633,108 @@ pub fn realize(
         }
     }
     trace("conservation-surfaces");
+    if let Some(program) = &plan.residual_program {
+        program.validate()?;
+        let mut occupied = std::collections::BTreeSet::<(i64, i64)>::new();
+        for patch in &result.patches {
+            for vertex in &patch.vertices {
+                occupied.insert((vertex[0].floor() as i64, vertex[2].floor() as i64));
+            }
+        }
+        let residual_obstacles: Vec<_> = entities.iter().filter(|e| solid(e)).collect();
+        for (role, ratio, material, label) in [
+            (
+                LandcoverRole::FutureDevelopment,
+                program.urban_open_space_ratio,
+                Material::PublicOpenSpace,
+                "urban-open-space",
+            ),
+            (
+                LandcoverRole::AgricultureCandidate,
+                program.rural_pasture_ratio,
+                Material::PastureGround,
+                "rural-pasture",
+            ),
+        ] {
+            for cell in plan.cells.iter().filter(|c| c.role == role) {
+                let target = (cell.boundary.area() as f64 * ratio).floor() as u64;
+                if target == 0 {
+                    continue;
+                }
+                let mut patch = SurfacePatch {
+                    id: format!("{}.{}", cell.id, label),
+                    source_cell_id: cell.id.clone(),
+                    parcel_id: cell.id.clone(),
+                    zone_kind: cell.zone_kind.clone(),
+                    material,
+                    area_m2: 0.,
+                    vertices: vec![],
+                    triangles: vec![],
+                };
+                let mut realized = 0_u64;
+                for z in cell.boundary.z..cell.boundary.z + i64::from(cell.boundary.depth_m) {
+                    for x in cell.boundary.x..cell.boundary.x + i64::from(cell.boundary.width_m)
+                    {
+                        if realized >= target {
+                            break;
+                        }
+                        if occupied.contains(&(x, z)) {
+                            continue;
+                        }
+                        let square = [
+                            [x as f64, z as f64],
+                            [x as f64 + 1., z as f64],
+                            [x as f64 + 1., z as f64 + 1.],
+                            [x as f64, z as f64 + 1.],
+                        ];
+                        let heights: Vec<_> = square
+                            .iter()
+                            .map(|&p| terrain_height(terrain, p))
+                            .collect::<Result<_, _>>()?;
+                        let dx = (heights[1] - heights[0])
+                            .abs()
+                            .max((heights[2] - heights[3]).abs());
+                        let dz = (heights[3] - heights[0])
+                            .abs()
+                            .max((heights[2] - heights[1]).abs());
+                        let reason = if water
+                            .intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5)
+                        {
+                            Some("water_intersection")
+                        } else if residual_obstacles
+                            .iter()
+                            .any(|e| obstacle_intersects(e, x, z))
+                        {
+                            Some("solid_object_occupies_residual_land")
+                        } else if dx.hypot(dz) > MAX_YARD_GRADE + EPS {
+                            Some("residual_grade_exceeds_25_percent")
+                        } else {
+                            None
+                        };
+                        if let Some(reason) = reason {
+                            result.rejections.push(SurfaceRejection {
+                                source_cell_id: cell.id.clone(),
+                                x,
+                                z,
+                                area_m2: 1,
+                                reason: reason.into(),
+                            });
+                            continue;
+                        }
+                        append(&mut patch, &square, |p| {
+                            terrain_height(terrain, p).map(|h| h + 0.025)
+                        })?;
+                        occupied.insert((x, z));
+                        realized += 1;
+                    }
+                }
+                if patch.area_m2 > EPS {
+                    result.patches.push(patch);
+                }
+            }
+        }
+    }
+    trace("residual-land");
     result.ecology = super::ecology::realize(scene, &result.patches, terrain, water, entities)?;
     trace("ecology");
 
@@ -704,10 +817,13 @@ pub fn verify(
     let mut grass = 0.;
     let mut paved = 0.;
     let (mut cultivated, mut headland, mut tracks, mut conservation) = (0., 0., 0., 0.);
+    let (mut public_open_space, mut pasture) = (0., 0.);
     for p in &actual.patches {
         match p.material {
             Material::ManagedGrass => grass += mesh_area(p)?,
             Material::AccessPavement => paved += mesh_area(p)?,
+            Material::PublicOpenSpace => public_open_space += mesh_area(p)?,
+            Material::PastureGround => pasture += mesh_area(p)?,
             Material::CultivatedSoil => cultivated += mesh_area(p)?,
             Material::FieldHeadland => headland += mesh_area(p)?,
             Material::FarmTrack => tracks += mesh_area(p)?,
@@ -741,13 +857,21 @@ pub fn verify(
     // Keep realizedAreaM2 compatible with the pre-r28 yard/agriculture
     // contract. Nature coverage is reported separately and accounted by the
     // purpose ledger; it must not change yard-area assertions.
-    let realized = yard_realized + cultivated + headland + tracks;
-    let rejected = actual
+    let realized =
+        yard_realized + cultivated + headland + tracks + public_open_space + pasture;
+    let yard_source_ids: BTreeMap<_, _> = plan
+        .cells
+        .iter()
+        .filter(|cell| cell.role == LandcoverRole::ManagedYard)
+        .map(|cell| (cell.id.as_str(), ()))
+        .collect();
+    let yard_rejected = actual
         .rejections
         .iter()
+        .filter(|rejection| yard_source_ids.contains_key(rejection.source_cell_id.as_str()))
         .map(|r| r.area_m2 as f64)
         .sum::<f64>();
-    if (yard_realized + rejected - yard as f64).abs() > 1e-6 {
+    if (yard_realized + yard_rejected - yard as f64).abs() > 1e-6 {
         return Err("yard realization area is not conserved".into());
     }
     // Remove only sub-square-millimetre floating point residue, not missing
@@ -758,6 +882,33 @@ pub fn verify(
     }
     let unresolved = residual(planned as f64 - realized - conservation);
     let unresolved_yard = residual(yard as f64 - yard_realized);
+    // Same rejection evidence, attributed to the owning parcel so new parcels
+    // can never spend an old parcel's shortfall.
+    let mut unresolved_yard_by_parcel: BTreeMap<String, f64> = BTreeMap::new();
+    let owner_by_cell: BTreeMap<&str, &str> = development
+        .cells
+        .iter()
+        .filter_map(|cell| {
+            cell.owner_id
+                .as_deref()
+                .map(|owner| (cell.id.as_str(), owner))
+        })
+        .collect();
+    for rejection in actual
+        .rejections
+        .iter()
+        .filter(|rejection| yard_source_ids.contains_key(rejection.source_cell_id.as_str()))
+    {
+        let parcel_id = plan
+            .cells
+            .iter()
+            .find(|cell| cell.id == rejection.source_cell_id)
+            .and_then(|cell| owner_by_cell.get(cell.source_cell_id.as_str()).copied())
+            .map(str::to_string)
+            .unwrap_or_else(|| rejection.source_cell_id.clone());
+        *unresolved_yard_by_parcel.entry(parcel_id).or_default() +=
+            residual(rejection.area_m2 as f64);
+    }
     Ok(SurfaceAudit {
         status: if unresolved > 1e-7 || !actual.ecology.rejections.is_empty() {
             "incomplete"
@@ -774,6 +925,8 @@ pub fn verify(
         cultivated_area_m2: cultivated,
         headland_area_m2: headland,
         farm_track_area_m2: tracks,
+        public_open_space_area_m2: public_open_space,
+        pasture_area_m2: pasture,
         conservation_ground_area_m2: conservation,
         ecology_planned_plants: actual
             .ecology
@@ -784,6 +937,7 @@ pub fn verify(
         ecology_realized_plants: actual.ecology.plants.len(),
         ecology_unfilled_plants: actual.ecology.rejections.len(),
         unresolved_yard_m2: unresolved_yard,
+        unresolved_yard_by_parcel,
         unresolved_area_m2: unresolved,
         patches: actual.patches.len(),
         failures: if actual.ecology.rejections.is_empty() {
@@ -876,6 +1030,7 @@ mod tests {
                 width_m: 24,
                 depth_m: 24,
                 support_level_m: 0,
+                parcel_insets: None,
                 support_level_mm: None,
                     frontage_road_point: None,
                 rotation_y_deg: 0.,
@@ -1382,6 +1537,25 @@ mod tests {
                 .abs()
                 < 1e-7
         );
+    }
+    #[test]
+    fn residual_program_realizes_only_the_explicit_fraction() {
+        let (s, d, mut p, t, w, e) = fixture();
+        p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
+            urban_open_space_ratio: 0.1,
+            rural_pasture_ratio: 0.0,
+        });
+        let out = realize(&s, &d, &p, &t, w, &e).unwrap();
+        let open: f64 = out
+            .patches
+            .iter()
+            .filter(|patch| patch.material == Material::PublicOpenSpace)
+            .map(|patch| patch.area_m2)
+            .sum();
+        assert!(open > 0.);
+        let audit = verify(&out, &s, &d, &p, &t, w, &e).unwrap();
+        assert!((audit.public_open_space_area_m2 - open).abs() < 1e-7);
+        assert!(audit.unresolved_area_m2 > 0.);
     }
 }
 

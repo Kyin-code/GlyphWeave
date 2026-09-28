@@ -5,6 +5,7 @@ use super::{
     road_network::{RoadNetworkPlan, RoadsideSite},
     services::SiteProgram,
     zoning::ZoningMask,
+    parcel_geometry::{self, ParcelInsets},
 };
 use crate::{
     baked_terrain::{BakedTerrain, TerrainError},
@@ -33,6 +34,8 @@ pub struct Request {
     pub station_spacing_m: u32,
     pub setback_m: u32,
     pub max_candidate_attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parcel_insets: Option<ParcelInsets>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -98,6 +101,10 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
         {
             return Err(err("invalid exact frontage dimensions; no shrinking"));
         }
+        r.parcel_insets
+            .unwrap_or_default()
+            .validate_for_request(r.width_m, r.depth_m, r.setback_m)
+            .map_err(err)?;
         count += u64::from(r.count);
     }
     if count > 2048 {
@@ -202,6 +209,126 @@ fn bounds(e: &EntityInstance, margin: i64) -> [i64; 4] {
 fn overlap(a: [i64; 4], b: [i64; 4]) -> bool {
     a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 }
+pub(super) fn parcel_boundary(site: &RoadsideSite) -> Result<[i64; 4], TerrainError> {
+    parcel_geometry::boundary_for_entity(
+        &site.entity(),
+        site.parcel_insets.unwrap_or_default(),
+    )
+    .map_err(err)
+}
+/// Production road iteration order for the local station search. Wider
+/// hierarchy roads are kept as topology/collectors; local roads get first
+/// chance when their width is narrower. All-8m legacy inputs retain the
+/// original plan iteration order.
+pub(super) fn profile_roads(plan: &RoadNetworkPlan) -> Vec<EntityInstance> {
+    let mut roads = plan.entities();
+    if roads.iter().any(|road| road.depth_m > 8.) {
+        roads.sort_by_key(|road| (road.depth_m as u32, road.entity_id.clone()));
+    }
+    roads
+}
+/// The exact station list `append` visits on one road for one request, or
+/// `None` when the road carries no local profile contract. Shared with the
+/// bounded supply probe so a measurement can never drift from placement.
+pub(super) fn stations(
+    road: &EntityInstance,
+    r: &Request,
+) -> Result<Option<Vec<usize>>, TerrainError> {
+    // At present only profile-bearing roads support this local-height path.
+    let Some(profile) = &road.grounding.road_profile else {
+        return Ok(None);
+    };
+    profile.validate_entity(road)?;
+    let length = profile.elevations_mm.len() - 1;
+    let margin = r.width_m / 2 + 8;
+    if length <= 2 * margin as usize {
+        return Ok(None);
+    }
+    // Wider roads need their extra half-width as junction clearance so the
+    // first parcel does not overlap the connecting collector.
+    let station_start = margin as usize + (road.depth_m as usize).saturating_sub(8);
+    if station_start > length - margin as usize {
+        return Ok(None);
+    }
+    Ok(Some(
+        (station_start..=length - margin as usize)
+            .step_by(r.station_spacing_m as usize)
+            .collect(),
+    ))
+}
+/// Build the exact `RoadsideSite` production would try at this station/side.
+pub(super) fn candidate_site(
+    road: &EntityInstance,
+    r: &Request,
+    scene_id: &str,
+    station: usize,
+    side: i32,
+) -> Result<RoadsideSite, TerrainError> {
+    let profile = road
+        .grounding
+        .road_profile
+        .as_ref()
+        .ok_or_else(|| err("frontage candidate requires a road profile"))?;
+    let dx = (profile.end[0] - profile.start[0]).signum();
+    let dz = (profile.end[1] - profile.start[1]).signum();
+    let rx = profile.start[0] + dx * station as i32;
+    let rz = profile.start[1] + dz * station as i32;
+    let offset = (road.depth_m / 2.) as i32 + r.setback_m as i32 + (r.depth_m / 2) as i32;
+    let (x, z, yaw) = if dx != 0 {
+        (rx, rz + side * offset, if side > 0 { 0. } else { 180. })
+    } else {
+        (rx + side * offset, rz, if side > 0 { 90. } else { 270. })
+    };
+    let level = i32::try_from(profile.elevations_mm[station])
+        .map_err(|_| err("frontage height overflow"))?;
+    let id = format!(
+        "generated.frontage.{}.{}.{}.{}.{}",
+        scene_id,
+        r.id,
+        road.entity_id,
+        station,
+        if side > 0 { "positive" } else { "negative" }
+    );
+    Ok(RoadsideSite {
+        program: Some(SiteProgram {
+            request_id: r.id.clone(),
+            kind: r.kind.clone(),
+            height_m: r.height_m,
+        }),
+        id,
+        road_id: road.entity_id.clone(),
+        world_x: x,
+        world_z: z,
+        width_m: r.width_m,
+        depth_m: r.depth_m,
+        support_level_m: level.div_euclid(1000),
+        parcel_insets: r.parcel_insets,
+        support_level_mm: Some(level),
+        frontage_road_point: Some([rx, rz]),
+        rotation_y_deg: yaw,
+        natural_min_m: f32::INFINITY,
+        natural_max_m: f32::NEG_INFINITY,
+    })
+}
+/// Scene envelope and purpose gate, applied before any engineering preflight.
+pub(super) fn envelope_reason(
+    parcel: [i64; 4],
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    purpose: &str,
+) -> Option<&'static str> {
+    if parcel[0] < i64::from(scene.origin_x) + 8
+        || parcel[1] < i64::from(scene.origin_z) + 8
+        || parcel[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
+        || parcel[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
+    {
+        Some("outside_scene")
+    } else if !in_purpose(parcel, zones, purpose) {
+        Some("wrong_purpose_or_protected")
+    } else {
+        None
+    }
+}
 fn in_purpose(b: [i64; 4], zones: &[LandUseZone], purpose: &str) -> bool {
     let covered: i64 = zones
         .iter()
@@ -237,11 +364,64 @@ fn sample(
     };
     Ok((h * 1000.).round() as i32)
 }
+/// Structured evidence for one real rejection. The decision itself stays the
+/// `&'static str` reason key; this only records what was actually found.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct RejectDetail {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicting_entity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicting_site: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+impl RejectDetail {
+    fn of(reason: &str) -> Self {
+        Self {
+            reason: reason.into(),
+            conflicting_entity: None,
+            conflicting_site: None,
+            at: None,
+            natural_mm: None,
+            design_mm: None,
+            before_mm: None,
+            after_mm: None,
+            note: None,
+        }
+    }
+    /// Evidence for the pre-engineering envelope/purpose gate.
+    pub(super) fn envelope(reason: &str, parcel: [i64; 4]) -> Self {
+        Self {
+            at: Some([
+                ((parcel[0] + parcel[2]) / 2) as i32,
+                ((parcel[1] + parcel[3]) / 2) as i32,
+            ]),
+            note: Some(format!(
+                "parcel=[{},{},{},{}]",
+                parcel[0], parcel[1], parcel[2], parcel[3]
+            )),
+            ..Self::of(reason)
+        }
+    }
+}
 fn support_check(
     site: &RoadsideSite,
     n: &BakedTerrain,
     mask: &ZoningMask,
     max_fill_mm: i32,
+    detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     let b = bounds(&e, 2);
@@ -249,10 +429,23 @@ fn support_check(
     for z in b[1]..=b[3] {
         for x in b[0]..=b[2] {
             let h = raw_mm(n, x as i32, z as i32)?;
-            if h > level
-                || i64::from(level) - i64::from(h) > i64::from(max_fill_mm)
-                || f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000.
-            {
+            let note = if h > level {
+                Some("natural_above_design_level")
+            } else if i64::from(level) - i64::from(h) > i64::from(max_fill_mm) {
+                Some("fill_exceeds_roadbed_limit")
+            } else if f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000. {
+                Some("fill_exceeds_zoning_capacity")
+            } else {
+                None
+            };
+            if let Some(note) = note {
+                *detail = Some(RejectDetail {
+                    at: Some([x as i32, z as i32]),
+                    natural_mm: Some(h),
+                    design_mm: Some(level),
+                    note: Some(note.into()),
+                    ..RejectDetail::of("natural_support_or_fill_limit")
+                });
                 return Ok(Some("natural_support_or_fill_limit"));
             }
         }
@@ -281,30 +474,58 @@ fn preflight(
     water: WaterGeometry,
     existing: &[EntityInstance],
     base_carves: &[super::TerrainCarve],
+    detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     validate_entity(&e)?;
     let b = bounds(&e, 2);
     let (hw, hd) = site.world_half_extents();
+    let parcel = parcel_boundary(site)?;
+    let parcel_half_w = (parcel[2] - parcel[0]) as f64 * 0.5;
+    let parcel_half_d = (parcel[3] - parcel[1]) as f64 * 0.5;
+    let parcel_center_x = (parcel[0] + parcel[2]) as f64 * 0.5;
+    let parcel_center_z = (parcel[1] + parcel[3]) as f64 * 0.5;
     if water.intersects_axis_aligned(
-        e.world_x as f64,
-        e.world_z as f64,
-        (hw + 2) as f64,
-        (hd + 2) as f64,
+        parcel_center_x,
+        parcel_center_z,
+        parcel_half_w,
+        parcel_half_d,
     ) {
+        *detail = Some(RejectDetail {
+            at: Some([parcel_center_x as i32, parcel_center_z as i32]),
+            ..RejectDetail::of("water")
+        });
         return Ok(Some("water"));
     }
-    if existing
-        .iter()
-        .any(|o| overlap(b, bounds(o, if o.kind == "road" { 4 } else { 2 })))
-    {
-        return Ok(Some("occupied_or_road_support"));
+    for old in existing {
+        let old_bounds = plan
+            .roadside_sites
+            .iter()
+            .find(|s| s.id == old.entity_id)
+            .map(parcel_boundary)
+            .transpose()?
+            .unwrap_or_else(|| bounds(old, if old.kind == "road" { 4 } else { 2 }));
+        if overlap(parcel, old_bounds) {
+            *detail = Some(RejectDetail {
+                conflicting_entity: Some(old.entity_id.clone()),
+                at: Some([
+                    (parcel[0].max(old_bounds[0])) as i32,
+                    (parcel[1].max(old_bounds[1])) as i32,
+                ]),
+                ..RejectDetail::of("occupied_or_road_support")
+            });
+            return Ok(Some("occupied_or_road_support"));
+        }
     }
-    if plan
+    if let Some(other) = plan
         .roadside_sites
         .iter()
-        .any(|s| super::joint_frontage::incompatible(site, s, plan))
+        .find(|s| super::joint_frontage::incompatible(site, s, plan))
     {
+        *detail = Some(RejectDetail {
+            conflicting_site: Some(other.id.clone()),
+            ..RejectDetail::of("reserved_entrance")
+        });
         return Ok(Some("reserved_entrance"));
     }
     if let Some(reason) = support_check(
@@ -312,6 +533,7 @@ fn preflight(
         n,
         mask,
         (plan.max_roadbed_fill_m * 1000.).round() as i32,
+        detail,
     )? {
         return Ok(Some(reason));
     }
@@ -343,6 +565,19 @@ fn preflight(
                     if sample(n, mask, &carves, x as i32, z as i32)?
                         != sample(n, mask, base_carves, x as i32, z as i32)?
                     {
+                        *detail = Some(RejectDetail {
+                            conflicting_entity: Some(old.entity_id.clone()),
+                            at: Some([x as i32, z as i32]),
+                            before_mm: Some(sample(
+                                n,
+                                mask,
+                                base_carves,
+                                x as i32,
+                                z as i32,
+                            )?),
+                            after_mm: Some(sample(n, mask, &carves, x as i32, z as i32)?),
+                            ..RejectDetail::of("existing_support_changed")
+                        });
                         return Ok(Some("existing_support_changed"));
                     }
                 }
@@ -364,6 +599,15 @@ fn preflight(
     if connection_protected
         || water.intersects_corridor(ax as f64, az as f64, cx as f64, cz as f64, 2.)
     {
+        *detail = Some(RejectDetail {
+            at: Some([ax as i32, az as i32]),
+            note: Some(if connection_protected {
+                "access_corridor_reserved_zoning".into()
+            } else {
+                "access_corridor_intersects_water".into()
+            }),
+            ..RejectDetail::of("entrance_reserved_or_water")
+        });
         return Ok(Some("entrance_reserved_or_water"));
     }
     for z in corridor[1]..corridor[3] {
@@ -374,6 +618,12 @@ fn preflight(
                 || i64::from(after) - i64::from(before)
                     > (plan.max_roadbed_fill_m * 1000.).round() as i64
             {
+                *detail = Some(RejectDetail {
+                    at: Some([x as i32, z as i32]),
+                    before_mm: Some(before),
+                    after_mm: Some(after),
+                    ..RejectDetail::of("entrance_fill_limit")
+                });
                 return Ok(Some("entrance_fill_limit"));
             }
         }
@@ -420,6 +670,13 @@ fn preflight(
     for z in e.world_z - hd as i32 - 2..=e.world_z + hd as i32 + 2 {
         for x in e.world_x - hw as i32 - 2..=e.world_x + hw as i32 + 2 {
             if raw_mm(&raster, x, z)? != level {
+                *detail = Some(RejectDetail {
+                    at: Some([x, z]),
+                    before_mm: Some(level),
+                    after_mm: Some(raw_mm(&raster, x, z)?),
+                    note: Some("engineered_platform_sample_differs".into()),
+                    ..RejectDetail::of("engineered_platform_not_flat")
+                });
                 return Ok(Some("engineered_platform_not_flat"));
             }
         }
@@ -431,7 +688,7 @@ fn preflight(
         .iter()
         .any(|l| l.connected && l.road_id.as_deref() == Some(&site.road_id))
     {
-        return Ok(Some(if links.iter().any(|l| l.connected) {
+        let reason = if links.iter().any(|l| l.connected) {
             "access_to_different_road"
         } else {
             match links.first().map(|l| l.status.as_str()) {
@@ -439,9 +696,155 @@ fn preflight(
                 Some("entrance_clearance_blocked") => "entrance_clearance_blocked",
                 _ => "no_local_walkable_frontage",
             }
-        }));
+        };
+        *detail = Some(RejectDetail {
+            note: Some(links.first().map(|l| l.status.clone()).unwrap_or_default()),
+            ..RejectDetail::of(reason)
+        });
+        return Ok(Some(reason));
     }
     Ok(None)
+}
+/// Immutable-to-the-caller candidate state: the raw source, the zoning mask and
+/// the accumulated engineering footprint of everything already accepted. The
+/// placement loop and the bounded supply probe share this exact state so a
+/// measurement can never disagree with the placement it predicts.
+pub(super) struct PlacementState<'a> {
+    pub n: &'a BakedTerrain,
+    pub mask: &'a ZoningMask,
+    pub water: WaterGeometry,
+    pub existing: Vec<EntityInstance>,
+    pub carves: Vec<super::TerrainCarve>,
+}
+impl<'a> PlacementState<'a> {
+    pub(super) fn new(
+        n: &'a BakedTerrain,
+        mask: &'a ZoningMask,
+        water: WaterGeometry,
+        existing: Vec<EntityInstance>,
+    ) -> Self {
+        let carves = super::plan_terrain_carves(&existing);
+        Self {
+            n,
+            mask,
+            water,
+            existing,
+            carves,
+        }
+    }
+    /// Full production engineering preflight for one candidate.
+    pub(super) fn assess(
+        &self,
+        site: &RoadsideSite,
+        plan: &RoadNetworkPlan,
+    ) -> Result<Option<&'static str>, TerrainError> {
+        let mut detail = None;
+        preflight(
+            site,
+            plan,
+            self.n,
+            self.mask,
+            self.water,
+            &self.existing,
+            &self.carves,
+            &mut detail,
+        )
+    }
+    /// Same preflight decision with the structured evidence of the rejection.
+    pub(super) fn assess_detailed(
+        &self,
+        site: &RoadsideSite,
+        plan: &RoadNetworkPlan,
+    ) -> Result<(Option<&'static str>, Option<RejectDetail>), TerrainError> {
+        let mut detail = None;
+        let reason = preflight(
+            site,
+            plan,
+            self.n,
+            self.mask,
+            self.water,
+            &self.existing,
+            &self.carves,
+            &mut detail,
+        )?;
+        Ok((reason, detail))
+    }
+    pub(super) fn sample_natural(
+        &self,
+        site: &mut RoadsideSite,
+        parcel: [i64; 4],
+    ) -> Result<(), TerrainError> {
+        for zz in parcel[1]..parcel[3] {
+            for xx in parcel[0]..parcel[2] {
+                let h = raw_mm(self.n, xx as i32, zz as i32)? as f32 / 1000.;
+                site.natural_min_m = site.natural_min_m.min(h);
+                site.natural_max_m = site.natural_max_m.max(h);
+            }
+        }
+        Ok(())
+    }
+    /// Accept a site the way the production loop does: its platform becomes
+    /// fixed support for every later candidate.
+    pub(super) fn commit(&mut self, site: &RoadsideSite) {
+        let entity = site.entity();
+        self.carves
+            .extend(super::plan_terrain_carves(std::slice::from_ref(&entity)));
+        self.existing.push(entity);
+    }
+}
+/// Cumulative accounting for one authored request. Production placement and the
+/// read-only diagnosis both drive this same struct, so remaining demand and the
+/// request's own station budget can never diverge between them: demand is
+/// measured across every road, never restarted per road.
+#[derive(Debug, Clone)]
+pub(super) struct RequestBudget {
+    pub request: Request,
+    pub site_ids: Vec<String>,
+    pub attempted: u32,
+    pub rejected: BTreeMap<String, u32>,
+}
+impl RequestBudget {
+    pub(super) fn new(request: &Request) -> Self {
+        Self {
+            request: request.clone(),
+            site_ids: vec![],
+            attempted: 0,
+            rejected: BTreeMap::new(),
+        }
+    }
+    pub(super) fn satisfied(&self) -> bool {
+        self.site_ids.len() >= self.request.count as usize
+    }
+    pub(super) fn remaining(&self) -> u32 {
+        self.request.count.saturating_sub(self.site_ids.len() as u32)
+    }
+    pub(super) fn budget_left(&self) -> bool {
+        self.attempted < self.request.max_candidate_attempts
+    }
+    /// Claim one station attempt. False means this request is finished for the
+    /// whole placement, either by demand or by its own cumulative budget.
+    pub(super) fn claim_attempt(&mut self) -> bool {
+        if self.satisfied() || !self.budget_left() {
+            return false;
+        }
+        self.attempted += 1;
+        true
+    }
+    pub(super) fn reject(&mut self, reason: &str) {
+        *self.rejected.entry(reason.into()).or_default() += 1;
+    }
+    pub(super) fn accept(&mut self, id: &str) {
+        self.site_ids.push(id.into());
+    }
+    pub(super) fn stop_reason(&self) -> String {
+        if self.satisfied() {
+            "demand_satisfied".into()
+        } else if !self.budget_left() {
+            "candidate_budget_exhausted".into()
+        } else {
+            "no_feasible_frontage".into()
+        }
+    }
 }
 pub(super) fn append(
     plan: &mut RoadNetworkPlan,
@@ -469,130 +872,59 @@ pub(super) fn append(
     let mask = ZoningMask::new(scene, zones)?;
     // The append is atomic on error, while unsatisfied valid demand is reported.
     let mut staged = plan.clone();
-    let roads = staged.entities();
-    let mut existing = roads.clone();
-    existing.extend(staged.site_entities());
-    let mut carves = super::plan_terrain_carves(&existing);
+    let roads = profile_roads(&staged);
+    let mut state = PlacementState::new(
+        n,
+        &mask,
+        water,
+        {
+            let mut existing = roads.clone();
+            existing.extend(staged.site_entities());
+            existing
+        },
+    );
     let mut report = Report {
         version: 1,
         model: "local-road-station-frontage-v1".into(),
         outcomes: vec![],
     };
     for r in requests {
-        let mut o = Outcome {
-            request: r.clone(),
-            site_ids: vec![],
-            attempted: 0,
-            unfilled: r.count,
-            rejected: BTreeMap::new(),
-            stop_reason: String::new(),
-        };
+        let mut budget = RequestBudget::new(&r);
         'search: for road in &roads {
-            // At present only profile-bearing roads support this local-height path.
-            let Some(profile) = &road.grounding.road_profile else {
+            let Some(stations) = stations(road, &r)? else {
                 continue;
             };
-            profile.validate_entity(road)?;
-            let length = profile.elevations_mm.len() - 1;
-            let margin = r.width_m / 2 + 8;
-            if length <= 2 * margin as usize {
-                continue;
-            }
-            for station in
-                (margin as usize..=length - margin as usize).step_by(r.station_spacing_m as usize)
-            {
+            for station in stations {
                 for side in [-1_i32, 1] {
-                    if o.site_ids.len() == r.count as usize {
+                    if !budget.claim_attempt() {
                         break 'search;
                     }
-                    if o.attempted >= r.max_candidate_attempts {
-                        break 'search;
-                    }
-                    o.attempted += 1;
-                    let dx = (profile.end[0] - profile.start[0]).signum();
-                    let dz = (profile.end[1] - profile.start[1]).signum();
-                    let rx = profile.start[0] + dx * station as i32;
-                    let rz = profile.start[1] + dz * station as i32;
-                    let offset = (4 + r.setback_m + r.depth_m / 2) as i32;
-                    let (x, z, yaw) = if dx != 0 {
-                        (rx, rz + side * offset, if side > 0 { 0. } else { 180. })
-                    } else {
-                        (rx + side * offset, rz, if side > 0 { 90. } else { 270. })
-                    };
-                    let level = i32::try_from(profile.elevations_mm[station])
-                        .map_err(|_| err("frontage height overflow"))?;
-                    let id = format!(
-                        "generated.frontage.{}.{}.{}.{}.{}",
-                        scene.scene_id,
-                        r.id,
-                        road.entity_id,
-                        station,
-                        if side > 0 { "positive" } else { "negative" }
-                    );
-                    let mut site = RoadsideSite {
-                        program: Some(SiteProgram {
-                            request_id: r.id.clone(),
-                            kind: r.kind.clone(),
-                            height_m: r.height_m,
-                        }),
-                        id,
-                        road_id: road.entity_id.clone(),
-                        world_x: x,
-                        world_z: z,
-                        width_m: r.width_m,
-                        depth_m: r.depth_m,
-                        support_level_m: level.div_euclid(1000),
-                        support_level_mm: Some(level),
-                        frontage_road_point: Some([rx, rz]),
-                        rotation_y_deg: yaw,
-                        natural_min_m: f32::INFINITY,
-                        natural_max_m: f32::NEG_INFINITY,
-                    };
-                    let b = bounds(&site.entity(), 2);
-                    let check = [b[0], b[1], b[2] + 1, b[3] + 1];
-                    let mut reason = if b[0] < i64::from(scene.origin_x) + 8
-                        || b[1] < i64::from(scene.origin_z) + 8
-                        || b[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
-                        || b[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
-                    {
-                        Some("outside_scene")
-                    } else if !in_purpose(check, zones, &r.purpose) {
-                        Some("wrong_purpose_or_protected")
-                    } else {
-                        None
-                    };
+                    let mut site =
+                        candidate_site(road, &r, &scene.scene_id, station, side)?;
+                    let parcel = parcel_boundary(&site)?;
+                    let mut reason = envelope_reason(parcel, scene, zones, &r.purpose);
                     if reason.is_none() {
-                        reason = preflight(&site, &staged, n, &mask, water, &existing, &carves)?;
+                        reason = state.assess(&site, &staged)?;
                     }
                     if let Some(reason) = reason {
-                        *o.rejected.entry(reason.into()).or_default() += 1;
+                        budget.reject(reason);
                         continue;
                     }
-                    for zz in b[1]..=b[3] {
-                        for xx in b[0]..=b[2] {
-                            let h = raw_mm(n, xx as i32, zz as i32)? as f32 / 1000.;
-                            site.natural_min_m = site.natural_min_m.min(h);
-                            site.natural_max_m = site.natural_max_m.max(h);
-                        }
-                    }
-                    let entity = site.entity();
-                    carves.extend(super::plan_terrain_carves(std::slice::from_ref(&entity)));
-                    existing.push(entity);
-                    o.site_ids.push(site.id.clone());
+                    state.sample_natural(&mut site, parcel)?;
+                    state.commit(&site);
+                    budget.accept(&site.id);
                     staged.roadside_sites.push(site);
                 }
             }
         }
-        o.unfilled = r.count - o.site_ids.len() as u32;
-        o.stop_reason = if o.unfilled == 0 {
-            "demand_satisfied"
-        } else if o.attempted >= r.max_candidate_attempts {
-            "candidate_budget_exhausted"
-        } else {
-            "no_feasible_frontage"
-        }
-        .into();
-        report.outcomes.push(o);
+        report.outcomes.push(Outcome {
+            request: budget.request.clone(),
+            site_ids: budget.site_ids.clone(),
+            attempted: budget.attempted,
+            unfilled: budget.remaining(),
+            rejected: budget.rejected.clone(),
+            stop_reason: budget.stop_reason(),
+        });
     }
     staged.frontage = Some(report);
     *plan = staged;
@@ -607,6 +939,11 @@ pub struct Audit {
     pub realized_with_access: usize,
     pub unfilled: u32,
     pub failures: Vec<String>,
+    /// Machine-readable realized-with-access identities. Additive: the counts
+    /// and thresholds above are unchanged, and older documents without it
+    /// still deserialize.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub realized_ids: Vec<String>,
 }
 /// Call after road-network source replay; metadata alone never proves realization.
 pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &AccessGraph) -> Audit {
@@ -617,6 +954,7 @@ pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &Acces
         realized_with_access: 0,
         unfilled: 0,
         failures: vec![],
+        realized_ids: vec![],
     };
     if let Some(report) = &plan.frontage {
         for o in &report.outcomes {
@@ -646,6 +984,7 @@ pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &Acces
                     })
                 {
                     a.realized_with_access += 1;
+                    a.realized_ids.push(id.clone());
                 } else {
                     a.failures.push(format!(
                         "frontage building missing/changed/disconnected {id}"
@@ -740,6 +1079,77 @@ mod tests {
             serde_json::to_value(p).unwrap(),
             serde_json::to_value(again).unwrap()
         );
+    }
+    #[test]
+    fn explicit_parcel_insets_are_validated_preserved_and_used_for_conflicts() {
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        style["frontageProgram"]["requests"][0]["parcelInsets"] = insets.clone();
+        style["frontageProgram"]["requests"][0]["count"] = serde_json::json!(3);
+        style["frontageProgram"]["requests"][0]["stationSpacingM"] = serde_json::json!(16);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        assert!(p
+            .roadside_sites
+            .iter()
+            .all(|site| site.parcel_insets.is_some()));
+        for site in &p.roadside_sites {
+            let boundary = parcel_boundary(site).unwrap();
+            assert_eq!(boundary[2] - boundary[0], 20);
+            assert_eq!(boundary[3] - boundary[1], 26);
+        }
+        assert!(p.frontage.as_ref().unwrap().outcomes[0]
+            .rejected
+            .contains_key("occupied_or_road_support"));
+
+        let mut too_deep_front = fixture(0).5;
+        too_deep_front["frontageProgram"]["requests"][0]["parcelInsets"] =
+            serde_json::json!({"frontM":10,"sideM":4,"rearM":12});
+        assert!(from_style(&too_deep_front).is_err());
+    }
+    #[test]
+    fn feasible_long_profiled_control_realizes_twenty_four_explicit_parcels() {
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        let context = super::super::road_alignment::AlignmentContext::new(&s, &n, w, &z).unwrap();
+        let request = super::super::road_alignment::CorridorRequest {
+            scene_id: "frontage".into(),
+            start: [352, 128],
+            end: [480, 128],
+            road_width_m: 8,
+            shoulder_width_m: 3,
+            max_fill_mm: 6000,
+            max_rise_mm_per_m: 80,
+            start_level_mm: Some(2374),
+            end_level_mm: Some(3000),
+            junction_length_m: 8,
+        };
+        super::super::road_extensions::append_one(
+            &mut p,
+            &context,
+            &request,
+            "generated.road-extension.frontage.1".into(),
+        )
+        .unwrap();
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        let mut homes = style["frontageProgram"]["requests"][0].clone();
+        homes["id"] = serde_json::json!("homes-b01");
+        homes["count"] = serde_json::json!(16);
+        homes["stationSpacingM"] = serde_json::json!(24);
+        homes["parcelInsets"] = insets.clone();
+        let mut shops = homes.clone();
+        shops["id"] = serde_json::json!("shops-b01");
+        shops["kind"] = serde_json::json!("storefront");
+        shops["heightM"] = serde_json::json!(6);
+        shops["count"] = serde_json::json!(8);
+        style["frontageProgram"]["requests"] = serde_json::json!([homes, shops]);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let outcomes = &p.frontage.as_ref().unwrap().outcomes;
+        assert_eq!(outcomes.iter().map(|o| o.unfilled).sum::<u32>(), 0, "{outcomes:?}");
+        assert_eq!(p.roadside_sites.len(), 24);
+        for site in &p.roadside_sites {
+            let boundary = parcel_boundary(site).unwrap();
+            assert_eq!((boundary[2] - boundary[0]) * (boundary[3] - boundary[1]), 520);
+            assert!(site.parcel_insets.is_some());
+        }
     }
     #[test]
     fn demand_and_budget_shortfalls_are_not_resized_or_silently_passed() {

@@ -568,9 +568,12 @@ fn quality_report_rebuilds_development_and_rejects_forged_ownership() {
         .unwrap();
         let output = run();
         assert!(!output.status.success());
+        // The independent audit re-sources the residual policy from the frozen
+        // manifest (R1 source binding), so a forged plan is rejected by the
+        // authoritative-remainder message rather than the older wording.
         assert!(
             String::from_utf8_lossy(&output.stderr)
-                .contains("landcover plan differs from independently rebuilt remainder")
+                .contains("landcover plan differs from authoritative remainder/policy")
         );
     }
     fs::write(dir.0.join(&path), serde_json::to_vec(&scene).unwrap()).unwrap();

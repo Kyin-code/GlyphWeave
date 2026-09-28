@@ -1,0 +1,73 @@
+{
+  "schema": "g33-budget-proposal-v1",
+  "round": "G33",
+  "status": "granted_by_user_2026-09-28",
+  "scopeRef": "g33-scope.zh-CN.md",
+  "baselineRef": "g33-baseline-binding.json",
+  "stopRuleRef": "g33-stop-rules.zh-CN.md",
+  "notGrantedUntil": "the user explicitly confirms the G33 user-visible goal and this budget; until then G33 stays not_started and no cargo/CLI/browser/aux/product process may run",
+  "principles": [
+    "Resources must not be squeezed so tightly that the required evidence cannot be produced (handoff section 6).",
+    "cargo must include at least one formal build chain plus one repair margin.",
+    "CLI must include at least export + audit; add one more export when determinism is a hard requirement.",
+    "browser must retain at least one formal re-measurement margin.",
+    "aux must contain room for fixture self-check plus the formal session, to avoid burning the allowance on a parameter/timing mistake.",
+    "Any overspend is itemised separately and never offset by historical balance; it is never legalised after the fact.",
+    "One well-targeted re-test is allowed; endless tuning to green is forbidden."
+  ],
+  "allowance": {
+    "cargo": {
+      "proposed": 2,
+      "rationale": "one formal build chain (test + build, since the viewer enters the exe via include_str!) plus one repair margin",
+      "usedSoFar": 0
+    },
+    "cli": {
+      "proposed": 3,
+      "rationale": "export + audit, plus one determinism export (the package seal and the six-file reproducibility check)",
+      "usedSoFar": 0
+    },
+    "browser": {
+      "proposed": 2,
+      "rationale": "at least one formal re-measurement margin; a visual/intent increment needs a default and a target-state session",
+      "usedSoFar": 0
+    },
+    "aux": {
+      "proposed": 3,
+      "rationale": "fixture self-check + static preflight + one formal session, with a safety margin so a parameter/timing slip does not exhaust the allowance",
+      "usedSoFar": 0
+    },
+    "archiveMiB": {
+      "proposed": 32,
+      "rationale": "matches the G32 round envelope and is well above the ~1.7 MiB of a driver-only round, leaving room for screenshots and records",
+      "usedSoFar": 0
+    }
+  },
+  "historyNotReset": {
+    "note": "these are historical facts reported by each round's own report/ledger; they are preserved as-is and are neither ratified, offset nor reset by this proposal",
+    "g32": {
+      "cargo": "4 of 4",
+      "cli": "3 of 6",
+      "browser": "1 of 3",
+      "aux": "4 of 4"
+    },
+    "g32r1": {
+      "aux": "2 of 1 (+1, disclosed)"
+    },
+    "g32r2": {
+      "aux": "2 of 1 (+1, disclosed)"
+    },
+    "g32r2c1": {
+      "cargo": "0 of 0",
+      "cli": "0 of 0",
+      "browser": "1 of 1",
+      "aux": "1 of 1",
+      "note": "this C1 round itself stayed inside its allowance; its dry-run probes that launched Chrome inside a scratch root are disclosed in budget.json, not absorbed"
+    },
+    "g31r1": {
+      "aux": "5 of 3 (+2, disclosed)",
+      "note": "also carries the pre-existing missing build-archive.cjs gap"
+    }
+  },
+  "requestedButNotYetGranted": true,
+  "nextStepAfterGrant": "write the G33 implementation task book (phase B: product contract, visual intent, byte backups, baseline hashes, product allowlist, invariants/counter-examples, new evidence directory)"
+}

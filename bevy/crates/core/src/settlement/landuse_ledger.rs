@@ -20,6 +20,8 @@ pub struct PhysicalCover {
     pub roads_m2: f64,
     pub managed_grass_m2: f64,
     pub access_pavement_m2: f64,
+    pub public_open_space_m2: f64,
+    pub pasture_m2: f64,
     pub cultivated_soil_m2: f64,
     pub field_headland_m2: f64,
     pub farm_tracks_m2: f64,
@@ -31,6 +33,8 @@ impl PhysicalCover {
             + self.roads_m2
             + self.managed_grass_m2
             + self.access_pavement_m2
+            + self.public_open_space_m2
+            + self.pasture_m2
             + self.cultivated_soil_m2
             + self.field_headland_m2
             + self.farm_tracks_m2
@@ -205,6 +209,8 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
         match patch.material {
             Material::ManagedGrass => row.physical.managed_grass_m2 += size,
             Material::AccessPavement => row.physical.access_pavement_m2 += size,
+            Material::PublicOpenSpace => row.physical.public_open_space_m2 += size,
+            Material::PastureGround => row.physical.pasture_m2 += size,
             Material::CultivatedSoil => row.physical.cultivated_soil_m2 += size,
             Material::FieldHeadland => row.physical.field_headland_m2 += size,
             Material::FarmTrack => row.physical.farm_tracks_m2 += size,

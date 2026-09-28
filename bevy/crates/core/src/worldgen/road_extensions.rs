@@ -60,6 +60,7 @@ pub fn validate_manifest(m: &WorldManifest) -> Result<(), TerrainError> {
 pub fn profile(d: &CorridorDesign) -> RoadProfile {
     RoadProfile {
         version: 1,
+        road_width_m: d.request.road_width_m,
         start: d.request.start,
         end: d.request.end,
         elevations_mm: d.profile_mm.clone(),
@@ -75,9 +76,9 @@ fn at(e: &EntityInstance, x: i32, z: i32) -> f64 {
 }
 fn rect(e: &EntityInstance) -> [i64; 4] {
     let (hw, hd) = if e.rotation_y_deg == 0. {
-        (e.width_m as i64 / 2 + 4, 7)
+        (e.width_m as i64 / 2 + 4, e.depth_m as i64 / 2 + 3)
     } else {
-        (7, e.width_m as i64 / 2 + 4)
+        (e.depth_m as i64 / 2 + 3, e.width_m as i64 / 2 + 4)
     };
     [
         i64::from(e.world_x) - hw,
@@ -159,14 +160,14 @@ pub(super) fn append_one(
         .ok_or_else(|| err("extension needs fixed end junction"))?;
     let length = (i64::from(r.end[0]) - i64::from(r.start[0])).abs()
         + (i64::from(r.end[1]) - i64::from(r.start[1])).abs();
-    if r.road_width_m != 8
+    if !matches!(r.road_width_m, 8 | 12 | 16)
         || r.shoulder_width_m != 3
         || r.junction_length_m < 8
         || length < 16
         || length % 2 != 0
     {
         return Err(err(
-            "extension requires 8m road, 3m shoulders, even length and >=8m junction platforms",
+            "extension requires explicit 8/12/16m road, 3m shoulders, even length and >=8m junction platforms",
         ));
     }
     let from = plan
@@ -200,9 +201,9 @@ pub(super) fn append_one(
     let x = ((i64::from(r.start[0]) + i64::from(r.end[0])) / 2) as i32;
     let z = ((i64::from(r.start[1]) + i64::from(r.end[1])) / 2) as i32;
     let (hw, hd) = if r.start[1] == r.end[1] {
-        (length as i32 / 2 + 4, 7)
+        (length as i32 / 2 + 4, r.road_width_m as i32 / 2 + 3)
     } else {
-        (7, length as i32 / 2 + 4)
+        (r.road_width_m as i32 / 2 + 3, length as i32 / 2 + 4)
     };
     if mask
         .check("extension".into(), "road", x, z, hw, hd)
@@ -239,6 +240,7 @@ pub(super) fn append_one(
         i64::from(x + hw),
         i64::from(z + hd),
     ];
+    let junction_radius = i64::from(r.junction_length_m.max(r.road_width_m / 2 + 3));
     // No new mid-edge or grade-separated intersections are invented. Every
     // overlapping support point must belong to a declared endpoint junction.
     for old in &previous {
@@ -257,7 +259,10 @@ pub(super) fn append_one(
             for xx in q[0]..=q[2] {
                 if !junctions
                     .iter()
-                    .any(|p| (xx - i64::from(p[0])).abs() <= 8 && (zz - i64::from(p[1])).abs() <= 8)
+                    .any(|p| {
+                        (xx - i64::from(p[0])).abs() <= junction_radius
+                            && (zz - i64::from(p[1])).abs() <= junction_radius
+                    })
                     || (profile.height_at(xx as f64, zz as f64).unwrap()
                         - at(old, xx as i32, zz as i32))
                     .abs()
@@ -402,6 +407,22 @@ mod tests {
             serde_json::to_value(p).unwrap(),
             serde_json::to_value(again).unwrap()
         );
+    }
+    #[test]
+    fn explicit_8_12_16_metre_widths_reach_entity_and_profile() {
+        for width in [8, 12, 16] {
+            let (s, t, w, z, mut p, mut style) = fixture();
+            style["roadExtensions"]["corridors"][0]["roadWidthM"] = serde_json::json!(width);
+            append(&mut p, &s, &t, w, &z, &style).unwrap();
+            let entity = p.entities().pop().unwrap();
+            assert_eq!(entity.depth_m, width as f32);
+            let profile = entity.grounding.road_profile.as_ref().unwrap();
+            assert_eq!(profile.road_width_m, width);
+            profile.validate_entity(&entity).unwrap();
+        }
+        let (s, t, w, z, mut p, mut style) = fixture();
+        style["roadExtensions"]["corridors"][0]["roadWidthM"] = serde_json::json!(10);
+        assert!(append(&mut p, &s, &t, w, &z, &style).is_err());
     }
     #[test]
     fn detached_height_mismatched_and_conflicting_extensions_are_not_omitted() {

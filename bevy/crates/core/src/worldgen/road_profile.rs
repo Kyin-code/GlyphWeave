@@ -6,10 +6,15 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoadProfile {
     pub version: u32,
+    #[serde(default = "legacy_width")]
+    pub road_width_m: u32,
     pub start: [i32; 2],
     pub end: [i32; 2],
     pub elevations_mm: Vec<i64>,
     pub max_fill_mm: u32,
+}
+const fn legacy_width() -> u32 {
+    8
 }
 impl RoadProfile {
     pub fn validate_shape(&self) -> Result<(), TerrainError> {
@@ -17,6 +22,7 @@ impl RoadProfile {
         let dz = i64::from(self.end[1]) - i64::from(self.start[1]);
         let length = dx.abs() + dz.abs();
         if self.version != 1
+            || !matches!(self.road_width_m, 8 | 12 | 16)
             || (dx == 0) == (dz == 0)
             || !(16..=10000).contains(&length)
             || length % 2 != 0
@@ -78,7 +84,7 @@ impl RoadProfile {
                 .windows(2)
                 .any(|p| (p[0] - p[1]).abs() > 80)
             || e.width_m != length as f32
-            || e.depth_m != 8.
+            || e.depth_m != self.road_width_m as f32
             || e.scale != 1.
             || e.rotation_y_deg != if dx == 0 { 90. } else { 0. }
             || i64::from(e.world_x) * 2 != i64::from(self.start[0]) + i64::from(self.end[0])

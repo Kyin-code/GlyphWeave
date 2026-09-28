@@ -29,7 +29,11 @@ pub mod road_alignment;
 pub mod road_profile;
 pub mod road_extensions;
 pub mod auto_roads;
+pub mod engineering_connections;
 pub mod frontage;
+mod frontage_supply;
+pub mod parcel_geometry;
+pub mod road_parcel_feasibility;
 pub mod services;
 mod terrain_context;
 mod water_query;
@@ -466,6 +470,10 @@ pub struct WorldIndex {
     /// Horizontal datum used by preview adapters for water cells.
     #[serde(default)]
     pub water_level_m: Option<f32>,
+    /// Road geometry revision the baked earthwork used. Absent on legacy
+    /// products that cannot use the 16m graded band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_geometry_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1735,13 +1743,28 @@ impl WorldManifest {
     }
 
     pub fn validate(&self) -> WorldgenResult<()> {
-        road_extensions::validate_manifest(self)?;
-        auto_roads::validate_manifest(self)?;
-        frontage::validate_manifest(self)?;
+        // A morphology profile compiles once into the effective programs that
+        // both generation and independent audit consume. The authored style is
+        // never rewritten, so the original demand survives publication.
+        let compiled = crate::settlement::morphology_compile::compile(&self.style, &self.scenes)
+            .map_err(WorldgenError::InvalidRules)?;
+        let effective_manifest = compiled.as_ref().map(|compiled| {
+            let mut manifest = self.clone();
+            manifest.style = compiled.style.clone();
+            manifest
+        });
+        let effective = effective_manifest.as_ref().unwrap_or(self);
+        road_extensions::validate_manifest(effective)?;
+        auto_roads::validate_manifest(effective)?;
+        frontage::validate_manifest(effective)?;
         height_encoding_from_style(&self.style)?;
-        crate::settlement::farm_program::validate_manifest(&self.style,&self.scenes).map_err(WorldgenError::InvalidRules)?;
+        crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
+        crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
+            .map_err(WorldgenError::InvalidRules)?;
+        crate::settlement::morphology::validate_manifest(&self.style)
+            .map_err(WorldgenError::InvalidRules)?;
         let service_program =
-            services::from_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+            services::from_style(&effective.style).map_err(WorldgenError::InvalidRules)?;
         if let Some(program) = &service_program {
             for id in program.housing_minimum.keys() {
                 if !self.scenes.iter().any(|s| &s.scene_id == id) {
@@ -1989,6 +2012,76 @@ pub fn height_encoding_from_style(style: &serde_json::Value) -> WorldgenResult<H
         ))),
     }
 }
+/// Where a scene's authoritative *natural* surface comes from.
+///
+/// The owner of the manifest declares this once, and it travels unchanged down
+/// the same path the supply phase already uses (`plan_with_style` ->
+/// `auto_roads` -> `frontage_supply::realize_candidate` -> the final encoder).
+/// The demand-led supply phase must never infer the source from raster samples:
+/// an explicit declaration is the only thing that authorises regenerating a
+/// field, and a missing declaration refuses instead of guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaturalSource {
+    /// The authored procedural field. `seed` is the scene's effective seed
+    /// (`world.seed ^ scene.seedOffset`) and `precise` the style's height
+    /// encoding. The production encoder may re-derive the surface from exactly
+    /// these inputs, which is what the bake itself does.
+    AuthoredSeed { seed: u64, precise: bool },
+    /// The supplied raster is authoritative and is consumed exactly as handed
+    /// over: imported rasters, edited rasters and synthetic fixtures. It is
+    /// never regenerated, so an edit outside any sample point survives.
+    SuppliedRaster,
+    /// No declaration was made. Every path that needs an authoritative source
+    /// refuses rather than silently using a zero seed or a raster fallback.
+    Undeclared,
+}
+
+/// The effective seed of one scene, exactly as generation derives it.
+pub fn effective_scene_seed(world_seed: u64, scene: &SceneSpec) -> u64 {
+    world_seed ^ scene.seed_offset
+}
+
+/// Derive a scene's authoritative natural source from the trusted original
+/// inputs alone.
+///
+/// Generation and the independent audit both call this, so one rule produces
+/// the effective seed (`world.seed ^ scene.seedOffset`), the precision and the
+/// source kind on both sides. The declaration is never read back out of the
+/// published product and never guessed from raster samples. The generator only
+/// authors a procedural field, so a manifest that declares any other terrain
+/// source is refused rather than silently mapped onto `SuppliedRaster`.
+pub fn declared_natural_source(
+    manifest: &WorldManifest,
+    scene: &SceneSpec,
+) -> WorldgenResult<NaturalSource> {
+    if !manifest
+        .scenes
+        .iter()
+        .any(|declared| declared.scene_id == scene.scene_id)
+    {
+        return Err(WorldgenError::InvalidRules(format!(
+            "scene {} is not declared by the manifest",
+            scene.scene_id
+        )));
+    }
+    match manifest
+        .style
+        .get("terrain")
+        .and_then(serde_json::Value::as_str)
+    {
+        None | Some("continuous-heightfield") => {}
+        Some(other) => {
+            return Err(WorldgenError::InvalidRules(format!(
+                "unsupported authored terrain source {other:?}: this build has no declared non-authored source for the independent audit"
+            )))
+        }
+    }
+    Ok(NaturalSource::AuthoredSeed {
+        seed: effective_scene_seed(manifest.world.seed, scene),
+        precise: height_encoding_from_style(&manifest.style)? == HeightEncoding::Millimetre,
+    })
+}
+
 // Opt-in stderr telemetry is observational, never part of world identity or
 // release acceptance. The external runner measures process resources.
 struct BakeTrace { enabled: bool, started: std::time::Instant }
@@ -2002,6 +2095,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     let trace=BakeTrace::new();
     trace.stage("", "manifest-validation");
     manifest.validate()?;
+    // Compile the single effective program set for this bake. Roads, frontage,
+    // services, agriculture and residual land all consume this one value; no
+    // module fills its own default.
+    let compiled_style =
+        crate::settlement::morphology_compile::compile(&manifest.style, &manifest.scenes)
+            .map_err(WorldgenError::InvalidRules)?;
+    let effective_style = compiled_style
+        .as_ref()
+        .map(|compiled| compiled.style.clone())
+        .unwrap_or_else(|| manifest.style.clone());
     let precise = height_encoding_from_style(&manifest.style)? == HeightEncoding::Millimetre;
     let rules_mode = manifest
         .style
@@ -2035,6 +2138,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         return Err(WorldgenError::OutputNotEmpty(output.display().to_string()));
     }
     fs::create_dir_all(output)?;
+    if let Some(compiled) = &compiled_style {
+        fs::write(
+            output.join("effective-programs.json"),
+            serde_json::to_vec_pretty(&compiled.report)?,
+        )?;
+    }
     let revision = world_manifest_revision(manifest)?;
     let mut scene_paths = Vec::new();
     let mut baked_rules_report = crate::rules::ValidationReport::default();
@@ -2064,7 +2173,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             &manifest.style,
         );
         let service_program =
-            services::from_style(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+            services::from_style(&effective_style).map_err(WorldgenError::InvalidRules)?;
         if service_program.as_ref().is_some_and(|p| {
             p.requests.iter().any(|r| r.scene_id == scene.scene_id)
                 || p.housing_minimum.contains_key(&scene.scene_id)
@@ -2074,7 +2183,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "explicit service program requires supported road-first scene".into(),
             ));
         }
-        if crate::settlement::farm_program::for_scene(&manifest.style,scene).map_err(WorldgenError::InvalidRules)?.is_some()
+        if crate::settlement::farm_program::for_scene(&effective_style,scene).map_err(WorldgenError::InvalidRules)?.is_some()
             && !road_network::enabled(&manifest.style,water) {
             return Err(WorldgenError::InvalidRules("explicit agriculture program requires supported road-first scene".into()));
         }
@@ -2123,13 +2232,18 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let planned_zones =
             LandUseProfile::from_style(&manifest.style).map(|p| plan_landuse_zones(scene, &p));
         let road_plan = if road_network::enabled(&manifest.style, water) {
-            Some(road_network::plan_with_style(
+            Some(road_network::plan_with_style_declared(
                 scene,
                 &natural_samples,
                 water,
                 planned_zones.as_deref(),
                 service_program.as_ref(),
-                &manifest.style,
+                &effective_style,
+                // The bake owns the manifest, so it is the one place that may
+                // declare the authored seed as the authoritative natural
+                // source. Everything downstream receives this unchanged, and
+                // the independent audit derives it with the same rule.
+                declared_natural_source(manifest, scene)?,
             )?)
         } else {
             None
@@ -2179,7 +2293,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 scene,
                 &landmarks,
                 water,
-                &manifest.style,
+                &effective_style,
                 road_plan.as_ref(),
                 development_plan.as_ref(),
             )?;
@@ -2402,7 +2516,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     &fs::read(scene_dir.join(file))?,
                 )?;
             }
-            let audit = road_network::verify_with_style(
+            let audit = road_network::verify_with_style_declared(
                 plan,
                 scene,
                 &natural,
@@ -2411,7 +2525,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 &entities,
                 planned_zones.as_deref(),
                 service_program.as_ref(),
-                &manifest.style,
+                &effective_style,
+                declared_natural_source(manifest, scene)?,
             )?;
             let protection = zoning::audit_protection(
                 scene,
@@ -2516,7 +2631,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             index.land_use_zones = zones;
             if let Some(plan) = &index.development_plan {
-                let landcover = development::plan_landcover_with_program(scene, plan, &manifest.style)
+                let landcover = development::plan_landcover_with_program(scene, plan, &effective_style)
                     .map_err(WorldgenError::InvalidRules)?;
                 trace.stage(&scene.scene_id,"landcover-realization");
                 let surfaces = landcover::realize(
@@ -2668,6 +2783,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             .and_then(|water| water.get("levelM"))
             .and_then(serde_json::Value::as_f64)
             .map(|level| level as f32),
+        road_geometry_revision: road_geometry_revision_for_style(
+            compiled_style
+                .as_ref()
+                .map(|compiled| &compiled.style)
+                .unwrap_or(&manifest.style),
+        )
+        .map(str::to_owned),
     };
     fs::write(
         output.join("world.json"),
@@ -2740,13 +2862,131 @@ fn write_gemap_anchor(
 }
 
 pub fn world_manifest_revision(manifest: &WorldManifest) -> WorldgenResult<String> {
-    let payload = serde_json::json!({
-        "generator": WORLD_GENERATOR_REVISION,
-        "manifest": manifest,
-    });
+    // A legacy manifest that cannot use any graded band keeps the historical
+    // payload so frozen evidence keeps its revision. Profile-bearing manifests
+    // bind the compiled effective programs, and any manifest whose programs can
+    // produce a graded road binds the road geometry revision, so a change in
+    // the earthwork rule can never silently reuse an old world revision.
+    let compiled =
+        crate::settlement::morphology_compile::compile(&manifest.style, &manifest.scenes)
+            .map_err(WorldgenError::InvalidRules)?;
+    let effective = compiled
+        .as_ref()
+        .map(|compiled| &compiled.style)
+        .unwrap_or(&manifest.style);
+    let geometry = road_geometry_revision_for_style(effective);
+    world_manifest_revision_with_geometry(manifest, compiled.as_ref(), geometry)
+}
+
+/// Revision payload/hash with an explicit road geometry revision. Kept separate
+/// so a unit test can prove that two geometry revisions produce different
+/// identities without touching morphology versions.
+pub fn world_manifest_revision_with_geometry(
+    manifest: &WorldManifest,
+    compiled: Option<&crate::settlement::morphology_compile::CompiledStyle>,
+    geometry: Option<&str>,
+) -> WorldgenResult<String> {
+    let payload = match &compiled {
+        Some(compiled) => {
+            let mut payload = serde_json::json!({
+                "generator": WORLD_GENERATOR_REVISION,
+                "manifest": manifest,
+                "effectiveProgramsRevision":
+                    crate::settlement::morphology_compile::EFFECTIVE_PROGRAMS_REVISION,
+                "effectiveStyleHash": compiled.report.effective_style_hash,
+                "effectiveProgramSources": compiled.report.field_sources,
+            });
+            if let Some(geometry) = geometry {
+                payload["roadGeometryRevision"] = serde_json::json!(geometry);
+            }
+            payload
+        }
+        None => {
+            let mut payload = serde_json::json!({
+                "generator": WORLD_GENERATOR_REVISION,
+                "manifest": manifest,
+            });
+            if let Some(geometry) = geometry {
+                payload["roadGeometryRevision"] = serde_json::json!(geometry);
+            }
+            payload
+        }
+    };
     Ok(blake3::hash(&serde_json::to_vec(&payload)?)
         .to_hex()
         .to_string())
+}
+
+/// Which road geometry revision the given (effective) style can actually use.
+///
+/// The graded band rule changed only for roads wider than 12m, so an input is
+/// bound to the new revision when it can produce a 16m graded road:
+///
+/// * `roadExtensions` with an explicit 16m corridor;
+/// * an `automaticRoadExtensions` hierarchy with a 16m tier whose purposes
+///   intersect that scene's priority purposes;
+/// * a morphology profile, whose compiled hierarchy always carries the 16m
+///   collector tier.
+///
+/// Inputs that cannot use the rule (8/12m roads only, or no graded roads at
+/// all) keep the historical identity, so frozen legacy evidence is untouched.
+pub fn road_geometry_revision_for_style(style: &serde_json::Value) -> Option<&'static str> {
+    if style.get("morphologyProfile").is_some() {
+        return Some(GRADED_ROAD_GEOMETRY_REVISION);
+    }
+    if let Some(corridors) = style
+        .get("roadExtensions")
+        .and_then(|program| program.get("corridors"))
+        .and_then(serde_json::Value::as_array)
+    {
+        if corridors
+            .iter()
+            .any(|corridor| corridor.get("roadWidthM").and_then(serde_json::Value::as_u64) == Some(16))
+        {
+            return Some(GRADED_ROAD_GEOMETRY_REVISION);
+        }
+    }
+    if let Some(scenes) = style
+        .get("automaticRoadExtensions")
+        .and_then(|program| program.get("scenes"))
+        .and_then(serde_json::Value::as_array)
+    {
+        for scene in scenes {
+            let Some(tiers) = scene
+                .get("hierarchy")
+                .and_then(|hierarchy| hierarchy.get("tiers"))
+                .and_then(serde_json::Value::as_array)
+            else {
+                continue;
+            };
+            let purposes: Vec<&str> = scene
+                .get("priorityPurposes")
+                .and_then(serde_json::Value::as_array)
+                .map(|purposes| {
+                    purposes
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let picks_16m = tiers.iter().any(|tier| {
+                tier.get("widthM").and_then(serde_json::Value::as_u64) == Some(16)
+                    && tier
+                        .get("purposes")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|tier_purposes| {
+                            tier_purposes
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .any(|purpose| purposes.contains(&purpose))
+                        })
+            });
+            if picks_16m {
+                return Some(GRADED_ROAD_GEOMETRY_REVISION);
+            }
+        }
+    }
+    None
 }
 
 pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResult<WorldManifest> {
@@ -3936,6 +4176,67 @@ fn terrain_height_with_geometry(seed: u64, x: i32, z: i32, water: WaterGeometry)
 /// was sampled from the natural terrain. Roads are strips (long along one
 /// axis), buildings are rectangles. Pads blend back to the natural terrain
 /// over a short ring so a lot meets the neighbouring ground without a cliff.
+/// B02-W1 graded geometry version. Recorded so a world baked before the wider
+/// 16m band is distinguishable from one baked after it; the band rule itself is
+/// `graded_flat_top_half_extents`.
+pub const GRADED_ROAD_GEOMETRY_REVISION: &str = "b02-w1-graded-band-v2";
+
+/// The band the earthwork flattens to the authored longitudinal profile, in
+/// world axes: the corridor's end platforms along the axis and the graded
+/// roadbed across it. Earthwork and the independent road audit read this one
+/// definition, so the audited band cannot drift from what is actually built.
+///
+/// Transverse half = `max(7, pavement/2 + 1)`. The 7m floor keeps the existing
+/// 8m and 12m behaviour bit-identical (4+3 and 6+1 both resolve to 7) while a
+/// 16m collector gets 9m, which covers its 8m pavement half plus the same 1m
+/// graded margin the 12m case already had. A band narrower than the pavement
+/// is refused by `graded_band_shortfall_m`, never silently treated as flat.
+pub(crate) fn graded_flat_top_half_extents(entity: &EntityInstance) -> (i32, i32) {
+    let along = entity.width_m as i32 / 2 + 4;
+    let transverse = (entity.depth_m as i32 / 2 + 1).max(7);
+    if entity.rotation_y_deg == 90. {
+        (transverse, along)
+    } else {
+        (along, transverse)
+    }
+}
+
+/// Shortfall, in metres, between the graded band and the declared pavement.
+/// Zero means the earthwork covers every metre the audit requires exactly; a
+/// positive value is one structural failure per road. Kept as a pure function
+/// of the two halves so a regression of the band rule can be tested directly
+/// (a 7m band under an 8m pavement half is exactly the pre-W1 defect).
+pub(crate) fn graded_band_shortfall_m(pavement_half: i32, band_half: i32) -> u32 {
+    (pavement_half - band_half).max(0) as u32
+}
+
+/// The corridor's graded transport footprint in world axes: the declared
+/// pavement plus the corridor contract's fixed 3m shoulder, plus the end
+/// platforms. This is the earthwork envelope the audit bounds with the fill
+/// cap and the no-excavation rule.
+pub(crate) fn graded_transport_half_extents(entity: &EntityInstance) -> (i32, i32) {
+    let along = entity.width_m as i32 / 2 + 4;
+    let transverse = entity.depth_m as i32 / 2 + 3;
+    if entity.rotation_y_deg == 90. {
+        (transverse, along)
+    } else {
+        (along, transverse)
+    }
+}
+
+/// The declared paved roadbed in world axes: what the corridor contract calls
+/// the road width, which must be held exactly and which the graded band has to
+/// cover.
+pub(crate) fn graded_pavement_half_extents(entity: &EntityInstance) -> (i32, i32) {
+    let along = entity.width_m as i32 / 2 + 4;
+    let transverse = entity.depth_m as i32 / 2;
+    if entity.rotation_y_deg == 90. {
+        (transverse, along)
+    } else {
+        (along, transverse)
+    }
+}
+
 fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
     let mut carves = Vec::new();
     for entity in entities {
@@ -3975,7 +4276,10 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         // the zero-degree case, causing an east-west road to carve a huge
         // north-south trench through houses and vegetation.
         let (half_w, half_d, blend): (f64, f64, f64) = if entity.grounding.road_profile.is_some() {
-            if entity.rotation_y_deg == 90. { (7.0, width * 0.5 + 4.0, 18.0) } else { (width * 0.5 + 4.0, 7.0, 18.0) }
+            // Exactly the band the independent audit checks for the design
+            // level (see `graded_flat_top_half_extents`).
+            let (half_w, half_d) = graded_flat_top_half_extents(entity);
+            (half_w as f64, half_d as f64, 18.0)
         } else if is_road {
             let rotated_quarter_turn = (entity.rotation_y_deg.round() as i32).rem_euclid(180) == 90;
             if rotated_quarter_turn {
@@ -10180,5 +10484,496 @@ mod tests {
         assert_eq!(audit_entity_inventory(&old,&new,&[],EntityInventoryMode::Preserving{
             old_scheme:"legacy".into(),new_scheme:"legacy".into(),
         }).status,"fail");
+    }
+
+    /// B02-W1 closeout: the graded road geometry revision is bound only into
+    /// the identity of inputs that can actually use the 16m band.
+    #[test]
+    fn road_geometry_revision_applies_only_to_inputs_that_can_use_the_16m_band() {
+        let auto = |tiers: serde_json::Value, purposes: serde_json::Value| {
+            serde_json::json!({
+                "automaticRoadExtensions": {"version": 2, "scenes": [{
+                    "sceneId": "scene-0", "maxNewSegments": 8, "maxCandidateAttempts": 256,
+                    "segmentLengthsM": [128], "priorityPurposes": purposes,
+                    "reachDistanceM": 96, "hierarchy": {"tiers": tiers}
+                }]}
+            })
+        };
+        let corridor = |width: u64| {
+            serde_json::json!({
+                "roadExtensions": {"version": 1, "corridors": [{
+                    "sceneId": "scene-0", "start": [0, 0], "end": [64, 0],
+                    "roadWidthM": width, "shoulderWidthM": 3, "maxFillMm": 6000,
+                    "maxRiseMmPerM": 80, "startLevelMm": 0, "endLevelMm": 0,
+                    "junctionLengthM": 8
+                }]}
+            })
+        };
+        // Legacy input: automatic roads, no hierarchy, no explicit corridors.
+        assert!(road_geometry_revision_for_style(&auto(
+            serde_json::Value::Null,
+            serde_json::json!(["urban", "rural"])
+        ))
+        .is_none());
+        // Default world: no graded program at all.
+        assert!(road_geometry_revision_for_style(&WorldManifest::default_demo().style).is_none());
+        // Explicit 16m corridor: bound. 8m/12m only: not bound.
+        assert_eq!(
+            road_geometry_revision_for_style(&corridor(16)),
+            Some(GRADED_ROAD_GEOMETRY_REVISION)
+        );
+        assert!(road_geometry_revision_for_style(&corridor(12)).is_none());
+        assert!(road_geometry_revision_for_style(&corridor(8)).is_none());
+        // Automatic hierarchy with a 16m tier the scene's purposes can select.
+        let tiers = serde_json::json!([
+            {"id": "collector", "role": "collector", "widthM": 16, "purposes": ["urban"]},
+            {"id": "local", "role": "local", "widthM": 8, "purposes": ["urban", "rural"]}
+        ]);
+        assert_eq!(
+            road_geometry_revision_for_style(&auto(tiers.clone(), serde_json::json!(["urban"]))),
+            Some(GRADED_ROAD_GEOMETRY_REVISION)
+        );
+        // Same tiers, but only rural is prioritised and the 16m tier is urban.
+        assert!(road_geometry_revision_for_style(&auto(
+            tiers,
+            serde_json::json!(["rural"])
+        ))
+        .is_none());
+        // A morphology profile always compiles in the 16m collector tier.
+        assert_eq!(
+            road_geometry_revision_for_style(&serde_json::json!({
+                "morphologyProfile": "village-field"
+            })),
+            Some(GRADED_ROAD_GEOMETRY_REVISION)
+        );
+    }
+
+    /// The same manifest gets a different identity under two road geometry
+    /// revisions, while a legacy input keeps the historical identity.
+    #[test]
+    fn world_identity_binds_the_road_geometry_revision_deterministically() {
+        let mut manifest = WorldManifest::default_demo();
+        manifest.scenes[0].width_m = 512;
+        manifest.scenes[0].depth_m = 512;
+        // Legacy input: the derived revision is unchanged from the historical
+        // payload (no geometry key at all).
+        assert!(road_geometry_revision_for_style(&manifest.style).is_none());
+        let legacy = world_manifest_revision(&manifest).unwrap();
+        assert_eq!(
+            legacy,
+            world_manifest_revision_with_geometry(&manifest, None, None).unwrap()
+        );
+        // Adding an explicit 16m corridor changes the identity, and it matches
+        // the payload built with the geometry tag explicitly.
+        manifest.style["roadExtensions"] = serde_json::json!({
+            "version": 1, "corridors": [{
+                "sceneId": "scene-0", "start": [32, 96], "end": [96, 96],
+                "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
+                "maxRiseMmPerM": 80, "startLevelMm": 8000, "endLevelMm": 8000,
+                "junctionLengthM": 8
+            }]
+        });
+        let bound = world_manifest_revision(&manifest).unwrap();
+        assert_ne!(bound, legacy);
+        assert_eq!(
+            bound,
+            world_manifest_revision_with_geometry(
+                &manifest,
+                None,
+                Some(GRADED_ROAD_GEOMETRY_REVISION)
+            )
+            .unwrap()
+        );
+        // Deterministic.
+        assert_eq!(bound, world_manifest_revision(&manifest).unwrap());
+        // The geometry revision alone changes the identity: v1 vs v2.
+        let v1 = world_manifest_revision_with_geometry(&manifest, None, Some("graded-road-band-v1"))
+            .unwrap();
+        let v2 = bound.clone();
+        assert_ne!(v1, v2);
+        // 12m corridors carry no geometry binding: their identity is exactly
+        // the payload without a geometry key (the manifest content itself still
+        // differs from a manifest with no extension program at all).
+        let mut narrow = WorldManifest::default_demo();
+        narrow.scenes[0].width_m = 512;
+        narrow.scenes[0].depth_m = 512;
+        narrow.style["roadExtensions"] = manifest.style["roadExtensions"].clone();
+        narrow.style["roadExtensions"]["corridors"][0]["roadWidthM"] = serde_json::json!(12);
+        assert!(road_geometry_revision_for_style(&narrow.style).is_none());
+        assert_eq!(
+            world_manifest_revision(&narrow).unwrap(),
+            world_manifest_revision_with_geometry(&narrow, None, None).unwrap()
+        );
+        assert_ne!(world_manifest_revision(&narrow).unwrap(), legacy);
+    }
+}
+
+/// B04-C1 real-function integration. Uses the independently verified R4/R6
+/// feasible flat control (two graded road levels plus an explicit 16-home and
+/// 8-shop demand) and drives the production planning functions with the
+/// compiled effective programs, never with a second placement implementation.
+#[cfg(test)]
+mod morphology_profile_integration {
+    use super::*;
+    use crate::height_payload::encode_millimetres;
+    use crate::settlement::morphology_compile::{self, SOURCE_PROFILE};
+    use road_network::RoadNetworkPlan;
+
+    const SCENE: &str = "profile-integration-control";
+    const HOMES: u32 = 16;
+    const SHOPS: u32 = 8;
+
+    fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry, Vec<LandUseZone>) {
+        let scene = SceneSpec {
+            scene_id: SCENE.into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &encode_millimetres(512, 512, vec![0.0; 512 * 512]).unwrap(),
+            )
+            .unwrap();
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
+        let zones = vec![LandUseZone {
+            id: "control.urban".into(),
+            kind: "urban".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 512,
+            source: "integration_fixture:flat-authored".into(),
+        }];
+        (scene, terrain, water, zones)
+    }
+
+    fn base_plan(natural_hash: &str) -> RoadNetworkPlan {
+        serde_json::from_value(serde_json::json!({
+            "model": "fixture",
+            "naturalHeightfieldHash": natural_hash,
+            "sceneId": SCENE,
+            "status": "planned_connected_network",
+            "gridSpacingM": 64,
+            "maxRoadbedFillM": 6.0,
+            "levelM": 0,
+            "candidates": 1,
+            "rejectedWater": 0,
+            "rejectedRelief": 0,
+            "unselectedCandidates": 0,
+            "nodes": [
+                {"id": 0, "worldX": 32, "worldZ": 160},
+                {"id": 1, "worldX": 96, "worldZ": 160}
+            ],
+            "edges": [{
+                "id": "fixture.base", "from": 0, "to": 1,
+                "worldX": 64, "worldZ": 160, "lengthM": 64,
+                "rotationYDeg": 0.0, "naturalMinM": 0.0, "naturalMaxM": 0.0
+            }],
+            "roadsideSites": []
+        }))
+        .unwrap()
+    }
+
+    /// Demand is authored; building geometry is authored; parcel insets are
+    /// left to the profile. This is the shape the CLI control uses.
+    fn control_style(profile: Option<&str>) -> serde_json::Value {
+        let mut style = serde_json::json!({
+            "landUseProfile": {
+                "theme": "temperate-plain",
+                "urbanCoreRatio": 0.10,
+                "suburbanRatio": 0.10,
+                "greenRatio": 0.06,
+                "farmRatio": 0.32,
+                "forestRatio": 0.14,
+                "pastureRatio": 0.26,
+                "reserveRatio": 0.04
+            },
+            "roadExtensions": {
+                "version": 1,
+                "corridors": [
+                    {"sceneId": SCENE, "start": [96, 160], "end": [126, 160],
+                     "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
+                     "maxRiseMmPerM": 80, "startLevelMm": 0, "endLevelMm": 0,
+                     "junctionLengthM": 8},
+                    {"sceneId": SCENE, "start": [126, 160], "end": [480, 160],
+                     "roadWidthM": 12, "shoulderWidthM": 3, "maxFillMm": 6000,
+                     "maxRiseMmPerM": 80, "startLevelMm": 0, "endLevelMm": 0,
+                     "junctionLengthM": 8}
+                ]
+            },
+            "frontageProgram": {
+                "version": 1,
+                "requests": [
+                    {"id": "control-homes", "sceneId": SCENE, "purpose": "urban",
+                     "kind": "residential_home", "count": HOMES,
+                     "widthM": 12, "depthM": 10, "heightM": 8,
+                     "stationSpacingM": 20, "setbackM": 32, "maxCandidateAttempts": 2048},
+                    {"id": "control-shops", "sceneId": SCENE, "purpose": "urban",
+                     "kind": "storefront", "count": SHOPS,
+                     "widthM": 12, "depthM": 10, "heightM": 6,
+                     "stationSpacingM": 20, "setbackM": 32, "maxCandidateAttempts": 2048}
+                ]
+            }
+        });
+        if let Some(profile) = profile {
+            style["morphologyProfile"] = serde_json::json!(profile);
+        }
+        style
+    }
+
+    fn run(profile: Option<&str>) -> (serde_json::Value, RoadNetworkPlan) {
+        let (scene, terrain, water, zones) = fixture();
+        let raw = control_style(profile);
+        let effective = match profile {
+            Some(_) => morphology_compile::compile(&raw, std::slice::from_ref(&scene))
+                .unwrap()
+                .expect("profile compiles")
+                .style,
+            None => raw.clone(),
+        };
+        let mut plan = base_plan(&terrain.content_hash().unwrap());
+        road_extensions::append(&mut plan, &scene, &terrain, water, &zones, &effective).unwrap();
+        frontage::append(&mut plan, &scene, &terrain, water, Some(&zones), &effective).unwrap();
+        (effective, plan)
+    }
+
+    fn parcel_size(site: &road_network::RoadsideSite) -> (i64, i64) {
+        let boundary =
+            parcel_geometry::boundary_for_entity(&site.entity(), site.parcel_insets.unwrap_or_default())
+                .unwrap();
+        (boundary[2] - boundary[0], boundary[3] - boundary[1])
+    }
+
+    fn planned(plan: &RoadNetworkPlan) -> u32 {
+        let report = plan.frontage.as_ref().expect("frontage report");
+        report
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.site_ids.len() as u32)
+            .sum()
+    }
+
+    #[test]
+    fn two_profiles_change_real_parcel_geometry_on_the_feasible_control() {
+        let (legacy_style, legacy_plan) = run(None);
+        assert!(legacy_style.get("morphologyProfile").is_none());
+        let (compact_style, compact_plan) = run(Some("compact-mixed-block"));
+        let (cluster_style, cluster_plan) = run(Some("clustered-residential"));
+
+        // The same authored demand is planned by production code for all three
+        // inputs; only the compiled effective programs differ.
+        assert_eq!(legacy_plan.roadside_sites.len(), (HOMES + SHOPS) as usize);
+        assert_eq!(compact_plan.roadside_sites.len(), (HOMES + SHOPS) as usize);
+        assert_eq!(cluster_plan.roadside_sites.len(), (HOMES + SHOPS) as usize);
+        assert_eq!(planned(&legacy_plan), HOMES + SHOPS);
+        assert_eq!(planned(&compact_plan), HOMES + SHOPS);
+        assert_eq!(planned(&cluster_plan), HOMES + SHOPS);
+        for plan in [&legacy_plan, &compact_plan, &cluster_plan] {
+            let report = plan.frontage.as_ref().unwrap();
+            assert!(
+                report.outcomes.iter().all(|outcome| outcome.unfilled == 0
+                    && outcome.stop_reason == "demand_satisfied"),
+                "unsatisfied demand must be reported, never resized: {report:?}"
+            );
+        }
+
+        let first = |plan: &RoadNetworkPlan| parcel_size(&plan.roadside_sites[0]);
+        let legacy_size = first(&legacy_plan);
+        let compact_size = first(&compact_plan);
+        let cluster_size = first(&cluster_plan);
+        assert_eq!(legacy_size, (16, 14), "legacy insets stay 2/2/2 metres");
+        assert_eq!(compact_size, (16, 18), "compact-mixed-block insets 4/2/4");
+        assert_eq!(cluster_size, (20, 32), "clustered-residential insets 6/4/16");
+        assert_ne!(legacy_size, compact_size);
+        assert_ne!(compact_size, cluster_size);
+
+        // Profiles also change the stored parcel policy, not only the numbers
+        // this test computes.
+        assert!(compact_plan
+            .roadside_sites
+            .iter()
+            .all(|site| site.parcel_insets.is_some()));
+        assert!(legacy_plan
+            .roadside_sites
+            .iter()
+            .all(|site| site.parcel_insets.is_none()));
+        assert_ne!(
+            compact_plan.roadside_sites[0].parcel_insets,
+            cluster_plan.roadside_sites[0].parcel_insets
+        );
+
+        // The difference is visible in the published plans themselves.
+        assert_ne!(
+            serde_json::to_value(&compact_plan).unwrap(),
+            serde_json::to_value(&cluster_plan).unwrap()
+        );
+        // Source binding: the insets the plans carry came from the profile, and
+        // the two profiles really compiled to different effective styles.
+        assert_ne!(compact_style, cluster_style);
+        for (style, expected) in [
+            (&compact_style, "compact-mixed-block"),
+            (&cluster_style, "clustered-residential"),
+        ] {
+            assert_eq!(style["morphologyProfile"], serde_json::json!(expected));
+            assert_eq!(
+                style["frontageProgram"]["requests"][0]["count"],
+                serde_json::json!(HOMES)
+            );
+        }
+        assert!(morphology_compile::compile(
+            &control_style(Some("compact-mixed-block")),
+            std::slice::from_ref(&fixture().0)
+        )
+        .unwrap()
+        .unwrap()
+        .report
+        .field_sources
+        .iter()
+        .any(|entry| entry.source == SOURCE_PROFILE && entry.profile_field == "sideInsetM"));
+    }
+
+    #[test]
+    fn the_feasible_control_is_deterministic_and_the_profile_binds_the_road_plan() {
+        let (_, first) = run(Some("village-field"));
+        let (_, second) = run(Some("village-field"));
+        assert_eq!(
+            serde_json::to_value(&first).unwrap(),
+            serde_json::to_value(&second).unwrap()
+        );
+        // A different profile must not silently reuse the same document.
+        let (_, other) = run(Some("perimeter-block"));
+        assert_ne!(
+            serde_json::to_value(&first).unwrap(),
+            serde_json::to_value(&other).unwrap()
+        );
+    }
+
+    /// Planning-stage pre-flight of the two CLI controls. It runs the same
+    /// production planning functions the bake uses (base network, automatic
+    /// road extension, local frontage) on the authored 512m control scene and
+    /// shows what the profile actually changes before a world is written.
+    #[test]
+    fn cli_control_planning_stage_shows_profile_driven_road_hierarchy() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
+        let seed = 42_u64;
+        let values: Vec<f64> = (0..512)
+            .flat_map(|z| (0..512).map(move |x| terrain_height_metres(seed, x, z, water, &[])))
+            .collect();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
+            .unwrap();
+        let mut reports = Vec::new();
+        for (raw, profile_id) in [
+            (
+                include_str!(
+                    "../../../../examples/morphology/b04-c1-compact-mixed-block.manifest.json"
+                ),
+                "compact-mixed-block",
+            ),
+            (
+                include_str!("../../../../examples/morphology/b04-c1-village-field.manifest.json"),
+                "village-field",
+            ),
+        ] {
+            let manifest: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let style = crate::settlement::morphology_compile::compile(
+                &manifest["style"],
+                std::slice::from_ref(&scene),
+            )
+            .unwrap()
+            .unwrap()
+            .style;
+            let profile = LandUseProfile::from_style(&style).unwrap();
+            let zones = plan_landuse_zones(&scene, &profile);
+            let mut plan =
+                road_network::plan_with_zones(&scene, &terrain, water, Some(&zones)).unwrap();
+            let base_edges = plan.edges.len();
+            auto_roads::append(&mut plan, &scene, &terrain, water, &zones, &style).unwrap();
+            frontage::append(&mut plan, &scene, &terrain, water, Some(&zones), &style).unwrap();
+            let hierarchy = plan
+                .automatic_extensions
+                .as_ref()
+                .map(|report| serde_json::to_value(&report.program.hierarchy).unwrap());
+            let widths: Vec<u32> = plan
+                .entities()
+                .iter()
+                .filter(|entity| entity.kind == "road")
+                .map(|entity| entity.depth_m as u32)
+                .collect();
+            let outcomes: Vec<(String, usize, u32)> = plan
+                .frontage
+                .as_ref()
+                .unwrap()
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    (
+                        outcome.request.id.clone(),
+                        outcome.site_ids.len(),
+                        outcome.unfilled,
+                    )
+                })
+                .collect();
+            let development = development::plan(&scene, &zones, &plan).unwrap();
+            let landcover =
+                development::plan_landcover_with_program(&scene, &development, &style).unwrap();
+            reports.push((
+                profile_id,
+                hierarchy,
+                widths,
+                base_edges,
+                plan.edges.len(),
+                outcomes,
+                serde_json::to_value(&landcover).unwrap(),
+                landcover.cells.len(),
+            ));
+        }
+        // Both controls share the same authored demand and the same authored
+        // terrain; the profile is the only difference. The injected hierarchy
+        // must actually reach the automatic road program.
+        let (compact_id, compact_hierarchy, ..) = &reports[0];
+        let (village_id, village_hierarchy, ..) = &reports[1];
+        assert_eq!(*compact_id, "compact-mixed-block");
+        assert_eq!(*village_id, "village-field");
+        let compact_tiers: Vec<&str> = compact_hierarchy.as_ref().unwrap()["tiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tier| tier["role"].as_str().unwrap())
+            .collect();
+        let village_tiers: Vec<&str> = village_hierarchy.as_ref().unwrap()["tiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tier| tier["role"].as_str().unwrap())
+            .collect();
+        assert_eq!(compact_tiers, vec!["collector", "local"]);
+        assert_eq!(village_tiers, vec!["collector", "local", "farm_access"]);
+        assert_ne!(
+            reports[0].6, reports[1].6,
+            "the two profiles must compile different landcover execution programs"
+        );
+        for (profile_id, _, widths, base_edges, edges, outcomes, _, patches) in &reports {
+            eprintln!(
+                "PREFLIGHT {profile_id} baseEdges={base_edges} edges={edges} widths={widths:?} patches={patches} frontage={outcomes:?}"
+            );
+        }
     }
 }

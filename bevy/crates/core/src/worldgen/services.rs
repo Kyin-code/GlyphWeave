@@ -390,6 +390,7 @@ pub(super) fn append(
                                 width_m: r.width_m,
                                 depth_m: r.depth_m,
                                 support_level_m: level,
+                                parcel_insets: None,
                                 support_level_mm: None,
                                 frontage_road_point: None,
                                 rotation_y_deg: yaw,

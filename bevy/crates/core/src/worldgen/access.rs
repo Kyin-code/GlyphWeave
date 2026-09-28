@@ -143,6 +143,23 @@ fn segment_clear(
     if water.intersects_corridor(a.x, a.z, b.x, b.z, HALF_WIDTH) {
         return false;
     }
+    terrain_segment_clear_xy(a.x, a.z, b.x, b.z, terrain)
+}
+
+/// Terrain-only half of the walkable-segment predicate, extracted without any
+/// semantic change so the engineering-connections module reuses the production
+/// sampling and grade contract instead of re-implementing it. Obstacle and water
+/// checks stay in `segment_clear`; thresholds, batch size and return values are
+/// unchanged.
+pub(super) fn terrain_segment_clear_xy(
+    ax: f64,
+    az: f64,
+    bx: f64,
+    bz: f64,
+    terrain: &BakedTerrain,
+) -> bool {
+    let a = point(ax, az);
+    let b = point(bx, bz);
     let length = distance(a, b);
     let n = (length / 0.5).ceil().max(1.) as usize;
     let (nx, nz) = if length > 0. {
@@ -200,21 +217,40 @@ fn route(
     terrain: &BakedTerrain,
     water: WaterGeometry,
 ) -> Option<(String, Vec<P>, f64)> {
+    #[cfg(test)]
+    observation::begin_route(start);
     let mut goals: Vec<_> = roads
         .iter()
         .filter_map(|road| {
             let end = closest(road, start);
             let d = distance(start, end);
+            #[cfg(test)]
+            if d > MAX_LENGTH {
+                observation::goal_excluded(road, end, d);
+            } else {
+                observation::goal(road, end, d);
+            }
             (d <= MAX_LENGTH).then_some((*road, end, d))
         })
         .collect();
     goals.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.entity_id.cmp(&b.0.entity_id)));
     for (road, end, d) in &goals {
         if segment_clear(start, *end, obstacles, terrain, water) {
+            #[cfg(test)]
+            observation::direct_attempt(road, *end, *d, true);
+            #[cfg(test)]
+            observation::terminated("direct", 0);
             return Some((road.entity_id.clone(), vec![start, *end], *d));
+        }
+        #[cfg(test)]
+        {
+            observation::direct_attempt(road, *end, *d, false);
+            observation::segment_rejected(start, *end, obstacles, terrain, water, "direct");
         }
     }
     if goals.is_empty() {
+        #[cfg(test)]
+        observation::terminated("no_eligible_goals", 0);
         return None;
     }
     let heuristic = |p: P| {
@@ -235,7 +271,11 @@ fn route(
         if !done.insert((x, z)) {
             continue;
         }
+        #[cfg(test)]
+        observation::expanded(done.len());
         if done.len() > MAX_EXPANSIONS {
+            #[cfg(test)]
+            observation::terminated("expansion_limit", done.len());
             return None;
         }
         let p = coord(x, z);
@@ -243,6 +283,8 @@ fn route(
         for (road, _, _) in &goals {
             let end = closest(road, p);
             let d = distance(p, end);
+            #[cfg(test)]
+            observation::search_goal_attempt(road, p, end, d, g, obstacles, terrain, water);
             if d <= STEP * 1.5
                 && g + d <= MAX_LENGTH
                 && segment_clear(p, end, obstacles, terrain, water)
@@ -254,6 +296,8 @@ fn route(
                     path.push(coord(key.0, key.1));
                 }
                 path.reverse();
+                #[cfg(test)]
+                observation::terminated("search_goal_reached", done.len());
                 return Some((road.entity_id.clone(), path, g + d));
             }
         }
@@ -275,16 +319,29 @@ fn route(
             let ng = g + distance(p, q);
             let estimate = ng + heuristic(q);
             if estimate > MAX_LENGTH || cost.get(&next).is_some_and(|old| *old <= ng) {
+                #[cfg(test)]
+                observation::prune_estimate_or_cost(
+                    estimate > MAX_LENGTH,
+                    cost.get(&next).is_some_and(|old| *old <= ng),
+                );
                 continue;
             }
+            #[cfg(test)]
+            observation::queue_len(queue.len());
             if !segment_clear(p, q, obstacles, terrain, water) {
+                #[cfg(test)]
+                observation::segment_rejected(p, q, obstacles, terrain, water, "search_step");
                 continue;
             }
             cost.insert(next, ng);
             parent.insert(next, (x, z));
             queue.push(Reverse(((estimate * 1000.).round() as u64, next.0, next.1)));
+            #[cfg(test)]
+            observation::queue_len(queue.len());
         }
     }
+    #[cfg(test)]
+    observation::terminated("queue_exhausted", done.len());
     None
 }
 
@@ -294,6 +351,8 @@ pub(super) fn access_for_entity(
     terrain: &BakedTerrain,
     water: WaterGeometry,
 ) -> Vec<AccessLink> {
+    #[cfg(test)]
+    observation::enter(&e.entity_id);
     let roads: Vec<_> = entities
         .iter()
         .filter(|e| matches!(e.kind.as_str(), "road" | "sidewalk" | "boardwalk"))
@@ -329,6 +388,15 @@ pub(super) fn access_for_entity(
                 .copied()
                 .filter(|o| o.entity_id != e.entity_id)
                 .collect();
+            #[cfg(test)]
+            observation::entrance(
+                e,
+                start,
+                facade_point,
+                &entrance_obstacles,
+                terrain,
+                water,
+            );
             if terrain.require_complete().is_err() {
                 link.status = "incomplete_terrain".into();
             } else if [start, facade_point].into_iter().any(|p| {
@@ -367,6 +435,13 @@ pub(super) fn access_for_entity(
             status: "missing_entrance".into(),
             path: vec![],
         });
+    }
+    #[cfg(test)]
+    {
+        for link in &links {
+            observation::link(link);
+        }
+        observation::leave();
     }
     links
 }
@@ -485,6 +560,566 @@ pub(super) fn rejectable_candidates(
         .map(|l| l.entity_id.clone())
         .collect()
 }
+/// B01-G12 test-only passive observation. It reads the variables the production
+/// solver already decided on; it never feeds a value back into a decision, never
+/// changes a constant, order, threshold or return value, and it does not exist in
+/// non-test builds. It is off by default, scoped to one thread and one target
+/// entity by a guard, and drops every record for any other entity, so it cannot
+/// pollute other tests.
+#[cfg(test)]
+pub(crate) mod observation {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    /// Mirrors the production literals inside `segment_clear`. The differential
+    /// tests in this module assert that `classify_segment` agrees with the
+    /// production predicate on every synthetic input they build.
+    const SAMPLE_STEP_M: f64 = 0.5;
+    const GRADE_LIMIT: f64 = 0.25;
+    const SAMPLE_CAP_PER_CLASS: usize = 8;
+
+    fn json_map(entries: Vec<(&str, serde_json::Value)>) -> serde_json::Value {
+        serde_json::Value::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect(),
+        )
+    }
+
+    #[derive(Clone, Debug, Default)]
+    pub(crate) struct Trace {
+        pub target: String,
+        pub counters: BTreeMap<String, i64>,
+        pub samples: BTreeMap<String, Vec<serde_json::Value>>,
+        pub truncated: BTreeMap<String, i64>,
+        pub entrance: Vec<serde_json::Value>,
+        pub goals: Vec<serde_json::Value>,
+        pub goal_exclusions: Vec<serde_json::Value>,
+        pub directAttempts: Vec<serde_json::Value>,
+        pub searchGoalAttempts: Vec<serde_json::Value>,
+        pub routes: Vec<serde_json::Value>,
+        pub links: Vec<serde_json::Value>,
+        pub queuePeak: usize,
+        pub expandedPeak: usize,
+    }
+
+    struct State {
+        trace: Trace,
+        current: Option<String>,
+        queue_peak: usize,
+    }
+
+    thread_local! {
+        static ACTIVE: RefCell<Option<State>> = const { RefCell::new(None) };
+    }
+
+    /// Run `body` with the observer enabled for `target` on this thread only.
+    pub(crate) fn observe<T>(target: &str, body: impl FnOnce() -> T) -> (T, Trace) {
+        ACTIVE.with(|slot| {
+            assert!(
+                slot.borrow().is_none(),
+                "the passive observer is already active on this thread"
+            );
+            *slot.borrow_mut() = Some(State {
+                trace: Trace {
+                    target: target.to_string(),
+                    ..Trace::default()
+                },
+                current: None,
+                queue_peak: 0,
+            });
+        });
+        let value = body();
+        let state = ACTIVE
+            .with(|slot| slot.borrow_mut().take())
+            .expect("observer state");
+        (value, state.trace)
+    }
+
+    fn recording<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
+        ACTIVE.with(|slot| {
+            let mut guard = slot.borrow_mut();
+            guard.as_mut().and_then(|state| {
+                if state.current.as_deref() == Some(state.trace.target.as_str()) {
+                    Some(f(state))
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    fn record(state: &mut State, class: &str, value: serde_json::Value) {
+        *state.trace.counters.entry(class.to_string()).or_default() += 1;
+        let list = state.trace.samples.entry(class.to_string()).or_default();
+        if list.len() < SAMPLE_CAP_PER_CLASS {
+            list.push(value);
+        } else {
+            *state.trace.truncated.entry(class.to_string()).or_default() += 1;
+        }
+    }
+
+    pub(crate) fn enter(entity_id: &str) {
+        ACTIVE.with(|slot| {
+            if let Some(state) = slot.borrow_mut().as_mut() {
+                state.current = Some(entity_id.to_string());
+            }
+        });
+    }
+
+    pub(crate) fn leave() {
+        ACTIVE.with(|slot| {
+            if let Some(state) = slot.borrow_mut().as_mut() {
+                state.current = None;
+            }
+        });
+    }
+
+    pub(crate) fn entrance(
+        e: &EntityInstance,
+        start: P,
+        facade: P,
+        entrance_obstacles: &[&EntityInstance],
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+    ) {
+        let _ = recording(|state| {
+            let ground = f64::from(e.ground_height_m());
+            let start_h = height(terrain, start);
+            let facade_h = height(terrain, facade);
+            let delta = |h: Option<f64>| h.map(|value| (value - ground).abs());
+            let record_value = json_map(vec![
+                ("entityId", serde_json::json!(e.entity_id)),
+                ("anchor", serde_json::json!([start.x, start.z])),
+                ("facade", serde_json::json!([facade.x, facade.z])),
+                ("groundM", serde_json::json!(ground)),
+                ("startHeightM", serde_json::json!(start_h)),
+                ("facadeHeightM", serde_json::json!(facade_h)),
+                ("startDeltaM", serde_json::json!(delta(start_h))),
+                ("facadeDeltaM", serde_json::json!(delta(facade_h))),
+                ("stepLimitM", serde_json::json!(0.30)),
+                (
+                    "stepWithin",
+                    serde_json::json!(
+                        delta(start_h).is_some_and(|value| value <= 0.30)
+                            && delta(facade_h).is_some_and(|value| value <= 0.30)
+                    ),
+                ),
+                (
+                    "entranceSegmentClear",
+                    serde_json::json!(
+                        start_h.is_some()
+                            && facade_h.is_some()
+                            && segment_clear(facade, start, entrance_obstacles, terrain, water)
+                    ),
+                ),
+                (
+                    "entranceObstacles",
+                    serde_json::json!(entrance_obstacles.len()),
+                ),
+            ]);
+            state.trace.entrance.push(record_value);
+        });
+    }
+
+    pub(crate) fn link(link: &AccessLink) {
+        let _ = recording(|state| {
+            state.trace.links.push(json_map(vec![
+                ("entityId", serde_json::json!(link.entity_id)),
+                ("anchorId", serde_json::json!(link.anchor_id)),
+                ("roadId", serde_json::json!(link.road_id)),
+                ("connected", serde_json::json!(link.connected)),
+                ("status", serde_json::json!(link.status)),
+                ("distanceM", serde_json::json!(link.distance_m)),
+                ("pathPoints", serde_json::json!(link.path.len())),
+                (
+                    "path",
+                    serde_json::json!(link
+                        .path
+                        .iter()
+                        .map(|p| serde_json::json!([p.x, p.z]))
+                        .collect::<Vec<_>>()),
+                ),
+            ]));
+        });
+    }
+
+    pub(crate) fn begin_route(start: P) {
+        ACTIVE.with(|slot| {
+            if let Some(state) = slot.borrow_mut().as_mut() {
+                state.queue_peak = 0;
+                state.trace.queuePeak = 0;
+                state.trace.expandedPeak = 0;
+            }
+        });
+        let _ = recording(|state| {
+            *state.trace.counters.entry("routes.started".into()).or_default() += 1;
+            let _ = start;
+        });
+    }
+
+    pub(crate) fn goal(road: &EntityInstance, end: P, d: f64) {
+        let _ = recording(|state| {
+            state.trace.goals.push(json_map(vec![
+                ("roadId", serde_json::json!(road.entity_id)),
+                ("end", serde_json::json!([end.x, end.z])),
+                ("distanceM", serde_json::json!(d)),
+            ]));
+            *state
+                .trace
+                .counters
+                .entry("goals.eligible".into())
+                .or_default() += 1;
+        });
+    }
+
+    pub(crate) fn goal_excluded(road: &EntityInstance, end: P, d: f64) {
+        let _ = recording(|state| {
+            state.trace.goal_exclusions.push(json_map(vec![
+                ("roadId", serde_json::json!(road.entity_id)),
+                ("end", serde_json::json!([end.x, end.z])),
+                ("distanceM", serde_json::json!(d)),
+                ("reason", serde_json::json!("distance_exceeds_max_length")),
+                ("maxLengthM", serde_json::json!(MAX_LENGTH)),
+            ]));
+            *state
+                .trace
+                .counters
+                .entry("goals.excluded_distance".into())
+                .or_default() += 1;
+        });
+    }
+
+    pub(crate) fn direct_attempt(road: &EntityInstance, end: P, d: f64, clear: bool) {
+        let _ = recording(|state| {
+            state.trace.directAttempts.push(json_map(vec![
+                ("roadId", serde_json::json!(road.entity_id)),
+                ("end", serde_json::json!([end.x, end.z])),
+                ("distanceM", serde_json::json!(d)),
+                ("segmentClear", serde_json::json!(clear)),
+            ]));
+            *state
+                .trace
+                .counters
+                .entry(if clear {
+                    "direct.accepted".into()
+                } else {
+                    "direct.rejected".into()
+                })
+                .or_default() += 1;
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn search_goal_attempt(
+        road: &EntityInstance,
+        p: P,
+        end: P,
+        d: f64,
+        g: f64,
+        obstacles: &[&EntityInstance],
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+    ) {
+        // Recompute the production sub-conditions from the same values; the
+        // production expression itself is untouched because this runs only in a
+        // cfg(test) statement after the decision variables are read.
+        let near = d <= STEP * 1.5;
+        let within_length = g + d <= MAX_LENGTH;
+        let clear = near && within_length && segment_clear(p, end, obstacles, terrain, water);
+        let _ = recording(|state| {
+            state.trace.searchGoalAttempts.push(json_map(vec![
+                ("roadId", serde_json::json!(road.entity_id)),
+                ("at", serde_json::json!([p.x, p.z])),
+                ("end", serde_json::json!([end.x, end.z])),
+                ("distanceM", serde_json::json!(d)),
+                ("costM", serde_json::json!(g)),
+                ("withinStep", serde_json::json!(near)),
+                ("withinLengthBudget", serde_json::json!(within_length)),
+                ("segmentClear", serde_json::json!(clear)),
+            ]));
+            let class = if clear {
+                "search.goal_accepted"
+            } else if !near {
+                "search.goal_not_within_step"
+            } else if !within_length {
+                "search.goal_over_length_budget"
+            } else {
+                "search.goal_segment_blocked"
+            };
+            *state.trace.counters.entry(class.into()).or_default() += 1;
+        });
+        if near && within_length && !clear {
+            segment_rejected(p, end, obstacles, terrain, water, "search_goal");
+        }
+    }
+
+    pub(crate) fn expanded(count: usize) {
+        let _ = recording(|state| {
+            state.trace.expandedPeak = state.trace.expandedPeak.max(count);
+        });
+    }
+
+    pub(crate) fn queue_len(len: usize) {
+        ACTIVE.with(|slot| {
+            if let Some(state) = slot.borrow_mut().as_mut() {
+                state.queue_peak = state.queue_peak.max(len);
+                state.trace.queuePeak = state.trace.queuePeak.max(len);
+            }
+        });
+    }
+
+    pub(crate) fn prune_estimate_or_cost(over_budget: bool, dominated: bool) {
+        let _ = recording(|state| {
+            if over_budget {
+                *state
+                    .trace
+                    .counters
+                    .entry("search.prune_length_or_estimate".into())
+                    .or_default() += 1;
+            }
+            if dominated {
+                *state
+                    .trace
+                    .counters
+                    .entry("search.prune_cost_dominance".into())
+                    .or_default() += 1;
+            }
+        });
+    }
+
+    pub(crate) fn terminated(reason: &str, expanded: usize) {
+        let _ = recording(|state| {
+            state.trace.routes.push(json_map(vec![
+                ("termination", serde_json::json!(reason)),
+                ("expanded", serde_json::json!(expanded)),
+                ("maxExpansions", serde_json::json!(MAX_EXPANSIONS)),
+                ("queuePeak", serde_json::json!(state.trace.queuePeak)),
+                ("maxLengthM", serde_json::json!(MAX_LENGTH)),
+                ("stepM", serde_json::json!(STEP)),
+            ]));
+            *state
+                .trace
+                .counters
+                .entry(format!("termination.{reason}"))
+                .or_default() += 1;
+        });
+    }
+
+    pub(crate) fn segment_rejected(
+        a: P,
+        b: P,
+        obstacles: &[&EntityInstance],
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+        context: &str,
+    ) {
+        let Some(classification) = classify_segment(a, b, obstacles, terrain, water) else {
+            // the production predicate refused for a reason this classifier did not
+            // reproduce: record it as unknown rather than inventing a cause
+            let _ = recording(|state| {
+                record(
+                    state,
+                    "segment.unclassified",
+                    json_map(vec![
+                        ("context", serde_json::json!(context)),
+                        ("segmentFrom", serde_json::json!([a.x, a.z])),
+                        ("segmentTo", serde_json::json!([b.x, b.z])),
+                    ]),
+                );
+            });
+            return;
+        };
+        let class = classification
+            .get("class")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let _ = recording(|state| {
+            let mut value = classification;
+            if let Some(object) = value.as_object_mut() {
+                object.insert("context".into(), serde_json::json!(context));
+            }
+            record(state, &format!("segment_reject.{class}"), value);
+        });
+    }
+
+    /// Test-only mirror of the production `segment_clear` decision order, used only
+    /// to name a reason for a segment the production predicate already refused.
+    /// The differential tests assert `segment_clear(..) == classify_segment(..).is_none()`.
+    pub(crate) fn classify_segment(
+        a: P,
+        b: P,
+        obstacles: &[&EntityInstance],
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+    ) -> Option<serde_json::Value> {
+        // The whole segment is reported as `segmentFrom`/`segmentTo`; the actual
+        // adjacent sampling pair that failed is reported separately as
+        // `sampleFrom`/`sampleTo` with its index, lateral offset and step, so a
+        // reader can re-interpolate the recorded coordinates and reproduce the
+        // recorded heights instead of mistaking the segment end for the sample.
+        let segment = |class: &str| {
+            json_map(vec![
+                ("class", serde_json::json!(class)),
+                ("segmentFrom", serde_json::json!([a.x, a.z])),
+                ("segmentTo", serde_json::json!([b.x, b.z])),
+            ])
+        };
+        if let Some(hit) = obstacles.iter().find(|e| crosses(e, a, b)) {
+            let mut value = segment("obstacle");
+            if let Some(object) = value.as_object_mut() {
+                object.insert("entityId".into(), serde_json::json!(hit.entity_id));
+            }
+            return Some(value);
+        }
+        if water.intersects_corridor(a.x, a.z, b.x, b.z, HALF_WIDTH) {
+            let mut value = segment("water");
+            if let Some(object) = value.as_object_mut() {
+                object.insert("halfWidthM".into(), serde_json::json!(HALF_WIDTH));
+            }
+            return Some(value);
+        }
+        let length = distance(a, b);
+        let n = (length / SAMPLE_STEP_M).ceil().max(1.) as usize;
+        let (nx, nz) = if length > 0. {
+            (-(b.z - a.z) / length, (b.x - a.x) / length)
+        } else {
+            (1., 0.)
+        };
+        for lateral in [-HALF_WIDTH, 0., HALF_WIDTH] {
+            let mut previous: Option<(P, f64, usize)> = None;
+            for i in 0..=n {
+                let t = i as f64 / n as f64;
+                let p = point(
+                    a.x + (b.x - a.x) * t + nx * lateral,
+                    a.z + (b.z - a.z) * t + nz * lateral,
+                );
+                let Some(h) = height(terrain, p) else {
+                    let mut value = segment("missing");
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert("sampleAt".into(), serde_json::json!([p.x, p.z]));
+                        object.insert("sampleIndex".into(), serde_json::json!(i));
+                        object.insert("lateralM".into(), serde_json::json!(lateral));
+                    }
+                    return Some(value);
+                };
+                if let Some((old_p, old, old_index)) = previous {
+                    let step = length / n as f64;
+                    if (h - old).abs() > GRADE_LIMIT * step + 1e-6 {
+                        let mut value = segment("grade");
+                        if let Some(object) = value.as_object_mut() {
+                            object.insert(
+                                "sampleFrom".into(),
+                                serde_json::json!([old_p.x, old_p.z]),
+                            );
+                            object.insert("sampleTo".into(), serde_json::json!([p.x, p.z]));
+                            object.insert(
+                                "sampleIndex".into(),
+                                serde_json::json!(old_index),
+                            );
+                            object.insert("sampleIndexTo".into(), serde_json::json!(i));
+                            object.insert("sampleCount".into(), serde_json::json!(n));
+                            object.insert("heightFromM".into(), serde_json::json!(old));
+                            object.insert("heightToM".into(), serde_json::json!(h));
+                            object.insert("stepM".into(), serde_json::json!(step));
+                            object.insert("deltaM".into(), serde_json::json!((h - old).abs()));
+                            object.insert(
+                                "limitM".into(),
+                                serde_json::json!(GRADE_LIMIT * step),
+                            );
+                            object.insert("lateralM".into(), serde_json::json!(lateral));
+                            object.insert(
+                                "segmentLengthM".into(),
+                                serde_json::json!(length),
+                            );
+                        }
+                        return Some(value);
+                    }
+                }
+                previous = Some((p, h, i));
+            }
+        }
+        None
+    }
+
+    /// Test-only: the full three-line sampling profile of one segment, using the same
+    /// bilinear lookup and 0.5m spacing as the production predicate. It reads only;
+    /// it cannot change a decision.
+    pub(crate) fn sample_profile(
+        terrain: &BakedTerrain,
+        a: P,
+        b: P,
+    ) -> serde_json::Value {
+        let length = distance(a, b);
+        let n = (length / SAMPLE_STEP_M).ceil().max(1.) as usize;
+        let (nx, nz) = if length > 0. {
+            (-(b.z - a.z) / length, (b.x - a.x) / length)
+        } else {
+            (1., 0.)
+        };
+        let step = length / n as f64;
+        let mut lines: Vec<serde_json::Value> = vec![];
+        for lateral in [-HALF_WIDTH, 0., HALF_WIDTH] {
+            let mut samples: Vec<serde_json::Value> = vec![];
+            let mut previous: Option<f64> = None;
+            let mut first_failure: Option<serde_json::Value> = None;
+            for i in 0..=n {
+                let t = i as f64 / n as f64;
+                let p = point(
+                    a.x + (b.x - a.x) * t + nx * lateral,
+                    a.z + (b.z - a.z) * t + nz * lateral,
+                );
+                let h = height(terrain, p);
+                let mut entry = json_map(vec![
+                    ("index", serde_json::json!(i)),
+                    ("at", serde_json::json!([p.x, p.z])),
+                    ("heightM", serde_json::json!(h)),
+                ]);
+                if let (Some(previous_h), Some(h)) = (previous, h) {
+                    let delta = (h - previous_h).abs();
+                    if let Some(object) = entry.as_object_mut() {
+                        object.insert("previousHeightM".into(), serde_json::json!(previous_h));
+                        object.insert("deltaM".into(), serde_json::json!(delta));
+                        object.insert(
+                            "limitM".into(),
+                            serde_json::json!(GRADE_LIMIT * step),
+                        );
+                        object.insert(
+                            "gradeClear".into(),
+                            serde_json::json!(delta <= GRADE_LIMIT * step + 1e-6),
+                        );
+                    }
+                    if first_failure.is_none() && delta > GRADE_LIMIT * step + 1e-6 {
+                        first_failure = Some(json_map(vec![
+                            ("indexFrom", serde_json::json!(i - 1)),
+                            ("indexTo", serde_json::json!(i)),
+                            ("deltaM", serde_json::json!(delta)),
+                        ]));
+                    }
+                }
+                previous = h;
+                samples.push(entry);
+            }
+            lines.push(json_map(vec![
+                ("lateralM", serde_json::json!(lateral)),
+                ("stepM", serde_json::json!(step)),
+                ("sampleCount", serde_json::json!(n + 1)),
+                ("firstFailure", first_failure.unwrap_or(serde_json::Value::Null)),
+                ("samples", serde_json::json!(samples)),
+            ]));
+        }
+        json_map(vec![
+            ("segmentFrom", serde_json::json!([a.x, a.z])),
+            ("segmentTo", serde_json::json!([b.x, b.z])),
+            ("segmentLengthM", serde_json::json!(length)),
+            ("lines", serde_json::json!(lines)),
+        ])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -770,6 +1405,7 @@ mod tests {
             width_m: 14,
             depth_m: 10,
             support_level_m: support_mm.div_euclid(1000),
+            parcel_insets: None,
             support_level_mm: Some(support_mm),
             frontage_road_point: Some(road_point),
             rotation_y_deg: yaw as f32,
@@ -1084,5 +1720,507 @@ mod tests {
         wall.rotation_y_deg = 45.;
         assert!(!crosses(&wall, point(60., 58.), point(60., 62.)));
         assert!(crosses(&wall, point(60., 38.), point(60., 42.)));
+    }
+
+    // ---- B01-G12: passive observer synthetic differential --------------------
+
+    fn g12_obstacles(entities: &[EntityInstance]) -> Vec<&EntityInstance> {
+        entities.iter().filter(|e| obstacle(&e.kind)).collect()
+    }
+
+    fn g12_target_link(graph: &AccessGraph, target: &str) -> AccessLink {
+        graph
+            .links
+            .iter()
+            .find(|link| link.entity_id == target)
+            .expect("the target link")
+            .clone()
+    }
+
+    fn g12_scene() -> SceneSpec {
+        SceneSpec {
+            scene_id: "access".into(),
+            width_m: 128,
+            depth_m: 128,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        }
+    }
+
+    /// B01-G12 item B: with and without the observer the production graph must be
+    /// identical field by field on the same input, and the observer must leave no
+    /// residue for a different target on the same thread.
+    #[test]
+    fn g12_observer_result_equivalence_and_no_residue() {
+        let fixtures: Vec<(
+            &str,
+            Box<dyn Fn() -> (Vec<EntityInstance>, BakedTerrain, WaterGeometry)>,
+        )> = vec![
+            ("passable", Box::new(fixture)),
+            (
+                "wall_detour",
+                Box::new(|| {
+                    let (mut entities, terrain, water) = fixture();
+                    entities.push(generated_intent_entity(
+                        "wall".into(),
+                        "wall",
+                        64,
+                        43,
+                        0,
+                        10.,
+                        0.1,
+                        2.,
+                    ));
+                    (entities, terrain, water)
+                }),
+            ),
+            (
+                "blocked_entrance",
+                Box::new(|| {
+                    let (mut entities, terrain, water) = fixture();
+                    entities.push(generated_intent_entity(
+                        "tree".into(),
+                        "tree",
+                        64,
+                        57,
+                        0,
+                        2.,
+                        2.,
+                        8.,
+                    ));
+                    (entities, terrain, water)
+                }),
+            ),
+            (
+                "river",
+                Box::new(|| {
+                    let (entities, terrain, mut water) = fixture();
+                    water.kind = WaterKind::River;
+                    water.center_x = 64.;
+                    water.center_z = 43.;
+                    water.half_width = 128.;
+                    water.half_depth = 0.1;
+                    (entities, terrain, water)
+                }),
+            ),
+        ];
+        for (name, make) in fixtures {
+            let (entities, terrain, water) = make();
+            let plain = build_access_graph(&entities, &terrain, water);
+            let target = entities[0].entity_id.clone();
+            let (observed, trace) =
+                observation::observe(&target, || build_access_graph(&entities, &terrain, water));
+            assert_eq!(
+                serde_json::to_value(&plain).unwrap(),
+                serde_json::to_value(&observed).unwrap(),
+                "{name}: the observer must not change the production graph"
+            );
+            let link = g12_target_link(&observed, &target);
+            assert!(
+                trace.links.iter().any(|record| {
+                    record["status"] == serde_json::json!(link.status)
+                        && record["pathPoints"] == serde_json::json!(link.path.len())
+                        && record["connected"] == serde_json::json!(link.connected)
+                }),
+                "{name}: the observer must record the target link"
+            );
+            assert!(
+                trace
+                    .links
+                    .iter()
+                    .all(|record| record["entityId"] == serde_json::json!(target)),
+                "{name}: only the target link may be recorded"
+            );
+            let (_, other) = observation::observe("g12.someone.else", || {
+                build_access_graph(&entities, &terrain, water)
+            });
+            assert!(
+                other.links.is_empty() && other.goals.is_empty() && other.counters.is_empty(),
+                "{name}: a different target must collect nothing"
+            );
+        }
+    }
+
+    /// B01-G12 item B: the observer's classifier must agree with the production
+    /// predicate on every synthetic segment, and the exercised classes must include
+    /// a pass, an obstacle, water, a missing sample and a grade.
+    #[test]
+    fn g12_differential_classifier_matches_production_predicate() {
+        let (flat_entities, flat_terrain, flat_water) = fixture();
+        let (mut wall_entities, _, _) = fixture();
+        wall_entities.push(generated_intent_entity(
+            "wall".into(),
+            "wall",
+            64,
+            43,
+            0,
+            10.,
+            0.1,
+            2.,
+        ));
+        let (river_entities, _, mut river) = fixture();
+        river.kind = WaterKind::River;
+        river.center_x = 64.;
+        river.center_z = 43.;
+        river.half_width = 128.;
+        river.half_depth = 0.1;
+        let scene = g12_scene();
+        let mut steep_bytes = vec![];
+        for z in 0..128 {
+            for _x in 0..128 {
+                steep_bytes
+                    .extend_from_slice(&(if z < 44 { 80_i16 } else { 0_i16 }).to_le_bytes());
+            }
+        }
+        let mut steep = BakedTerrain::new(&scene).unwrap();
+        steep.insert_chunk(0, 0, 128, 128, &steep_bytes).unwrap();
+        let incomplete = BakedTerrain::new(&scene).unwrap();
+        let segments = [
+            (point(60., 50.), point(68., 50.)),
+            (point(64., 58.), point(64., 20.)),
+            (point(0., 0.), point(64., 64.)),
+        ];
+        let mut classes: BTreeSet<String> = BTreeSet::new();
+        let cases: Vec<(&str, &[EntityInstance], &BakedTerrain, WaterGeometry)> = vec![
+            ("flat", &flat_entities, &flat_terrain, flat_water),
+            ("wall", &wall_entities, &flat_terrain, flat_water),
+            ("river", &river_entities, &flat_terrain, river),
+            ("steep", &flat_entities, &steep, flat_water),
+            ("incomplete", &flat_entities, &incomplete, flat_water),
+        ];
+        for (name, entities, terrain, water) in cases {
+            let obstacles = g12_obstacles(entities);
+            for (a, b) in segments {
+                let production = segment_clear(a, b, &obstacles, terrain, water);
+                let classified = observation::classify_segment(a, b, &obstacles, terrain, water);
+                assert_eq!(
+                    production,
+                    classified.is_none(),
+                    "{name}: {a:?} -> {b:?} must be classified as the production predicate decided"
+                );
+                classes.insert(
+                    classified
+                        .and_then(|value| {
+                            value["class"].as_str().map(std::string::ToString::to_string)
+                        })
+                        .unwrap_or_else(|| "pass".to_string()),
+                );
+            }
+        }
+        for required in ["pass", "obstacle", "water", "missing", "grade"] {
+            assert!(
+                classes.contains(required),
+                "the differential set must exercise {required}: {classes:?}"
+            );
+        }
+    }
+
+    /// B01-G12 item B: the observer must name the branch that actually refused, using
+    /// the production status for the link itself, and must name the search
+    /// termination branch.
+    #[test]
+    fn g12_observer_names_entrance_obstacle_water_and_termination() {
+        let scene = g12_scene();
+        // entrance step: the paving in front of the door sits a metre too high
+        let (entities, _, water) = fixture();
+        let mut stepped_bytes = vec![];
+        for z in 0..128 {
+            for _x in 0..128 {
+                stepped_bytes
+                    .extend_from_slice(&(if z >= 57 { 4_i16 } else { 0_i16 }).to_le_bytes());
+            }
+        }
+        let mut stepped = BakedTerrain::new(&scene).unwrap();
+        stepped.insert_chunk(0, 0, 128, 128, &stepped_bytes).unwrap();
+        let target = entities[0].entity_id.clone();
+        let (graph, trace) =
+            observation::observe(&target, || build_access_graph(&entities, &stepped, water));
+        assert_eq!(
+            g12_target_link(&graph, &target).status,
+            "entrance_step_requires_engineering"
+        );
+        assert!(trace
+            .entrance
+            .iter()
+            .any(|row| row["stepWithin"] == serde_json::json!(false)));
+        // the entrance clearance field must mirror the production branch: true when
+        // the pavement reaches the door, false when a real obstacle blocks it
+        let (plain_entities, plain_terrain, plain_water) = fixture();
+        let plain_target = plain_entities[0].entity_id.clone();
+        let (plain_graph, plain_trace) = observation::observe(&plain_target, || {
+            build_access_graph(&plain_entities, &plain_terrain, plain_water)
+        });
+        assert!(plain_graph.links[0].connected);
+        assert_eq!(
+            plain_trace.entrance[0]["entranceSegmentClear"],
+            serde_json::json!(true)
+        );
+        assert!(
+            plain_trace
+                .counters
+                .get("routes.started")
+                .copied()
+                .unwrap_or(0)
+                >= 1,
+            "the route stage must be counted: {:?}",
+            plain_trace.counters
+        );
+        let (mut door_entities, door_terrain, door_water) = fixture();
+        door_entities.push(generated_intent_entity(
+            "tree".into(),
+            "tree",
+            64,
+            57,
+            0,
+            2.,
+            2.,
+            8.,
+        ));
+        let door_target = door_entities[0].entity_id.clone();
+        let (door_graph, door_trace) = observation::observe(&door_target, || {
+            build_access_graph(&door_entities, &door_terrain, door_water)
+        });
+        assert_eq!(
+            g12_target_link(&door_graph, &door_target).status,
+            "entrance_clearance_blocked"
+        );
+        assert_eq!(
+            door_trace.entrance[0]["entranceSegmentClear"],
+            serde_json::json!(false)
+        );
+        // incomplete terrain can never be walkable
+        let empty = BakedTerrain::new(&scene).unwrap();
+        let (graph, _) =
+            observation::observe(&target, || build_access_graph(&entities, &empty, water));
+        assert_eq!(
+            g12_target_link(&graph, &target).status,
+            "incomplete_terrain"
+        );
+        // obstacle: the direct segment is refused by the real wall entity
+        let (mut wall_entities, flat, flat_water) = fixture();
+        wall_entities.push(generated_intent_entity(
+            "wall".into(),
+            "wall",
+            64,
+            43,
+            0,
+            10.,
+            0.1,
+            2.,
+        ));
+        let target = wall_entities[0].entity_id.clone();
+        let (graph, trace) = observation::observe(&target, || {
+            build_access_graph(&wall_entities, &flat, flat_water)
+        });
+        assert_eq!(graph.connected_entities, 1);
+        let obstacle_samples = trace
+            .samples
+            .get("segment_reject.obstacle")
+            .expect("the obstacle reason must be named");
+        assert!(obstacle_samples
+            .iter()
+            .any(|row| row["entityId"] == serde_json::json!("wall")));
+        assert!(obstacle_samples.len() <= 8);
+        // water: the river fixture must be named as water, not as something else
+        let (river_entities, _, mut river) = fixture();
+        river.kind = WaterKind::River;
+        river.center_x = 64.;
+        river.center_z = 43.;
+        river.half_width = 128.;
+        river.half_depth = 0.1;
+        let target = river_entities[0].entity_id.clone();
+        let (_graph, trace) = observation::observe(&target, || {
+            build_access_graph(&river_entities, &flat, river)
+        });
+        assert!(trace.samples.contains_key("segment_reject.water"));
+        // queue exhaustion: a wall spanning the scene leaves no detour
+        let (mut blocked_entities, blocked_terrain, blocked_water) = fixture();
+        blocked_entities.push(generated_intent_entity(
+            "wall".into(),
+            "wall",
+            64,
+            43,
+            0,
+            128.,
+            0.1,
+            2.,
+        ));
+        let target = blocked_entities[0].entity_id.clone();
+        let (graph, trace) = observation::observe(&target, || {
+            build_access_graph(&blocked_entities, &blocked_terrain, blocked_water)
+        });
+        assert!(!g12_target_link(&graph, &target).connected);
+        assert!(
+            trace
+                .counters
+                .get("termination.queue_exhausted")
+                .copied()
+                .unwrap_or(0)
+                >= 1,
+            "queue exhaustion must be named: {:?}",
+            trace.counters
+        );
+        // expansion limit: a sealed 200m pocket with a road ring just outside keeps
+        // the heuristic small, so the bounded search expands past its cap
+        let big_scene = SceneSpec {
+            scene_id: "access-big".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut big = BakedTerrain::new(&big_scene).unwrap();
+        big.insert_chunk(0, 0, 512, 512, &[0; 512 * 512 * 2])
+            .unwrap();
+        let mut pocket_entities = vec![];
+        let mut house = generated_intent_entity("house.big".into(), "building", 256, 256, 0, 10., 10., 8.);
+        house.anchors.push(SpatialAnchor {
+            id: "door".into(),
+            world_x: 256,
+            world_z: 250,
+            direction: "north".into(),
+            target: Some("road".into()),
+        });
+        pocket_entities.push(house);
+        for (id, x, z, w, d) in [
+            ("wall.w".to_string(), 156, 256, 1.0, 220.0),
+            ("wall.e".to_string(), 356, 256, 1.0, 220.0),
+            ("wall.n".to_string(), 256, 156, 220.0, 1.0),
+            ("wall.s".to_string(), 256, 356, 220.0, 1.0),
+            ("road.w".to_string(), 152, 256, 4.0, 260.0),
+            ("road.e".to_string(), 360, 256, 4.0, 260.0),
+            ("road.n".to_string(), 256, 152, 260.0, 4.0),
+            ("road.s".to_string(), 256, 360, 260.0, 4.0),
+        ] {
+            let kind = if id.starts_with("wall") { "wall" } else { "road" };
+            pocket_entities.push(generated_intent_entity(id, kind, x, z, 0, w, d, 2.));
+        }
+        let target = "house.big".to_string();
+        let (graph, trace) = observation::observe(&target, || {
+            build_access_graph(&pocket_entities, &big, flat_water)
+        });
+        assert!(!g12_target_link(&graph, &target).connected);
+        let expansion_limit = trace
+            .counters
+            .get("termination.expansion_limit")
+            .copied()
+            .unwrap_or(0);
+        let queue_exhausted = trace
+            .counters
+            .get("termination.queue_exhausted")
+            .copied()
+            .unwrap_or(0);
+        assert!(
+            expansion_limit >= 1 || queue_exhausted >= 1,
+            "the bounded search must end through a named branch: routes={:?} counters={:?}",
+            trace.routes,
+            trace.counters
+        );
+        let termination = serde_json::json!({
+            "expansionLimitHits": expansion_limit,
+            "queueExhaustedHits": queue_exhausted,
+            "routes": trace.routes,
+            "counters": trace.counters,
+        });
+        println!("{}", serde_json::to_string_pretty(&termination).unwrap());
+    }
+
+    /// B01-G13 item A: a rejection record must expose the whole segment and the
+    /// actual failing sample pair separately, and re-interpolating the recorded
+    /// sample coordinates must reproduce the recorded heights. The fixture is built
+    /// so the first failure happens on the -0.75 lateral band and after the first
+    /// sample step, so a centre/first-step-only test could not pass by accident.
+    #[test]
+    fn g13_segment_record_keeps_both_coordinate_pairs() {
+        let scene = SceneSpec {
+            scene_id: "g13".into(),
+            width_m: 128,
+            depth_m: 128,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut bytes = vec![];
+        for z in 0..128 {
+            for x in 0..128 {
+                let value: i16 = if (62..66).contains(&z) && x < 64 { 8 } else { 0 };
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain.insert_chunk(0, 0, 128, 128, &bytes).unwrap();
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::json!({}));
+        let obstacles: Vec<&EntityInstance> = vec![];
+        let a = point(64.0, 58.0);
+        let b = point(64.0, 70.0);
+        assert!(!segment_clear(a, b, &obstacles, &terrain, water));
+        let record = observation::classify_segment(a, b, &obstacles, &terrain, water)
+            .expect("a named rejection");
+        assert_eq!(record["class"], serde_json::json!("grade"));
+        assert_eq!(record["segmentFrom"], serde_json::json!([64.0, 58.0]));
+        assert_eq!(record["segmentTo"], serde_json::json!([64.0, 70.0]));
+        assert_ne!(
+            record["sampleTo"], record["segmentTo"],
+            "the failing sample must not be reported as the segment end"
+        );
+        assert_ne!(record["sampleFrom"], record["segmentFrom"]);
+        assert!(
+            record["sampleIndexTo"].as_i64().unwrap() > 1,
+            "the first failure must not sit on the first sample step"
+        );
+        // the production normal turns "lateral +0.75" into the x = 63.25 band here
+        assert_eq!(record["lateralM"].as_f64().unwrap(), 0.75);
+        let at = |value: &serde_json::Value| {
+            point(
+                value[0].as_f64().unwrap(),
+                value[1].as_f64().unwrap(),
+            )
+        };
+        let h_from = height(&terrain, at(&record["sampleFrom"])).unwrap();
+        let h_to = height(&terrain, at(&record["sampleTo"])).unwrap();
+        assert!((h_from - record["heightFromM"].as_f64().unwrap()).abs() < 1e-9);
+        assert!((h_to - record["heightToM"].as_f64().unwrap()).abs() < 1e-9);
+        assert!(record["deltaM"].as_f64().unwrap() > record["limitM"].as_f64().unwrap());
+        assert_eq!(record["sampleIndex"].as_i64().unwrap() + 1, record["sampleIndexTo"].as_i64().unwrap());
+        let profile = observation::sample_profile(&terrain, a, b);
+        let lines = profile["lines"].as_array().unwrap();
+        let left = lines
+            .iter()
+            .find(|line| line["lateralM"] == serde_json::json!(0.75))
+            .expect("the failing band");
+        assert!(left["firstFailure"]["indexTo"].as_i64().unwrap() > 1);
+        let other = lines
+            .iter()
+            .find(|line| line["lateralM"] == serde_json::json!(-0.75))
+            .expect("the other band");
+        assert!(
+            other["firstFailure"].is_null(),
+            "the other band must stay clear in this fixture"
+        );
+        let payload = serde_json::json!({"record": record, "profile": profile});
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+    }
+    /// B01-G19 regression for the extraction that let the engineering-connections
+    /// module reuse the production terrain predicate: with no obstacles and no water
+    /// the two entry points must agree exactly, including the degenerate segment.
+    #[test]
+    fn g19_terrain_predicate_extraction_is_semantically_identical() {
+        let (_, terrain, mut water) = fixture();
+        water.kind = WaterKind::None;
+        for (a, b) in [
+            (point(60., 50.), point(68., 50.)),
+            (point(64., 58.), point(64., 20.)),
+            (point(0., 0.), point(64., 64.)),
+            (point(40., 40.), point(40., 40.)),
+            (point(-5., 3.5), point(70.25, 61.75)),
+        ] {
+            assert_eq!(
+                segment_clear(a, b, &[], &terrain, water),
+                terrain_segment_clear_xy(a.x, a.z, b.x, b.z, &terrain),
+                "extraction changed the verdict for {a:?} -> {b:?}"
+            );
+        }
     }
 }
