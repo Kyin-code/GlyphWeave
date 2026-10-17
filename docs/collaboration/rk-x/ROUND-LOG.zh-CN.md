@@ -86,7 +86,41 @@ round/reason/descriptorFallback）并把 `removedItems` 计入报告。authored 
 
 ---
 
-## 下一步（Round 4 计划）
+## Round 4 · 2026-10-18 · frontage 供给诊断（只读证据，无代码改动）
+
+数据源：Round 3 重新生成的 1 km 世界 `bevy/work/rk-x/b8-with-r13/world`
+（`road-network-plan.json → frontage.outcomes`）。
+
+| 请求 | count | siteIds | attempted | unfilled | stopReason |
+|---|---:|---:|---:|---:|---|
+| `urban-homes` | 120 | **0** | 412 | 120 | `no_feasible_frontage` |
+| `urban-shops` | 24 | 1 | 458 | 21 | `no_feasible_frontage` |
+
+拒绝原因（两个请求合计）：
+
+| 原因 | homes | shops |
+|---|---:|---:|
+| `wrong_purpose_or_protected` | **403** | **441** |
+| `occupied_or_road_support` | 9 | 7 |
+| `natural_support_or_fill_limit` | 0 | 6 |
+| `engineered_platform_not_flat` | 0 | 1 |
+
+**结论**：临街供给的瓶颈不是几何、不是支撑、不是填方，而是**用途**——
+87–96% 的候选站点落在"非 urban 或受保护"的用地上。
+道路（低地骨架网）穿过的地绝大多数是 rural/nature/unassigned，
+所以 `urban` 的住宅/商铺请求在站台上无地可用。
+
+这与真实城市过程一致：道路建成后，**沿路地块被细分并转为城市用途**（ribbon development），
+而不是先有城市地块再修路。当前生成器缺的正是这一步"沿路地块的显式用途转换"。
+
+**下一轮要做的**（需要项目负责人确认语义）：允许临街请求在**紧邻道路的 rural 地块**上落地，
+但必须把转换**显式记账**（该地块的 rural 面积减少、urban 面积等量增加，保护地/水体仍然绝对禁止），
+而不是默默把 rural 当 urban 用。这样 B-G3 的三账本仍然守恒，且可审计。
+若不接受"用途转换"，替代方案是让 road-first 规划器沿新路**预先切出城市地块**（更慢、更大改动）。
+
+---
+
+## 下一步（Round 5 计划）
 
 1. **垫层模型决策（需项目负责人）**：平板垫层 + 纯填方 + 2 m 引道在坡度 ≥3.6% 的地形上
    数学上不可建（0.5 m ÷ 14 m 窗口）。这解释了 b8 真实 1 km 世界只有 1 个 frontage site。
