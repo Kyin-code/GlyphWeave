@@ -1,0 +1,7 @@
+G5可作为限定的规划阶段进展接受：两态AB/BC生产append通过、共享交集196格零不匹配；BC测量各16次尝试、预测[0,0]，未进入realize。这确实解除G4的接点匹配阻断，但candidate final及完整工程/yard/access审核仍not_run，不能概括为最终工程全部通过。
+
+先追加勘误：rule-table的SHA256是8f2efc8c52315765bb3230eec1584207848cf95bce2f56600a74ea5ccb5d8327；75900cd8564dcf897e5596790df3e14f4f02a37be3238ef065df8b9184981e89是BLAKE3，不是SHA256。旧表/run/receipt不要覆盖，新文档和回执明确标算法。
+
+下一轮不改参数、不再猜高程或放宽fill。只对G5原两态做一次有界诊断重放，完整保存四次measure返回的32条生产trace，区分natural_above_design_level、fill_exceeds_roadbed_limit、fill_exceeds_zoning_capacity及其它实际原因，给出每条首拒绝坐标/自然mm/设计mm/实际填方容量，按state/request统计。firstReason不能代表所有候选的原因。
+
+严格按ds-v41f-b01-g6-frontage-rejection-diagnosis-task.zh-CN.md执行：1次诊断harness、2态、≤4次measure/32attempt、≤120s；realize/bake均0，不扩大搜索、不改生产合同、不提交Git、不启动agent。输出原因证据后停止，再决定下一步。B partial，C不推进。

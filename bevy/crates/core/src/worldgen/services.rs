@@ -162,6 +162,29 @@ pub(super) fn append(
             result.service_outcomes.push(outcome);
             continue;
         };
+        // B01-T2 R12: the graded surface of every road this program may use, taken
+        // through the same priority `RoadNetworkPlan::entities()` publishes (edge
+        // profile first, then the extension design). A pad whose assigned road is
+        // graded must be declared on that road's own surface, not on the network's
+        // flat `level_m`: the two datums differ wherever the profile dips, and the
+        // development audit requires the checked route to reach the assigned road.
+        let road_entities = result.entities();
+        let road_profiles: BTreeMap<String, super::road_profile::RoadProfile> = road_entities
+            .iter()
+            .filter_map(|e| {
+                e.grounding
+                    .road_profile
+                    .clone()
+                    .map(|p| (e.entity_id.clone(), p))
+            })
+            .collect();
+        // The same composition the roadside station scan uses (rule A'): what the
+        // ROADS already require inside a candidate pad's window. A pad is a
+        // flat, fill-only earthwork, so its declared top has to be at least this
+        // and at most it plus the walkable entrance rise from the road it is
+        // assigned - otherwise the checked route detours to another road and the
+        // development audit reports `no_verified_assigned_road_access`.
+        let road_carves = super::plan_terrain_carves(&road_entities);
         let mut examined = 0_u32;
         'instances: for serial in 0..r.count {
             let mut accepted = None;
@@ -201,6 +224,33 @@ pub(super) fn append(
                                     i64::from(road.world_z) + along,
                                 )
                             };
+                            // The pad's frontage point on its assigned road's axis.
+                            let frontage = if road.rotation_y_deg == 0. {
+                                (x, i64::from(road.world_z))
+                            } else {
+                                (i64::from(road.world_x), z)
+                            };
+                            let own_mm = road_profiles.get(&road.id).and_then(|p| {
+                                p.height_at(frontage.0 as f64, frontage.1 as f64)
+                                    .map(|h| (h * 1000.).round() as i64)
+                            });
+                            // Rule A': a graded road's own surface at the entrance is
+                            // the pad's datum, taken as the nearest whole metre. A pad
+                            // is a flat fill-only earthwork whose declared top is an
+                            // integer level, so the metre snap is what keeps the frozen
+                            // plan, the final entity and the raster equal; the snap
+                            // costs at most 0.5 m and is accepted only while it stays
+                            // inside the one-cell walkable entrance step the apron gate
+                            // allows.
+                            let (declared_mm, entrance_rise_m) = match own_mm {
+                                Some(own) => {
+                                    let snapped =
+                                        ((own as f64 + 500.) / 1000.).floor() as i64 * 1000;
+                                    (snapped, (snapped - own).abs() as f64 / 1000.)
+                                }
+                                None => (i64::from(level) * 1000, 0.),
+                            };
+                            let declared_f = declared_mm as f64 / 1000.;
                             let mut reason = None;
                             if x - hw - 2 < i64::from(scene.origin_x)
                                 || z - hd - 2 < i64::from(scene.origin_z)
@@ -335,6 +385,39 @@ pub(super) fn append(
                             {
                                 reason = Some("entrance_reaches_different_road");
                             }
+                            // The checked route always ends on the road nearest the
+                            // entrance, so the pad has to be nearer its OWN road than
+                            // any other: beside a crossing road the walk reaches the
+                            // crossing one first and the development audit reports
+                            // `no_verified_assigned_road_access` for a site that is
+                            // perfectly reachable - just not from the road it was
+                            // assigned to. Same rule the roadside station scan uses.
+                            if reason.is_none() {
+                                let own = road_entities
+                                    .iter()
+                                    .find(|entity| entity.entity_id == road.id)
+                                    .map_or(0., |entity| {
+                                        super::road_network::road_rect_distance(
+                                            entity,
+                                            x as i32,
+                                            z as i32,
+                                        )
+                                    });
+                                let nearest_other = road_entities
+                                    .iter()
+                                    .filter(|entity| entity.entity_id != road.id)
+                                    .map(|entity| {
+                                        super::road_network::road_rect_distance(
+                                            entity,
+                                            x as i32,
+                                            z as i32,
+                                        )
+                                    })
+                                    .fold(f64::INFINITY, f64::min);
+                                if own > nearest_other {
+                                    reason = Some("entrance_reaches_different_road");
+                                }
+                            }
                             if reason.is_none()
                                 && result.roadside_sites.iter().any(|site| {
                                     entrance_corridor(site, result).is_some_and(
@@ -348,6 +431,12 @@ pub(super) fn append(
                             }
                             let mut min = f32::INFINITY;
                             let mut max = f32::NEG_INFINITY;
+                            let mut carved_max = f32::NEG_INFINITY;
+                            if reason.is_none()
+                                && entrance_rise_m > super::access::WALKABLE_GRADE
+                            {
+                                reason = Some("entrance_rise_exceeds_contract");
+                            }
                             if reason.is_none() {
                                 'samples: for zz in z - hd - 2..=z + hd + 2 {
                                     for xx in x - hw - 2..=x + hw + 2 {
@@ -360,9 +449,24 @@ pub(super) fn append(
                                         )?;
                                         min = min.min(h);
                                         max = max.max(h);
-                                        if h > level as f32
-                                            || level as f32 - h > result.max_roadbed_fill_m
-                                            || f64::from(level)
+                                        // What the roads already require inside the
+                                        // pad's own window: a neighbouring road's
+                                        // earthwork must not push the pad's flat top
+                                        // out of the audited tolerance.
+                                        carved_max = carved_max.max(super::apply_terrain_carves(
+                                            f64::from(h),
+                                            xx as i32,
+                                            zz as i32,
+                                            &road_carves,
+                                        ) as f32);
+                                        // A pad is realized by a fill-only carve, so its
+                                        // declared flat top has to be the surface its own
+                                        // window can actually hold: never below the natural
+                                        // ground it keeps, never above it plus the fill cap.
+                                        if f64::from(h) > declared_f
+                                            || declared_f - f64::from(h)
+                                                > f64::from(result.max_roadbed_fill_m)
+                                            || declared_f
                                                 > f64::from(h)
                                                     + mask.fill_capacity_at(xx as i32, zz as i32)
                                         {
@@ -370,6 +474,12 @@ pub(super) fn append(
                                             break 'samples;
                                         }
                                     }
+                                }
+                                if reason.is_none()
+                                    && f64::from(carved_max)
+                                        > declared_f + super::access::WALKABLE_GRADE
+                                {
+                                    reason = Some("pad_carve_exceeds_declared_level");
                                 }
                             }
                             if let Some(reason) = reason {
@@ -389,7 +499,14 @@ pub(super) fn append(
                                 world_z: z as i32,
                                 width_m: r.width_m,
                                 depth_m: r.depth_m,
-                                support_level_m: level,
+                                support_level_m: i32::try_from(declared_mm)
+                                    .map(|mm| mm.div_euclid(1000))
+                                    .unwrap_or(level),
+                                parcel_insets: None,
+                                // A service pad keeps the integer-level contract the service
+                                // audit recognises (`support_level_mm` marks a graded pad it
+                                // deliberately does not credit), and a service building is not
+                                // a frontage-program kind, so it carries no frontage point.
                                 support_level_mm: None,
                                 frontage_road_point: None,
                                 rotation_y_deg: yaw,

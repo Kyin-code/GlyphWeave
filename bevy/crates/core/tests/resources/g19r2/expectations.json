@@ -1,0 +1,141 @@
+{
+    "version":  2,
+    "cases":  {
+                  "control-flat":  {
+                                       "kind":  "built",
+                                       "routeStatus":  "found",
+                                       "note":  "positive control stays positive"
+                                   },
+                  "descent-zero-rise":  {
+                                            "kind":  "built",
+                                            "routeStatus":  "found",
+                                            "note":  "a pure descent is not a climb"
+                                        },
+                  "ground-overhead-obstacle":  {
+                                                   "kind":  "build_rejected",
+                                                   "category":  "ground_edge_blocked_by_solid",
+                                                   "note":  "a 0.5..1.5 m beam stands inside the walking volume"
+                                               },
+                  "ground-through-solid-platform":  {
+                                                        "kind":  "build_rejected",
+                                                        "category":  "ground_edge_blocked_by_solid",
+                                                        "note":  "the walk would pass through the platform solid"
+                                                    },
+                  "missing-context":  {
+                                          "kind":  "input_invalid",
+                                          "note":  "an absent environment is not an empty one"
+                                      },
+                  "overflow-scope":  {
+                                         "kind":  "build_rejected",
+                                         "category":  "scope_out_of_range",
+                                         "note":  "extreme rectangle refused with a category, no panic"
+                                     },
+                  "pedestrian-hump-zero-rise":  {
+                                                    "kind":  "built",
+                                                    "routeStatus":  "budget_exhausted",
+                                                    "note":  "the hump is a real climb, so a zero rise budget cannot be met"
+                                                },
+                  "reverse-flat":  {
+                                       "kind":  "built",
+                                       "routeStatus":  "found",
+                                       "note":  "the reported line follows the query direction"
+                                   },
+                  "stair-inside-solid-obstacle":  {
+                                                      "kind":  "build_rejected",
+                                                      "category":  "structure_intersects_obstacle",
+                                                      "note":  "a wall through the flight is hard blocking"
+                                                  },
+                  "unknown-surfaces":  {
+                                           "kind":  "build_rejected",
+                                           "category":  "unknown_surface_reference",
+                                           "note":  "labels are not references"
+                                       },
+                  "wheelchair-local-hump":  {
+                                                "kind":  "built",
+                                                "routeStatus":  "no_suitable_edge",
+                                                "note":  "a 0.2 local grade is not a wheelchair surface"
+                                            },
+                  "positive-terrace":  {
+                                           "kind":  "built",
+                                           "routeStatus":  "found",
+                                           "note":  "legal stair, platform and controlled cut and fill still work"
+                                       },
+                  "positive-switchback":  {
+                                              "kind":  "built",
+                                              "routeStatus":  "found",
+                                              "note":  "legal switchback with a turn landing that has room"
+                                          },
+                  "terminal-own-stair-solid":  {
+                                                   "kind":  "build_rejected",
+                                                   "category":  "ground_edge_blocked_by_solid",
+                                                   "note":  "a ground edge from the stair foot toward a port under the flight has no clear walking volume: the second tread stands in it. The unrelated yard-walk geometry was corrected (yard now approaches along the flight axis); the tested under-stair port is untouched"
+                                               },
+                  "narrow-stair":  {
+                                       "kind":  "build_rejected",
+                                       "category":  "structure_walking_volume_blocked",
+                                       "note":  "a 0.4 m flight cannot carry the 1.5 m pedestrian walking volume; the walk geometry was corrected (yard now approaches along the flight axis) so the stair width is what is tested"
+                                   },
+                  "vehicle-side-water":  {
+                                             "kind":  "built",
+                                             "category":  "no_suitable_edge",
+                                             "routeStatus":  "no_suitable_edge",
+                                             "note":  "the vehicle band crosses water, so no vehicle edge exists"
+                                         },
+                  "wheelchair-outside-band":  {
+                                                  "kind":  "built",
+                                                  "category":  "found",
+                                                  "routeStatus":  "found",
+                                                  "note":  "a steep vehicle band outside the wheelchair band must not refuse a wheelchair"
+                                              },
+                  "misbound-existing-surface":  {
+                                                    "kind":  "build_rejected",
+                                                    "category":  "port_not_on_referenced_surface",
+                                                    "routeStatus":  "port_not_on_referenced_surface",
+                                                    "note":  "a label that exists elsewhere is not membership of this surface"
+                                                },
+                  "hump-with-valid-detour":  {
+                                                 "kind":  "built",
+                                                 "category":  "found",
+                                                 "routeStatus":  "found",
+                                                 "note":  "the over-limit short path must not hide the flat detour"
+                                             },
+                  "valid-detour-control":  {
+                                               "kind":  "built",
+                                               "category":  "found",
+                                               "routeStatus":  "found",
+                                               "note":  "control: the same detour without the short path"
+                                           },
+                  "wheelchair-low-solid":  {
+                                               "kind":  "build_rejected",
+                                               "category":  "ground_edge_blocked_by_solid",
+                                               "routeStatus":  "ground_edge_blocked_by_solid",
+                                               "note":  "a 0.2 m explicit obstacle is never exempt, for any capability"
+                                           },
+                  "wheelchair-taller-solid":  {
+                                                  "kind":  "build_rejected",
+                                                  "category":  "ground_edge_blocked_by_solid",
+                                                  "routeStatus":  "ground_edge_blocked_by_solid",
+                                                  "note":  "a taller obstacle on the same path is refused as well"
+                                              },
+                  "narrow-directional-deck":  {
+                                                  "kind":  "build_rejected",
+                                                  "category":  "structure_walking_volume_blocked",
+                                                  "note":  "the 0.6 m directional deck cannot carry the pedestrian band"
+                                              },
+                  "wide-directional-deck-control":  {
+                                                        "kind":  "built",
+                                                        "routeStatus":  "found",
+                                                        "note":  "the 1.6 m directional control"
+                                                    },
+                  "minimal-straight-stair":  {
+                                                 "kind":  "built",
+                                                 "routeStatus":  "found",
+                                                 "note":  "minimal straight stair: ground port, treads, top platform and road port generated from one relation"
+                                             },
+                  "minimal-switchback":  {
+                                             "kind":  "built",
+                                             "routeStatus":  "found",
+                                             "note":  "minimal switchback: the turn landing is a solid beyond both flights and the turn is walked through a real corner"
+                                         }
+              }
+}

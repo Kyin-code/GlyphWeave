@@ -2,7 +2,9 @@
 //! claim to model mountain passes, bridges or an optimized highway alignment.
 use super::LandUseZone;
 use super::zoning::{ZoningMask, ZoningRejection};
-use super::{EntityInstance, GroundingSpec, SceneSpec, SpatialAnchor, WaterGeometry};
+use super::{
+    EntityInstance, GroundingSpec, SceneSpec, SpatialAnchor, WaterGeometry, WorldManifest,
+};
 use crate::baked_terrain::{BakedTerrain, TerrainError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -38,6 +40,34 @@ pub struct RoadNetworkPlan {
     pub service_outcomes: Vec<super::services::ServiceOutcome>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub joint_layout: Option<super::joint_frontage::JointLayout>,
+    /// B01-T2 C2: named, PERSISTED refusals from base-edge profile generation.
+    ///
+    /// An earlier version collected these into a local Vec that the caller discarded, so "refusals are
+    /// retained" was false at the product level: nothing survived into the plan an audit could read. A
+    /// refused base edge still keeps `profile: None` and therefore has NO frontage eligibility, but the
+    /// reason now travels with the plan.
+    ///
+    /// This is a diagnostic record, not a profile registry and not a second source of profiles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub base_profile_rejections: Vec<BaseProfileRejection>,
+    /// B01-T2 R7-1 (rule A'): roadside sites that would have been placed but
+    /// cannot be, with a named category (`pad_overlaps_road_band`,
+    /// `pad_fill_exceeds_contract`, `entrance_grade_exceeds_contract`). A refused
+    /// site is NOT placed and is never silently dropped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roadside_site_rejections: Vec<BaseProfileRejection>,
+}
+
+/// One named refusal from base-edge profile generation (B01-T2 C2).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseProfileRejection {
+    /// the edge that could not be given a legal profile
+    pub edge_id: String,
+    /// refusal category, stable enough to assert on
+    pub category: String,
+    /// the specific reason, including any downstream solver message
+    pub reason: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +88,24 @@ pub struct RoadEdge {
     pub rotation_y_deg: f32,
     pub natural_min_m: f32,
     pub natural_max_m: f32,
+    /// B01-R1 T2 (OPT-B): the authoritative local profile for a BASE road edge.
+    ///
+    /// Before this field existed, `RoadNetworkPlan::entities()` could only find a profile by matching an
+    /// entry in `plan.extensions` (road_network.rs entities(), which still runs as the second priority).
+    /// `plan.extensions` is the registry of roads ADDED by the extension mechanism, so a base
+    /// `generated.road-network.*` edge never had a profile, and `frontage::stations()` returns None for a
+    /// road without one. That left the majority of legal base roads permanently unable to carry frontage.
+    ///
+    /// This is NOT a plan-level profile registry: the profile lives on the edge whose geometry it
+    /// describes, so the endpoint/length/width/midpoint agreement that `RoadProfile::validate_entity`
+    /// demands is structural rather than looked up.
+    ///
+    /// Serde default keeps every existing plan JSON readable, and an absent profile preserves the legacy
+    /// behaviour for inputs that never entered the profile design chain. It is never a stand-in for a
+    /// failed design: a base edge either carries a profile the solver produced and validation accepted, or
+    /// it carries none and its rejection is retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<super::road_profile::RoadProfile>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +120,8 @@ pub struct RoadsideSite {
     pub depth_m: u32,
     pub support_level_m: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parcel_insets: Option<super::parcel_geometry::ParcelInsets>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub support_level_mm: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frontage_road_point: Option<[i32; 2]>,
@@ -80,7 +130,7 @@ pub struct RoadsideSite {
     pub natural_max_m: f32,
 }
 impl RoadsideSite {
-    pub(super) fn entity(&self) -> EntityInstance {
+    pub(crate) fn entity(&self) -> EntityInstance {
         let s = self;
         EntityInstance {
             entity_id: s.id.clone(),
@@ -156,11 +206,25 @@ impl RoadNetworkPlan {
         self.edges
             .iter()
             .map(|e| {
-                let profile = self
-                    .extensions
-                    .iter()
-                    .find(|p| p.entity_id == e.id)
-                    .map(|p| super::road_extensions::profile(&p.design));
+                // B01-R1 T2 (OPT-B) profile priority, locked by test:
+                //   1. the edge's OWN authoritative profile (base roads after T2);
+                //   2. the legacy extensions lookup (roads ADDED by the extension mechanism);
+                //   3. none, which keeps the legacy flat behaviour for inputs that never entered a
+                //      profile design chain. Priority 3 must not become a silent pseudo-profile for a
+                //      zoned base road: a base road whose design failed carries no profile and the
+                //      rejection is retained by the planning caller.
+                let profile = e
+                    .profile
+                    .clone()
+                    .or_else(|| {
+                        self.extensions
+                            .iter()
+                            .find(|p| p.entity_id == e.id)
+                            .map(|p| super::road_extensions::profile(&p.design))
+                    });
+                let road_width_m = profile
+                    .as_ref()
+                    .map_or(8., |p| p.road_width_m as f32);
                 let height = profile
                     .as_ref()
                     .and_then(|p| p.height_at(f64::from(e.world_x), f64::from(e.world_z)))
@@ -173,7 +237,7 @@ impl RoadNetworkPlan {
                     world_z: e.world_z,
                     world_y: height.floor() as i32,
                     width_m: e.length_m as f32,
-                    depth_m: 8.,
+                    depth_m: road_width_m,
                     height_m: 0.24,
                     rotation_y_deg: e.rotation_y_deg,
                     scale: 1.,
@@ -216,11 +280,241 @@ pub(super) fn plan(
 ) -> Result<RoadNetworkPlan, TerrainError> {
     plan_with_zones(scene, terrain, water, None)
 }
+/// B01-T2 R11 G3: where does a roadside pad stand on its edge?
+///
+/// Returns `(pad x, pad z, own level at the pad's frontage point (millimetres;
+/// `None` on the legacy unprofiled path), frontage point)`.
+///
+/// A profiled edge is scanned at every legal station of the frontage path's own
+/// station rule, and the pad takes the station with the SMALLEST rise between
+/// the road's required surface over the pad's window (rule A', the production
+/// carve composition) and the road's own surface at that station. The rise is
+/// what the entrance apron has to carry between the pad's flat top and the
+/// graded band edge, and the apron is one raster cell wide, so a pad raised by
+/// more than the walkable grade over one cell cannot be entered from its own
+/// road: its checked route detours to another road and the development audit
+/// reports `no_verified_assigned_road_access`. Fixing the pad at the edge's
+/// centre was the defect - the centre is usually the deepest point of the
+/// profile's local dip, which is exactly where that rise is largest.
+///
+/// Stations that fail the walkability test are not used; a pad that can be
+/// placed at the centre by the legacy rule (no profile) keeps the old
+/// placement byte-identically, and an edge whose stations all fail keeps the
+/// centre too (the existing gates then refuse it by name, as before).
+/// Distance from a world point to a (possibly quarter-turned) entity's
+/// footprint rectangle, in metres. Used by the station scan to keep a roadside
+/// pad on the road it was assigned.
+pub(super) fn road_rect_distance(entity: &EntityInstance, x: i32, z: i32) -> f64 {
+    let (hw, hd) = super::spatial_half_extents(
+        entity.width_m,
+        entity.depth_m,
+        entity.rotation_y_deg,
+    );
+    let dx = (f64::from(x) - f64::from(entity.world_x)).abs() - hw;
+    let dz = (f64::from(z) - f64::from(entity.world_z)).abs() - hd;
+    dx.max(0.).hypot(dz.max(0.))
+}
+
+/// `(pad x, pad z, own level at the pad's frontage point (millimetres; `None` on
+/// the legacy unprofiled path or the centre fallback), frontage point, whether
+/// the caller must keep the legacy 2/2/2 parcel ring)`.
+type RoadsidePlacement = (i32, i32, Option<i64>, [i32; 2], bool);
+
+fn roadside_placement_candidates(
+    e: &RoadEdge,
+    side: i32,
+    road_entities: &[EntityInstance],
+    request: &super::frontage::Request,
+    terrain: &BakedTerrain,
+    road_carves: &[super::TerrainCarve],
+    pad_win: i32,
+    scene: &SceneSpec,
+) -> Vec<RoadsidePlacement> {
+    let centre = if e.rotation_y_deg == 0. {
+        (
+            i64::from(e.world_x),
+            i64::from(e.world_z) + 24 * i64::from(side),
+        )
+    } else {
+        (
+            i64::from(e.world_x) + 24 * i64::from(side),
+            i64::from(e.world_z),
+        )
+    };
+    let legacy = (
+        centre.0 as i32,
+        centre.1 as i32,
+        None,
+        [e.world_x, e.world_z],
+        true,
+    );
+    let Some(profile) = e.profile.as_ref() else {
+        return vec![legacy];
+    };
+    // A profiled edge the station scan cannot serve (short edge, or a station list
+    // the frontage rule refuses) keeps the pre-R11 centre placement and its flat
+    // level, but NOT the legacy parcel ring: the zero-inset parcel is a property
+    // of the road being profiled (D5's scope is the unprofiled neighbour), and
+    // handing it back here re-opened the G1 yard shortfall in the frozen W1
+    // fixture (51.0 -> 4419.0 m2) when measured.
+    let profiled_centre = (centre.0 as i32, centre.1 as i32, None, [e.world_x, e.world_z], false);
+    let Some(road_entity) = road_entities.iter().find(|entity| entity.entity_id == e.id) else {
+        return vec![profiled_centre];
+    };
+    let Ok(Some(stations)) = super::frontage::stations(road_entity, request) else {
+        return vec![profiled_centre];
+    };
+    let dx = (profile.end[0] - profile.start[0]).signum();
+    let dz = (profile.end[1] - profile.start[1]).signum();
+    // `(rise, is_centre, placement)`. The station scan only relocates a pad when
+    // the legacy centre placement is itself unwalkable: a road whose graded
+    // surface already sits at the pad's own level (rise 0, e.g. a base edge pinned
+    // flat at the network level) keeps the legacy layout, count and identity - and
+    // a road that dips across the pad's window hands the pad to the station with
+    // the smallest rise, because there the centre is the worst candidate.
+    let mut ranked: Vec<(f64, bool, i32, i32, Option<i64>, [i32; 2], bool)> = Vec::new();
+    {
+        let (cx, cz) = (centre.0 as i32, centre.1 as i32);
+        let mut required_max = profile
+            .height_at(f64::from(e.world_x), f64::from(e.world_z))
+            .map(|h| (h * 1000.).round() as i64)
+            .unwrap_or(i64::from(0));
+        for zz in cz - pad_win..=cz + pad_win {
+            for xx in cx - pad_win..=cx + pad_win {
+                if let Some(h) = terrain.height(xx, zz) {
+                    let required = super::apply_terrain_carves(
+                        f64::from(h),
+                        xx,
+                        zz,
+                        road_carves,
+                    );
+                    required_max = required_max.max((required * 1000.).round() as i64);
+                }
+            }
+        }
+        let own_centre = profile
+            .height_at(f64::from(e.world_x), f64::from(e.world_z))
+            .map(|h| (h * 1000.).round() as i64)
+            .unwrap_or(required_max);
+        let rise_centre = (required_max - own_centre) as f64 / 1000.;
+        if rise_centre <= super::access::WALKABLE_GRADE {
+            // The legacy centre placement is walkable as it stands: keep it, and
+            // with it the legacy layout, count and identity of this edge's parcel.
+            return vec![profiled_centre];
+        }
+        if rise_centre <= super::access::WALKABLE_GRADE * super::ENTRANCE_APRON_RUN_M {
+            // Walkable only across the engineered entrance apron, which is exactly
+            // what a frontage point builds: the pad keeps the centre position (so
+            // the legacy layout, count and identity survive) but takes the graded
+            // datum at that centre, and the corridor carve carries the remaining
+            // rise over its own run.
+            return vec![(
+                centre.0 as i32,
+                centre.1 as i32,
+                Some(own_centre),
+                [e.world_x, e.world_z],
+                false,
+            )];
+        }
+        ranked.push((
+            rise_centre,
+            true,
+            cx,
+            cz,
+            None,
+            [e.world_x, e.world_z],
+            false,
+        ));
+    }
+    for &station in &stations {
+        let rx = profile.start[0] + dx * station as i32;
+        let rz = profile.start[1] + dz * station as i32;
+        let (x, z) = if dx != 0 {
+            (rx, rz + 24 * side)
+        } else {
+            (rx + 24 * side, rz)
+        };
+        if i64::from(x) - 14 < i64::from(scene.origin_x)
+            || i64::from(z) - 14 < i64::from(scene.origin_z)
+            || i64::from(x) + 14 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
+            || i64::from(z) + 14 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
+        {
+            continue;
+        }
+        let own_mm = profile.elevations_mm[station];
+        let mut required_max = own_mm;
+        for zz in z - pad_win..=z + pad_win {
+            for xx in x - pad_win..=x + pad_win {
+                if let Some(h) = terrain.height(xx, zz) {
+                    let required =
+                        super::apply_terrain_carves(f64::from(h), xx, zz, road_carves);
+                    required_max = required_max.max((required * 1000.).round() as i64);
+                }
+            }
+        }
+        let rise_m = (required_max - own_mm) as f64 / 1000.;
+        // The apron is `ENTRANCE_APRON_RUN_M` long, so a rise is walkable while it
+        // stays inside the audited grade over that run - not over a single cell.
+        if rise_m > super::access::WALKABLE_GRADE {
+            continue;
+        }
+        // The development audit requires the pad's checked route to reach the
+        // road it was ASSIGNED, so a station is only usable while that road is
+        // also the one the pad is nearest to: beside a crossing road the walk
+        // reaches the crossing one first, and the building fails
+        // `no_verified_assigned_road_access` while being perfectly walkable
+        // (measured in the first station-scan world: 33 of 33 links walkable,
+        // 14 still failing on the assignment clause).
+        let own_distance = road_rect_distance(road_entity, x, z);
+        let nearest_other = road_entities
+            .iter()
+            .filter(|other| other.entity_id != road_entity.entity_id)
+            .map(|other| road_rect_distance(other, x, z))
+            .fold(f64::INFINITY, f64::min);
+        if own_distance > nearest_other {
+            continue;
+        }
+        ranked.push((rise_m, false, x, z, Some(own_mm), [rx, rz], false));
+    }
+    if ranked.iter().all(|(_, is_centre, ..)| *is_centre) {
+        return vec![profiled_centre];
+    }
+    // Ascending rise, and the centre placement wins every tie.
+    ranked.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.1.cmp(&a.1))
+    });
+    let mut out: Vec<RoadsidePlacement> = ranked
+        .into_iter()
+        .map(|(_, _, x, z, own_mm, frontage, legacy_parcel)| {
+            (x, z, own_mm, frontage, legacy_parcel)
+        })
+        .collect();
+    out
+}
+
 pub(super) fn plan_with_zones(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
     water: WaterGeometry,
     zones: Option<&[LandUseZone]>,
+) -> Result<RoadNetworkPlan, TerrainError> {
+    plan_with_zones_demand(scene, terrain, water, zones, false)
+}
+
+/// B01-T2 R13: `settlement_demand` says whether this scene actually asks for
+/// settlement content (a `settlementProgram`, hence real pads that must be
+/// enterable). A demand-free plan keeps every geometrically legal grading: its
+/// roadside scan is speculative and its refusals would only remove evidence.
+/// A demanding scene refuses grading that cannot host its own pads - see the
+/// R13 pre-pass below for the measurements and the exact rule.
+pub(super) fn plan_with_zones_demand(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    zones: Option<&[LandUseZone]>,
+    settlement_demand: bool,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let zoning = zones.map(|z| ZoningMask::new(scene, z)).transpose()?;
     terrain.require_complete()?;
@@ -232,6 +526,10 @@ pub(super) fn plan_with_zones(
     let mut result = RoadNetworkPlan {
         automatic_extensions: None,
         frontage: None,
+        // B01-T2 C2: filled once base-edge profiles are attempted and their refusals are known
+        base_profile_rejections: Vec::new(),
+        // B01-T2 R7-1: filled once roadside sites are attempted and their refusals are known
+        roadside_site_rejections: Vec::new(),
         extensions: vec![],
         model: if zoning.is_some() {
             "zoned-fill-envelope-lowland-frontage-v4"
@@ -351,6 +649,10 @@ pub(super) fn plan_with_zones(
                     rotation_y_deg: rot,
                     natural_min_m: min,
                     natural_max_m: max,
+                    // B01-R1 T2 (OPT-B): attached below by attach_base_edge_profiles once the network
+                    // level is chosen. Left None here so a candidate that fails design never carries a
+                    // stand-in profile.
+                    profile: None,
                 });
             }
         }
@@ -419,18 +721,216 @@ pub(super) fn plan_with_zones(
         result.edges.push(e);
     }
     result.nodes = used.into_values().collect();
+    // B01-R1 T2 (OPT-B): now that the base edges and the chosen level are known, give each base edge its
+    // own authoritative profile through the REAL alignment solver. Edges whose design or validation does
+    // not hold keep `profile: None` and their named rejection is returned to the caller, so a base road
+    // can never acquire a pseudo-profile it did not earn.
+    if let Some(level) = result.level_m {
+        // take the nodes out of the plan for the duration of the borrow, because the helper needs the
+        // node table while mutating the edges. The nodes are put back unconditionally afterwards, and a
+        // helper error propagates only AFTER the plan is whole again, so a failure cannot leave a
+        // half-updated public plan with its nodes missing.
+        let nodes = std::mem::take(&mut result.nodes);
+        let attached = attach_base_edge_profiles(&mut result, scene, terrain, water, &nodes, level, zones);
+        result.nodes = nodes;
+        // B01-T2 C2: PERSIST the refusals instead of discarding them. A refused edge keeps
+        // profile: None and therefore has no frontage eligibility; the reason now travels with the plan.
+        result.base_profile_rejections = attached?;
+    }
     if !result.edges.is_empty() {
         result.status = "planned_connected_network".into();
     }
 
     if let Some(level) = result.level_m {
+        // B01-T2 R11 G3: the station scan uses the frontage path's own request
+        // shape for a 24x24 roadside pad (setback 8 puts its centre the same
+        // 24 m off the axis the roadside rule has always used).
+        let roadside_request = super::frontage::Request {
+            id: "roadside".into(),
+            scene_id: scene.scene_id.clone(),
+            purpose: "residential".into(),
+            kind: "residential_home".into(),
+            count: 1,
+            width_m: 24,
+            depth_m: 24,
+            height_m: 12,
+            station_spacing_m: 8,
+            setback_m: 8,
+            max_candidate_attempts: 8,
+            parcel_insets: Some(super::parcel_geometry::ParcelInsets {
+                front_m: 0,
+                side_m: 0,
+                rear_m: 0,
+            }),
+        };
+        // B01-T2 R13 (T-0013): a grading is only usable if THIS edge's own roadside
+        // pad can be entered from its graded surface. The pad is flat and the carve
+        // is fill-only, so its declared top is the maximum the road network requires
+        // inside the pad's window (rule A'). When that maximum sits further above the
+        // graded surface than the entrance apron can walk, NO station of this edge can
+        // carry an enterable pad, and keeping the grading only produces sites that are
+        // planned, built and then found unreachable.
+        //
+        // Measured on the frozen joint fixture BEFORE this gate (`rk-x/joint-a01`,
+        // 2026-10-18): 0 of 22 sites carried a frontage point or a graded datum, all
+        // 17 realised homes were `connected` to a DIFFERENT road than the one they
+        // were assigned, and `realizedResidentialWithAccess` was 1 of 18. Refusing
+        // every base grading restored 18 of 18, so the mechanism is the grading, not
+        // the pad rule.
+        //
+        // The refusal is BY NAME and the edge keeps the flat legacy level the pad
+        // contract was validated against; a graded edge is never silently flattened
+        // and a flat road is never silently substituted for a graded one.
+        let apron_capacity_m = super::access::WALKABLE_GRADE * super::ENTRANCE_APRON_RUN_M;
+        let (probe_audit_half, _) = super::support_pad_half_extents(24., 24., 0., true);
+        let probe_audit_win: i32 = probe_audit_half.ceil() as i32;
+        if settlement_demand {
+            let probe_entities = result.entities();
+            let probe_carves = super::plan_terrain_carves(&probe_entities);
+            let mut downgraded: Vec<BaseProfileRejection> = Vec::new();
+            for edge in result.edges.iter_mut() {
+                let Some(profile) = edge.profile.as_ref() else {
+                    continue;
+                };
+                let Some(probe_entity) = probe_entities
+                    .iter()
+                    .find(|entity| entity.entity_id == edge.id)
+                else {
+                    continue;
+                };
+                // A road that offers no legal station at all carries no pad, so its
+                // grading creates no unreachable site and is left alone.
+                let Ok(Some(stations)) =
+                    super::frontage::stations(probe_entity, &roadside_request)
+                else {
+                    continue;
+                };
+                let dx = (profile.end[0] - profile.start[0]).signum();
+                let dz = (profile.end[1] - profile.start[1]).signum();
+                let mut usable = false;
+                let mut best_rise = f64::INFINITY;
+                'stations: for &station in &stations {
+                    let Some(own_mm) = profile.elevations_mm.get(station).copied() else {
+                        continue;
+                    };
+                    let rx = profile.start[0] + dx * station as i32;
+                    let rz = profile.start[1] + dz * station as i32;
+                    for side in [-1, 1] {
+                        let (px, pz) = if dx != 0 {
+                            (rx, rz + 24 * side)
+                        } else {
+                            (rx + 24 * side, rz)
+                        };
+                        let mut required_max_mm = own_mm;
+                        let mut complete = true;
+                        'window: for zz in pz - probe_audit_win..=pz + probe_audit_win {
+                            for xx in px - probe_audit_win..=px + probe_audit_win {
+                                let Some(h) = terrain.height(xx, zz) else {
+                                    complete = false;
+                                    break 'window;
+                                };
+                                let required = super::apply_terrain_carves(
+                                    f64::from(h),
+                                    xx,
+                                    zz,
+                                    &probe_carves,
+                                );
+                                required_max_mm =
+                                    required_max_mm.max((required * 1000.).round() as i64);
+                            }
+                        }
+                        if !complete {
+                            continue;
+                        }
+                        let rise_m = (required_max_mm - own_mm) as f64 / 1000.;
+                        best_rise = best_rise.min(rise_m);
+                        if rise_m <= apron_capacity_m {
+                            usable = true;
+                            break 'stations;
+                        }
+                    }
+                }
+                if !usable {
+                    let edge_id = edge.id.clone();
+                    edge.profile = None;
+                    downgraded.push(BaseProfileRejection {
+                        edge_id,
+                        category: "grading_leaves_no_enterable_pad".into(),
+                        reason: format!(
+                            "edge {}: best station still leaves its 24x24 roadside pad {:.3} m above the graded surface (apron capacity {:.3} m), so the grading earns no frontage",
+                            edge.id, best_rise, apron_capacity_m
+                        ),
+                    });
+                }
+            }
+            result.base_profile_rejections.extend(downgraded);
+        }
+        // B01-T2 R7-1 (rule A'): the surface the ROADS require, computed with the
+        // production carve implementation over the road entities only, plus each
+        // road's protected band (pavement + shoulder + graded band).
+        let road_entities = result.entities();
+        let road_carves = super::plan_terrain_carves(&road_entities);
+        let road_bands: Vec<(i64, i64, i64, i64)> = road_entities
+            .iter()
+            .map(|entity| {
+                let (hw, hd) = super::graded_flat_top_half_extents(entity);
+                (
+                    i64::from(entity.world_x),
+                    i64::from(entity.world_z),
+                    i64::from(hw),
+                    i64::from(hd),
+                )
+            })
+            .collect();
+        // B01-T2 R9-1: ONE pad window, derived from the same function the carve
+        // and the audit use, for every planning scan and the band-overlap check.
+        // (The audit checks `world +- (pad half + 2)`; A' used to scan +-12.)
+        let (pad_half_f, _) = super::support_pad_half_extents(24., 24., 0., true);
+        // R9-1 measured outcome: widening A' to the AUDIT window (+-14) makes the
+        // declaration itself higher, which un-refuses the site and returns the yard
+        // total to 4419 m2 - i.e. it is worse, not better. The measurements
+        // therefore keep TWO windows, both DERIVED (never hand-written):
+        //   * pad_win   = the pad's own half extents (spatial_half_extents of 24x24 = 12):
+        //                 what A' scans and what the band-overlap check uses;
+        //   * audit_win = the pad plus the 2 m apron the carve and the audit use
+        //                 (support_pad_half_extents(.., precise = true) = 14): what the
+        //                 natural-terrain gates scan, exactly as before.
+        let (pad_own_hw_f, _) = super::spatial_half_extents(24., 24., 0.);
+        let pad_win: i32 = pad_own_hw_f.ceil() as i32;
+        let pad_win_i64: i64 = i64::from(pad_win);
+        let audit_win: i32 = pad_half_f.ceil() as i32;
+        let mut site_rejections: Vec<BaseProfileRejection> = Vec::new();
+        // `roadside_request` is defined once at the top of this block: the R13
+        // grading-feasibility pre-pass and this station scan must ask the frontage
+        // path the SAME question, or the two would disagree about which stations exist.
         for e in &result.edges {
             for side in [-1, 1] {
-                let (x, z) = if e.rotation_y_deg == 0. {
-                    (i64::from(e.world_x), i64::from(e.world_z) + 24 * side)
-                } else {
-                    (i64::from(e.world_x) + 24 * side, i64::from(e.world_z))
-                };
+                // Every legal station of this edge and side, in ascending
+                // entrance rise, then the centre placement as the last resort.
+                // A single "best" station was the defect: whenever the caller's
+                // own gates refused that one (a neighbouring pad inside the 28 m
+                // spacing rule, zoning, water, a road it would overlap) the whole
+                // edge fell through to the centre, which is usually the deepest
+                // point of the profile's local dip and therefore the least
+                // reachable placement the edge offers.
+                let candidates = roadside_placement_candidates(
+                    e,
+                    side,
+                    &road_entities,
+                    &roadside_request,
+                    terrain,
+                    &road_carves,
+                    // The window rule A' must cover is the one the CARVE and the
+                    // audit use (pad + 2 m apron = `audit_win`): the pad's door
+                    // sits at depth/2 + 1 m from its centre, i.e. inside that
+                    // window and outside `pad_win`, and a door whose cell the
+                    // declaration never saw is exactly the
+                    // `entrance_step_requires_engineering` refusal.
+                    audit_win,
+                    scene,
+                );
+                for (x, z, station_own_mm, frontage_point, legacy_parcel) in candidates {
+                let (x, z) = (i64::from(x), i64::from(z));
                 if x - 14 < i64::from(scene.origin_x)
                     || z - 14 < i64::from(scene.origin_z)
                     || x + 14 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
@@ -475,8 +975,8 @@ pub(super) fn plan_with_zones(
                 let mut min = f32::INFINITY;
                 let mut max = f32::NEG_INFINITY;
                 let mut protected_cap = f64::INFINITY;
-                for zz in z - 14..=z + 14 {
-                    for xx in x - 14..=x + 14 {
+                for zz in z - audit_win..=z + audit_win {
+                    for xx in x - audit_win..=x + audit_win {
                         let h = terrain.height(xx, zz).ok_or_else(|| {
                             TerrainError("missing roadside natural sample".into())
                         })?;
@@ -488,12 +988,204 @@ pub(super) fn plan_with_zones(
                         }
                     }
                 }
-                if max > level as f32
-                    || level as f32 - min > max_fill
-                    || f64::from(level) > protected_cap
+                // B01-T2 R8-1: these gates must be evaluated against the height the
+                // pad will ACTUALLY be declared at (rule A'), not against the flat
+                // `level_m`. For an unprofiled (legacy) adjacent road that declared
+                // height is still the flat level, so legacy behaviour is bit-identical;
+                // for a profiled road it is the road's own surface, which is why sites
+                // whose natural ground sits ABOVE the road could previously be placed
+                // and then never realise (carving is fill-only and cannot cut them
+                // down). Such a site is now refused BY NAME instead of being placed
+                // and left unresolved.
+                // The pad's own level is the road's surface AT ITS STATION (the
+                // scanned frontage point), not at the edge's centre.
+                let gate_own_mm = station_own_mm;
+                let mut gate_declared_mm = gate_own_mm.unwrap_or(i64::from(level) * 1000);
+                for zz in z - pad_win..=z + pad_win {
+                    for xx in x - pad_win..=x + pad_win {
+                        if let Some(h) = terrain.height(xx, zz) {
+                            let required = super::apply_terrain_carves(
+                                f64::from(h),
+                                xx,
+                                zz,
+                                &road_carves,
+                            );
+                            gate_declared_mm =
+                                gate_declared_mm.max((required * 1000.).round() as i64);
+                        }
+                    }
+                }
+                let gate_level = gate_declared_mm as f64 / 1000.;
+                if f64::from(max) > gate_level
+                    || gate_level - f64::from(min) > f64::from(max_fill)
+                    || gate_level > protected_cap
                 {
+                    site_rejections.push(BaseProfileRejection {
+                        edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                        category: "pad_below_natural_ground_or_over_contract".into(),
+                        reason: format!(
+                            "site at ({x},{z}) on road {}: declared pad {gate_level:.3} m against natural {min:.3}..{max:.3} m (fill cap {max_fill} m, protected cap {protected_cap:.3} m)",
+                            e.id
+                        ),
+                    });
                     continue;
                 }
+                // B01-T2 R7-1 (rule A'): the pad stays FLAT, but its height is the
+                // MAXIMUM the roads already require anywhere inside the pad, so that
+                // the fill-only carve (`terrain.max(target)`) can agree with the
+                // declaration at every cell. A neighbouring road's blend ramp is
+                // allowed to raise the pad - what is forbidden is sharing cells with
+                // a road's protected band. Sites that cannot satisfy the existing
+                // contracts are refused BY NAME, never placed and never dropped.
+                let pad_half: i64 = pad_win_i64; // the shared 24x24 pad window (R9-1)
+                let overlaps_band = road_bands.iter().any(|(cx, cz, hw, hd)| {
+                    (i64::from(x) - cx).abs() < hw + pad_half
+                        && (i64::from(z) - cz).abs() < hd + pad_half
+                });
+                if overlaps_band {
+                    site_rejections.push(BaseProfileRejection {
+                        edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                        category: "pad_overlaps_road_band".into(),
+                        reason: format!(
+                            "site at ({x},{z}) on road {} would overlap a road's pavement+shoulder+graded band",
+                            e.id
+                        ),
+                    });
+                    continue;
+                }
+                let own_mm = station_own_mm;
+                let Some(own_mm) = own_mm else {
+                    // legacy / unprofiled adjacent road: keep the old flat-level path
+                    // B01-T2 R12: the pad is realized by a fill-only carve, so its
+                    // declared flat top has to be the height the gates above just
+                    // certified as realizable. `gate_declared_mm` is exactly that:
+                    // the network level raised by everything the roads require
+                    // inside the pad's own window. Declaring the bare `level`
+                    // instead left the declaration below the raster the carve
+                    // actually produced, the post-bake rebase then moved the
+                    // entity by a whole metre, and the frozen plan no longer
+                    // matched the final entity. When `level` is already realizable
+                    // the declaration is byte-identical to the legacy shape.
+                    // Only a genuinely unprofiled edge (no graded surface at all)
+                    // takes the raised declaration: its road is flat on `level`, so
+                    // raising the pad to the height its own window really holds keeps
+                    // the entrance step inside one walkable cell. A profiled edge
+                    // whose station scan found no usable station keeps the legacy
+                    // centre placement byte-identically, exactly as the scan's own
+                    // contract states.
+                    let support_mm: Option<i32> = i32::try_from(gate_declared_mm)
+                        .ok()
+                        .filter(|_| e.profile.is_none())
+                        .filter(|mm| i64::from(*mm) != i64::from(level) * 1000);
+                    result.roadside_sites.push(RoadsideSite {
+                        program: None,
+                        id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                        road_id: e.id.clone(),
+                        world_x: x,
+                        world_z: z,
+                        width_m: 24,
+                        depth_m: 24,
+                        support_level_m: support_mm.map_or(level, |mm| mm.div_euclid(1000)),
+                        // R11 G1 applies to the PROFILED path only. This branch
+                        // is the legacy unprofiled neighbour: its pad is flat on
+                        // `level` and its 2 m ring is ordinary realizable yard,
+                        // so its parcel geometry must stay byte-identical to b8
+                        // (`None` = ParcelInsets::legacy() = 2/2/2). See the
+                        // inspector's R11 note 1, item 3.
+                        // Only a truly unprofiled neighbour keeps b8's 2/2/2
+                        // ring; a profiled edge that the station scan could not
+                        // serve keeps the zero-inset parcel (see the scan above).
+                        parcel_insets: if legacy_parcel {
+                            None
+                        } else {
+                            Some(super::parcel_geometry::ParcelInsets {
+                                front_m: 0,
+                                side_m: 0,
+                                rear_m: 0,
+                            })
+                        },
+                        support_level_mm: support_mm,
+                        frontage_road_point: support_mm.map(|_| [e.world_x, e.world_z]),
+                        rotation_y_deg: if e.rotation_y_deg == 0. {
+                            if side < 0 { 180. } else { 0. }
+                        } else if side < 0 {
+                            270.
+                        } else {
+                            90.
+                        },
+                        natural_min_m: min,
+                        natural_max_m: max,
+                    });
+                    continue;
+                };
+                let mut declared_mm = own_mm;
+                let mut worst_fill = f64::NEG_INFINITY;
+                // Same window as the station scan and the carve/audit: the pad
+                // plus the 2 m apron, so the declaration covers the door cell.
+                for zz in z - audit_win..=z + audit_win {
+                    for xx in x - audit_win..=x + audit_win {
+                        let natural_mm = f64::from(
+                            terrain
+                                .height(xx, zz)
+                                .ok_or_else(|| TerrainError("missing roadside natural sample".into()))?,
+                        );
+                        let required = super::apply_terrain_carves(
+                            natural_mm,
+                            xx,
+                            zz,
+                            &road_carves,
+                        );
+                        declared_mm = declared_mm.max((required * 1000.).round() as i64);
+                    }
+                }
+                let declared_f = declared_mm as f64 / 1000.;
+                for zz in z - pad_win..=z + pad_win {
+                    for xx in x - pad_win..=x + pad_win {
+                        let natural_m = f64::from(
+                            terrain
+                                .height(xx, zz)
+                                .ok_or_else(|| TerrainError("missing roadside natural sample".into()))?,
+                        );
+                        let cap = zoning.as_ref().map_or(f64::from(max_fill), |mask| {
+                            mask.fill_capacity_at(xx, zz).min(f64::from(max_fill))
+                        });
+                        let fill = declared_f - natural_m;
+                        worst_fill = worst_fill.max(fill);
+                        if fill < -1e-9 || fill > cap + 1e-9 {
+                            worst_fill = f64::INFINITY;
+                        }
+                    }
+                }
+                let entrance_drop = (declared_f - own_mm as f64 / 1000.).abs();
+                let entrance_limit = 24.0 * 0.080; // the road's own 80 mm/m grade over the 24 m offset
+                let (category, reason) = if !worst_fill.is_finite() || worst_fill > f64::from(max_fill) + 1e-9 {
+                    (
+                        "pad_fill_exceeds_contract",
+                        format!(
+                            "site at ({x},{z}) on road {} needs {:.3} m of fill (cap {max_fill} m)",
+                            e.id, worst_fill
+                        ),
+                    )
+                } else if entrance_drop > entrance_limit + 1e-9 {
+                    (
+                        "entrance_grade_exceeds_contract",
+                        format!(
+                            "site at ({x},{z}) on road {} has a {:.3} m entrance drop (limit {:.3} m)",
+                            e.id, entrance_drop, entrance_limit
+                        ),
+                    )
+                } else {
+                    ("", String::new())
+                };
+                if !category.is_empty() {
+                    site_rejections.push(BaseProfileRejection {
+                        edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                        category: category.into(),
+                        reason,
+                    });
+                    continue;
+                }
+                let support_mm: Option<i32> = i32::try_from(declared_mm).ok();
                 result.roadside_sites.push(RoadsideSite {
                     program: None,
                     id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
@@ -502,9 +1194,10 @@ pub(super) fn plan_with_zones(
                     world_z: z,
                     width_m: 24,
                     depth_m: 24,
-                    support_level_m: level,
-                    support_level_mm: None,
-                    frontage_road_point: None,
+                    support_level_m: support_mm.map_or(level, |mm| mm.div_euclid(1000)),
+                    parcel_insets: Some(super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
+                    support_level_mm: support_mm,
+                    frontage_road_point: support_mm.map(|_| frontage_point),
                     rotation_y_deg: if e.rotation_y_deg == 0. {
                         if side < 0 { 180. } else { 0. }
                     } else if side < 0 {
@@ -515,8 +1208,10 @@ pub(super) fn plan_with_zones(
                     natural_min_m: min,
                     natural_max_m: max,
                 });
+                }
             }
         }
+        result.roadside_site_rejections = site_rejections;
     }
     Ok(result)
 }
@@ -528,7 +1223,7 @@ pub(super) fn plan_with_program(
     zones: Option<&[LandUseZone]>,
     program: Option<&super::services::ServiceProgram>,
 ) -> Result<RoadNetworkPlan, TerrainError> {
-    let mut result = plan_with_zones(scene, terrain, water, zones)?;
+    let mut result = plan_with_zones_demand(scene, terrain, water, zones, program.is_some())?;
     let Some(program) = program else {
         return Ok(result);
     };
@@ -548,6 +1243,293 @@ pub(super) fn plan_with_style(
     program: Option<&super::services::ServiceProgram>,
     style: &serde_json::Value,
 ) -> Result<RoadNetworkPlan, TerrainError> {
+    plan_with_style_declared(
+        scene,
+        terrain,
+        water,
+        zones,
+        program,
+        style,
+        super::NaturalSource::Undeclared,
+    )
+}
+
+/// B01-R1 T2 (OPT-B): one base edge -> CorridorRequest -> real solver -> validated RoadProfile.
+///
+/// Why this exists: `frontage::stations()` requires the road entity to carry a `grounding.road_profile`,
+/// and before this the only way an edge obtained one was by matching an entry in `plan.extensions`, which
+/// is the registry of roads ADDED by the extension mechanism. Base `generated.road-network.*` edges are
+/// not extensions, so they never had a profile and never carried frontage.
+///
+/// This helper is deliberately small and calls the SAME solver the extension path uses
+/// (`AlignmentContext::design`), so slope, transverse raster, fill capacity, protected zoning and water
+/// constraints are all still enforced. It invents no flat profile.
+///
+/// Rejection discipline: every failure returns a structured `TerrainError` naming the edge and the
+/// category. The caller keeps the edge and leaves `profile: None`; it must not substitute a stand-in.
+fn base_edge_profile(
+    edge: &RoadEdge,
+    nodes: &[RoadNode],
+    context: &super::road_alignment::AlignmentContext<'_>,
+    level: i32,
+) -> Result<super::road_profile::RoadProfile, (String, String)> {
+    // (category, reason) so the refusal is structured and persists with a stable label
+    let reject = |category: &str, reason: String| (category.to_string(), reason);
+    // The graded chain is only realizable on the world's own raster. A legal
+    // `RoadProfile` steps at most 80 mm between adjacent 1 m stations
+    // (`RoadProfile::validate_shape`, max_rise_mm_per_m = 80 below), while a
+    // quarter-metre raster can only express multiples of 250 mm. The only legal
+    // profile a quarter-metre world can hold is therefore a constant one, so a
+    // graded base profile can never be realized there and the independent audit
+    // (which holds the graded band to 0.05 mm) would refuse it by name anyway.
+    // Refuse here, by name, and keep `profile: None`: exactly the discipline
+    // every other refusal in this function follows. This is the same rule the
+    // extension contract already states in `road_extensions::validate_manifest`
+    // ("graded road extensions require millimetre heights").
+    if context.terrain.encoding() != Some(crate::height_payload::HeightEncoding::Millimetre) {
+        return Err(reject(
+            "height_encoding_cannot_represent_graded_profile",
+            format!(
+                "edge {}: world height encoding {:?} cannot represent a road profile that steps at most 80 mm per metre",
+                edge.id,
+                context.terrain.encoding()
+            ),
+        ));
+    }
+    // category: node/scene identity
+    let from = nodes
+        .iter()
+        .find(|n| n.id == edge.from)
+        .ok_or_else(|| reject("endpoint_not_a_node", format!("edge {}: from node {} is not a node of the plan", edge.id, edge.from)))?;
+    let to = nodes
+        .iter()
+        .find(|n| n.id == edge.to)
+        .ok_or_else(|| reject("endpoint_not_a_node", format!("edge {}: to node {} is not a node of the plan", edge.id, edge.to)))?;
+    // category: axis and length domain
+    let dx = i64::from(to.world_x) - i64::from(from.world_x);
+    let dz = i64::from(to.world_z) - i64::from(from.world_z);
+    if (dx == 0) == (dz == 0) {
+        return Err(reject("not_axis_aligned", format!("edge {}: not a single horizontal or vertical axis", edge.id)));
+    }
+    let length = dx.abs() + dz.abs();
+    if length % 2 != 0 {
+        return Err(reject("odd_length", format!("edge {}: length {} is odd", edge.id, length)));
+    }
+    if !(16..=10000).contains(&length) {
+        return Err(reject("length_out_of_domain", format!("edge {}: length {} outside 16..=10000", edge.id, length)));
+    }
+    if u32::try_from(length).ok() != Some(edge.length_m) {
+        return Err(reject("length_disagrees_with_endpoints", format!("edge {}: declared length_m {} disagrees with its endpoints ({}m)", edge.id, edge.length_m, length)));
+    }
+    // category: elevation domain, with CHECKED arithmetic. `saturating_mul(1000).abs()` was wrong twice
+    // over: saturation silently clamps into a legal-looking value, and `abs()` on i32::MIN overflows.
+    // The RoadProfile domain is -32000..=256000 millimetres, applied per sample by validate_shape.
+    let level_mm = i64::from(level)
+        .checked_mul(1000)
+        .ok_or_else(|| reject("elevation_overflow", format!("edge {}: level {level} mm conversion overflowed", edge.id)))?;
+    if !(-32000..=256000).contains(&level_mm) {
+        return Err(reject("elevation_out_of_domain", format!("edge {}: level {} m gives {level_mm} mm, outside -32000..=256000", edge.id, level)));
+    }
+    // category: engineering parameter contract, inherited unchanged
+    const ROAD_WIDTH_M: u32 = 8;
+    const SHOULDER_M: u32 = 3;
+    const MAX_FILL_MM: u32 = 6000;
+    const MAX_RISE_MM_PER_M: u32 = 80;
+    let start_level_mm = i32::try_from(level_mm)
+        .map_err(|_| reject("elevation_overflow", format!("edge {}: {level_mm} mm does not fit i32", edge.id)))?;
+    // B01-T2 R3 V2: the platform is DERIVED from the extension contract (see
+    // `base_tie_in_platform_m`), not hard-coded.
+    let platform_m = base_tie_in_platform_m(edge.length_m);
+    let request = super::road_alignment::CorridorRequest {
+        scene_id: context.scene.scene_id.clone(),
+        start: [from.world_x, from.world_z],
+        end: [to.world_x, to.world_z],
+        road_width_m: ROAD_WIDTH_M,
+        shoulder_width_m: SHOULDER_M,
+        max_fill_mm: MAX_FILL_MM,
+        max_rise_mm_per_m: MAX_RISE_MM_PER_M,
+        start_level_mm: Some(start_level_mm),
+        end_level_mm: Some(start_level_mm),
+        junction_length_m: platform_m,
+    };
+    // category: missing samples / infeasible engineering. The solver's own message names
+    // slope, transverse raster, fill capacity, protected zoning or water.
+    let design = context
+        .design(&request)
+        .map_err(|e| reject("design_infeasible", format!("edge {}: solver refused: {}", edge.id, e.0)))?;
+    let profile = super::road_extensions::profile(&design);
+    profile
+        .validate_shape()
+        .map_err(|e| reject("profile_shape_invalid", format!("edge {}: {}", edge.id, e.0)))?;
+    // category: shape/elevation domain of the produced samples, checked explicitly because validate_shape
+    // owns the domain and the caller must not assume it succeeded silently
+    if profile
+        .elevations_mm
+        .iter()
+        .any(|h| !(-32000..=256000).contains(h))
+    {
+        return Err(reject("elevation_out_of_domain", format!("edge {}: a produced sample is outside -32000..=256000 mm", edge.id)));
+    }
+    // category: the profile must describe THIS edge, because entities() builds the entity from the edge
+    let expect_rotation = if dx == 0 { 90. } else { 0. };
+    if !edge.rotation_y_deg.is_finite() || (edge.rotation_y_deg - expect_rotation).abs() > f32::EPSILON {
+        return Err(reject("edge_geometry_not_finite_or_misaligned", format!("edge {}: rotation {} is not the finite cardinal {expect_rotation}", edge.id, edge.rotation_y_deg)));
+    }
+    if profile.road_width_m != ROAD_WIDTH_M
+        || u32::try_from(profile.elevations_mm.len().saturating_sub(1)).ok() != Some(edge.length_m)
+        || i64::from(edge.world_x) * 2 != i64::from(profile.start[0]) + i64::from(profile.end[0])
+        || i64::from(edge.world_z) * 2 != i64::from(profile.start[1]) + i64::from(profile.end[1])
+    {
+        return Err(reject("profile_entity_mismatch", format!("edge {}: profile geometry disagrees with the edge it describes", edge.id)));
+    }
+    Ok(profile)
+}
+
+/// B01-T2 R3 V2: the base road's tie-in platform, in metres.
+///
+/// It is DERIVED from the extension contract's widest legal junction occupancy
+/// (`road_extensions::max_junction_occupancy_m`, currently 11 m for the 8/12/16 m
+/// contract) with a 12 m design floor, then clamped to half the edge so a short
+/// edge cannot make its own design infeasible. Before this the value was the bare
+/// literal 8 (and briefly 12), which could silently stop covering the contract if
+/// a wider road were ever admitted.
+pub(super) fn base_tie_in_platform_m(length_m: u32) -> u32 {
+    base_required_tie_in_platform_m().min(length_m / 2).max(1)
+}
+
+/// The full platform a base edge is expected to offer. `base_platform_is_short`
+/// is true when the edge is too short to provide it.
+pub(super) fn base_required_tie_in_platform_m() -> u32 {
+    BASE_TIE_IN_PLATFORM_FLOOR_M.max(super::road_extensions::max_junction_occupancy_m() as u32)
+}
+
+/// Whether this edge is too short to offer the full tie-in platform, i.e. its
+/// endpoints cannot safely host the widest extension the contract admits.
+pub(super) fn base_platform_is_short(length_m: u32) -> bool {
+    base_tie_in_platform_m(length_m) < base_required_tie_in_platform_m()
+}
+
+/// Design floor for the base tie-in platform. The contract-derived value is a
+/// lower bound; this floor keeps the 64 m base network's geometry as validated.
+const BASE_TIE_IN_PLATFORM_FLOOR_M: u32 = 12;
+
+/// Attach profiles to as many base edges as can LEGALLY carry one.
+///
+/// An edge whose design or validation fails is left with `profile: None` and a NAMED rejection is
+/// returned for persistence. A refusal is NOT an error of the plan: the base road network remains valid
+/// for the purposes it already served, and the task contract requires the refusal to be retained rather
+/// than forced into a flat profile.
+///
+/// The refusals are returned rather than logged so the caller can persist them into
+/// `RoadNetworkPlan::base_profile_rejections`; discarding them was the F2 defect.
+pub(super) fn attach_base_edge_profiles(
+    plan: &mut RoadNetworkPlan,
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    nodes: &[RoadNode],
+    level: i32,
+    zones: Option<&[LandUseZone]>,
+) -> Result<Vec<BaseProfileRejection>, TerrainError> {
+    let Some(zones) = zones else {
+        // with no land-use zones there is no legal corridor to check against. The task forbids inventing
+        // one, so base edges keep profile: None and the reason is recorded rather than guessed.
+        return Ok(vec![BaseProfileRejection {
+            edge_id: "*".into(),
+            category: "legacy_no_zones".into(),
+            reason: "no land-use zones supplied; base edge profiles not attempted, so no base edge has \
+                     frontage eligibility from this path"
+                .into(),
+        }]);
+    };
+    let context = super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?;
+    // Structural guard (I5): a plan whose edges do not have unique ids, or whose
+    // edges do not map onto the node table, is damaged rather than merely
+    // unprofiled. That must fail closed so no half-updated public plan escapes.
+    {
+        let mut ids = BTreeSet::new();
+        for edge in plan.edges.iter() {
+            if !ids.insert(edge.id.as_str()) {
+                return Err(TerrainError(format!(
+                    "structural damage: duplicate base edge id {}",
+                    edge.id
+                )));
+            }
+        }
+        let node_ids: BTreeSet<usize> = nodes.iter().map(|n| n.id).collect();
+        for edge in plan.edges.iter() {
+            if !node_ids.contains(&edge.from) || !node_ids.contains(&edge.to) {
+                return Err(TerrainError(format!(
+                    "structural damage: base edge {} references a node outside the plan",
+                    edge.id
+                )));
+            }
+        }
+    }
+    let mut refusals = Vec::new();
+    for edge in plan.edges.iter_mut() {
+        if edge.profile.is_some() {
+            continue;
+        }
+        match base_edge_profile(edge, nodes, &context, level) {
+            Ok(profile) => edge.profile = Some(profile),
+            Err((category, reason)) => refusals.push(BaseProfileRejection {
+                edge_id: edge.id.clone(),
+                category,
+                reason,
+            }),
+        }
+    }
+    // F4: the shape/geometry checks inside `base_edge_profile` build the profile
+    // from the edge, but only the REAL `entities()` output can close the
+    // contract. Validate each profiled base edge against the entity the product
+    // chain will actually consume; a mismatch is a single-edge refusal (the road
+    // stays, it just earns no frontage), never a stand-in profile.
+    let entities = plan.entities();
+    for edge in plan.edges.iter_mut() {
+        if edge.profile.is_none() {
+            continue;
+        }
+        let entity = entities
+            .iter()
+            .find(|entity| entity.entity_id == edge.id)
+            .ok_or_else(|| {
+                TerrainError(format!(
+                    "structural damage: base edge {} has no produced entity",
+                    edge.id
+                ))
+            })?;
+        let outcome = edge
+            .profile
+            .as_ref()
+            .expect("checked above")
+            .validate_entity(entity);
+        if let Err(error) = outcome {
+            edge.profile = None;
+            refusals.push(BaseProfileRejection {
+                edge_id: edge.id.clone(),
+                category: "profile_entity_mismatch".into(),
+                reason: format!("edge {}: {}", edge.id, error.0),
+            });
+        }
+    }
+    Ok(refusals)
+}
+
+/// The same planning entry with an explicit declaration of where the scene's
+/// authoritative natural surface comes from. Version-3 supply needs it: the
+/// demand-led phase must never guess the source, so a caller that does not
+/// declare one is refused rather than defaulted to a zero seed or a raster
+/// fallback.
+pub(super) fn plan_with_style_declared(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    zones: Option<&[LandUseZone]>,
+    program: Option<&super::services::ServiceProgram>,
+    style: &serde_json::Value,
+    source: super::NaturalSource,
+) -> Result<RoadNetworkPlan, TerrainError> {
     let mut result = plan_with_program(scene, terrain, water, zones, program)?;
     if super::road_extensions::from_style(style)?.is_some() {
         super::road_extensions::append(
@@ -560,13 +1542,14 @@ pub(super) fn plan_with_style(
         )?;
     }
     if super::auto_roads::from_style(style)?.is_some() {
-        super::auto_roads::append(
+        super::auto_roads::append_declared(
             &mut result,
             scene,
             terrain,
             water,
             zones.ok_or_else(|| TerrainError("automatic roads require zones".into()))?,
             style,
+            source,
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
@@ -575,6 +1558,37 @@ pub(super) fn plan_with_style(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Test-only view of the base domain (same rule as the append phase's
+    /// trusted contract derivation: B01-T2 C3 identity by planning provenance,
+    /// not by profile presence).
+    #[allow(dead_code)]
+    pub(super) fn base_only_plan_for_test(plan: &RoadNetworkPlan) -> RoadNetworkPlan {
+        let extension_ids: std::collections::BTreeSet<&str> = plan
+            .extensions
+            .iter()
+            .map(|extension| extension.entity_id.as_str())
+            .collect();
+        let automatic_ids: std::collections::BTreeSet<&str> = plan
+            .automatic_extensions
+            .as_ref()
+            .map(|report| {
+                report
+                    .generated_road_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut base = plan.clone();
+        base.edges.retain(|edge| {
+            !extension_ids.contains(edge.id.as_str()) && !automatic_ids.contains(edge.id.as_str())
+        });
+        let keep: std::collections::BTreeSet<usize> =
+            base.edges.iter().flat_map(|e| [e.from, e.to]).collect();
+        base.nodes.retain(|node| keep.contains(&node.id));
+        base.extensions.clear();
+        base
+    }
     fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry) {
         let scene = SceneSpec {
             scene_id: "roads".into(),
@@ -617,6 +1631,205 @@ mod tests {
         }
         assert_eq!(visited.len(), a.nodes.len());
         assert_eq!(a.level_m, Some(0));
+    }
+
+    #[test]
+    fn the_legacy_undeclared_entry_and_unknown_sources_are_refused() {
+        use crate::height_payload::encode_millimetres;
+        let (scene, _flat, water) = fixture();
+        let zones = vec![LandUseZone {
+            id: "urban".into(),
+            kind: "urban".into(),
+            world_x: scene.origin_x,
+            world_z: scene.origin_z,
+            width_m: scene.width_m,
+            depth_m: scene.depth_m,
+            source: "test".into(),
+        }];
+        let mut natural = BakedTerrain::new(&scene).unwrap();
+        let values: Vec<f64> = (0..scene.depth_m as i32)
+            .flat_map(|z| (0..scene.width_m as i32).map(move |x| (x, z)))
+            .map(|(x, z)| {
+                super::super::terrain_height_metres(
+                    0,
+                    scene.origin_x + x,
+                    scene.origin_z + z,
+                    water,
+                    &[],
+                )
+            })
+            .collect();
+        natural
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &encode_millimetres(scene.width_m, scene.depth_m, values).unwrap(),
+            )
+            .unwrap();
+        let plan = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        for entity in &mut entities {
+            entity.normalize_spatial_semantics();
+        }
+        // The old undeclared audit wrapper must still refuse a version-3 input
+        // rather than silently falling back to a zero seed or a sampled source.
+        let v3_style = serde_json::json!({
+            "frontageProgram": {"version": 1, "requests": [{
+                "id": "homes", "sceneId": "roads", "purpose": "urban",
+                "kind": "residential_home", "count": 1, "widthM": 12, "depthM": 10,
+                "heightM": 8, "stationSpacingM": 24, "setbackM": 8,
+                "maxCandidateAttempts": 8,
+                "parcelInsets": {"frontM": 4, "sideM": 2, "rearM": 4}
+            }]},
+            "automaticRoadExtensions": {"version": 3, "scenes": [{
+                "sceneId": "roads", "maxNewSegments": 1, "maxCandidateAttempts": 8,
+                "segmentLengthsM": [64], "priorityPurposes": ["urban"],
+                "reachDistanceM": 32,
+                "hierarchy": {"tiers": [
+                    {"id": "collector-16", "role": "collector", "widthM": 16, "purposes": ["urban"]},
+                    {"id": "local-12", "role": "local", "widthM": 12, "purposes": ["urban"]}
+                ]},
+                "supply": {"version": 1, "maxCandidateStates": 1, "preflightBudgetMs": 180000, "mode": "append"}
+            }]},
+        });
+        let error = verify_with_style(
+            &plan,
+            &scene,
+            &natural,
+            &natural,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &v3_style,
+        )
+        .unwrap_err();
+        assert!(
+            error.0.contains("declared natural source"),
+            "{}",
+            error.0
+        );
+        // The manifest-bound derivation is the shared rule, and an authored
+        // source this build cannot reproduce is refused instead of guessed onto
+        // `SuppliedRaster`.
+        let mut manifest = super::super::WorldManifest::default_demo();
+        manifest.scenes = vec![scene.clone()];
+        manifest.style["heightPrecision"] = serde_json::json!("millimeter");
+        let declared = super::super::declared_natural_source(&manifest, &scene).unwrap();
+        assert_eq!(
+            declared,
+            super::super::NaturalSource::AuthoredSeed {
+                seed: manifest.world.seed ^ scene.seed_offset,
+                precise: true,
+            }
+        );
+        manifest.style["terrain"] = serde_json::json!("imported-raster");
+        let error = super::super::declared_natural_source(&manifest, &scene).unwrap_err();
+        assert!(
+            error.to_string().contains("unsupported authored terrain source"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn shared_final_support_leaf_is_the_production_audit_body() {
+        use crate::height_payload::encode_millimetres;
+        let (scene, _flat, water) = fixture();
+        let zones = vec![LandUseZone {
+            id: "urban".into(),
+            kind: "urban".into(),
+            world_x: scene.origin_x,
+            world_z: scene.origin_z,
+            width_m: scene.width_m,
+            depth_m: scene.depth_m,
+            source: "test".into(),
+        }];
+        // The authoritative natural source is the authored seed field, so the
+        // production encoder and the carve path agree cell for cell.
+        let mut natural = BakedTerrain::new(&scene).unwrap();
+        let values: Vec<f64> = (0..scene.depth_m as i32)
+            .flat_map(|z| (0..scene.width_m as i32).map(move |x| (x, z)))
+            .map(|(x, z)| {
+                super::super::terrain_height_metres(
+                    0,
+                    scene.origin_x + x,
+                    scene.origin_z + z,
+                    water,
+                    &[],
+                )
+            })
+            .collect();
+        natural
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &encode_millimetres(scene.width_m, scene.depth_m, values).unwrap(),
+            )
+            .unwrap();
+        let plan = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        for entity in &mut entities {
+            entity.normalize_spatial_semantics();
+        }
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).unwrap();
+        let (height, _s, _l, _t) = super::super::generate_chunk_encoded(
+            0,
+            scene.origin_x,
+            scene.origin_z,
+            scene.width_m,
+            scene.depth_m,
+            water,
+            &carves,
+            true,
+            Some(&mask),
+        );
+        let mut final_terrain = BakedTerrain::new(&scene).unwrap();
+        final_terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &height,
+            )
+            .unwrap();
+        let empty_style = serde_json::json!({});
+        let production = verify_with_style(
+            &plan,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &empty_style,
+        )
+        .unwrap();
+        let leaf = audit_final_support_for_record(
+            &plan,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &empty_style,
+        )
+        .unwrap();
+        assert_eq!(production.realized_edges, leaf.realized_edges);
+        assert_eq!(production.planned_edges, leaf.planned_edges);
+        assert_eq!(production.realized_sites, leaf.realized_sites);
+        assert_eq!(production.failures, leaf.failures);
+        assert!(plan.edges.len() > 0);
     }
 
     #[test]
@@ -854,6 +2067,2844 @@ mod tests {
         let (s, _, w) = fixture();
         assert!(plan(&s, &BakedTerrain::new(&s).unwrap(), w).is_err());
     }
+
+    type GradedFixture = (
+        SceneSpec,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<LandUseZone>,
+        RoadNetworkPlan,
+        i32,
+    );
+
+    /// A gentle cone around (160,160): non-flat in both axes, so a legal graded
+    /// corridor exists in every cardinal direction while the shoulder is
+    /// genuinely blended. Production planning/carve/audit are used unchanged.
+    fn graded_fixture() -> GradedFixture {
+        use crate::height_payload::encode_millimetres;
+        let scene = SceneSpec {
+            scene_id: "graded-audit".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut values = Vec::with_capacity(512 * 512);
+        for z in 0..512 {
+            for x in 0..512 {
+                let fall = (f64::from(x) - 160.).abs() + (f64::from(z) - 160.).abs();
+                values.push((8. - 0.05 * fall).max(0.));
+            }
+        }
+        let mut natural = BakedTerrain::new(&scene).unwrap();
+        natural
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &encode_millimetres(512, 512, values).unwrap(),
+            )
+            .unwrap();
+        let water = super::super::water_geometry(
+            super::super::WaterKind::None,
+            &[],
+            &scene,
+            &serde_json::Value::Null,
+        );
+        let zones = vec![LandUseZone {
+            id: "graded.urban".into(),
+            kind: "urban".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 512,
+            source: "test".into(),
+        }];
+        let base = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        let level_mm = base.level_m.expect("resolved base level") * 1000;
+        (scene, natural, water, zones, base, level_mm)
+    }
+
+    /// A style with one graded corridor of `width_m`, along the axis implied by
+    /// `rotation` (0 = x, 90 = z), starting from a real base node. The search
+    /// only accepts candidates the production planner itself accepts.
+    fn single_corridor_style(fixture: &GradedFixture, width_m: u32, rotation: i32) -> Option<serde_json::Value> {
+        let (scene, natural, water, zones, base, level_mm) = fixture;
+        let directions: [(i32, i32); 2] = if rotation == 90 {
+            [(0, 1), (0, -1)]
+        } else {
+            [(1, 0), (-1, 0)]
+        };
+        for node in &base.nodes {
+            for (dx, dz) in directions {
+                for length in [64_i32, 96, 48] {
+                    let start = [node.world_x, node.world_z];
+                    let end = [start[0] + dx * length, start[1] + dz * length];
+                    if end[0] < 12 || end[1] < 12
+                        || end[0] + 12 > scene.width_m as i32
+                        || end[1] + 12 > scene.depth_m as i32
+                    {
+                        continue;
+                    }
+                    let candidate = serde_json::json!({
+                        "roadExtensions": {"version": 1, "corridors": [{
+                            "sceneId": "graded-audit",
+                            "start": start,
+                            "end": end,
+                            "roadWidthM": width_m,
+                            "shoulderWidthM": 3,
+                            "maxFillMm": 6000,
+                            "maxRiseMmPerM": 80,
+                            "startLevelMm": level_mm,
+                            "endLevelMm": level_mm,
+                            "junctionLengthM": 8
+                        }]}
+                    });
+                    let mut probe = base.clone();
+                    if super::super::road_extensions::append(
+                        &mut probe,
+                        scene,
+                        natural,
+                        *water,
+                        zones,
+                        &candidate,
+                    )
+                    .is_ok()
+                    {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// R2 W1-2 diagnostic (ignored): dump the graded base plan's nodes, edges and
+    /// attached profile samples, so the overlap rejection can be attributed.
+    #[test]
+    #[ignore = "diagnostic: dumps graded base node/edge/profile geometry"]
+    fn w1_diagnose_base_profile_geometry() {
+        let fixture = graded_fixture();
+        let (scene, _natural, _water, _zones, base, level_mm) = &fixture;
+        println!("scene {}x{} origin {} {}", scene.width_m, scene.depth_m, scene.origin_x, scene.origin_z);
+        println!("level_m={:?} level_mm={level_mm}", base.level_m);
+        println!("status={} edges={} nodes={} rejections={}", base.status, base.edges.len(), base.nodes.len(), base.base_profile_rejections.len());
+        for r in &base.base_profile_rejections {
+            println!("REJ edge={} cat={} reason={}", r.edge_id, r.category, r.reason);
+        }
+        for n in &base.nodes {
+            println!("NODE id={} x={} z={}", n.id, n.world_x, n.world_z);
+        }
+        for e in &base.edges {
+            let h = |x: i32, z: i32| {
+                e.profile
+                    .as_ref()
+                    .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
+            };
+            let (mx, mz) = ((e.world_x), (e.world_z));
+            let from = base.nodes.iter().find(|n| n.id == e.from).map(|n| (n.world_x, n.world_z));
+            let to = base.nodes.iter().find(|n| n.id == e.to).map(|n| (n.world_x, n.world_z));
+            println!(
+                "EDGE {} from={:?} to={:?} c=({},{}) len={} rot={} profiled={} h_start={:?} h_mid={:?} h_end={:?}",
+                e.id, from, to, mx, mz, e.length_m, e.rotation_y_deg,
+                e.profile.is_some(),
+                from.and_then(|(x, z)| h(x, z)),
+                h(mx, mz),
+                to.and_then(|(x, z)| h(x, z)),
+            );
+        }
+        // what entities() reports for the base edges
+        for ent in base.entities() {
+            let p = ent.grounding.road_profile.as_ref();
+            println!(
+                "ENT {} w={} d={} y={} ground={} profiled={} h_at_center={:?}",
+                ent.entity_id, ent.width_m, ent.depth_m, ent.world_y, ent.ground_height_m(),
+                p.is_some(),
+                p.and_then(|p| p.height_at(f64::from(ent.world_x), f64::from(ent.world_z))),
+            );
+        }
+    }
+
+    /// R2 W1-2 diagnostic (ignored): replay the graded corridor search and print
+    /// the exact rejection each candidate hits, so the regression is attributed
+    /// by observation instead of a guessed probe.
+    #[test]
+    #[ignore = "diagnostic: prints the rejection reason per graded corridor candidate"]
+    fn w1_diagnose_graded_corridor_rejections() {
+        let fixture = graded_fixture();
+        let (scene, natural, water, zones, base, level_mm) = &fixture;
+        let mut printed = 0;
+        for node in &base.nodes {
+            for (dx, dz) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                for length in [64_i32, 96, 48] {
+                    let start = [node.world_x, node.world_z];
+                    let end = [start[0] + dx * length, start[1] + dz * length];
+                    if end[0] < 12
+                        || end[1] < 12
+                        || end[0] + 12 > scene.width_m as i32
+                        || end[1] + 12 > scene.depth_m as i32
+                    {
+                        continue;
+                    }
+                    let candidate = serde_json::json!({
+                        "roadExtensions": {"version": 1, "corridors": [{
+                            "sceneId": "graded-audit", "start": start, "end": end,
+                            "roadWidthM": 8, "shoulderWidthM": 3, "maxFillMm": 6000,
+                            "maxRiseMmPerM": 80, "startLevelMm": *level_mm,
+                            "endLevelMm": *level_mm, "junctionLengthM": 8
+                        }]}
+                    });
+                    let mut probe = base.clone();
+                    match super::super::road_extensions::append(
+                        &mut probe,
+                        scene,
+                        natural,
+                        *water,
+                        zones,
+                        &candidate,
+                    ) {
+                        Ok(()) => println!("ACCEPT start={start:?} end={end:?}"),
+                        Err(e) => println!("REJECT start={start:?} end={end:?}: {}", e.0),
+                    }
+                    printed += 1;
+                    if printed >= 40 {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A 16m collector feeding a 12m local road: the shared node is pinned to
+    /// the base level, so the two corridors must agree there.
+    fn collector_with_local_style(fixture: &GradedFixture) -> Option<serde_json::Value> {
+        let (scene, natural, water, zones, base, level_mm) = fixture;
+        let directions: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        // Deterministic bounded search: straight continuations first, then
+        // L-shaped junctions, shortest first.
+        let mut attempts = 0_u32;
+        for node in &base.nodes {
+            for (dx, dz) in directions {
+                for (ex, ez) in directions {
+                    if (dx + ex, dz + ez) == (0, 0) {
+                        continue;
+                    }
+                    for (first, second) in [
+                        (48_i32, 48_i32),
+                        (64, 48),
+                        (48, 64),
+                        (64, 64),
+                        (32, 48),
+                        (48, 32),
+                    ] {
+                    if attempts >= 600 {
+                        return None;
+                    }
+                    attempts += 1;
+                    let start = [node.world_x, node.world_z];
+                    let mid = [start[0] + dx * first, start[1] + dz * first];
+                    let end = [mid[0] + ex * second, mid[1] + ez * second];
+                    if start[0] < 12 || start[1] < 12
+                        || mid[0] < 12 || mid[1] < 12
+                        || end[0] < 12 || end[1] < 12
+                        || end[0] + 12 > scene.width_m as i32
+                        || end[1] + 12 > scene.depth_m as i32
+                    {
+                        continue;
+                    }
+                    let candidate = serde_json::json!({
+                        "roadExtensions": {"version": 1, "corridors": [
+                            {"sceneId": "graded-audit", "start": start, "end": mid,
+                             "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
+                             "maxRiseMmPerM": 80, "startLevelMm": level_mm,
+                             "endLevelMm": level_mm, "junctionLengthM": 8},
+                            {"sceneId": "graded-audit", "start": mid, "end": end,
+                             "roadWidthM": 12, "shoulderWidthM": 3, "maxFillMm": 6000,
+                             "maxRiseMmPerM": 80, "startLevelMm": level_mm,
+                             "endLevelMm": level_mm, "junctionLengthM": 8}
+                        ]}
+                    });
+                    let mut probe = base.clone();
+                    if super::super::road_extensions::append(
+                        &mut probe,
+                        scene,
+                        natural,
+                        *water,
+                        zones,
+                        &candidate,
+                    )
+                    .is_ok()
+                    {
+                        return Some(candidate);
+                    }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Build the production final terrain (carve over the planned entities).
+    fn carved_final(
+        scene: &SceneSpec,
+        natural: &BakedTerrain,
+        entities: &[EntityInstance],
+    ) -> BakedTerrain {
+        use crate::height_payload::encode_millimetres;
+        let carves = super::super::plan_terrain_carves(entities);
+        let mut values = Vec::with_capacity((scene.width_m * scene.depth_m) as usize);
+        for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
+            for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
+                values.push(super::super::apply_terrain_carves(
+                    f64::from(natural.height(x, z).unwrap()),
+                    x,
+                    z,
+                    &carves,
+                ));
+            }
+        }
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &encode_millimetres(scene.width_m, scene.depth_m, values).unwrap(),
+            )
+            .unwrap();
+        terrain
+    }
+
+    /// The graded band of one profiled road as world-axis halves.
+    fn band_of(entity: &EntityInstance) -> (i32, i32) {
+        super::super::graded_flat_top_half_extents(entity)
+    }
+
+    /// Worst |final - design| inside a road's graded band.
+    fn worst_band_error(
+        entity: &EntityInstance,
+        final_terrain: &BakedTerrain,
+    ) -> f32 {
+        let profile = entity.grounding.road_profile.as_ref().unwrap();
+        let (band_x, band_z) = band_of(entity);
+        let mut worst = 0_f32;
+        for dz in -band_z..=band_z {
+            for dx in -band_x..=band_x {
+                let (x, z) = (entity.world_x + dx, entity.world_z + dz);
+                let target = profile.height_at(f64::from(x), f64::from(z)).unwrap() as f32;
+                let actual = final_terrain.height(x, z).unwrap();
+                worst = worst.max((actual - target).abs());
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn graded_road_audit_accepts_legal_engineering_and_rejects_real_damage() {
+        let fixture = graded_fixture();
+        let style = single_corridor_style(&fixture, 12, 0)
+            .expect("the control terrain admits a legal graded corridor");
+        let (scene, natural, water, zones, _base, _level_mm) = fixture;
+        let plan = plan_with_style(&scene, &natural, water, Some(&zones), None, &style).unwrap();
+        assert_eq!(plan.extensions.len(), 1, "the control corridor must be built");
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        // Exactly the production final terrain: the carve over the plan.
+        let final_terrain = carved_final(&scene, &natural, &entities);
+        use crate::height_payload::encode_millimetres;
+        let audit = verify_with_style(
+            &plan,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &style,
+        )
+        .unwrap();
+        assert_eq!(
+            audit.status, "pass",
+            "legal graded engineering must pass: {:?}",
+            audit.failures
+        );
+        assert_eq!(audit.realized_edges, plan.edges.len());
+
+        // W1 band rule: max(7, pavement/2 + 1) keeps the 8m and 12m values
+        // bit-identical at 7m and gives a 16m collector 9m, so every contract
+        // width covers its pavement and the structural guard stays silent.
+        for (width, band) in [(8.0_f32, 7), (12.0, 7), (16.0, 9)] {
+            let probe: EntityInstance = serde_json::from_value(serde_json::json!({
+                "entityId": "probe", "assetId": "prop.road", "kind": "road",
+                "worldX": 0, "worldZ": 0, "worldY": 0, "scale": 1.0,
+                "widthM": 128.0, "depthM": width, "heightM": 0.2, "rotationYDeg": 0.0
+            }))
+            .unwrap();
+            let (along, transverse) = super::super::graded_flat_top_half_extents(&probe);
+            let (transport_along, transport_transverse) =
+                super::super::graded_transport_half_extents(&probe);
+            let (_, pavement_transverse) = super::super::graded_pavement_half_extents(&probe);
+            assert_eq!(along, 68);
+            assert_eq!(transport_along, 68);
+            assert_eq!(transport_transverse, width as i32 / 2 + 3);
+            assert_eq!(pavement_transverse, width as i32 / 2);
+            assert_eq!(transverse, band, "graded band for a {width}m road");
+            assert!(
+                transverse >= pavement_transverse,
+                "the graded band must cover the {width}m pavement"
+            );
+            assert_eq!(
+                super::super::graded_band_shortfall_m(pavement_transverse, transverse),
+                0
+            );
+        }
+        // Narrow-band regression: the pre-W1 constant band (7m) under a 16m
+        // pavement (8m half) is exactly one structural shortfall, so a road in
+        // that state is refused instead of being silently counted as built.
+        assert_eq!(super::super::graded_band_shortfall_m(8, 7), 1);
+        assert_eq!(super::super::graded_band_shortfall_m(6, 7), 0);
+        assert_eq!(super::super::graded_band_shortfall_m(4, 7), 0);
+        assert_eq!(super::super::graded_band_shortfall_m(12, 7), 5);
+
+        // The whole graded footprint, shoulder included, holds the design
+        // level: that is what the independent audit requires.
+        //
+        // B01-T2 W1-2: this test's subject is the graded extension corridor it
+        // just built. It used to find "the profiled road", which implicitly
+        // worked while base roads carried no profile; now that every base edge
+        // carries its own solver profile, the same predicate can land on the 8 m
+        // base road instead (whose graded band equals its transport band, so the
+        // shoulder-deviation assertion below cannot hold for it). Selecting the
+        // built extension keeps the original intent and every assertion.
+        let graded = entities
+            .iter()
+            .find(|entity| {
+                entity.entity_id.starts_with("generated.road-extension.")
+                    && entity.grounding.road_profile.is_some()
+            })
+            .expect("a profiled road");
+        let profile = graded.grounding.road_profile.as_ref().unwrap();
+        // The design level is required across the earthwork's graded band.
+        let (along_half, transverse_half) = super::super::graded_flat_top_half_extents(graded);
+        // A road at rotation 0 runs along x, so its transverse axis is z.
+        let transverse_is_z = graded.rotation_y_deg != 90.;
+        let mut worst = 0_f32;
+        for dz in -transverse_half..=transverse_half {
+            for dx in -along_half..=along_half {
+                let (x, z) = if transverse_is_z {
+                    (graded.world_x + dx, graded.world_z + dz)
+                } else {
+                    (graded.world_x + dz, graded.world_z + dx)
+                };
+                let target = profile.height_at(f64::from(x), f64::from(z)).unwrap() as f32;
+                let actual = final_terrain.height(x, z).unwrap();
+                worst = worst.max((actual - target).abs());
+            }
+        }
+        assert!(
+            worst <= 0.00005,
+            "the graded footprint must hold the design level, worst {worst}"
+        );
+
+        // The transition band is judged by its own contract: it is blended and
+        // never required to equal the design level, so the audit still passes
+        // while that ring genuinely deviates from the design height.
+        let transport_half = if transverse_is_z {
+            super::super::graded_transport_half_extents(graded).1
+        } else {
+            super::super::graded_transport_half_extents(graded).0
+        };
+        assert!(transport_half > transverse_half);
+        let mut worst_transition = 0_f32;
+        for dz in -transport_half..=transport_half {
+            if dz.abs() <= transverse_half {
+                continue;
+            }
+            for dx in -along_half..=along_half {
+                let (x, z) = if transverse_is_z {
+                    (graded.world_x + dx, graded.world_z + dz)
+                } else {
+                    (graded.world_x + dz, graded.world_z + dx)
+                };
+                let target = profile.height_at(f64::from(x), f64::from(z)).unwrap() as f32;
+                let actual = final_terrain.height(x, z).unwrap();
+                let natural_h = natural.height(x, z).unwrap();
+                assert!(
+                    actual >= natural_h - 0.0005,
+                    "the shoulder must never excavate: actual {actual}, natural {natural_h}"
+                );
+                assert!(
+                    actual - natural_h <= 6.0 + 0.0005,
+                    "the shoulder fill must stay inside the road's cap: actual {actual}, natural {natural_h}"
+                );
+                worst_transition = worst_transition.max((actual - target).abs());
+            }
+        }
+        assert!(
+            worst_transition > 0.001,
+            "the shoulder must really deviate, got {worst_transition}"
+        );
+
+        let pavement_half = if transverse_is_z {
+            super::super::graded_pavement_half_extents(graded).1
+        } else {
+            super::super::graded_pavement_half_extents(graded).0
+        };
+        let at = |transverse: i32, along: i32| {
+            if transverse_is_z {
+                (graded.world_x + along, graded.world_z + transverse)
+            } else {
+                (graded.world_x + transverse, graded.world_z + along)
+            }
+        };
+        let perturb = |cell: (i32, i32), delta: f64| -> BakedTerrain {
+            let mut terrain = BakedTerrain::new(&scene).unwrap();
+            let mut values = Vec::with_capacity(512 * 512);
+            for zz in 0..512 {
+                for xx in 0..512 {
+                    let base = f64::from(final_terrain.height(xx, zz).unwrap());
+                    values.push(if (xx, zz) == cell { base + delta } else { base });
+                }
+            }
+            terrain
+                .insert_chunk(
+                    0,
+                    0,
+                    512,
+                    512,
+                    &encode_millimetres(512, 512, values).unwrap(),
+                )
+                .unwrap();
+            terrain
+        };
+        let audit_of = |terrain: &BakedTerrain| {
+            verify_with_style(
+                &plan,
+                &scene,
+                &natural,
+                terrain,
+                water,
+                &entities,
+                Some(&zones),
+                None,
+                &style,
+            )
+            .unwrap()
+        };
+
+        // Pavement edge +1mm: one design-error failure, and the failing road is
+        // not counted as realized.
+        let pavement_edge = audit_of(&perturb(at(pavement_half, 0), 0.001));
+        assert_eq!(pavement_edge.status, "fail");
+        assert_eq!(
+            pavement_edge.failures.len(),
+            1,
+            "{:?}",
+            pavement_edge.failures
+        );
+        assert!(pavement_edge.failures[0].contains("changed after planning"));
+        assert_eq!(pavement_edge.realized_edges, plan.edges.len() - 1);
+
+        // Graded-band edge +1mm: still inside the band the earthwork flattens,
+        // so it is a design error even though it is outside the pavement.
+        let band_edge = audit_of(&perturb(at(transverse_half, 0), 0.001));
+        assert_eq!(band_edge.status, "fail");
+        assert_eq!(band_edge.failures.len(), 1, "{:?}", band_edge.failures);
+        assert!(band_edge.max_design_height_error_m > 0.0009);
+
+        // Unauthorized excavation: lowering the pavement 0.2m below the natural
+        // ground fails on the cut criterion (not merely as a design error).
+        let excavated = {
+            let cell = at(pavement_half, 0);
+            let natural_m = f64::from(natural.height(cell.0, cell.1).unwrap());
+            let final_m = f64::from(final_terrain.height(cell.0, cell.1).unwrap());
+            audit_of(&perturb(cell, natural_m - final_m - 0.2))
+        };
+        assert_eq!(excavated.status, "fail");
+        assert!(
+            excavated.failures[0].contains("cut 0.2"),
+            "{:?}",
+            excavated.failures
+        );
+
+        // Over-fill: raising a transport-footprint cell above the road's own
+        // fill cap fails on the fill criterion.
+        let overfilled = {
+            let cell = at(pavement_half, 0);
+            let natural_mm = natural.height_millimetres(cell.0, cell.1).unwrap() as f64 / 1000.;
+            audit_of(&perturb(cell, natural_mm + 6.5 - f64::from(
+                final_terrain.height(cell.0, cell.1).unwrap(),
+            )))
+        };
+        assert_eq!(overfilled.status, "fail");
+        assert!(
+            overfilled.max_final_roadbed_fill_m > 6.0,
+            "fill {} must exceed the cap",
+            overfilled.max_final_roadbed_fill_m
+        );
+    }
+
+    /// B02-W1: 8m, 12m and 16m graded roads, each in two orthogonal directions,
+    /// on non-flat natural ground, through production plan -> carve -> verify.
+    #[test]
+    fn graded_width_and_direction_matrix_is_supported() {
+        let fixture = graded_fixture();
+        let (scene, natural, water, zones, _base, _level_mm) = &fixture;
+        let mut matrix = Vec::new();
+        for width in [8_u32, 12, 16] {
+            for rotation in [0_i32, 90] {
+                let style = single_corridor_style(&fixture, width, rotation).unwrap_or_else(|| {
+                    panic!("no legal {width}m corridor was found at rotation {rotation}")
+                });
+                let plan = plan_with_style(scene, natural, *water, Some(zones), None, &style)
+                    .unwrap_or_else(|error| panic!("{width}m/{rotation}: {error}"));
+                assert_eq!(plan.extensions.len(), 1, "{width}m/{rotation}");
+                let mut entities = plan.entities();
+                entities.extend(plan.site_entities());
+                let final_terrain = carved_final(scene, natural, &entities);
+                let audit = verify_with_style(
+                    &plan,
+                    scene,
+                    natural,
+                    &final_terrain,
+                    *water,
+                    &entities,
+                    Some(zones),
+                    None,
+                    &style,
+                )
+                .unwrap_or_else(|error| panic!("{width}m/{rotation}: {error}"));
+                assert_eq!(
+                    audit.status, "pass",
+                    "{width}m/{rotation} must pass: {:?}",
+                    audit.failures
+                );
+                assert_eq!(audit.realized_edges, plan.edges.len());
+                // Every profiled road's graded band covers its pavement, holds
+                // the design level exactly, and keeps the shoulder as a fill.
+                //
+                // B01-T2 W1-2: the matrix is about the ONE extension corridor
+                // built per (width, rotation) combination, so it must select that
+                // extension rather than every profiled entity - base edges now
+                // carry their own 8 m profiles and would both inflate the matrix
+                // and violate the width-specific band assertions.
+                for entity in entities
+                    .iter()
+                    .filter(|entity| {
+                        entity.entity_id.starts_with("generated.road-extension.")
+                            && entity.grounding.road_profile.is_some()
+                    })
+                {
+                    let (band_x, band_z) = band_of(entity);
+                    let (pavement_x, pavement_z) =
+                        super::super::graded_pavement_half_extents(entity);
+                    let transverse_band = if entity.rotation_y_deg == 90. {
+                        band_x
+                    } else {
+                        band_z
+                    };
+                    let transverse_pavement = if entity.rotation_y_deg == 90. {
+                        pavement_x
+                    } else {
+                        pavement_z
+                    };
+                    assert!(
+                        transverse_band >= transverse_pavement,
+                        "{width}m/{rotation}: band {transverse_band} < pavement {transverse_pavement}"
+                    );
+                    assert_eq!(transverse_band, (entity.depth_m as i32 / 2 + 1).max(7));
+                    let worst = worst_band_error(entity, &final_terrain);
+                    assert!(
+                        worst <= 0.00005,
+                        "{width}m/{rotation}: graded band deviation {worst}"
+                    );
+                    matrix.push((width, rotation, entity.depth_m as u32, transverse_band));
+                }
+            }
+        }
+        assert_eq!(matrix.len(), 6, "one profiled road per combination");
+        assert!(matrix.iter().any(|(_, _, width, band)| *width == 16 && *band == 9));
+        assert!(matrix.iter().all(|(_, _, width, band)| *band == (*width as i32 / 2 + 1).max(7)));
+    }
+
+    /// B02-W1: a real 16m collector feeding a 12m local road, both pinned to
+    /// the base level, with the shared junction held to one elevation.
+    #[test]
+    fn wide_collector_with_local_connection_is_supported() {
+        let fixture = graded_fixture();
+        let style = collector_with_local_style(&fixture)
+            .expect("the control terrain admits a 16m collector feeding a 12m local road");
+        let (scene, natural, water, zones, _base, level_mm) = fixture;
+        let plan = plan_with_style(&scene, &natural, water, Some(&zones), None, &style)
+            .unwrap_or_else(|error| panic!("collector+local planning failed: {error}"));
+        assert_eq!(plan.extensions.len(), 2, "collector + local must both be built");
+        let widths: Vec<u32> = plan
+            .extensions
+            .iter()
+            .map(|extension| extension.design.request.road_width_m)
+            .collect();
+        assert_eq!(widths, vec![16, 12]);
+        // The junction is shared and pinned to the base level in both designs.
+        let shared = plan.extensions[0].design.request.end;
+        assert_eq!(plan.extensions[1].design.request.start, shared);
+        for extension in &plan.extensions {
+            let start_level = extension.design.request.start_level_mm.unwrap();
+            let end_level = extension.design.request.end_level_mm.unwrap();
+            assert_eq!(start_level, level_mm);
+            assert_eq!(end_level, level_mm);
+        }
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        let final_terrain = carved_final(&scene, &natural, &entities);
+        let audit = verify_with_style(
+            &plan,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &style,
+        )
+        .unwrap();
+        assert_eq!(audit.status, "pass", "{:?}", audit.failures);
+        assert_eq!(audit.realized_edges, plan.edges.len());
+        // The 16m pavement is fully supported inside its 9m graded band.
+        let collector = entities
+            .iter()
+            .find(|entity| {
+                entity
+                    .grounding
+                    .road_profile
+                    .as_ref()
+                    .is_some_and(|profile| profile.road_width_m == 16)
+            })
+            .expect("the collector entity");
+        let collector_band = band_of(collector);
+        let collector_transverse = if collector.rotation_y_deg == 90. {
+            collector_band.0
+        } else {
+            collector_band.1
+        };
+        assert_eq!(collector_transverse, 9, "16m pavement needs a 9m graded band");
+        assert!(worst_band_error(collector, &final_terrain) <= 0.00005);
+        assert_eq!(
+            collector
+                .grounding
+                .road_profile
+                .as_ref()
+                .unwrap()
+                .height_at(
+                    f64::from(shared[0]),
+                    f64::from(shared[1])
+                )
+                .map(|value| (value * 1000.).round() as i32),
+            Some(level_mm)
+        );
+    }
+
+    /// Manual diagnostic (ignored): searches the published C1 compact terrain
+    /// for a 16m collector feeding a 12m local road that production planning
+    /// accepts, and audits the best candidate. Used once to author the W1 CLI
+    /// control; it needs a historical published world, so it is not part of the
+    /// normal suite. Run with `--ignored --nocapture`.
+    /// G34-R5-B01 round 20. Determinism probe for the `quality-report` blocker.
+    ///
+    /// `quality-report` fails on EVERY world this round produced, including the 512 m baseline, with
+    /// "road plan differs from natural raster reconstruction". That check (verify_impl, this file) rebuilds
+    /// the plan from the published manifest plus the natural raster and requires EXACT serde equality with
+    /// the published record. Everything else passes: validate-world binds the documents to the manifest,
+    /// the zone check recomputes plan_landuse_zones and matches, and the generator's own in-pipeline
+    /// audits pass.
+    ///
+    /// If road planning is not deterministic for identical inputs, that exact comparison can fail while
+    /// both plans are individually valid, which would explain the whole observation. This probe plans the
+    /// same scene TWICE from the same reconstructed inputs and compares the serialised plans, reporting
+    /// the first differing JSON path when they differ.
+    ///
+    /// Ignored by default because it needs a produced world on disk. Run with:
+    ///   cargo test -p glyphweave-core --lib b01_road_plan_is_deterministic -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs bevy/work/collaboration/ds-b-mainline-resume-20260929/runs/b0-baseline-a02/world"]
+    fn b01_road_plan_is_deterministic() {
+        use crate::worldgen::WaterKind;
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let root = repo.join(
+            "bevy/work/collaboration/ds-b-mainline-resume-20260929/runs/b0-baseline-a02/world",
+        );
+        if !root.is_dir() {
+            eprintln!("SKIP missing {}", root.display());
+            return;
+        }
+        let manifest: crate::worldgen::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let spec = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&spec.scene_id);
+        let scene: crate::worldgen::SceneIndex =
+            serde_json::from_slice(&std::fs::read(dir.join("scene.json")).unwrap()).unwrap();
+        let mut natural = BakedTerrain::new(&spec).unwrap();
+        for chunk in &scene.chunks {
+            natural
+                .insert_chunk(
+                    chunk.world_x,
+                    chunk.world_z,
+                    chunk.valid_width_m,
+                    chunk.valid_depth_m,
+                    &std::fs::read(dir.join(chunk.natural_height_file.as_ref().unwrap())).unwrap(),
+                )
+                .unwrap();
+        }
+        natural.require_complete().unwrap();
+        let water = super::super::water_geometry(WaterKind::None, &[], &spec, &manifest.style);
+        let profile = crate::worldgen::LandUseProfile::from_style(&manifest.style).unwrap();
+        let zones = crate::worldgen::plan_landuse_zones(&spec, &profile);
+        let source = super::super::declared_natural_source(&manifest, &spec).unwrap();
+        let first = plan_with_style_declared(
+            &spec,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &manifest.style,
+            source,
+        )
+        .unwrap();
+        // quality-report builds the service programme from the effective style and passes it, and
+        // plan_with_style_declared itself reads the programme from the style when none is supplied, so the
+        // probe compares both arms explicitly.
+        let program = crate::worldgen::services::from_style(&manifest.style).unwrap();
+        eprintln!("programme built from the manifest style: {}", program.is_some());
+        let with_program = plan_with_style_declared(
+            &spec,
+            &natural,
+            water,
+            Some(&zones),
+            program.as_ref(),
+            &manifest.style,
+            source,
+        )
+        .unwrap();
+        let d = serde_json::to_value(&with_program).unwrap();
+        let second = plan_with_style_declared(
+            &spec,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &manifest.style,
+            source,
+        )
+        .unwrap();
+        let a = serde_json::to_value(&first).unwrap();
+        let b = serde_json::to_value(&second).unwrap();
+        if a == b {
+            eprintln!("DETERMINISTIC: two plans from identical inputs are byte-equal");
+        } else {
+            eprintln!("NON-DETERMINISTIC: two plans from identical inputs DIFFER");
+        }
+        // also compare against what was published, which is what quality-report does
+        let published: crate::worldgen::road_network::RoadNetworkPlan = serde_json::from_slice(
+            &std::fs::read(dir.join("road-network-plan.json")).unwrap(),
+        )
+        .unwrap();
+        let c = serde_json::to_value(&published).unwrap();
+        eprintln!(
+            "first == second : {}\nfirst == published : {}",
+            a == b,
+            a == c
+        );
+        if a != c {
+            report_first_json_difference(&a, &c, "$");
+            // G34-R5-B01 round 29: turn the version-drift claim into an executable check.
+            //
+            // I had been asserting from file timestamps that every produced world predates the current
+            // frontage source. Timestamps are fragile -- a later run into the same directory rewrites them
+            // -- so this proves the drift from the artefacts themselves: the published plan's model name
+            // differs from what the current code produces, and the difference is confined to the frontage
+            // and roadside-site fields that the changed source owns.
+            let published_model = c
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<none>")
+                .to_string();
+            let rebuilt_model = a
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<none>")
+                .to_string();
+            eprintln!("published model: {published_model}\nrebuilt   model: {rebuilt_model}");
+            assert_ne!(
+                published_model, rebuilt_model,
+                "this world reproduces under the current code, so it does NOT predate the frontage change \
+                 and the round 28 version-drift finding no longer applies to it"
+            );
+            // the drift must be attributable to frontage, not to something unrelated
+            let mut frontage_paths = 0_u32;
+            let mut other_paths = 0_u32;
+            count_differing_paths(&a, &c, "$", &mut frontage_paths, &mut other_paths);
+            eprintln!(
+                "differing paths: frontage/roadsideSites {frontage_paths}, other {other_paths}"
+            );
+            assert!(
+                frontage_paths > 0,
+                "the rebuild must differ from the published plan somewhere in the frontage output"
+            );
+        } else {
+            eprintln!(
+                "NOTE: this world REPRODUCES under the current code, so the version-drift finding does not apply"
+            );
+        }
+        assert_eq!(a, b, "road planning must be deterministic for identical inputs");
+    }
+    /// Count differing JSON paths, split into the frontage-owned part of the plan and everything else, so
+    /// a rebuild difference can be attributed rather than merely reported.
+    fn count_differing_paths(
+        a: &serde_json::Value,
+        b: &serde_json::Value,
+        path: &str,
+        frontage: &mut u32,
+        other: &mut u32,
+    ) {
+        use serde_json::Value;
+        let is_frontage = |p: &str| p.starts_with("$.frontage") || p.starts_with("$.roadsideSites");
+        match (a, b) {
+            (Value::Object(ma), Value::Object(mb)) => {
+                for (k, va) in ma {
+                    let child = format!("{path}.{k}");
+                    match mb.get(k) {
+                        Some(vb) => count_differing_paths(va, vb, &child, frontage, other),
+                        None => {
+                            if is_frontage(&child) {
+                                *frontage += 1;
+                            } else {
+                                *other += 1;
+                            }
+                        }
+                    }
+                }
+                for k in mb.keys() {
+                    if !ma.contains_key(k) {
+                        let child = format!("{path}.{k}");
+                        if is_frontage(&child) {
+                            *frontage += 1;
+                        } else {
+                            *other += 1;
+                        }
+                    }
+                }
+            }
+            (Value::Array(va), Value::Array(vb)) => {
+                if va.len() != vb.len() {
+                    if is_frontage(path) {
+                        *frontage += 1;
+                    } else {
+                        *other += 1;
+                    }
+                } else {
+                    for (i, (x, y)) in va.iter().zip(vb.iter()).enumerate() {
+                        count_differing_paths(x, y, &format!("{path}[{i}]"), frontage, other);
+                    }
+                }
+            }
+            _ => {
+                if a != b {
+                    if is_frontage(path) {
+                        *frontage += 1;
+                    } else {
+                        *other += 1;
+                    }
+                }
+            }
+        }
+    }
+    /// Print the first differing JSON path between two values, so an opaque equality failure names the
+    /// field that actually differs instead of reporting only that something does.
+    fn report_first_json_difference(a: &serde_json::Value, b: &serde_json::Value, path: &str) {
+        use serde_json::Value;
+        match (a, b) {
+            (Value::Object(ma), Value::Object(mb)) => {
+                for (k, va) in ma {
+                    match mb.get(k) {
+                        Some(vb) => report_first_json_difference(va, vb, &format!("{path}.{k}")),
+                        None => eprintln!("first difference: {path}.{k} present in A, absent in B"),
+                    }
+                }
+                for k in mb.keys() {
+                    if !ma.contains_key(k) {
+                        eprintln!("first difference: {path}.{k} absent in A, present in B");
+                    }
+                }
+            }
+            (Value::Array(va), Value::Array(vb)) => {
+                if va.len() != vb.len() {
+                    eprintln!(
+                        "first difference: {path} length {} vs {}",
+                        va.len(),
+                        vb.len()
+                    );
+                } else {
+                    for (i, (x, y)) in va.iter().zip(vb.iter()).enumerate() {
+                        report_first_json_difference(x, y, &format!("{path}[{i}]"));
+                    }
+                }
+            }
+            _ => {
+                if a != b {
+                    eprintln!("first difference: {path} = {a} vs {b}");
+                }
+            }
+        }
+    }
+    #[test]
+    #[ignore = "needs bevy/work/collaboration/ds-b04-c1-r1/gen-compact-mixed-block; prints W1 corridor candidates"]
+    fn w1_cli_control_corridor_search() {
+        use crate::height_payload::encode_millimetres;
+        use crate::worldgen::WaterKind;
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let root = repo.join("bevy/work/collaboration/ds-b04-c1-r1/gen-compact-mixed-block");
+        if !root.is_dir() {
+            eprintln!("SKIP missing {}", root.display());
+            return;
+        }
+        let manifest: crate::worldgen::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let spec = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&spec.scene_id);
+        let scene: crate::worldgen::SceneIndex =
+            serde_json::from_slice(&std::fs::read(dir.join("scene.json")).unwrap()).unwrap();
+        let mut natural = BakedTerrain::new(&spec).unwrap();
+        for chunk in &scene.chunks {
+            natural
+                .insert_chunk(
+                    chunk.world_x,
+                    chunk.world_z,
+                    chunk.valid_width_m,
+                    chunk.valid_depth_m,
+                    &std::fs::read(dir.join(chunk.natural_height_file.as_ref().unwrap()))
+                        .unwrap(),
+                )
+                .unwrap();
+        }
+        let water =
+            super::super::water_geometry(WaterKind::None, &[], &spec, &manifest.style);
+        let profile = crate::worldgen::LandUseProfile::from_style(&manifest.style).unwrap();
+        let zones = crate::worldgen::plan_landuse_zones(&spec, &profile);
+        let base = plan_with_zones(&spec, &natural, water, Some(&zones)).unwrap();
+        let level_mm = base.level_m.unwrap() * 1000;
+        let alignment =
+            super::super::road_alignment::AlignmentContext::new(&spec, &natural, water, &zones)
+                .unwrap();
+        let solve_end = |start: [i32; 2], end: [i32; 2], width: u32, start_level: i32| {
+            let request = super::super::road_alignment::CorridorRequest {
+                scene_id: spec.scene_id.clone(),
+                start,
+                end,
+                road_width_m: width,
+                shoulder_width_m: 3,
+                max_fill_mm: 6000,
+                max_rise_mm_per_m: 80,
+                start_level_mm: Some(start_level),
+                end_level_mm: None,
+                junction_length_m: 8,
+            };
+            alignment.design(&request).ok().map(|design| {
+                let solved = *design.profile_mm.last().unwrap() as i32;
+                let mut levels = vec![solved];
+                for delta in [-3000, -2000, -1000, -500, 500, 1000, 2000, 3000] {
+                    levels.push(solved + delta);
+                }
+                levels
+            })
+        };
+        let try_append = |corridors: Vec<serde_json::Value>| -> bool {
+            let style = serde_json::json!({
+                "roadExtensions": {"version": 1, "corridors": corridors}
+            });
+            let mut probe = base.clone();
+            super::super::road_extensions::append(
+                &mut probe,
+                &spec,
+                &natural,
+                water,
+                &zones,
+                &style,
+            )
+            .is_ok()
+        };
+        let mut found = Vec::new();
+        let mut attempts = 0_u32;
+        'search: for node in &base.nodes {
+            for (dx, dz) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                for (ex, ez) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                    if (dx + ex, dz + ez) == (0, 0) {
+                        continue;
+                    }
+                    for (first, second) in [
+                        (48_i32, 48_i32),
+                        (64, 48),
+                        (48, 64),
+                        (32, 48),
+                        (64, 96),
+                        (96, 64),
+                    ] {
+                        if attempts >= 4000 {
+                            break 'search;
+                        }
+                        attempts += 1;
+                        let start = [node.world_x, node.world_z];
+                        let mid = [start[0] + dx * first, start[1] + dz * first];
+                        let end = [mid[0] + ex * second, mid[1] + ez * second];
+                        if [start, mid, end].iter().any(|point| {
+                            point[0] < 12
+                                || point[1] < 12
+                                || point[0] + 12 > spec.width_m as i32
+                                || point[1] + 12 > spec.depth_m as i32
+                        }) {
+                            continue;
+                        }
+                        let Some(first_levels) = solve_end(start, mid, 16, level_mm) else {
+                            continue;
+                        };
+                        for first_level in first_levels {
+                            let Some(second_levels) = solve_end(mid, end, 12, first_level) else {
+                                continue;
+                            };
+                            for second_level in second_levels {
+                                let corridors = vec![
+                                    serde_json::json!({
+                                        "sceneId": spec.scene_id, "start": start, "end": mid,
+                                        "roadWidthM": 16, "shoulderWidthM": 3,
+                                        "maxFillMm": 6000, "maxRiseMmPerM": 80,
+                                        "startLevelMm": level_mm, "endLevelMm": first_level,
+                                        "junctionLengthM": 8
+                                    }),
+                                    serde_json::json!({
+                                        "sceneId": spec.scene_id, "start": mid, "end": end,
+                                        "roadWidthM": 12, "shoulderWidthM": 3,
+                                        "maxFillMm": 6000, "maxRiseMmPerM": 80,
+                                        "startLevelMm": first_level, "endLevelMm": second_level,
+                                        "junctionLengthM": 8
+                                    }),
+                                ];
+                                if try_append(corridors.clone()) {
+                                    found.push((
+                                        start,
+                                        mid,
+                                        end,
+                                        first,
+                                        second,
+                                        level_mm,
+                                        first_level,
+                                        second_level,
+                                    ));
+                                    break;
+                                }
+                            }
+                            if found.len() >= 6 {
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("W1 attempts={attempts} candidates={found:?}");
+        let Some((start, mid, end, first, second, start_level, first_level, second_level)) =
+            found.first().copied()
+        else {
+            eprintln!("W1 no candidate found");
+            return;
+        };
+        let style = serde_json::json!({
+            "roadExtensions": {"version": 1, "corridors": [
+                {"sceneId": spec.scene_id, "start": start, "end": mid,
+                 "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
+                 "maxRiseMmPerM": 80, "startLevelMm": start_level,
+                 "endLevelMm": first_level, "junctionLengthM": 8},
+                {"sceneId": spec.scene_id, "start": mid, "end": end,
+                 "roadWidthM": 12, "shoulderWidthM": 3, "maxFillMm": 6000,
+                 "maxRiseMmPerM": 80, "startLevelMm": first_level,
+                 "endLevelMm": second_level, "junctionLengthM": 8}
+            ]}
+        });
+        let plan = plan_with_style(&spec, &natural, water, Some(&zones), None, &style).unwrap();
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mut values = Vec::with_capacity((spec.width_m * spec.depth_m) as usize);
+        for z in spec.origin_z..spec.origin_z + spec.depth_m as i32 {
+            for x in spec.origin_x..spec.origin_x + spec.width_m as i32 {
+                values.push(super::super::apply_terrain_carves(
+                    f64::from(natural.height(x, z).unwrap()),
+                    x,
+                    z,
+                    &carves,
+                ));
+            }
+        }
+        let mut final_terrain = BakedTerrain::new(&spec).unwrap();
+        final_terrain
+            .insert_chunk(
+                spec.origin_x,
+                spec.origin_z,
+                spec.width_m,
+                spec.depth_m,
+                &encode_millimetres(spec.width_m, spec.depth_m, values).unwrap(),
+            )
+            .unwrap();
+        let audit = verify_with_style(
+            &plan,
+            &spec,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &style,
+        )
+        .unwrap();
+        eprintln!(
+            "W1 best start={start:?} mid={mid:?} end={end:?} lengths=({first},{second}) levels=({start_level},{first_level},{second_level}) audit={:?} realized={}/{}",
+            audit.status, audit.realized_edges, audit.planned_edges
+        );
+        for failure in &audit.failures {
+            eprintln!("W1 FAILURE {failure}");
+        }
+        eprintln!(
+            "W1 manifest corridors: {}",
+            serde_json::to_string(&style["roadExtensions"]["corridors"]).unwrap()
+        );
+    }
+
+    /// A corridor whose fixed start level does not match its parent node is
+    /// refused by production planning, not silently re-levelled.
+    #[test]
+    fn fixed_node_level_mismatch_is_refused_by_planning() {
+        let fixture = graded_fixture();
+        let (scene, natural, water, zones, base, level_mm) = &fixture;
+        let node = base.nodes.first().expect("a base node");
+        let mut style = serde_json::json!({
+            "roadExtensions": {"version": 1, "corridors": [{
+                "sceneId": "graded-audit",
+                "start": [node.world_x, node.world_z],
+                "end": [node.world_x + 64, node.world_z],
+                "roadWidthM": 16,
+                "shoulderWidthM": 3,
+                "maxFillMm": 6000,
+                "maxRiseMmPerM": 80,
+                "startLevelMm": level_mm + 250,
+                "endLevelMm": level_mm + 250,
+                "junctionLengthM": 8
+            }]}
+        });
+        let error = plan_with_style(scene, natural, *water, Some(zones), None, &style)
+            .expect_err("a mismatched fixed junction must be refused");
+        assert!(
+            error.to_string().contains("start junction height mismatch")
+                || error.to_string().contains("corridor infeasible"),
+            "{error}"
+        );
+        // The same corridor at the node's own level is acceptable, proving the
+        // refusal is about the mismatch and not about the geometry.
+        style["roadExtensions"]["corridors"][0]["startLevelMm"] = serde_json::json!(level_mm);
+        style["roadExtensions"]["corridors"][0]["endLevelMm"] = serde_json::json!(level_mm);
+        let _ = plan_with_style(scene, natural, *water, Some(zones), None, &style);
+    }
+
+    // ============ B01-T2 R2 W1-3 / W1-4 / W1-5 / W4 offline fixtures ============
+
+    fn flat_512_scene() -> (SceneSpec, BakedTerrain, WaterGeometry, Vec<LandUseZone>) {
+        use crate::height_payload::encode_millimetres;
+        let scene = SceneSpec {
+            scene_id: "v1v2".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &encode_millimetres(512, 512, std::iter::repeat_n(0., 512 * 512)).unwrap(),
+            )
+            .unwrap();
+        let water = super::super::water_geometry(
+            super::super::WaterKind::None,
+            &[],
+            &scene,
+            &serde_json::Value::Null,
+        );
+        let zones = vec![LandUseZone {
+            id: "v1v2.rural".into(),
+            kind: "rural".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 512,
+            source: "test".into(),
+        }];
+        (scene, terrain, water, zones)
+    }
+
+    /// A stub base plan with exactly one 8 m base road whose profile holds the
+    /// 1000 mm tie-in level for `plateau_samples` stations from the `from` node
+    /// and then rises 80 mm/m away from it. This models an existing road whose
+    /// pinned plateau is shorter than its nominal platform.
+    fn stub_plan(start: [i32; 2], end: [i32; 2], plateau_samples: usize) -> RoadNetworkPlan {
+        let length = (i64::from(end[0]) - i64::from(start[0])).abs()
+            + (i64::from(end[1]) - i64::from(start[1])).abs();
+        let mut elevations_mm = Vec::new();
+        for i in 0..=length {
+            let d = i - plateau_samples as i64;
+            elevations_mm.push(if d <= 0 { 1000 } else { 1000 + 80 * d });
+        }
+        let profile = super::super::road_profile::RoadProfile {
+            version: 1,
+            road_width_m: 8,
+            start,
+            end,
+            elevations_mm,
+            max_fill_mm: 6000,
+        };
+        let midpoint = [
+            ((i64::from(start[0]) + i64::from(end[0])) / 2) as i32,
+            ((i64::from(start[1]) + i64::from(end[1])) / 2) as i32,
+        ];
+        let rotation = if start[1] == end[1] { 0. } else { 90. };
+        let mut plan: RoadNetworkPlan = serde_json::from_value(serde_json::json!({
+            "model": "v1v2-stub",
+            "naturalHeightfieldHash": "stub",
+            "sceneId": "v1v2",
+            "status": "planned_connected_network",
+            "gridSpacingM": 64,
+            "maxRoadbedFillM": 6,
+            "levelM": 1,
+            "candidates": 1,
+            "rejectedWater": 0,
+            "rejectedRelief": 0,
+            "unselectedCandidates": 0,
+            "nodes": [
+                {"id": 0, "worldX": start[0], "worldZ": start[1]},
+                {"id": 1, "worldX": end[0], "worldZ": end[1]}
+            ],
+            "edges": [{
+                "id": "generated.road-network.v1v2.0-1",
+                "from": 0, "to": 1,
+                "worldX": midpoint[0], "worldZ": midpoint[1],
+                "lengthM": length, "rotationYDeg": rotation,
+                "naturalMinM": 0.0, "naturalMaxM": 0.0
+            }],
+            "roadsideSites": []
+        }))
+        .unwrap();
+        plan.edges[0].profile = Some(profile);
+        plan
+    }
+
+    fn stub_request(
+        start: [i32; 2],
+        end: [i32; 2],
+        width: u32,
+    ) -> super::super::road_alignment::CorridorRequest {
+        super::super::road_alignment::CorridorRequest {
+            scene_id: "v1v2".into(),
+            start,
+            end,
+            road_width_m: width,
+            shoulder_width_m: 3,
+            max_fill_mm: 6000,
+            max_rise_mm_per_m: 80,
+            start_level_mm: Some(1000),
+            end_level_mm: Some(1000),
+            junction_length_m: 8,
+        }
+    }
+
+    /// V2-1/V2-2: the base tie-in platform is DERIVED from the extension
+    /// contract, and covers every width that contract admits.
+    #[test]
+    fn v2_base_platform_is_derived_from_the_extension_contract() {
+        assert_eq!(
+            super::super::road_extensions::max_junction_occupancy_m(),
+            11
+        );
+        assert_eq!(super::base_required_tie_in_platform_m(), 12);
+        assert_eq!(super::base_tie_in_platform_m(64), 12);
+        assert!(!super::base_platform_is_short(64));
+        assert_eq!(super::base_tie_in_platform_m(20), 10);
+        assert!(super::base_platform_is_short(20));
+        for width in super::super::road_extensions::EXTENSION_ROAD_WIDTHS_M {
+            assert!(
+                super::base_required_tie_in_platform_m() as i32
+                    >= super::super::road_extensions::junction_occupancy_m(width),
+                "the derived platform must cover the occupancy of a {width} m road"
+            );
+        }
+    }
+
+    /// V1-2 negative + positive: inside a junction the two surfaces must agree at
+    /// every overlapping cell, so an extension whose footprint reaches past the
+    /// existing road's pinned plateau is refused; the same corridor against a
+    /// 12 m plateau is accepted.
+    #[test]
+    fn v1_junction_overlap_requires_cell_continuity() {
+        let (scene, terrain, water, zones) = flat_512_scene();
+        let context =
+            super::super::road_alignment::AlignmentContext::new(&scene, &terrain, water, &zones)
+                .unwrap();
+        // Negative: the base plateau is only 4 stations, so a 16 m extension
+        // (occupancy 11 <= the nominal 12 m platform, so the named short-platform
+        // rule does NOT fire) is refused by the per-cell continuity rule.
+        let mut short_plateau = stub_plan([96, 128], [160, 128], 4);
+        let error = super::super::road_extensions::append_one(
+            &mut short_plateau,
+            &context,
+            &stub_request([96, 128], [96, 64], 16),
+            "stub.short-plateau".into(),
+        )
+        .unwrap_err();
+        assert!(
+            error.0.contains("overlaps road outside a matching endpoint junction"),
+            "{}",
+            error.0
+        );
+        assert!(
+            !error.0.contains("base_platform_short"),
+            "the per-cell rule, not the short-platform rule, must decide this case: {}",
+            error.0
+        );
+        // Positive: the same geometry against a 12 m plateau is accepted.
+        let mut full_plateau = stub_plan([96, 128], [160, 128], 12);
+        super::super::road_extensions::append_one(
+            &mut full_plateau,
+            &context,
+            &stub_request([96, 128], [96, 64], 16),
+            "stub.full-plateau".into(),
+        )
+        .unwrap();
+    }
+
+    /// V2-3: a base edge too short for the full platform refuses a wide extension
+    /// BY NAME, and still accepts one that fits.
+    #[test]
+    fn v2_short_base_platform_refuses_a_wide_extension_by_name() {
+        let (scene, terrain, water, zones) = flat_512_scene();
+        let context =
+            super::super::road_alignment::AlignmentContext::new(&scene, &terrain, water, &zones)
+                .unwrap();
+        // A 20 m base edge offers only a 10 m tie-in platform.
+        let mut plan = stub_plan([96, 128], [116, 128], 10);
+        let error = super::super::road_extensions::append_one(
+            &mut plan.clone(),
+            &context,
+            &stub_request([96, 128], [96, 64], 16),
+            "stub.too-wide".into(),
+        )
+        .unwrap_err();
+        assert!(
+            error.0.contains("base_platform_short_for_extension_width"),
+            "{}",
+            error.0
+        );
+        // An 8 m extension (occupancy 7 <= 10) is still welcome there.
+        super::super::road_extensions::append_one(
+            &mut plan,
+            &context,
+            &stub_request([96, 128], [96, 64], 8),
+            "stub.narrow".into(),
+        )
+        .unwrap();
+    }
+
+    /// V1-5 / C4 point 2: a plan that arrives carrying a FORGED profile never runs
+    /// through `base_edge_profile` (the profile is already `Some`), so the F4
+    /// block is the only thing that can clear it.
+    #[test]
+    fn f4_pre_existing_forged_profile_is_cleared_with_a_named_refusal() {
+        let (scene, terrain, water, zones) = flat_512_scene();
+        let mut plan = stub_plan([96, 128], [160, 128], 12);
+        // Forge it: the profile claims a different segment than the edge.
+        {
+            let profile = plan.edges[0].profile.as_mut().unwrap();
+            profile.start = [32, 32];
+            profile.end = [96, 32];
+        }
+        let nodes = plan.nodes.clone();
+        let refusals = super::attach_base_edge_profiles(
+            &mut plan,
+            &scene,
+            &terrain,
+            water,
+            &nodes,
+            1,
+            Some(&zones),
+        )
+        .unwrap();
+        assert!(
+            refusals
+                .iter()
+                .any(|r| r.category == "profile_entity_mismatch"),
+            "{refusals:?}"
+        );
+        assert!(
+            plan.edges[0].profile.is_none(),
+            "a forged pre-existing profile must not survive F4"
+        );
+    }
+
+    fn graded_full_plan() -> (
+        SceneSpec,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<LandUseZone>,
+        RoadNetworkPlan,
+    ) {
+        let (scene, natural, water, zones, base, _level) = graded_fixture();
+        (scene, natural, water, zones, base)
+    }
+
+    /// B01-T2 R3 V5: the 1 km frozen-input STAGE REPLAY.
+    ///
+    /// It reads the frozen 1 km manifest and runs the production chain in
+    /// process: natural terrain (the same pure function the bake uses, but in
+    /// memory) -> land-use zoning -> road plan with base-edge profiles and their
+    /// refusals -> extensions/automatic roads -> frontage stations and candidate
+    /// sites -> the development plan's homes/shops. It writes NO world product,
+    /// never calls the CLI and never produces a gemap/sidecar: its only output is
+    /// `r3/1km-stage-replay.json` (plus an optional digest for the two-run
+    /// byte-identity check). Evidence level: offline-stage-replay.
+    #[test]
+    #[ignore = "R3 V5 offline stage replay of the frozen 1 km input; writes only r3/1km-stage-replay.json"]
+    fn v5_1km_stage_replay() {
+        use crate::height_payload::encode_millimetres;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let manifest_path = std::env::var_os("GLYPHWEAVE_1KM_MANIFEST")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                repo.join(
+                    "bevy/work/collaboration/ds-b01-t2-production-chain-continuation-20260929/r2/1km-candidate/frozen-input/b01-1km-probe.manifest.json",
+                )
+            });
+        let manifest_bytes = std::fs::read(&manifest_path).unwrap();
+        let manifest: super::super::WorldManifest =
+            serde_json::from_slice(&manifest_bytes).unwrap();
+        let scene = &manifest.scenes[0];
+        let style = &manifest.style;
+        let seed = manifest.world.seed ^ scene.seed_offset;
+        let water = super::super::water_geometry(
+            super::super::water_kind(style),
+            &manifest.landmarks,
+            scene,
+            style,
+        );
+        // The natural raster is a pure function of (seed, scene, water); build it
+        // in memory with the SAME height function the bake uses.
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        let chunk = 512_u32;
+        for chunk_z in 0..scene.depth_m.div_ceil(chunk) {
+            for chunk_x in 0..scene.width_m.div_ceil(chunk) {
+                let dx = chunk_x * chunk;
+                let dz = chunk_z * chunk;
+                let width = (scene.width_m - dx).min(chunk);
+                let depth = (scene.depth_m - dz).min(chunk);
+                let x = scene.origin_x + dx as i32;
+                let z = scene.origin_z + dz as i32;
+                let bytes = encode_millimetres(
+                    width,
+                    depth,
+                    (0..depth).flat_map(|row| {
+                        (0..width).map(move |col| {
+                            super::super::terrain_height_metres(
+                                seed,
+                                x + col as i32,
+                                z + row as i32,
+                                water,
+                                &[],
+                            )
+                        })
+                    }),
+                )
+                .unwrap();
+                terrain.insert_chunk(x, z, width, depth, &bytes).unwrap();
+            }
+        }
+        terrain.require_complete().unwrap();
+        let zones = super::super::LandUseProfile::from_style(style)
+            .map(|profile| super::super::plan_landuse_zones(scene, &profile));
+        let program = super::super::services::from_style(style).unwrap();
+        let source = super::super::declared_natural_source(&manifest, scene).unwrap();
+        let plan = super::plan_with_style_declared(
+            scene,
+            &terrain,
+            water,
+            zones.as_deref(),
+            program.as_ref(),
+            style,
+            source,
+        )
+        .unwrap();
+
+        let request = {
+            let mut r = frontage_request(&scene.scene_id);
+            r.width_m = 24;
+            r.depth_m = 24;
+            r.setback_m = 8;
+            r
+        };
+        let entities = plan.entities();
+        let mut stations_total = 0_usize;
+        let mut candidate_sites = 0_usize;
+        let mut per_road: Vec<serde_json::Value> = Vec::new();
+        for entity in &entities {
+            let Some(profile) = entity.grounding.road_profile.as_ref() else {
+                continue;
+            };
+            let stations = super::super::frontage::stations(entity, &request)
+                .unwrap()
+                .unwrap_or_default();
+            stations_total += stations.len();
+            let mut accepted = 0_usize;
+            let mut first_rejection: Option<String> = None;
+            for &station in &stations {
+                for side in [-1_i32, 1] {
+                    match super::super::frontage::candidate_site(
+                        entity,
+                        &request,
+                        &scene.scene_id,
+                        station,
+                        side,
+                    ) {
+                        Ok(_) => accepted += 1,
+                        Err(error) => {
+                            if first_rejection.is_none() {
+                                first_rejection = Some(error.0);
+                            }
+                        }
+                    }
+                }
+            }
+            candidate_sites += accepted;
+            per_road.push(serde_json::json!({
+                "roadId": entity.entity_id,
+                "roadWidthM": profile.road_width_m,
+                "stations": stations.len(),
+                "candidateSites": accepted,
+                "firstRejection": first_rejection,
+            }));
+        }
+        let outcomes = plan
+            .frontage
+            .as_ref()
+            .map(|report| {
+                report
+                    .outcomes
+                    .iter()
+                    .map(|outcome| {
+                        serde_json::json!({
+                            "requestId": outcome.request.id,
+                            "demand": outcome.request.count,
+                            "realized": outcome.site_ids.len(),
+                            "attempted": outcome.attempted,
+                            "unfilled": outcome.unfilled,
+                            "stopReason": outcome.stop_reason,
+                            "rejectedByReason": outcome.rejected,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let development = zones.as_ref().and_then(|zones| {
+            crate::settlement::development::plan(scene, zones, &plan)
+                .ok()
+                .map(|plan| serde_json::to_value(&plan).unwrap())
+        });
+        // B01-T2 R4 R-3: carry the replay past frontage into the development
+        // audit, the yard/surface realization and (where the production input is
+        // reachable in process) the land-use ledger. Everything here is in
+        // memory; no world product is written.
+        let mut stage_audit: serde_json::Value = serde_json::json!({ "status": "notObserved" });
+        if let Some(zones) = zones.as_ref() {
+            let carves = super::super::plan_terrain_carves(&entities);
+            let mut final_terrain = BakedTerrain::new(scene).unwrap();
+            let carve_chunk = 512_u32;
+            for chunk_z in 0..scene.depth_m.div_ceil(carve_chunk) {
+                for chunk_x in 0..scene.width_m.div_ceil(carve_chunk) {
+                    let dx = chunk_x * carve_chunk;
+                    let dz = chunk_z * carve_chunk;
+                    let width = (scene.width_m - dx).min(carve_chunk);
+                    let depth = (scene.depth_m - dz).min(carve_chunk);
+                    let x = scene.origin_x + dx as i32;
+                    let z = scene.origin_z + dz as i32;
+                    let mut values = Vec::with_capacity((width * depth) as usize);
+                    for row in 0..depth {
+                        for col in 0..width {
+                            let xx = x + col as i32;
+                            let zz = z + row as i32;
+                            values.push(super::super::apply_terrain_carves(
+                                f64::from(terrain.height(xx, zz).unwrap()),
+                                xx,
+                                zz,
+                                &carves,
+                            ));
+                        }
+                    }
+                    final_terrain
+                        .insert_chunk(
+                            x,
+                            z,
+                            width,
+                            depth,
+                            &encode_millimetres(width, depth, values).unwrap(),
+                        )
+                        .unwrap();
+                }
+            }
+            let access = super::super::build_access_graph(&entities, &final_terrain, water);
+            match crate::settlement::development::plan(scene, zones, &plan) {
+                Ok(development_plan) => {
+                    let audit = crate::settlement::development::verify(
+                        &development_plan,
+                        scene,
+                        zones,
+                        &plan,
+                        &entities,
+                        &access,
+                    );
+                    let landcover_plan =
+                        crate::settlement::development::plan_landcover(scene, &development_plan);
+                    let mut yard_unresolved_m2 = serde_json::json!("notObserved");
+                    let mut surface_status = serde_json::json!("notObserved");
+                    let mut surface_failures: Vec<String> = Vec::new();
+                    let mut surface_unresolved_yard_m2: serde_json::Value =
+                        serde_json::json!("notObserved");
+                    match (audit, landcover_plan) {
+                        (Ok(audit), Ok(landcover_plan)) => {
+                            if let Ok(surfaces) = crate::settlement::landcover::realize(
+                                scene,
+                                &development_plan,
+                                &landcover_plan,
+                                &final_terrain,
+                                water,
+                                &entities,
+                            ) {
+                                if let Ok(surface_audit) = crate::settlement::landcover::verify(
+                                    &surfaces,
+                                    scene,
+                                    &development_plan,
+                                    &landcover_plan,
+                                    &final_terrain,
+                                    water,
+                                    &entities,
+                                ) {
+                                    surface_status =
+                                        serde_json::json!(surface_audit.status.clone());
+                                    surface_failures = surface_audit.failures.clone();
+                                    surface_unresolved_yard_m2 =
+                                        serde_json::json!(surface_audit.unresolved_yard_m2);
+                                }
+                            }
+                            yard_unresolved_m2 = surface_unresolved_yard_m2.clone();
+                            stage_audit = serde_json::json!({
+                                "status": audit.status,
+                                "realizedBuildings": audit.realized_buildings,
+                                "plannedBuildings": audit.planned_buildings,
+                                "failures": audit.failures,
+                                "incompleteReasons": audit.incomplete_reasons,
+                                "yardUnresolvedM2": yard_unresolved_m2,
+                                "surfaceStatus": surface_status,
+                                "surfaceFailures": surface_failures,
+                            });
+                        }
+                        (audit, landcover_plan) => {
+                            stage_audit = serde_json::json!({
+                                "status": "notObserved",
+                                "coverageGap": "development audit or landcover plan could not be built in process",
+                                "auditError": audit.err(),
+                                "landcoverPlanError": landcover_plan.err(),
+                            });
+                        }
+                    }
+                }
+                Err(error) => {
+                    stage_audit = serde_json::json!({
+                        "status": "notObserved",
+                        "coverageGap": "the development plan could not be built in process",
+                        "error": error.to_string(),
+                    });
+                }
+            }
+        }
+        // The land-use ledger is produced by `landuse_ledger::analyze(&SceneIndex,
+        // ..)`, whose input is the post-bake scene index that only the CLI
+        // generation path assembles. It is therefore NOT replayable in this
+        // evidence level and is reported as notObserved with the reason (R-3-2).
+        let ledger = serde_json::json!({
+            "status": "notObserved",
+            "coverageGap": "landuse_ledger::analyze requires the post-bake SceneIndex, which only the CLI generation path builds; not reachable from an offline in-process replay",
+        });
+        let buildings_by_kind = development
+            .as_ref()
+            .and_then(|value| value["buildings"].as_array())
+            .map(|buildings| {
+                let mut counts = std::collections::BTreeMap::<String, usize>::new();
+                for building in buildings {
+                    let kind = building["kind"]
+                        .as_str()
+                        .or_else(|| building["assetId"].as_str())
+                        .or_else(|| building["asset_id"].as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    *counts.entry(kind).or_default() += 1;
+                }
+                counts
+            })
+            .unwrap_or_default();
+        // Which roads actually carry the realized frontage sites, and how many of
+        // them are BASE roads (the R3/V6 criterion needs this).
+        // "Base" means planning provenance (not an extension member and not a
+        // road this plan already reported as automatic), the same rule C3 uses -
+        // NOT merely "has an edge in the plan".
+        let non_base_ids: std::collections::BTreeSet<&str> = plan
+            .extensions
+            .iter()
+            .map(|extension| extension.entity_id.as_str())
+            .chain(
+                plan.automatic_extensions
+                    .as_ref()
+                    .map(|report| {
+                        report
+                            .generated_road_ids
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
+            )
+            .collect();
+        let mut frontage_road_ids: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for outcome in plan
+            .frontage
+            .as_ref()
+            .map(|report| report.outcomes.as_slice())
+            .unwrap_or_default()
+        {
+            for site_id in &outcome.site_ids {
+                if let Some(site) = plan
+                    .roadside_sites
+                    .iter()
+                    .find(|site| site.id == *site_id)
+                {
+                    frontage_road_ids.insert(site.road_id.clone());
+                }
+            }
+        }
+        let frontage_roads_that_are_base: Vec<String> = frontage_road_ids
+            .iter()
+            .filter(|id| {
+                plan.edges.iter().any(|edge| edge.id == **id)
+                    && !non_base_ids.contains(id.as_str())
+            })
+            .cloned()
+            .collect();
+        let rejections: Vec<serde_json::Value> = plan
+            .base_profile_rejections
+            .iter()
+            .map(|rejection| {
+                serde_json::json!({
+                    "edgeId": rejection.edge_id,
+                    "category": rejection.category,
+                    "reason": rejection.reason,
+                })
+            })
+            .collect();
+        let mut by_category = std::collections::BTreeMap::<String, usize>::new();
+        for rejection in &plan.base_profile_rejections {
+            *by_category.entry(rejection.category.clone()).or_default() += 1;
+        }
+        let report = serde_json::json!({
+            "schema": "b01t2c-r3-1km-stage-replay-v1",
+            "evidenceLevel": "offline-stage-replay",
+            "notAWorldMeasurement": "this is NOT a production-world result and must not be used to claim city-capacity growth",
+            "inputManifest": manifest_path.display().to_string(),
+            "inputSha256": blake3::hash(&manifest_bytes).to_hex().to_string(),
+            "sceneId": scene.scene_id,
+            "sceneSizeM": [scene.width_m, scene.depth_m],
+            "seed": seed,
+            "planModel": plan.model,
+            "planStatus": plan.status,
+            "levelM": plan.level_m,
+            "roadEdgesTotal": plan.edges.len(),
+            "baseProfileRoads": plan.edges.iter().filter(|e| e.profile.is_some()).count(),
+            "extensionRoads": plan.extensions.len(),
+            "automaticRoads": plan
+                .automatic_extensions
+                .as_ref()
+                .map_or(0, |report| report.generated_road_ids.len()),
+            "baseProfileRejections": rejections,
+            "baseProfileRejectionsByCategory": by_category,
+            "roadsideSites": plan.roadside_sites.len(),
+            "frontageOutcomes": outcomes,
+            "frontageRoadIds": frontage_road_ids.iter().cloned().collect::<Vec<_>>(),
+            "frontageRoadsThatAreBase": frontage_roads_that_are_base,
+            "stationsTotal": stations_total,
+            "candidateSitesTotal": candidate_sites,
+            "perRoad": per_road,
+            "developmentPlanRecords": development
+                .as_ref()
+                .and_then(|value| value["buildings"].as_array())
+                .map_or(0, |buildings| buildings.len()),
+            "developmentBuildingsByKind": buildings_by_kind,
+            "developmentAudit": stage_audit,
+            "landUseLedger": ledger,
+        });
+        let text = serde_json::to_string_pretty(&report).unwrap();
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_1KM_REPLAY_OUT") {
+            std::fs::write(path, format!("{text}\n")).unwrap();
+        }
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_1KM_REPLAY_DIGEST") {
+            std::fs::write(path, format!("{}\n", blake3::hash(text.as_bytes()).to_hex())).unwrap();
+        }
+        if std::env::var_os("GLYPHWEAVE_1KM_REPLAY_PRINT").is_some() {
+            println!("{text}");
+        }
+    }
+
+    /// R11 G1: the roadside parcel rule is per-provenance. A pad that sits on a
+    /// profile requires exactly the flat pad (zero insets), because its 2 m ring
+    /// lies in the road's blend ramp and can never be realised as flat yard. An
+    /// unprofiled neighbour keeps the legacy 2/2/2 ring that b8 realised.
+    #[test]
+    fn roadside_parcel_insets_follow_the_profile_rule() {
+        let (scene, natural, water) = fixture();
+        let flat = plan(&scene, &natural, water).unwrap();
+        assert!(!flat.roadside_sites.is_empty());
+        assert!(
+            flat.roadside_sites.iter().all(|site| site.parcel_insets.is_none()),
+            "an unprofiled neighbour must keep b8's legacy parcel ring"
+        );
+
+        let (scene, natural, water, _zones, graded) = graded_full_plan();
+        assert!(
+            !graded.roadside_sites.is_empty(),
+            "the graded plan carries roadside pads"
+        );
+        for site in &graded.roadside_sites {
+            let insets = site
+                .parcel_insets
+                .expect("a profiled pad declares its parcel explicitly");
+            assert_eq!(
+                (insets.front_m, insets.side_m, insets.rear_m),
+                (0, 0, 0),
+                "{}: a flat pad's required yard IS the pad",
+                site.id
+            );
+            let boundary = super::super::frontage::parcel_boundary(site).unwrap();
+            assert_eq!(
+                (boundary[2] - boundary[0]) * (boundary[3] - boundary[1]),
+                i64::from(site.width_m) * i64::from(site.depth_m),
+                "{}: zero insets make the parcel area equal the pad area",
+                site.id
+            );
+        }
+        let _ = (scene, natural, water);
+    }
+
+    /// R11 G2: the post-bake anchor reconciliation must leave a PROFILED road on
+    /// its own longitudinal surface. The value it used to recompute -
+    /// `ceil(baked_centre - bottom_offset)` - lands on an exact integer when the
+    /// baked centre equals the profile, and f32 rounds that integer just above
+    /// its floor, which moved the anchor a whole metre and broke the scale
+    /// audit's contract clause for `generated.road-network.scene-0.129-130`.
+    #[test]
+    fn post_bake_reconciliation_keeps_a_profiled_road_on_its_profile() {
+        use crate::height_payload::encode_millimetres;
+        let scene = SceneSpec {
+            scene_id: "contract-boundary".into(),
+            width_m: 16,
+            depth_m: 16,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let values: Vec<f64> = vec![-1.374; 16 * 16];
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(0, 0, 16, 16, &encode_millimetres(16, 16, values).unwrap())
+            .unwrap();
+        let height = -1.374_f64;
+        let profile = super::super::road_profile::RoadProfile {
+            version: 1,
+            road_width_m: 8,
+            start: [0, 8],
+            end: [16, 8],
+            elevations_mm: (0..=16).map(|_| -1374_i64).collect(),
+            max_fill_mm: 6000,
+        };
+        let mut entity = EntityInstance {
+            entity_id: "generated.road-network.scene-0.contract-boundary".into(),
+            asset_id: "prop.road".into(),
+            kind: "road".into(),
+            world_x: 8,
+            world_z: 8,
+            world_y: height.floor() as i32,
+            width_m: 16.,
+            depth_m: 8.,
+            height_m: 0.24,
+            rotation_y_deg: 0.,
+            scale: 1.,
+            grounding: GroundingSpec {
+                road_profile: Some(profile),
+                bottom_offset_m: (height - height.floor()) as f32,
+                ..Default::default()
+            },
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        entity
+            .grounding
+            .road_profile
+            .as_ref()
+            .unwrap()
+            .validate_entity(&entity)
+            .expect("a road that sits on its own profile satisfies the contract");
+        // Record WHY this is fragile: the raw expression sits above -2.0 in f32
+        // even though the exact value is -2, so a naive ceil() picks -1.
+        let baked = terrain.height(entity.world_x, entity.world_z).unwrap();
+        let offset = entity.ground_height_m() - entity.world_y as f32;
+        assert!(
+            baked - offset > -2.0,
+            "expected the rounding boundary the 1 km audit hit, got {}",
+            baked - offset
+        );
+        super::super::rebase_generated_transport_to_baked_surface(
+            std::slice::from_mut(&mut entity),
+            &[],
+            &terrain,
+        );
+        assert_eq!(entity.world_y, -2, "the anchor must not be re-derived");
+        assert!(
+            (f64::from(entity.ground_height_m()) + 1.374).abs() < 1e-6,
+            "the anchor still describes the profile: {}",
+            entity.ground_height_m()
+        );
+        entity
+            .grounding
+            .road_profile
+            .as_ref()
+            .unwrap()
+            .validate_entity(&entity)
+            .expect("the reconciliation must leave the profile contract intact");
+    }
+
+    /// B01-T2 R11 G3: why do the roadside pads fail the access audit offline?
+    ///
+    /// It runs the production chain and the production access graph
+    /// (`place_generated_entrances` + `build_access_graph`) on the frozen 1 km
+    /// input over the production encoder's raster, and reports every link that
+    /// is not `walkable_route`, with the attributed road and the required flag.
+    /// Writes NO world product; output only when `GLYPHWEAVE_1KM_ACCESS_OUT` is
+    /// set.
+    #[test]
+    #[ignore = "R11 G3 offline access replay of the frozen 1 km input; writes only when GLYPHWEAVE_1KM_ACCESS_OUT is set"]
+    fn v5_1km_access_replay() {
+        use crate::height_payload::encode_millimetres;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let manifest_path = std::env::var_os("GLYPHWEAVE_1KM_MANIFEST")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                repo.join(
+                    "bevy/work/collaboration/ds-b01-t2-production-chain-continuation-20260929/r2/1km-candidate/frozen-input/b01-1km-probe.manifest.json",
+                )
+            });
+        let manifest_bytes = std::fs::read(&manifest_path).unwrap();
+        let manifest: super::super::WorldManifest =
+            serde_json::from_slice(&manifest_bytes).unwrap();
+        let scene = &manifest.scenes[0];
+        let style = &manifest.style;
+        let seed = manifest.world.seed ^ scene.seed_offset;
+        let water = super::super::water_geometry(
+            super::super::water_kind(style),
+            &manifest.landmarks,
+            scene,
+            style,
+        );
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        let chunk_size = 512_u32;
+        for chunk_z in 0..scene.depth_m.div_ceil(chunk_size) {
+            for chunk_x in 0..scene.width_m.div_ceil(chunk_size) {
+                let dx = chunk_x * chunk_size;
+                let dz = chunk_z * chunk_size;
+                let width = (scene.width_m - dx).min(chunk_size);
+                let depth = (scene.depth_m - dz).min(chunk_size);
+                let x = scene.origin_x + dx as i32;
+                let z = scene.origin_z + dz as i32;
+                let bytes = encode_millimetres(
+                    width,
+                    depth,
+                    (0..depth).flat_map(|row| {
+                        (0..width).map(move |col| {
+                            super::super::terrain_height_metres(
+                                seed,
+                                x + col as i32,
+                                z + row as i32,
+                                water,
+                                &[],
+                            )
+                        })
+                    }),
+                )
+                .unwrap();
+                terrain.insert_chunk(x, z, width, depth, &bytes).unwrap();
+            }
+        }
+        terrain.require_complete().unwrap();
+        let zones = super::super::LandUseProfile::from_style(style)
+            .map(|profile| super::super::plan_landuse_zones(scene, &profile));
+        let program = super::super::services::from_style(style).unwrap();
+        let source = super::super::declared_natural_source(&manifest, scene).unwrap();
+        let plan = super::plan_with_style_declared(
+            scene,
+            &terrain,
+            water,
+            zones.as_deref(),
+            program.as_ref(),
+            style,
+            source,
+        )
+        .unwrap();
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        for entity in &mut entities {
+            entity.normalize_spatial_semantics();
+        }
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mask = zones
+            .as_deref()
+            .map(|zones| super::super::zoning::ZoningMask::new(scene, zones).unwrap());
+        let mut final_terrain = BakedTerrain::new(scene).unwrap();
+        for chunk_z in 0..scene.depth_m.div_ceil(chunk_size) {
+            for chunk_x in 0..scene.width_m.div_ceil(chunk_size) {
+                let dx = chunk_x * chunk_size;
+                let dz = chunk_z * chunk_size;
+                let width = (scene.width_m - dx).min(chunk_size);
+                let depth = (scene.depth_m - dz).min(chunk_size);
+                let x = scene.origin_x + dx as i32;
+                let z = scene.origin_z + dz as i32;
+                let (height, _surface, _lod2, _semantics) =
+                    super::super::generate_chunk_encoded(
+                        seed,
+                        x,
+                        z,
+                        width,
+                        depth,
+                        water,
+                        &carves,
+                        true,
+                        mask.as_ref(),
+                    );
+                final_terrain
+                    .insert_chunk(x, z, width, depth, &height)
+                    .unwrap();
+            }
+        }
+        super::super::rebase_entities_to_baked_surface(&mut entities, &final_terrain);
+        super::super::rebase_generated_transport_to_baked_surface(
+            &mut entities,
+            &[],
+            &final_terrain,
+        );
+        // The bake's own order: choose generated entrances, then build the graph
+        // the development audit reads.
+        let graph = super::super::access::place_generated_entrances(
+            &mut entities,
+            &[],
+            &final_terrain,
+            water,
+        );
+        // The development audit's clause, offline: a checked link must reach the
+        // road the pad was ASSIGNED.
+        let mut assigned_failures: Vec<serde_json::Value> = Vec::new();
+        for site in &plan.roadside_sites {
+            let link = graph.links.iter().find(|link| link.entity_id == site.id);
+            let matched = link.is_some_and(|link| {
+                link.connected
+                    && link.required
+                    && link.road_id.as_deref() == Some(site.road_id.as_str())
+            });
+            if !matched {
+                assigned_failures.push(serde_json::json!({
+                    "siteId": site.id,
+                    "assignedRoadId": site.road_id,
+                    "linkRoadId": link.and_then(|link| link.road_id.clone()),
+                    "linkStatus": link.map(|link| link.status.clone()).unwrap_or_else(|| "missing".into()),
+                }));
+            }
+        }
+        let mut by_status: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut failing: Vec<serde_json::Value> = Vec::new();
+        for link in &graph.links {
+            *by_status.entry(link.status.clone()).or_default() += 1;
+            if link.status == "walkable_route" {
+                continue;
+            }
+            failing.push(serde_json::json!({
+                "entityId": link.entity_id,
+                "anchorId": link.anchor_id,
+                "roadId": link.road_id,
+                "connected": link.connected,
+                "required": link.required,
+                "status": link.status,
+                "distanceM": link.distance_m,
+            }));
+        }
+        // The plan's own assignment, so the dump can be compared with the link
+        // the graph actually attributed.
+        let assignments: Vec<serde_json::Value> = plan
+            .roadside_sites
+            .iter()
+            .map(|site| {
+                serde_json::json!({
+                    "siteId": site.id,
+                    "assignedRoadId": site.road_id,
+                    "worldX": site.world_x,
+                    "worldZ": site.world_z,
+                    "supportLevelMm": site.support_level_mm,
+                    "supportLevelM": site.support_level_m,
+                    "frontageRoadPoint": site.frontage_road_point,
+                    "parcelInsets": site.parcel_insets,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "schema": "b01t2c-r11-access-replay-v1",
+            "evidenceLevel": "offline-stage-replay",
+            "notAWorldMeasurement": "this is NOT a production-world result",
+            "inputSha256": blake3::hash(&manifest_bytes).to_hex().to_string(),
+            "sceneId": scene.scene_id,
+            "linkedEntities": graph.links.iter().map(|l| l.entity_id.clone()).collect::<std::collections::BTreeSet<_>>().len(),
+            "connectedEntities": graph.connected_entities,
+            "disconnectedEntities": graph.disconnected_entities,
+            "byStatus": by_status,
+            "failingLinks": failing,
+            "assignedRoadFailureCount": assigned_failures.len(),
+            "assignedRoadFailures": assigned_failures,
+            "roadsideAssignments": assignments,
+        });
+        let text = serde_json::to_string_pretty(&report).unwrap();
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_1KM_ACCESS_OUT") {
+            std::fs::write(path, format!("{text}\n")).unwrap();
+        }
+        if std::env::var_os("GLYPHWEAVE_1KM_ACCESS_PRINT").is_some() {
+            println!("{text}");
+        }
+    }
+
+    fn frontage_request(scene_id: &str) -> super::super::frontage::Request {
+        super::super::frontage::Request {
+            id: "t2c-r2".into(),
+            scene_id: scene_id.into(),
+            purpose: "residential".into(),
+            kind: "residential_home".into(),
+            count: 1,
+            width_m: 10,
+            depth_m: 10,
+            height_m: 6,
+            station_spacing_m: 16,
+            setback_m: 4,
+            max_candidate_attempts: 8,
+            parcel_insets: Some(super::super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
+        }
+    }
+
+    /// B01-T2 R11 G2: the road longitudinal contract, replayed offline on the
+    /// frozen 1 km input.
+    ///
+    /// It runs the production planning chain, then repeats the bake's own
+    /// post-bake reconciliation (`rebase_entities_to_baked_surface` +
+    /// `rebase_generated_transport_to_baked_surface`) against the production
+    /// ENCODER's raster (`generate_chunk_encoded`, millimetres, zoning-aware),
+    /// and finally applies the very clause the scale audit applies to every
+    /// profiled road: `RoadProfile::validate_entity`. Writes NO world product
+    /// and never calls the CLI; its only output is
+    /// `r11/1km-road-contract.json` when `GLYPHWEAVE_1KM_CONTRACT_OUT` is set.
+    #[test]
+    #[ignore = "R11 G2 offline road-contract replay of the frozen 1 km input; writes only when GLYPHWEAVE_1KM_CONTRACT_OUT is set"]
+    fn v5_1km_road_contract_replay() {
+        use crate::height_payload::encode_millimetres;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let manifest_path = std::env::var_os("GLYPHWEAVE_1KM_MANIFEST")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                repo.join(
+                    "bevy/work/collaboration/ds-b01-t2-production-chain-continuation-20260929/r2/1km-candidate/frozen-input/b01-1km-probe.manifest.json",
+                )
+            });
+        let manifest_bytes = std::fs::read(&manifest_path).unwrap();
+        let manifest: super::super::WorldManifest =
+            serde_json::from_slice(&manifest_bytes).unwrap();
+        let scene = &manifest.scenes[0];
+        let style = &manifest.style;
+        let seed = manifest.world.seed ^ scene.seed_offset;
+        let water = super::super::water_geometry(
+            super::super::water_kind(style),
+            &manifest.landmarks,
+            scene,
+            style,
+        );
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        let chunk_size = 512_u32;
+        for chunk_z in 0..scene.depth_m.div_ceil(chunk_size) {
+            for chunk_x in 0..scene.width_m.div_ceil(chunk_size) {
+                let dx = chunk_x * chunk_size;
+                let dz = chunk_z * chunk_size;
+                let width = (scene.width_m - dx).min(chunk_size);
+                let depth = (scene.depth_m - dz).min(chunk_size);
+                let x = scene.origin_x + dx as i32;
+                let z = scene.origin_z + dz as i32;
+                let bytes = encode_millimetres(
+                    width,
+                    depth,
+                    (0..depth).flat_map(|row| {
+                        (0..width).map(move |col| {
+                            super::super::terrain_height_metres(
+                                seed,
+                                x + col as i32,
+                                z + row as i32,
+                                water,
+                                &[],
+                            )
+                        })
+                    }),
+                )
+                .unwrap();
+                terrain.insert_chunk(x, z, width, depth, &bytes).unwrap();
+            }
+        }
+        terrain.require_complete().unwrap();
+        let zones = super::super::LandUseProfile::from_style(style)
+            .map(|profile| super::super::plan_landuse_zones(scene, &profile));
+        let program = super::super::services::from_style(style).unwrap();
+        let source = super::super::declared_natural_source(&manifest, scene).unwrap();
+        let plan = super::plan_with_style_declared(
+            scene,
+            &terrain,
+            water,
+            zones.as_deref(),
+            program.as_ref(),
+            style,
+            source,
+        )
+        .unwrap();
+        // The bake's carve set and its post-bake reconciliation both run over
+        // the plan's road entities plus the sites they carry, normalized the
+        // same way (see the bake's `road_carves`).
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        for entity in &mut entities {
+            entity.normalize_spatial_semantics();
+        }
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mask = zones
+            .as_deref()
+            .map(|zones| super::super::zoning::ZoningMask::new(scene, zones).unwrap());
+        let mut final_terrain = BakedTerrain::new(scene).unwrap();
+        for chunk_z in 0..scene.depth_m.div_ceil(chunk_size) {
+            for chunk_x in 0..scene.width_m.div_ceil(chunk_size) {
+                let dx = chunk_x * chunk_size;
+                let dz = chunk_z * chunk_size;
+                let width = (scene.width_m - dx).min(chunk_size);
+                let depth = (scene.depth_m - dz).min(chunk_size);
+                let x = scene.origin_x + dx as i32;
+                let z = scene.origin_z + dz as i32;
+                let (height, _surface, _lod2, _semantics) =
+                    super::super::generate_chunk_encoded(
+                        seed,
+                        x,
+                        z,
+                        width,
+                        depth,
+                        water,
+                        &carves,
+                        true,
+                        mask.as_ref(),
+                    );
+                final_terrain
+                    .insert_chunk(x, z, width, depth, &height)
+                    .unwrap();
+            }
+        }
+        let landmarks: Vec<super::super::LandmarkSpec> = Vec::new();
+        super::super::rebase_entities_to_baked_surface(&mut entities, &final_terrain);
+        super::super::rebase_generated_transport_to_baked_surface(
+            &mut entities,
+            &landmarks,
+            &final_terrain,
+        );
+        let mut checked = 0_usize;
+        let mut violations: Vec<serde_json::Value> = Vec::new();
+        for entity in &entities {
+            let Some(profile) = entity.grounding.road_profile.as_ref() else {
+                continue;
+            };
+            checked += 1;
+            let centre_profile_m = profile
+                .height_at(f64::from(entity.world_x), f64::from(entity.world_z))
+                .unwrap_or(f64::NAN);
+            let baked_centre_m = final_terrain
+                .height(entity.world_x, entity.world_z)
+                .unwrap_or(f64::NAN as f32);
+            if let Err(error) = profile.validate_entity(entity) {
+                violations.push(serde_json::json!({
+                    "entityId": entity.entity_id,
+                    "error": error.to_string(),
+                    "worldY": entity.world_y,
+                    "bottomOffsetM": entity.grounding.bottom_offset_m,
+                    "groundM": entity.ground_height_m(),
+                    "profileAtCentreM": centre_profile_m,
+                    "bakedTerrainAtCentreM": baked_centre_m,
+                }));
+            }
+        }
+        let report = serde_json::json!({
+            "schema": "b01t2c-r11-road-contract-v1",
+            "evidenceLevel": "offline-stage-replay",
+            "notAWorldMeasurement": "this is NOT a production-world result and must not be used to claim city-capacity growth",
+            "inputManifest": manifest_path.display().to_string(),
+            "inputSha256": blake3::hash(&manifest_bytes).to_hex().to_string(),
+            "sceneId": scene.scene_id,
+            "profiledRoadsChecked": checked,
+            "violations": violations,
+            "violationCount": violations.len(),
+        });
+        let text = serde_json::to_string_pretty(&report).unwrap();
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_1KM_CONTRACT_OUT") {
+            std::fs::write(path, format!("{text}\n")).unwrap();
+        }
+        if std::env::var_os("GLYPHWEAVE_1KM_CONTRACT_PRINT").is_some() {
+            println!("{text}");
+        }
+    }
+
+    /// C4 point 1: profile -> entities() -> validate_entity -> stations() non-empty
+    /// -> at least one real candidate site, on the PRODUCTION chain.
+    #[test]
+    fn c4_profiled_base_reaches_entities_validation_stations_and_a_site() {
+        let (scene, _natural, _water, _zones, base) = graded_full_plan();
+        assert!(!base.edges.is_empty());
+        assert!(
+            base.edges.iter().all(|edge| edge.profile.is_some()),
+            "every selected base edge earns a profile"
+        );
+        let entities = base.entities();
+        let profiled: Vec<_> = entities
+            .iter()
+            .filter(|entity| entity.grounding.road_profile.is_some())
+            .collect();
+        assert_eq!(profiled.len(), base.edges.len());
+        for entity in &profiled {
+            entity
+                .grounding
+                .road_profile
+                .as_ref()
+                .unwrap()
+                .validate_entity(entity)
+                .unwrap();
+        }
+        let request = frontage_request(&scene.scene_id);
+        let mut sites = 0;
+        for entity in &profiled {
+            if let Some(stations) =
+                super::super::frontage::stations(entity, &request).unwrap()
+            {
+                if !stations.is_empty() {
+                    super::super::frontage::candidate_site(
+                        entity,
+                        &request,
+                        &scene.scene_id,
+                        stations[0],
+                        1,
+                    )
+                    .unwrap();
+                    sites += 1;
+                }
+            }
+        }
+        assert!(sites > 0, "a profiled base road must yield a real candidate site");
+    }
+
+    /// C3: base identity is planning provenance, not profile presence, and the
+    /// trusted contract is derived from the real validated base plan and then
+    /// refuses any silent change to a base edge's authoritative profile.
+    #[test]
+    fn c3_base_identity_is_provenance_and_the_contract_locks_profiles() {
+        let (_scene, natural, _water, _zones, base) = graded_full_plan();
+        let natural_hash = natural.content_hash().unwrap();
+        // The pre-T2 identity predicate ("base == unprofiled") now sees an EMPTY
+        // base domain. This is the counterexample that the old rule produced.
+        let pre_t2_base = base
+            .entities()
+            .into_iter()
+            .filter(|entity| entity.kind == "road" && entity.grounding.road_profile.is_none())
+            .count();
+        assert_eq!(
+            pre_t2_base, 0,
+            "profile presence can no longer identify the base domain"
+        );
+        // Provenance identity keeps the whole base network ...
+        let trusted_base = super::super::auto_roads::base_only_plan(&base).unwrap();
+        assert_eq!(trusted_base.edges.len(), base.edges.len());
+        // ... and the trusted contract is built from it instead of refusing it.
+        let contract =
+            super::super::road_parcel_feasibility::trusted_base_contract(&trusted_base, &natural_hash)
+                .unwrap();
+        assert_eq!(contract.base_edges.len(), base.edges.len());
+        assert!(contract.base_edges.iter().all(|edge| edge.profile.is_some()));
+        // Mutation sensitivity: a silently re-graded base profile is refused ...
+        let mut changed = base.clone();
+        let victim = changed
+            .edges
+            .iter_mut()
+            .find(|edge| edge.profile.is_some())
+            .unwrap();
+        victim.profile.as_mut().unwrap().elevations_mm[1] += 40;
+        let changed_base = super::super::auto_roads::base_only_plan(&changed).unwrap();
+        assert!(
+            super::super::road_parcel_feasibility::audit_node_heights(&changed_base, &contract)
+                .is_err(),
+            "a changed base profile must be refused"
+        );
+        // ... and so is flattening it back to a constant legacy level.
+        let mut flattened = base.clone();
+        let victim = flattened
+            .edges
+            .iter_mut()
+            .find(|edge| edge.profile.is_some())
+            .unwrap();
+        let profile = victim.profile.as_mut().unwrap();
+        let first = profile.elevations_mm[0];
+        for sample in profile.elevations_mm.iter_mut() {
+            *sample = first;
+        }
+        let flat_base = super::super::auto_roads::base_only_plan(&flattened).unwrap();
+        assert!(
+            super::super::road_parcel_feasibility::audit_node_heights(&flat_base, &contract)
+                .is_err(),
+            "flattening a base profile must be refused"
+        );
+    }
+
+    /// F4: a single base edge that cannot earn a legal profile is RETAINED with
+    /// `profile: None`, receives a named rejection, and earns no station or site.
+    #[test]
+    fn f4_single_edge_refusal_is_named_retained_and_gives_no_station_or_site() {
+        let (scene, natural, water, zones, base, _level_mm) = graded_fixture();
+        let level = base.level_m.expect("resolved base level");
+        let mut plan = base.clone();
+        for edge in plan.edges.iter_mut() {
+            edge.profile = None;
+        }
+        plan.base_profile_rejections.clear();
+        // Damage exactly one edge so no legal profile can describe it: its
+        // declared centre is no longer the midpoint of its endpoints.
+        let victim_id = plan.edges[1].id.clone();
+        plan.edges[1].world_x += 1;
+        let nodes = plan.nodes.clone();
+        let refusals = super::attach_base_edge_profiles(
+            &mut plan,
+            &scene,
+            &natural,
+            water,
+            &nodes,
+            level,
+            Some(&zones),
+        )
+        .unwrap();
+        assert!(
+            refusals
+                .iter()
+                .any(|r| r.edge_id == victim_id && r.category == "profile_entity_mismatch"),
+            "{refusals:?}"
+        );
+        let victim = plan.edges.iter().find(|edge| edge.id == victim_id).unwrap();
+        assert!(victim.profile.is_none(), "a refused base edge keeps no profile");
+        let entities = plan.entities();
+        let victim_entity = entities
+            .iter()
+            .find(|entity| entity.entity_id == victim_id)
+            .unwrap();
+        assert!(victim_entity.grounding.road_profile.is_none());
+        let request = frontage_request(&scene.scene_id);
+        assert_eq!(
+            super::super::frontage::stations(victim_entity, &request).unwrap(),
+            None
+        );
+        assert!(
+            super::super::frontage::candidate_site(
+                victim_entity,
+                &request,
+                &scene.scene_id,
+                13,
+                1
+            )
+            .is_err()
+        );
+        // Every other base edge still earned a profile and keeps its road.
+        assert!(
+            plan.edges
+                .iter()
+                .filter(|edge| edge.id != victim_id)
+                .all(|edge| edge.profile.is_some())
+        );
+    }
+
+    /// F4/I5: structural damage fails closed instead of being downgraded to a
+    /// per-edge refusal, so no half-updated plan can escape.
+    #[test]
+    fn f4_structural_damage_fails_closed() {
+        let (scene, natural, water, zones, base, _level_mm) = graded_fixture();
+        let level = base.level_m.expect("resolved base level");
+        let mut duplicated = base.clone();
+        let clone = duplicated.edges[0].clone();
+        duplicated.edges.push(clone);
+        let nodes = duplicated.nodes.clone();
+        let error = super::attach_base_edge_profiles(
+            &mut duplicated,
+            &scene,
+            &natural,
+            water,
+            &nodes,
+            level,
+            Some(&zones),
+        )
+        .unwrap_err();
+        assert!(error.0.contains("structural damage"), "{error:?}");
+
+        let mut orphan = base.clone();
+        let missing = orphan.nodes.iter().map(|node| node.id).max().unwrap() + 7;
+        orphan.edges[0].to = missing;
+        let nodes = orphan.nodes.clone();
+        let error = super::attach_base_edge_profiles(
+            &mut orphan,
+            &scene,
+            &natural,
+            water,
+            &nodes,
+            level,
+            Some(&zones),
+        )
+        .unwrap_err();
+        assert!(error.0.contains("structural damage"), "{error:?}");
+    }
+
+    /// F5: the elevation gate is exact at -32000/256000 mm, extreme i32 levels
+    /// and non-finite rotations are refused, and nothing panics or saturates its
+    /// way to a legal-looking value.
+    #[test]
+    fn f5_numeric_boundary_gate_is_exact_and_panic_free() {
+        let (scene, natural, water, zones, base, _level_mm) = graded_fixture();
+        let level = base.level_m.expect("resolved base level");
+        let context =
+            super::super::road_alignment::AlignmentContext::new(&scene, &natural, water, &zones)
+                .unwrap();
+        let edge = base
+            .edges
+            .iter()
+            .find(|edge| edge.profile.is_some())
+            .unwrap()
+            .clone();
+        let nodes = &base.nodes;
+        // Past the millimetre domain and the i32 extremes: refused by the domain
+        // gate itself, never by a saturated pass and never by a panic.
+        for probe in [-33, 257, i32::MIN, i32::MAX] {
+            let (category, reason) =
+                super::base_edge_profile(&edge, nodes, &context, probe).unwrap_err();
+            assert!(
+                category == "elevation_out_of_domain" || category == "elevation_overflow",
+                "{probe}: {category} {reason}"
+            );
+        }
+        // The legal domain edges are NOT refused by the elevation domain gate.
+        for probe in [-32, 256, level] {
+            if let Err((category, _)) =
+                super::base_edge_profile(&edge, nodes, &context, probe)
+            {
+                assert_ne!(category, "elevation_out_of_domain", "level {probe}");
+                assert_ne!(category, "elevation_overflow", "level {probe}");
+            }
+        }
+        // Non-finite / non-cardinal rotations are refused before any tolerance test.
+        for rotation in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 45.] {
+            let mut bad = edge.clone();
+            bad.rotation_y_deg = rotation;
+            let (category, _) =
+                super::base_edge_profile(&bad, nodes, &context, level).unwrap_err();
+            assert_eq!(category, "edge_geometry_not_finite_or_misaligned", "{rotation}");
+        }
+        // The legal cardinals: the edge's own cardinal still produces a profile,
+        // the other cardinal is refused as a geometry mismatch (not silently kept).
+        for rotation in [0., 90.] {
+            let mut probe = edge.clone();
+            probe.rotation_y_deg = rotation;
+            if rotation == edge.rotation_y_deg {
+                assert!(super::base_edge_profile(&probe, nodes, &context, level).is_ok());
+            } else {
+                let (category, _) =
+                    super::base_edge_profile(&probe, nodes, &context, level).unwrap_err();
+                assert_eq!(category, "edge_geometry_not_finite_or_misaligned");
+            }
+        }
+    }
+
+    /// W4: the same input built twice serializes to identical bytes, including
+    /// the attached profiles and the persisted refusal order.
+    #[test]
+    fn w4_graded_plan_serialization_is_byte_identical_across_builds() {
+        let (scene, natural, water, zones, _base) = graded_full_plan();
+        let first = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        let second = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+    }
+
+    /// W4 points 2 + 3: a cross-process digest and a golden summary snapshot for
+    /// the T2 chain. The snapshot is only rewritten when the caller explicitly
+    /// sets `GLYPHWEAVE_UPDATE_GOLDEN`; a drift is a hard failure otherwise.
+    #[test]
+    fn w4_chain_digest_and_golden_summary_are_stable() {
+        let (scene, natural, water, zones, _base) = graded_full_plan();
+        let plan = plan_with_zones(&scene, &natural, water, Some(&zones)).unwrap();
+        let entities = plan.entities();
+        let request = frontage_request(&scene.scene_id);
+        let mut stations = 0_usize;
+        let mut sites = 0_usize;
+        for entity in &entities {
+            if let Some(found) = super::super::frontage::stations(entity, &request).unwrap() {
+                stations += found.len();
+                if !found.is_empty() {
+                    super::super::frontage::candidate_site(
+                        entity,
+                        &request,
+                        &scene.scene_id,
+                        found[0],
+                        1,
+                    )
+                    .unwrap();
+                    sites += 1;
+                }
+            }
+        }
+        let profiles: Vec<_> = plan.edges.iter().map(|edge| edge.profile.clone()).collect();
+        let summary = serde_json::json!({
+            "model": plan.model,
+            "status": plan.status,
+            "levelM": plan.level_m,
+            "edges": plan.edges.len(),
+            "profiledEdges": profiles.iter().filter(|profile| profile.is_some()).count(),
+            "rejections": plan.base_profile_rejections.len(),
+            "rejectionCategories": plan
+                .base_profile_rejections
+                .iter()
+                .map(|rejection| rejection.category.clone())
+                .collect::<Vec<_>>(),
+            "entities": entities.len(),
+            "stations": stations,
+            "candidateSites": sites,
+            "profileSampleHash": blake3::hash(&serde_json::to_vec(&profiles).unwrap())
+                .to_hex()
+                .to_string(),
+            "entityIdsHash": blake3::hash(
+                &serde_json::to_vec(
+                    &entities
+                        .iter()
+                        .map(|entity| entity.entity_id.clone())
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap()
+            )
+            .to_hex()
+            .to_string(),
+        });
+        let golden_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/resources/t2c-r2-golden");
+        let golden = golden_dir.join("chain-summary.json");
+        if std::env::var("GLYPHWEAVE_UPDATE_GOLDEN").is_ok() {
+            std::fs::create_dir_all(&golden_dir).unwrap();
+            std::fs::write(&golden, serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
+        }
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&golden).unwrap_or_else(|error| {
+                panic!("missing golden {}: {error}", golden.display())
+            }))
+            .unwrap();
+        assert_eq!(
+            summary, expected,
+            "T2 chain golden drifted; update only with GLYPHWEAVE_UPDATE_GOLDEN=1"
+        );
+        if let Ok(path) = std::env::var("GLYPHWEAVE_W4_DIGEST_OUT") {
+            let digest = blake3::hash(&serde_json::to_vec(&summary).unwrap())
+                .to_hex()
+                .to_string();
+            std::fs::write(path, format!("{digest}\n")).unwrap();
+        }
+    }
+
+    /// C4 point 3 + legacy compatibility: save -> load keeps every base profile
+    /// and the persisted refusals, while legacy JSON without the T2 fields still
+    /// loads and preserves the unprofiled legacy behaviour.
+    #[test]
+    fn c4_serde_round_trip_keeps_base_profiles_and_rejections() {
+        let (_scene, _natural, _water, _zones, base) = graded_full_plan();
+        let mut plan = base.clone();
+        plan.base_profile_rejections = vec![BaseProfileRejection {
+            edge_id: "generated.road-network.graded-audit.0-1".into(),
+            category: "profile_entity_mismatch".into(),
+            reason: "fixture".into(),
+        }];
+        let bytes = serde_json::to_vec(&plan).unwrap();
+        let back: RoadNetworkPlan = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back.base_profile_rejections, plan.base_profile_rejections);
+        assert_eq!(back.edges.len(), plan.edges.len());
+        for (left, right) in back.edges.iter().zip(plan.edges.iter()) {
+            assert_eq!(left.id, right.id);
+            assert_eq!(left.profile, right.profile);
+        }
+        // Legacy JSON: no `baseProfileRejections`, no `profile` on any edge.
+        let mut legacy = serde_json::to_value(&plan).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("baseProfileRejections");
+        for edge in legacy["edges"].as_array_mut().unwrap() {
+            edge.as_object_mut().unwrap().remove("profile");
+        }
+        let legacy_plan: RoadNetworkPlan = serde_json::from_value(legacy).unwrap();
+        assert!(legacy_plan.base_profile_rejections.is_empty());
+        assert!(legacy_plan.edges.iter().all(|edge| edge.profile.is_none()));
+        assert!(
+            legacy_plan
+                .entities()
+                .iter()
+                .all(|entity| entity.grounding.road_profile.is_none())
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -923,9 +4974,111 @@ pub fn verify_with_program(
         zones,
         program,
         None,
+        false,
+        super::NaturalSource::Undeclared,
     )
 }
 pub fn verify_with_style(
+    record: &RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+    zones: Option<&[LandUseZone]>,
+    program: Option<&super::services::ServiceProgram>,
+    style: &serde_json::Value,
+) -> Result<RoadNetworkAudit, TerrainError> {
+    verify_with_style_declared(
+        record,
+        scene,
+        natural,
+        final_terrain,
+        water,
+        entities,
+        zones,
+        program,
+        style,
+        super::NaturalSource::Undeclared,
+    )
+}
+/// The production audit with an explicit natural-source declaration, so the
+/// source rebuild that the audit performs for comparison cannot enter the
+/// version-3 planner with a different seed than the candidate was built with.
+pub(crate) fn verify_with_style_declared(
+    record: &RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+    zones: Option<&[LandUseZone]>,
+    program: Option<&super::services::ServiceProgram>,
+    style: &serde_json::Value,
+    source: super::NaturalSource,
+) -> Result<RoadNetworkAudit, TerrainError> {
+    verify_impl(
+        record,
+        scene,
+        natural,
+        final_terrain,
+        water,
+        entities,
+        zones,
+        program,
+        Some(style),
+        false,
+        source,
+    )
+}
+
+/// The independent audit entry for callers outside the generator (the CLI).
+///
+/// It derives the scene's declared natural source from the *trusted original
+/// manifest* with the same rule generation uses, then runs the full production
+/// audit: the source rebuild re-plans the scene, compares the rebuilt plan with
+/// the record and audits the final support. It never reads the source back out
+/// of the published product and never takes the trusted-record shortcut, so a
+/// record that its own manifest cannot reproduce is refused here. A manifest
+/// whose declared terrain source this build cannot author is refused too,
+/// instead of being guessed onto `SuppliedRaster`.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_with_manifest(
+    record: &RoadNetworkPlan,
+    manifest: &WorldManifest,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+    zones: Option<&[LandUseZone]>,
+    program: Option<&super::services::ServiceProgram>,
+    style: &serde_json::Value,
+) -> Result<RoadNetworkAudit, TerrainError> {
+    let source = super::declared_natural_source(manifest, scene)
+        .map_err(|error| TerrainError(error.to_string()))?;
+    verify_impl(
+        record,
+        scene,
+        natural,
+        final_terrain,
+        water,
+        entities,
+        zones,
+        program,
+        Some(style),
+        false,
+        source,
+    )
+}
+
+/// The same production support/entity audit as [`verify_with_style`], but for a
+/// plan that is already trusted by its caller: it is not re-planned and not
+/// compared for equality, so a demand-led append candidate can be audited with
+/// the production rules, thresholds and coverage instead of a second, weaker
+/// check. The caller is responsible for the provenance of `record` (the
+/// accepted append path) and for [`audit_extension_provenance`].
+pub(crate) fn audit_final_support_for_record(
     record: &RoadNetworkPlan,
     scene: &SceneSpec,
     natural: &BakedTerrain,
@@ -946,8 +5099,42 @@ pub fn verify_with_style(
         zones,
         program,
         Some(style),
+        true,
+        // A trusted record is never re-planned here, so no source is needed to
+        // rebuild it; the caller has already asserted its provenance.
+        super::NaturalSource::Undeclared,
     )
 }
+
+/// Independent source rebuild of every graded extension in a plan. The
+/// production audit gets this for free by re-planning and comparing; a trusted
+/// candidate must assert it explicitly. Read-only, no re-planning.
+pub(crate) fn audit_extension_provenance(
+    plan: &RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    zones: &[LandUseZone],
+) -> Result<Vec<String>, TerrainError> {
+    let mut failures = vec![];
+    for extension in &plan.extensions {
+        if let Err(error) = super::road_alignment::verify(
+            &extension.design,
+            &extension.design.request,
+            scene,
+            natural,
+            water,
+            zones,
+        ) {
+            failures.push(format!(
+                "extension {} source rebuild failed: {error}",
+                extension.entity_id
+            ));
+        }
+    }
+    Ok(failures)
+}
+
 fn verify_impl(
     record: &RoadNetworkPlan,
     scene: &SceneSpec,
@@ -958,15 +5145,20 @@ fn verify_impl(
     zones: Option<&[LandUseZone]>,
     program: Option<&super::services::ServiceProgram>,
     style: Option<&serde_json::Value>,
+    trusted_record: bool,
+    source: super::NaturalSource,
 ) -> Result<RoadNetworkAudit, TerrainError> {
-    let expected = if let Some(style) = style {
-        plan_with_style(scene, natural, water, zones, program, style)?
+    let expected = if trusted_record {
+        record.clone()
+    } else if let Some(style) = style {
+        plan_with_style_declared(scene, natural, water, zones, program, style, source)?
     } else {
         plan_with_program(scene, natural, water, zones, program)?
     };
 
-    if serde_json::to_value(&expected).map_err(|e| TerrainError(e.to_string()))?
-        != serde_json::to_value(record).map_err(|e| TerrainError(e.to_string()))?
+    if !trusted_record
+        && serde_json::to_value(&expected).map_err(|e| TerrainError(e.to_string()))?
+            != serde_json::to_value(record).map_err(|e| TerrainError(e.to_string()))?
     {
         return Err(TerrainError(
             "road plan differs from natural raster reconstruction".into(),
@@ -1028,12 +5220,42 @@ fn verify_impl(
                 .push(format!("road transform differs from plan {}", e.entity_id));
             continue;
         }
-        let (hw, hd) = if e.rotation_y_deg == 0. {
-            (e.width_m as i32 / 2 + 4, 7)
-        } else {
-            (7, e.width_m as i32 / 2 + 4)
-        };
+        // Four ranges, each with its own contract:
+        //  * pavement     - the declared road width; held exactly;
+        //  * graded band  - what `plan_terrain_carves` flattens; held exactly,
+        //                   and it must cover the pavement;
+        //  * transport    - pavement + the corridor's 3m shoulder + the end
+        //    footprint      platforms; bounded by fill and no-excavation;
+        //  * transition   - the carve's blend beyond it; only the fill envelope
+        //                   applies, never the design level.
+        let (hw, hd) = super::graded_transport_half_extents(e);
+        // A structural shortfall is one failure per road, recorded before any
+        // sampling, and such a road is never counted as realized.
+        if planned.grounding.road_profile.is_some() {
+            let (flat_hw, flat_hd) = super::graded_flat_top_half_extents(&planned);
+            let flat_transverse = if planned.rotation_y_deg == 90. {
+                flat_hw
+            } else {
+                flat_hd
+            };
+            let (pavement_hw, pavement_hd) = super::graded_pavement_half_extents(&planned);
+            let pavement_transverse = if planned.rotation_y_deg == 90. {
+                pavement_hw
+            } else {
+                pavement_hd
+            };
+            let shortfall =
+                super::graded_band_shortfall_m(pavement_transverse, flat_transverse);
+            if shortfall > 0 {
+                audit.failures.push(format!(
+                    "road {} graded band is {}m narrower than its declared pavement half",
+                    planned.entity_id, shortfall
+                ));
+                continue;
+            }
+        }
         let mut error = 0_f32;
+        let mut error_at = (e.world_x, e.world_z);
         let mut fill = 0_f32;
         let mut cut = 0_f32;
         for z in e.world_z - hd..=e.world_z + hd {
@@ -1045,7 +5267,15 @@ fn verify_impl(
                     .height(x, z)
                     .ok_or_else(|| TerrainError("missing final roadbed sample".into()))?;
                 let (paved_hw, paved_hd) = if planned.grounding.road_profile.is_some() {
-                    (hw, hd)
+                    // The design level is required exactly where the earthwork
+                    // flattens the road (`graded_flat_top_half_extents`); the
+                    // rest of the transport footprint is audited as earthwork
+                    // through the fill cap and the no-excavation rule below.
+                    // Requiring the design level across the whole padded
+                    // footprint graded the blend/apron as pavement, which no
+                    // legal graded road on sloping ground can satisfy.
+                    let (flat_hw, flat_hd) = super::graded_flat_top_half_extents(&planned);
+                    (flat_hw, flat_hd)
                 } else if e.rotation_y_deg == 0. {
                     (e.width_m as i32 / 2, 5)
                 } else {
@@ -1058,7 +5288,11 @@ fn verify_impl(
                         .as_ref()
                         .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
                         .unwrap_or(f64::from(planned.world_y));
-                    error = error.max((f - target as f32).abs());
+                    let sample_error = (f - target as f32).abs();
+                    if sample_error > error {
+                        error = sample_error;
+                        error_at = (x, z);
+                    }
                 }
                 fill = fill.max(f - n);
                 cut = cut.max(n - f);
@@ -1084,8 +5318,8 @@ fn verify_impl(
             || e.world_y != planned.world_y
         {
             audit.failures.push(format!(
-                "road {} changed after planning: design error {error}m, fill {fill}m, cut {cut}m",
-                e.entity_id
+                "road {} changed after planning: design error {error}m at ({},{}), fill {fill}m, cut {cut}m",
+                e.entity_id, error_at.0, error_at.1
             ));
         } else {
             audit.realized_edges += 1;

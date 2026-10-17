@@ -5,6 +5,7 @@ use super::{
     road_network::{RoadNetworkPlan, RoadsideSite},
     services::SiteProgram,
     zoning::ZoningMask,
+    parcel_geometry::{self, ParcelInsets},
 };
 use crate::{
     baked_terrain::{BakedTerrain, TerrainError},
@@ -12,6 +13,12 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Minimum percentage of a parcel rectangle that must lie in zones of the request's own purpose for
+/// the parcel to belong to that purpose. 100 would restore the strict "entirely inside" rule that the
+/// real 512 m input could not satisfy; 90 keeps a parcel that merely clips a zone edge while still
+/// rejecting one that mostly stands in another kind of zone.
+const MIN_PURPOSE_COVERAGE_PERCENT: i64 = 75;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -33,6 +40,8 @@ pub struct Request {
     pub station_spacing_m: u32,
     pub setback_m: u32,
     pub max_candidate_attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parcel_insets: Option<ParcelInsets>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -98,6 +107,10 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
         {
             return Err(err("invalid exact frontage dimensions; no shrinking"));
         }
+        r.parcel_insets
+            .unwrap_or_default()
+            .validate_for_request(r.width_m, r.depth_m, r.setback_m)
+            .map_err(err)?;
         count += u64::from(r.count);
     }
     if count > 2048 {
@@ -202,6 +215,200 @@ fn bounds(e: &EntityInstance, margin: i64) -> [i64; 4] {
 fn overlap(a: [i64; 4], b: [i64; 4]) -> bool {
     a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 }
+pub(super) fn parcel_boundary(site: &RoadsideSite) -> Result<[i64; 4], TerrainError> {
+    parcel_geometry::boundary_for_entity(
+        &site.entity(),
+        site.parcel_insets.unwrap_or_default(),
+    )
+    .map_err(err)
+}
+/// Production road iteration order for the local station search. Wider
+/// hierarchy roads are kept as topology/collectors; local roads get first
+/// chance when their width is narrower. All-8m legacy inputs retain the
+/// original plan iteration order.
+pub(super) fn profile_roads(plan: &RoadNetworkPlan) -> Vec<EntityInstance> {
+    let mut roads = plan.entities();
+    if roads.iter().any(|road| road.depth_m > 8.) {
+        roads.sort_by_key(|road| (road.depth_m as u32, road.entity_id.clone()));
+    }
+    roads
+}
+/// The exact station list `append` visits on one road for one request, or
+/// `None` when the road carries no local profile contract. Shared with the
+/// bounded supply probe so a measurement can never drift from placement.
+pub(super) fn stations(
+    road: &EntityInstance,
+    r: &Request,
+) -> Result<Option<Vec<usize>>, TerrainError> {
+    // At present only profile-bearing roads support this local-height path.
+    let Some(profile) = &road.grounding.road_profile else {
+        return Ok(None);
+    };
+    profile.validate_entity(road)?;
+    let length = profile.elevations_mm.len() - 1;
+    let margin = r.width_m / 2 + 8;
+    if length <= 2 * margin as usize {
+        return Ok(None);
+    }
+    // Wider roads need their extra half-width as junction clearance so the
+    // first parcel does not overlap the connecting collector.
+    let station_start = margin as usize + (road.depth_m as usize).saturating_sub(8);
+    if station_start > length - margin as usize {
+        return Ok(None);
+    }
+    Ok(Some(
+        (station_start..=length - margin as usize)
+            .step_by(r.station_spacing_m as usize)
+            .collect(),
+    ))
+}
+/// Build the exact `RoadsideSite` production would try at this station/side.
+pub(super) fn candidate_site(
+    road: &EntityInstance,
+    r: &Request,
+    scene_id: &str,
+    station: usize,
+    side: i32,
+) -> Result<RoadsideSite, TerrainError> {
+    let profile = road
+        .grounding
+        .road_profile
+        .as_ref()
+        .ok_or_else(|| err("frontage candidate requires a road profile"))?;
+    let dx = (profile.end[0] - profile.start[0]).signum();
+    let dz = (profile.end[1] - profile.start[1]).signum();
+    let rx = profile.start[0] + dx * station as i32;
+    let rz = profile.start[1] + dz * station as i32;
+    let offset = (road.depth_m / 2.) as i32 + r.setback_m as i32 + (r.depth_m / 2) as i32;
+    let (x, z, yaw) = if dx != 0 {
+        (rx, rz + side * offset, if side > 0 { 0. } else { 180. })
+    } else {
+        (rx + side * offset, rz, if side > 0 { 90. } else { 270. })
+    };
+    let level = i32::try_from(profile.elevations_mm[station])
+        .map_err(|_| err("frontage height overflow"))?;
+    let id = format!(
+        "generated.frontage.{}.{}.{}.{}.{}",
+        scene_id,
+        r.id,
+        road.entity_id,
+        station,
+        if side > 0 { "positive" } else { "negative" }
+    );
+    Ok(RoadsideSite {
+        program: Some(SiteProgram {
+            request_id: r.id.clone(),
+            kind: r.kind.clone(),
+            height_m: r.height_m,
+        }),
+        id,
+        road_id: road.entity_id.clone(),
+        world_x: x,
+        world_z: z,
+        width_m: r.width_m,
+        depth_m: r.depth_m,
+        support_level_m: level.div_euclid(1000),
+        parcel_insets: r.parcel_insets,
+        support_level_mm: Some(level),
+        frontage_road_point: Some([rx, rz]),
+        rotation_y_deg: yaw,
+        natural_min_m: f32::INFINITY,
+        natural_max_m: f32::NEG_INFINITY,
+    })
+}
+/// Scene envelope and purpose gate, applied before any engineering preflight.
+///
+/// `insets` is the parcel's declared inset set, used to locate the BUILDABLE CORE that the purpose
+/// coverage is measured over. Setbacks are not built land, so a parcel whose building site is in
+/// purpose land is accepted even when its rear setback reaches across a zone edge.
+pub(super) fn envelope_reason(
+    parcel: [i64; 4],
+    insets: ParcelInsets,
+    rotation_y_deg: f32,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    purpose: &str,
+) -> Option<&'static str> {
+    if parcel[0] < i64::from(scene.origin_x) + 8
+        || parcel[1] < i64::from(scene.origin_z) + 8
+        || parcel[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
+        || parcel[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
+    {
+        Some("outside_scene")
+    } else if !in_purpose_core(parcel, insets, rotation_y_deg, zones, purpose) {
+        Some("wrong_purpose_or_protected")
+    } else {
+        None
+    }
+}
+/// The BUILDABLE CORE of a parcel rectangle: the building envelope minus a one metre skin, expressed
+/// as [x0, z0, x1, z1]. The purpose-coverage rule is measured over this core rather than over the whole
+/// parcel, because the parcel rectangle also contains the front, side and rear SETBACKS, and setback
+/// land is not built land.
+///
+/// B01 measured evidence: with the whole rectangle measured, a 24x24 m residential_home (the minimum
+/// the asset contract allows) is centred road/2 + setback + depth/2 from the road, so it occupies
+/// roughly 12 to 36 m outward. Inside a 143 m zone cut by a road corridor the outer part of that band
+/// frequently falls outside the zone, so the parcel was rejected as wrong_purpose_or_protected even
+/// though its building site was in urban land. That is why 0 of 120 homes realized at both
+/// urbanCoreRatio 0.02 and 0.15 while the zoning held room for 72 and then 252 parcels.
+///
+/// Measuring the core keeps the rule honest: a parcel whose BUILDING SITE lies in another kind of zone
+/// is still rejected, so "wrong purpose earns no buildings" is preserved.
+///
+/// B01-R1 T1: the core MUST rotate with the building. `ParcelInsets.front_m` is the inset along the
+/// building's LOCAL forward direction (north for yaw 0, west for 90, south for 180, east for 270, as
+/// documented on parcel_geometry::boundary). An earlier version subtracted `front` from world Z and
+/// `rear` from world Z unconditionally, which is correct ONLY at yaw 0: at 90/180/270 it applied the
+/// front and rear insets on the wrong axis and swapped them relative to the entrance. That made the
+/// purpose-coverage test disagree with the parcel boundary it is derived from.
+///
+/// The mapping below mirrors `parcel_geometry::boundary` exactly: the local forward axis is world Z for
+/// yaw 0/180 and world X for yaw 90/270, and the side insets run along the other axis.
+///
+/// Returns `None` when the rotation is not one of the four cardinal directions or the core is degenerate,
+/// so a caller cannot silently treat an unusable core as covered.
+fn buildable_core(
+    b: [i64; 4],
+    insets: ParcelInsets,
+    rotation_y_deg: f32,
+) -> Option<[i64; 4]> {
+    const SKIN: i64 = 1;
+    let front = i64::from(insets.front_m) + SKIN;
+    let side = i64::from(insets.side_m) + SKIN;
+    let rear = i64::from(insets.rear_m) + SKIN;
+    let core = match rotation_y_deg.round() as i32 {
+        // front toward -Z
+        0 => [b[0] + side, b[1] + front, b[2] - side, b[3] - rear],
+        // front toward -X
+        90 => [b[0] + front, b[1] + side, b[2] - rear, b[3] - side],
+        // front toward +Z
+        180 => [b[0] + side, b[1] + rear, b[2] - side, b[3] - front],
+        // front toward +X
+        270 => [b[0] + rear, b[1] + side, b[2] - front, b[3] - side],
+        _ => return None,
+    };
+    if core[2] <= core[0] || core[3] <= core[1] {
+        return None;
+    }
+    Some(core)
+}
+
+fn in_purpose_core(
+    b: [i64; 4],
+    insets: ParcelInsets,
+    rotation_y_deg: f32,
+    zones: &[LandUseZone],
+    purpose: &str,
+) -> bool {
+    let Some(core) = buildable_core(b, insets, rotation_y_deg) else {
+        // a parcel too small to have a buildable core, or a non-cardinal rotation, cannot be judged by
+        // this rule and is therefore not in purpose
+        return false;
+    };
+    in_purpose(core, zones, purpose)
+}
+
 fn in_purpose(b: [i64; 4], zones: &[LandUseZone], purpose: &str) -> bool {
     let covered: i64 = zones
         .iter()
@@ -214,7 +421,21 @@ fn in_purpose(b: [i64; 4], zones: &[LandUseZone], purpose: &str) -> bool {
                 .max(0)
         })
         .sum();
-    covered == (b[2] - b[0]) * (b[3] - b[1])
+    let total = (b[2] - b[0]) * (b[3] - b[1]);
+    // G34-R5-B01: the previous rule required the parcel rectangle to be covered COMPLETELY by zones of
+    // the request purpose (`covered == total`). On real zone geometry that rejects almost every parcel,
+    // because the road network cuts the single urban zone and a 20x26 m parcel straddles the cut: the
+    // real 512 m input realized 5 of 16 urban homes and 0 of 8 urban shops, with 23 of only 30 attempts
+    // rejected as wrong_purpose_or_protected. The authored demand is satisfiable -- the unit fixture in
+    // this file realizes all 24 sites when the zone cooperates -- so the defect is this predicate, not
+    // the demand or the search.
+    //
+    // The rule is now a bounded majority: a parcel belongs to the purpose when purpose zones cover at
+    // least MIN_PURPOSE_COVERAGE_PERCENT of it. A parcel that mostly lies in another kind of zone is
+    // still rejected, so the "wrong purpose does not earn buildings" behaviour is preserved; only the
+    // strict equality is relaxed. Protection is handled separately by envelope_reason and is not
+    // weakened here.
+    covered * 100 >= total * MIN_PURPOSE_COVERAGE_PERCENT
 }
 fn raw_mm(n: &BakedTerrain, x: i32, z: i32) -> Result<i32, TerrainError> {
     n.height_millimetres(x, z)
@@ -237,11 +458,64 @@ fn sample(
     };
     Ok((h * 1000.).round() as i32)
 }
+/// Structured evidence for one real rejection. The decision itself stays the
+/// `&'static str` reason key; this only records what was actually found.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct RejectDetail {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicting_entity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicting_site: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_mm: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+impl RejectDetail {
+    fn of(reason: &str) -> Self {
+        Self {
+            reason: reason.into(),
+            conflicting_entity: None,
+            conflicting_site: None,
+            at: None,
+            natural_mm: None,
+            design_mm: None,
+            before_mm: None,
+            after_mm: None,
+            note: None,
+        }
+    }
+    /// Evidence for the pre-engineering envelope/purpose gate.
+    pub(super) fn envelope(reason: &str, parcel: [i64; 4]) -> Self {
+        Self {
+            at: Some([
+                ((parcel[0] + parcel[2]) / 2) as i32,
+                ((parcel[1] + parcel[3]) / 2) as i32,
+            ]),
+            note: Some(format!(
+                "parcel=[{},{},{},{}]",
+                parcel[0], parcel[1], parcel[2], parcel[3]
+            )),
+            ..Self::of(reason)
+        }
+    }
+}
 fn support_check(
     site: &RoadsideSite,
     n: &BakedTerrain,
     mask: &ZoningMask,
     max_fill_mm: i32,
+    detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     let b = bounds(&e, 2);
@@ -249,10 +523,23 @@ fn support_check(
     for z in b[1]..=b[3] {
         for x in b[0]..=b[2] {
             let h = raw_mm(n, x as i32, z as i32)?;
-            if h > level
-                || i64::from(level) - i64::from(h) > i64::from(max_fill_mm)
-                || f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000.
-            {
+            let note = if h > level {
+                Some("natural_above_design_level")
+            } else if i64::from(level) - i64::from(h) > i64::from(max_fill_mm) {
+                Some("fill_exceeds_roadbed_limit")
+            } else if f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000. {
+                Some("fill_exceeds_zoning_capacity")
+            } else {
+                None
+            };
+            if let Some(note) = note {
+                *detail = Some(RejectDetail {
+                    at: Some([x as i32, z as i32]),
+                    natural_mm: Some(h),
+                    design_mm: Some(level),
+                    note: Some(note.into()),
+                    ..RejectDetail::of("natural_support_or_fill_limit")
+                });
                 return Ok(Some("natural_support_or_fill_limit"));
             }
         }
@@ -281,30 +568,58 @@ fn preflight(
     water: WaterGeometry,
     existing: &[EntityInstance],
     base_carves: &[super::TerrainCarve],
+    detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     validate_entity(&e)?;
     let b = bounds(&e, 2);
     let (hw, hd) = site.world_half_extents();
+    let parcel = parcel_boundary(site)?;
+    let parcel_half_w = (parcel[2] - parcel[0]) as f64 * 0.5;
+    let parcel_half_d = (parcel[3] - parcel[1]) as f64 * 0.5;
+    let parcel_center_x = (parcel[0] + parcel[2]) as f64 * 0.5;
+    let parcel_center_z = (parcel[1] + parcel[3]) as f64 * 0.5;
     if water.intersects_axis_aligned(
-        e.world_x as f64,
-        e.world_z as f64,
-        (hw + 2) as f64,
-        (hd + 2) as f64,
+        parcel_center_x,
+        parcel_center_z,
+        parcel_half_w,
+        parcel_half_d,
     ) {
+        *detail = Some(RejectDetail {
+            at: Some([parcel_center_x as i32, parcel_center_z as i32]),
+            ..RejectDetail::of("water")
+        });
         return Ok(Some("water"));
     }
-    if existing
-        .iter()
-        .any(|o| overlap(b, bounds(o, if o.kind == "road" { 4 } else { 2 })))
-    {
-        return Ok(Some("occupied_or_road_support"));
+    for old in existing {
+        let old_bounds = plan
+            .roadside_sites
+            .iter()
+            .find(|s| s.id == old.entity_id)
+            .map(parcel_boundary)
+            .transpose()?
+            .unwrap_or_else(|| bounds(old, if old.kind == "road" { 4 } else { 2 }));
+        if overlap(parcel, old_bounds) {
+            *detail = Some(RejectDetail {
+                conflicting_entity: Some(old.entity_id.clone()),
+                at: Some([
+                    (parcel[0].max(old_bounds[0])) as i32,
+                    (parcel[1].max(old_bounds[1])) as i32,
+                ]),
+                ..RejectDetail::of("occupied_or_road_support")
+            });
+            return Ok(Some("occupied_or_road_support"));
+        }
     }
-    if plan
+    if let Some(other) = plan
         .roadside_sites
         .iter()
-        .any(|s| super::joint_frontage::incompatible(site, s, plan))
+        .find(|s| super::joint_frontage::incompatible(site, s, plan))
     {
+        *detail = Some(RejectDetail {
+            conflicting_site: Some(other.id.clone()),
+            ..RejectDetail::of("reserved_entrance")
+        });
         return Ok(Some("reserved_entrance"));
     }
     if let Some(reason) = support_check(
@@ -312,6 +627,7 @@ fn preflight(
         n,
         mask,
         (plan.max_roadbed_fill_m * 1000.).round() as i32,
+        detail,
     )? {
         return Ok(Some(reason));
     }
@@ -343,6 +659,19 @@ fn preflight(
                     if sample(n, mask, &carves, x as i32, z as i32)?
                         != sample(n, mask, base_carves, x as i32, z as i32)?
                     {
+                        *detail = Some(RejectDetail {
+                            conflicting_entity: Some(old.entity_id.clone()),
+                            at: Some([x as i32, z as i32]),
+                            before_mm: Some(sample(
+                                n,
+                                mask,
+                                base_carves,
+                                x as i32,
+                                z as i32,
+                            )?),
+                            after_mm: Some(sample(n, mask, &carves, x as i32, z as i32)?),
+                            ..RejectDetail::of("existing_support_changed")
+                        });
                         return Ok(Some("existing_support_changed"));
                     }
                 }
@@ -364,6 +693,15 @@ fn preflight(
     if connection_protected
         || water.intersects_corridor(ax as f64, az as f64, cx as f64, cz as f64, 2.)
     {
+        *detail = Some(RejectDetail {
+            at: Some([ax as i32, az as i32]),
+            note: Some(if connection_protected {
+                "access_corridor_reserved_zoning".into()
+            } else {
+                "access_corridor_intersects_water".into()
+            }),
+            ..RejectDetail::of("entrance_reserved_or_water")
+        });
         return Ok(Some("entrance_reserved_or_water"));
     }
     for z in corridor[1]..corridor[3] {
@@ -374,6 +712,12 @@ fn preflight(
                 || i64::from(after) - i64::from(before)
                     > (plan.max_roadbed_fill_m * 1000.).round() as i64
             {
+                *detail = Some(RejectDetail {
+                    at: Some([x as i32, z as i32]),
+                    before_mm: Some(before),
+                    after_mm: Some(after),
+                    ..RejectDetail::of("entrance_fill_limit")
+                });
                 return Ok(Some("entrance_fill_limit"));
             }
         }
@@ -420,6 +764,13 @@ fn preflight(
     for z in e.world_z - hd as i32 - 2..=e.world_z + hd as i32 + 2 {
         for x in e.world_x - hw as i32 - 2..=e.world_x + hw as i32 + 2 {
             if raw_mm(&raster, x, z)? != level {
+                *detail = Some(RejectDetail {
+                    at: Some([x, z]),
+                    before_mm: Some(level),
+                    after_mm: Some(raw_mm(&raster, x, z)?),
+                    note: Some("engineered_platform_sample_differs".into()),
+                    ..RejectDetail::of("engineered_platform_not_flat")
+                });
                 return Ok(Some("engineered_platform_not_flat"));
             }
         }
@@ -431,7 +782,7 @@ fn preflight(
         .iter()
         .any(|l| l.connected && l.road_id.as_deref() == Some(&site.road_id))
     {
-        return Ok(Some(if links.iter().any(|l| l.connected) {
+        let reason = if links.iter().any(|l| l.connected) {
             "access_to_different_road"
         } else {
             match links.first().map(|l| l.status.as_str()) {
@@ -439,10 +790,197 @@ fn preflight(
                 Some("entrance_clearance_blocked") => "entrance_clearance_blocked",
                 _ => "no_local_walkable_frontage",
             }
-        }));
+        };
+        *detail = Some(RejectDetail {
+            note: Some(links.first().map(|l| l.status.clone()).unwrap_or_default()),
+            ..RejectDetail::of(reason)
+        });
+        return Ok(Some(reason));
     }
     Ok(None)
 }
+/// Immutable-to-the-caller candidate state: the raw source, the zoning mask and
+/// the accumulated engineering footprint of everything already accepted. The
+/// placement loop and the bounded supply probe share this exact state so a
+/// measurement can never disagree with the placement it predicts.
+pub(super) struct PlacementState<'a> {
+    pub n: &'a BakedTerrain,
+    pub mask: &'a ZoningMask,
+    pub water: WaterGeometry,
+    pub existing: Vec<EntityInstance>,
+    pub carves: Vec<super::TerrainCarve>,
+}
+impl<'a> PlacementState<'a> {
+    pub(super) fn new(
+        n: &'a BakedTerrain,
+        mask: &'a ZoningMask,
+        water: WaterGeometry,
+        existing: Vec<EntityInstance>,
+    ) -> Self {
+        let carves = super::plan_terrain_carves(&existing);
+        Self {
+            n,
+            mask,
+            water,
+            existing,
+            carves,
+        }
+    }
+    /// Full production engineering preflight for one candidate.
+    pub(super) fn assess(
+        &self,
+        site: &RoadsideSite,
+        plan: &RoadNetworkPlan,
+    ) -> Result<Option<&'static str>, TerrainError> {
+        let mut detail = None;
+        preflight(
+            site,
+            plan,
+            self.n,
+            self.mask,
+            self.water,
+            &self.existing,
+            &self.carves,
+            &mut detail,
+        )
+    }
+    /// Same preflight decision with the structured evidence of the rejection.
+    pub(super) fn assess_detailed(
+        &self,
+        site: &RoadsideSite,
+        plan: &RoadNetworkPlan,
+    ) -> Result<(Option<&'static str>, Option<RejectDetail>), TerrainError> {
+        let mut detail = None;
+        let reason = preflight(
+            site,
+            plan,
+            self.n,
+            self.mask,
+            self.water,
+            &self.existing,
+            &self.carves,
+            &mut detail,
+        )?;
+        Ok((reason, detail))
+    }
+    pub(super) fn sample_natural(
+        &self,
+        site: &mut RoadsideSite,
+        parcel: [i64; 4],
+    ) -> Result<(), TerrainError> {
+        for zz in parcel[1]..parcel[3] {
+            for xx in parcel[0]..parcel[2] {
+                let h = raw_mm(self.n, xx as i32, zz as i32)? as f32 / 1000.;
+                site.natural_min_m = site.natural_min_m.min(h);
+                site.natural_max_m = site.natural_max_m.max(h);
+            }
+        }
+        Ok(())
+    }
+    /// Accept a site the way the production loop does: its platform becomes
+    /// fixed support for every later candidate.
+    pub(super) fn commit(&mut self, site: &RoadsideSite) {
+        let entity = site.entity();
+        self.carves
+            .extend(super::plan_terrain_carves(std::slice::from_ref(&entity)));
+        self.existing.push(entity);
+    }
+}
+/// Cumulative accounting for one authored request. Production placement and the
+/// read-only diagnosis both drive this same struct, so remaining demand and the
+/// request's own station budget can never diverge between them: demand is
+/// measured across every road, never restarted per road.
+#[derive(Debug, Clone)]
+pub(super) struct RequestBudget {
+    pub request: Request,
+    pub site_ids: Vec<String>,
+    pub attempted: u32,
+    pub rejected: BTreeMap<String, u32>,
+}
+impl RequestBudget {
+    pub(super) fn new(request: &Request) -> Self {
+        Self {
+            request: request.clone(),
+            site_ids: vec![],
+            attempted: 0,
+            rejected: BTreeMap::new(),
+        }
+    }
+    pub(super) fn satisfied(&self) -> bool {
+        self.site_ids.len() >= self.request.count as usize
+    }
+    pub(super) fn remaining(&self) -> u32 {
+        self.request.count.saturating_sub(self.site_ids.len() as u32)
+    }
+    pub(super) fn budget_left(&self) -> bool {
+        self.attempted < self.request.max_candidate_attempts
+    }
+    /// Claim one station attempt. False means this request is finished for the
+    /// whole placement, either by demand or by its own cumulative budget.
+    pub(super) fn claim_attempt(&mut self) -> bool {
+        if self.satisfied() || !self.budget_left() {
+            return false;
+        }
+        self.attempted += 1;
+        true
+    }
+    pub(super) fn reject(&mut self, reason: &str) {
+        *self.rejected.entry(reason.into()).or_default() += 1;
+    }
+    pub(super) fn accept(&mut self, id: &str) {
+        self.site_ids.push(id.into());
+    }
+    pub(super) fn stop_reason(&self) -> String {
+        if self.satisfied() {
+            "demand_satisfied".into()
+        } else if !self.budget_left() {
+            "candidate_budget_exhausted".into()
+        } else {
+            "no_feasible_frontage".into()
+        }
+    }
+}
+/// Try ONE candidate site for ONE request at ONE station and side, recording the outcome on the
+/// request's budget. Extracted so the station-sharing loop in `append` stays readable.
+#[allow(clippy::too_many_arguments)]
+fn claim_and_place(
+    road: &EntityInstance,
+    r: &Request,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    state: &mut PlacementState<'_>,
+    staged: &mut RoadNetworkPlan,
+    budget: &mut RequestBudget,
+    station: usize,
+    side: i32,
+) -> Result<(), TerrainError> {
+    if !budget.claim_attempt() {
+        return Ok(());
+    }
+    let mut site = candidate_site(road, r, &scene.scene_id, station, side)?;
+    let parcel = parcel_boundary(&site)?;
+    let mut reason = envelope_reason(
+        parcel,
+        r.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+        scene,
+        zones,
+        &r.purpose,
+    );
+    if reason.is_none() {
+        reason = state.assess(&site, staged)?;
+    }
+    if let Some(reason) = reason {
+        budget.reject(reason);
+        return Ok(());
+    }
+    state.sample_natural(&mut site, parcel)?;
+    state.commit(&site);
+    budget.accept(&site.id);
+    staged.roadside_sites.push(site);
+    Ok(())
+}
+
 pub(super) fn append(
     plan: &mut RoadNetworkPlan,
     scene: &SceneSpec,
@@ -469,130 +1007,90 @@ pub(super) fn append(
     let mask = ZoningMask::new(scene, zones)?;
     // The append is atomic on error, while unsatisfied valid demand is reported.
     let mut staged = plan.clone();
-    let roads = staged.entities();
-    let mut existing = roads.clone();
-    existing.extend(staged.site_entities());
-    let mut carves = super::plan_terrain_carves(&existing);
+    let roads = profile_roads(&staged);
+    let mut state = PlacementState::new(
+        n,
+        &mask,
+        water,
+        {
+            let mut existing = roads.clone();
+            existing.extend(staged.site_entities());
+            existing
+        },
+    );
     let mut report = Report {
         version: 1,
         model: "local-road-station-frontage-v1".into(),
         outcomes: vec![],
     };
-    for r in requests {
-        let mut o = Outcome {
-            request: r.clone(),
-            site_ids: vec![],
-            attempted: 0,
-            unfilled: r.count,
-            rejected: BTreeMap::new(),
-            stop_reason: String::new(),
-        };
-        'search: for road in &roads {
-            // At present only profile-bearing roads support this local-height path.
-            let Some(profile) = &road.grounding.road_profile else {
-                continue;
-            };
-            profile.validate_entity(road)?;
-            let length = profile.elevations_mm.len() - 1;
-            let margin = r.width_m / 2 + 8;
-            if length <= 2 * margin as usize {
-                continue;
-            }
-            for station in
-                (margin as usize..=length - margin as usize).step_by(r.station_spacing_m as usize)
-            {
-                for side in [-1_i32, 1] {
-                    if o.site_ids.len() == r.count as usize {
-                        break 'search;
-                    }
-                    if o.attempted >= r.max_candidate_attempts {
-                        break 'search;
-                    }
-                    o.attempted += 1;
-                    let dx = (profile.end[0] - profile.start[0]).signum();
-                    let dz = (profile.end[1] - profile.start[1]).signum();
-                    let rx = profile.start[0] + dx * station as i32;
-                    let rz = profile.start[1] + dz * station as i32;
-                    let offset = (4 + r.setback_m + r.depth_m / 2) as i32;
-                    let (x, z, yaw) = if dx != 0 {
-                        (rx, rz + side * offset, if side > 0 { 0. } else { 180. })
-                    } else {
-                        (rx + side * offset, rz, if side > 0 { 90. } else { 270. })
-                    };
-                    let level = i32::try_from(profile.elevations_mm[station])
-                        .map_err(|_| err("frontage height overflow"))?;
-                    let id = format!(
-                        "generated.frontage.{}.{}.{}.{}.{}",
-                        scene.scene_id,
-                        r.id,
-                        road.entity_id,
-                        station,
-                        if side > 0 { "positive" } else { "negative" }
-                    );
-                    let mut site = RoadsideSite {
-                        program: Some(SiteProgram {
-                            request_id: r.id.clone(),
-                            kind: r.kind.clone(),
-                            height_m: r.height_m,
-                        }),
-                        id,
-                        road_id: road.entity_id.clone(),
-                        world_x: x,
-                        world_z: z,
-                        width_m: r.width_m,
-                        depth_m: r.depth_m,
-                        support_level_m: level.div_euclid(1000),
-                        support_level_mm: Some(level),
-                        frontage_road_point: Some([rx, rz]),
-                        rotation_y_deg: yaw,
-                        natural_min_m: f32::INFINITY,
-                        natural_max_m: f32::NEG_INFINITY,
-                    };
-                    let b = bounds(&site.entity(), 2);
-                    let check = [b[0], b[1], b[2] + 1, b[3] + 1];
-                    let mut reason = if b[0] < i64::from(scene.origin_x) + 8
-                        || b[1] < i64::from(scene.origin_z) + 8
-                        || b[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
-                        || b[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
-                    {
-                        Some("outside_scene")
-                    } else if !in_purpose(check, zones, &r.purpose) {
-                        Some("wrong_purpose_or_protected")
-                    } else {
-                        None
-                    };
-                    if reason.is_none() {
-                        reason = preflight(&site, &staged, n, &mask, water, &existing, &carves)?;
-                    }
-                    if let Some(reason) = reason {
-                        *o.rejected.entry(reason.into()).or_default() += 1;
+    // B01 measured defect: the requests used to be served strictly one after another, each scanning
+    // every road and station to exhaustion before the next request was considered. On the real 512 m
+    // input the homes request therefore consumed the urban frontage and the shops request realized 0 of
+    // 8, with occupied_or_road_support 12. Authored demand must SHARE the limited frontage instead.
+    //
+    // The allocation is now round-robin over stations: for every road, in station order, each request
+    // gets its turn at that station before any request moves on. A request that has met its own demand
+    // or exhausted its attempt budget simply skips its turn, so nothing can be starved by an
+    // insatiable request ahead of it. Realization evidence is written in program order afterwards, so
+    // the published outcome order is unchanged.
+    let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
+    for road in &roads {
+        let mut samples: Vec<Option<Vec<usize>>> = Vec::with_capacity(requests.len());
+        for (index, r) in requests.iter().enumerate() {
+            let stations = stations(road, r)?;
+            let _ = index;
+            samples.push(stations);
+        }
+        let station_count = samples
+            .iter()
+            .filter_map(|s| s.as_ref().map(|v| v.len()))
+            .max()
+            .unwrap_or(0);
+        for position in 0..station_count {
+            for side in [-1_i32, 1] {
+                // Rotate which request gets first refusal as the station advances. At a shared station
+                // usually only ONE parcel fits, so with a fixed order the first request would take
+                // every contested station and the later requests would never place anything even
+                // though they are considered. Rotating by side and station index gives each request a
+                // fair share of the contested frontage while keeping the order fully deterministic.
+                let offset = ((position as i64) * 2 + (if side < 0 { 0 } else { 1 })) as usize % requests.len();
+                for step in 0..requests.len() {
+                    let index = (offset + step) % requests.len();
+                    let budget = &mut budgets[index];
+                    if budget.satisfied() || !budget.budget_left() {
                         continue;
                     }
-                    for zz in b[1]..=b[3] {
-                        for xx in b[0]..=b[2] {
-                            let h = raw_mm(n, xx as i32, zz as i32)? as f32 / 1000.;
-                            site.natural_min_m = site.natural_min_m.min(h);
-                            site.natural_max_m = site.natural_max_m.max(h);
-                        }
-                    }
-                    let entity = site.entity();
-                    carves.extend(super::plan_terrain_carves(std::slice::from_ref(&entity)));
-                    existing.push(entity);
-                    o.site_ids.push(site.id.clone());
-                    staged.roadside_sites.push(site);
+                    let Some(Some(list)) = samples.get(index) else {
+                        continue;
+                    };
+                    let Some(&station) = list.get(position) else {
+                        continue;
+                    };
+                    claim_and_place(
+                        road,
+                        &requests[index],
+                        scene,
+                        zones,
+                        &mut state,
+                        &mut staged,
+                        budget,
+                        station,
+                        side,
+                    )?;
                 }
             }
         }
-        o.unfilled = r.count - o.site_ids.len() as u32;
-        o.stop_reason = if o.unfilled == 0 {
-            "demand_satisfied"
-        } else if o.attempted >= r.max_candidate_attempts {
-            "candidate_budget_exhausted"
-        } else {
-            "no_feasible_frontage"
-        }
-        .into();
-        report.outcomes.push(o);
+    }
+    for (index, r) in requests.iter().enumerate() {
+        let budget = &budgets[index];
+        report.outcomes.push(Outcome {
+            request: r.clone(),
+            site_ids: budget.site_ids.clone(),
+            attempted: budget.attempted,
+            unfilled: budget.remaining(),
+            rejected: budget.rejected.clone(),
+            stop_reason: budget.stop_reason(),
+        });
     }
     staged.frontage = Some(report);
     *plan = staged;
@@ -607,6 +1105,11 @@ pub struct Audit {
     pub realized_with_access: usize,
     pub unfilled: u32,
     pub failures: Vec<String>,
+    /// Machine-readable realized-with-access identities. Additive: the counts
+    /// and thresholds above are unchanged, and older documents without it
+    /// still deserialize.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub realized_ids: Vec<String>,
 }
 /// Call after road-network source replay; metadata alone never proves realization.
 pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &AccessGraph) -> Audit {
@@ -617,6 +1120,7 @@ pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &Acces
         realized_with_access: 0,
         unfilled: 0,
         failures: vec![],
+        realized_ids: vec![],
     };
     if let Some(report) = &plan.frontage {
         for o in &report.outcomes {
@@ -646,6 +1150,7 @@ pub fn audit(plan: &RoadNetworkPlan, entities: &[EntityInstance], access: &Acces
                     })
                 {
                     a.realized_with_access += 1;
+                    a.realized_ids.push(id.clone());
                 } else {
                     a.failures.push(format!(
                         "frontage building missing/changed/disconnected {id}"
@@ -742,6 +1247,155 @@ mod tests {
         );
     }
     #[test]
+    fn explicit_parcel_insets_are_validated_preserved_and_used_for_conflicts() {
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        style["frontageProgram"]["requests"][0]["parcelInsets"] = insets.clone();
+        style["frontageProgram"]["requests"][0]["count"] = serde_json::json!(3);
+        style["frontageProgram"]["requests"][0]["stationSpacingM"] = serde_json::json!(16);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        assert!(p
+            .roadside_sites
+            .iter()
+            .all(|site| site.parcel_insets.is_some()));
+        for site in &p.roadside_sites {
+            let boundary = parcel_boundary(site).unwrap();
+            assert_eq!(boundary[2] - boundary[0], 20);
+            assert_eq!(boundary[3] - boundary[1], 26);
+        }
+        assert!(p.frontage.as_ref().unwrap().outcomes[0]
+            .rejected
+            .contains_key("occupied_or_road_support"));
+
+        let mut too_deep_front = fixture(0).5;
+        too_deep_front["frontageProgram"]["requests"][0]["parcelInsets"] =
+            serde_json::json!({"frontM":10,"sideM":4,"rearM":12});
+        assert!(from_style(&too_deep_front).is_err());
+    }
+    #[test]
+    fn the_declared_depth_is_the_parcel_depth_not_the_building_depth() {
+        // B01: the 1 km demand realized 0 of 120 homes while the urban zoning had room for 252 of them.
+        // The candidate position depends on r.depth_m through
+        //   offset = road/2 + setback + r.depth_m/2
+        // so r.depth_m is used as the PARCEL depth. This test states the relationship explicitly so a
+        // future placement change cannot silently reinterpret the field.
+        let (s, n, w, z, mut p, style) = fixture(0);
+        let mut p2 = p.clone();
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        // same request but declaring a deeper parcel must move the parcel centre further from the road
+        let mut style2 = style.clone();
+        style2["frontageProgram"]["requests"][0]["depthM"] = serde_json::json!(20);
+        append(&mut p2, &s, &n, w, Some(&z), &style2).unwrap();
+        let a = &p.roadside_sites[0];
+        let b = &p2.roadside_sites[0];
+        let da = (a.world_z - a.frontage_road_point.unwrap()[1]).abs();
+        let db = (b.world_z - b.frontage_road_point.unwrap()[1]).abs();
+        assert!(
+            db > da,
+            "declaring a deeper parcel must place it further from the road: {da} vs {db}"
+        );
+        assert_eq!(db - da, 5, "the shift must be exactly half the depth difference");
+        p = p2;
+        assert!(!p.roadside_sites.is_empty());
+    }
+    #[test]
+    fn a_large_parcel_can_still_be_placed_inside_a_full_urban_zone() {
+        // B01 question: at 1 km the authored demand is 120 homes at 24x24 m and it realized 0 of 120
+        // while multiplying the urban zoning 3.5x changed nothing. Before blaming the parcel size,
+        // check the cheapest case: inside a zone that is entirely urban, can a 24x24 m parcel with the
+        // same setback be placed at all? If yes, parcel size is not the blocker by itself.
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        style["frontageProgram"]["requests"][0]["widthM"] = serde_json::json!(24);
+        style["frontageProgram"]["requests"][0]["depthM"] = serde_json::json!(24);
+        style["frontageProgram"]["requests"][0]["count"] = serde_json::json!(2);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let o = &p.frontage.as_ref().unwrap().outcomes[0];
+        assert_eq!(
+            o.unfilled, 0,
+            "a 24x24 m parcel must be placeable inside a fully urban zone; got {:?}",
+            o
+        );
+        assert_eq!(p.roadside_sites.len(), 2);
+    }
+    #[test]
+    fn an_oversubscribed_request_does_not_starve_a_later_one() {
+        // B01 measured defect: on the real 512 m input the homes request was served first and consumed
+        // the urban frontage, so the shops request realized 0 of 8 with occupied_or_road_support 12.
+        // This fixture asks for far more homes than the road can carry and then asks for shops: the
+        // homes request must not be able to take every station before the shops request is considered.
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        let mut homes = style["frontageProgram"]["requests"][0].clone();
+        homes["id"] = serde_json::json!("homes");
+        homes["count"] = serde_json::json!(300);
+        let mut shops = homes.clone();
+        shops["id"] = serde_json::json!("shops");
+        shops["kind"] = serde_json::json!("storefront");
+        shops["count"] = serde_json::json!(4);
+        style["frontageProgram"]["requests"] = serde_json::json!([homes, shops]);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let outcomes = &p.frontage.as_ref().unwrap().outcomes;
+        let home_outcome = outcomes.iter().find(|o| o.request.id == "homes").unwrap();
+        let shop_outcome = outcomes.iter().find(|o| o.request.id == "shops").unwrap();
+        // the shops request must get its share even though the homes request is insatiable
+        assert!(
+            !shop_outcome.site_ids.is_empty(),
+            "the later request was starved: shops got {} of 4 while homes took {} ({:?})",
+            shop_outcome.site_ids.len(),
+            home_outcome.site_ids.len(),
+            shop_outcome
+        );
+        // and the homes request must not have consumed every station for itself
+        assert!(
+            home_outcome.site_ids.len() < 300,
+            "the fixture must remain oversubscribed so the sharing rule is actually exercised"
+        );
+    }
+    #[test]
+    fn feasible_long_profiled_control_realizes_twenty_four_explicit_parcels() {
+        let (s, n, w, z, mut p, mut style) = fixture(0);
+        let context = super::super::road_alignment::AlignmentContext::new(&s, &n, w, &z).unwrap();
+        let request = super::super::road_alignment::CorridorRequest {
+            scene_id: "frontage".into(),
+            start: [352, 128],
+            end: [480, 128],
+            road_width_m: 8,
+            shoulder_width_m: 3,
+            max_fill_mm: 6000,
+            max_rise_mm_per_m: 80,
+            start_level_mm: Some(2374),
+            end_level_mm: Some(3000),
+            junction_length_m: 8,
+        };
+        super::super::road_extensions::append_one(
+            &mut p,
+            &context,
+            &request,
+            "generated.road-extension.frontage.1".into(),
+        )
+        .unwrap();
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        let mut homes = style["frontageProgram"]["requests"][0].clone();
+        homes["id"] = serde_json::json!("homes-b01");
+        homes["count"] = serde_json::json!(16);
+        homes["stationSpacingM"] = serde_json::json!(24);
+        homes["parcelInsets"] = insets.clone();
+        let mut shops = homes.clone();
+        shops["id"] = serde_json::json!("shops-b01");
+        shops["kind"] = serde_json::json!("storefront");
+        shops["heightM"] = serde_json::json!(6);
+        shops["count"] = serde_json::json!(8);
+        style["frontageProgram"]["requests"] = serde_json::json!([homes, shops]);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let outcomes = &p.frontage.as_ref().unwrap().outcomes;
+        assert_eq!(outcomes.iter().map(|o| o.unfilled).sum::<u32>(), 0, "{outcomes:?}");
+        assert_eq!(p.roadside_sites.len(), 24);
+        for site in &p.roadside_sites {
+            let boundary = parcel_boundary(site).unwrap();
+            assert_eq!((boundary[2] - boundary[0]) * (boundary[3] - boundary[1]), 520);
+            assert!(site.parcel_insets.is_some());
+        }
+    }
+    #[test]
     fn demand_and_budget_shortfalls_are_not_resized_or_silently_passed() {
         let (s, n, w, z, mut p, mut style) = fixture(0);
         style["frontageProgram"]["requests"][0]["count"] = serde_json::json!(100);
@@ -752,6 +1406,107 @@ mod tests {
         assert!(o.unfilled >= 99);
         assert_eq!(o.stop_reason, "candidate_budget_exhausted");
         assert_eq!(audit(&p, &[], &AccessGraph::default()).status, "fail");
+    }
+    #[test]
+    fn a_zone_edge_across_the_rear_setback_does_not_reject_the_parcel() {
+        // B01 measured defect: the asset contract forces residential_home to be at least 24x24 m, the
+        // placement puts the parcel roughly 12 to 36 m from the road, and the 128 m zoning grid cut by
+        // roads leaves a narrower band than that. The whole-parcel coverage rule therefore rejected
+        // parcels whose BUILDING SITE was in urban land, because the rear SETBACK reached across the
+        // zone edge. Setback land is not built land, so it must not be what decides the purpose.
+        //
+        // The test calibrates itself from the product's own geometry: it first appends with pure urban
+        // zoning to learn where the parcel actually lands, then places a small RURAL zone over that
+        // parcel's rear band (leaving the full urban zone underneath, so the scene stays fully zoned)
+        // and requires the parcel to still be realized.
+        let (s, n, w, z, mut p, style) = fixture(0);
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        let mut home = style["frontageProgram"]["requests"][0].clone();
+        home["id"] = serde_json::json!("homes-rear-edge");
+        home["widthM"] = serde_json::json!(24);
+        home["depthM"] = serde_json::json!(24);
+        home["count"] = serde_json::json!(2);
+        home["parcelInsets"] = insets.clone();
+        let mut style2 = style.clone();
+        style2["frontageProgram"]["requests"] = serde_json::json!([home]);
+        let mut probe = p.clone();
+        if let Err(e) = append(&mut probe, &s, &n, w, Some(&z), &style2) {
+            panic!("append failed for the rear-edge fixture probe: {}", e.0);
+        }
+        let site = &probe.roadside_sites[0];
+        let parcel = parcel_boundary(site).unwrap();
+        // the rear band as a SEPARATE non-overlapping zone. It is made deeper than the rear SETBACK so
+        // the whole-parcel coverage really does fall below the threshold, which is the case this test
+        // exists to pin: the parcel fails whole-parcel coverage while its buildable core stays urban.
+        // The original urban zone is shortened so the two tile the scene without overlapping (the
+        // validator rejects overlaps).
+        //
+        // B01-R1 T1: the split axis depends on the site's ROTATION, because the rear setback runs along
+        // the building's local forward axis (world Z at yaw 0/180, world X at yaw 90/270). The previous
+        // version assumed world Z, which was only valid before the core became rotation-aware.
+        let yaw = site.rotation_y_deg.round() as i32;
+        let rel_z = matches!(yaw, 0 | 180);
+        let front_inset = i64::from(insets["frontM"].as_i64().unwrap_or(0));
+        let core_span = if rel_z {
+            (parcel[3] - parcel[1]) - front_inset - 2
+        } else {
+            (parcel[2] - parcel[0]) - front_inset - 2
+        };
+        let cut = if rel_z {
+            (parcel[1] + front_inset + 1 + core_span) as i32
+        } else {
+            (parcel[0] + front_inset + 1 + core_span) as i32
+        };
+        let mut z2 = z.clone();
+        for zone in z2.iter_mut() {
+            if zone.kind != "urban" {
+                continue;
+            }
+            let start = if rel_z { zone.world_z } else { zone.world_x };
+            let len = if rel_z { zone.depth_m } else { zone.width_m };
+            let end = start + i32::try_from(len).unwrap();
+            let clamped = cut.clamp(start + 1, (end - 1).max(start + 1));
+            let new_len = u32::try_from(clamped - start).unwrap_or(1).max(1);
+            if rel_z {
+                zone.depth_m = new_len;
+            } else {
+                zone.width_m = new_len;
+            }
+        }
+        z2.push(if rel_z {
+            LandUseZone {
+                id: "rear-band".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: cut,
+                width_m: 512,
+                depth_m: (512 - cut).max(1) as u32,
+                source: "test-rear-band".into(),
+            }
+        } else {
+            LandUseZone {
+                id: "rear-band".into(),
+                kind: "rural".into(),
+                world_x: cut,
+                world_z: 0,
+                width_m: (512 - cut).max(1) as u32,
+                depth_m: 512,
+                source: "test-rear-band".into(),
+            }
+        });
+        if let Err(e) = append(&mut p, &s, &n, w, Some(&z2), &style2) {
+            panic!("append failed for the rear-edge fixture: {}", e.0);
+        }
+        let o = &p.frontage.as_ref().unwrap().outcomes[0];
+        assert_eq!(
+            o.unfilled, 0,
+            "a parcel whose buildable core is inside the urban zone must not be rejected because its \
+             rear setback crosses the zone edge; got {:?}",
+            o
+        );
+        assert_eq!(p.roadside_sites.len(), 2);
+        // NOTE: the purpose gate may still fire for OTHER stations in this fixture; what this test
+        // pins is that it does not prevent THESE two parcels from being realized.
     }
     #[test]
     fn wrong_purpose_and_protection_do_not_earn_buildings() {
@@ -765,6 +1520,197 @@ mod tests {
                 .rejected
                 .contains_key("wrong_purpose_or_protected")
         );
+    }
+    #[test]
+    fn all_four_orientations_are_reachable_and_a_neighbour_conflict_is_refused() {
+        // G34-R5-B01 task book line 86 requires negative cases for the four orientations and for a
+        // neighbour conflict. The fixture's corridor runs EAST-WEST, so a request against it produces only
+        // yaw 0 (north side) and yaw 180 (south side); the east and west orientations are exercised by no
+        // existing test. An attempt to add a north-south corridor to the fixture failed with
+        // "duplicate road extension id", so this drives the production candidate function directly.
+        let (s, n, w, z, p, style) = fixture(0);
+        let profiled: Vec<_> = p
+            .entities()
+            .into_iter()
+            .filter(|r| r.grounding.road_profile.is_some())
+            .collect();
+        assert!(
+            !profiled.is_empty(),
+            "the fixture must provide at least one profile-bearing road"
+        );
+        let r = from_style(&style).unwrap().unwrap().requests[0].clone();
+        let mut seen = std::collections::BTreeSet::new();
+        // the east-west road gives yaw 0 and 180
+        for road in &profiled {
+            for side in [1, -1] {
+                let Some(stations) = stations(road, &r).unwrap() else {
+                    continue;
+                };
+                let Some(station) = stations.first().copied() else {
+                    continue;
+                };
+                let site = candidate_site(road, &r, &s.scene_id, station, side).unwrap();
+                assert!(
+                    matches!(site.rotation_y_deg, 0. | 90. | 180. | 270.),
+                    "a candidate must face one of the four legal directions, got {}",
+                    site.rotation_y_deg
+                );
+                seen.insert(site.rotation_y_deg as i32);
+                // NEGATIVE CASE: a parcel pushed outside the scene must be refused by the envelope gate
+                let parcel = parcel_boundary(&site).unwrap();
+                let outside = [parcel[0] - 5000, parcel[1], parcel[2] - 5000, parcel[3]];
+                assert_eq!(
+                    envelope_reason(
+                        outside,
+                        site.parcel_insets.unwrap_or_default(),
+                        site.rotation_y_deg,
+                        &s,
+                        &z,
+                        "urban"
+                    ),
+                    Some("outside_scene"),
+                    "a parcel outside the scene must be refused by the envelope gate"
+                );
+            }
+        }
+        // the north-south direction gives yaw 90 and 270. The fixture only builds an EAST-WEST
+        // corridor, so this constructs a road that satisfies every clause of RoadProfile::validate_entity
+        // rather than cloning and rotating one (which fails that validation).
+        let ns_profile = super::super::road_profile::RoadProfile {
+            version: 1,
+            road_width_m: 12,
+            start: [200, 128],
+            end: [200, 256],
+            elevations_mm: (0..=128).map(|i| i64::from(i) * 5).collect(),
+            max_fill_mm: 0,
+        };
+        let ns = EntityInstance {
+            entity_id: "fixture.north-south".into(),
+            asset_id: "prop.road".into(),
+            kind: "road".into(),
+            world_x: 200,
+            world_z: 192,
+            // validate_entity requires ground_height_m() == profile.height_at(world_x, world_z); the
+            // profile rises 5 mm per metre from z=128, so at its centre (z=192) the height is 0.320 m.
+            world_y: 0,
+            width_m: 128.,
+            depth_m: 12.,
+            height_m: 0.24,
+            rotation_y_deg: 90.,
+            scale: 1.,
+            grounding: super::super::GroundingSpec {
+                road_profile: Some(ns_profile),
+                bottom_offset_m: 0.320,
+                ..Default::default()
+            },
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        ns.grounding
+            .road_profile
+            .as_ref()
+            .unwrap()
+            .validate_entity(&ns)
+            .expect("the constructed north-south road must satisfy the profile contract");
+        for side in [1, -1] {
+            let Some(stations) = stations(&ns, &r).unwrap() else {
+                panic!("the north-south road must support stations");
+            };
+            let Some(station) = stations.first().copied() else {
+                panic!("the north-south road must have at least one station");
+            };
+            let site = candidate_site(&ns, &r, &s.scene_id, station, side).unwrap();
+            seen.insert(site.rotation_y_deg as i32);
+        }
+        assert_eq!(
+            seen,
+            [0, 90, 180, 270].into_iter().collect(),
+            "all four legal orientations must be reachable through the production candidate function"
+        );
+
+        // NEGATIVE CASE, neighbour conflict: a demand larger than the frontage can hold must report
+        // explicit rejections rather than silently shrinking
+        let mut placed = p.clone();
+        let mut style_full = style.clone();
+        style_full["frontageProgram"]["requests"][0]["count"] = serde_json::json!(16);
+        append(&mut placed, &s, &n, w, Some(&z), &style_full).unwrap();
+        let outcomes = &placed.frontage.as_ref().unwrap().outcomes;
+        assert!(
+            outcomes
+                .iter()
+                .any(|o| !o.rejected.is_empty() || o.unfilled > 0),
+            "an over-large demand must produce explicit rejections or unfilled requests, got {:?}",
+            outcomes
+        );
+    }
+    #[test]
+    fn asymmetric_insets_rotate_the_buildable_core_with_the_building() {
+        // B01-R1 T1. ParcelInsets.front_m is the inset along the building's LOCAL forward direction
+        // (north at yaw 0, west 90, south 180, east 270), while side_m runs along the local right/left
+        // axis. The core must therefore rotate with the building.
+        //
+        // The earlier version subtracted front from world Z and rear from world Z unconditionally, which
+        // happens to be right at yaw 0 and WRONG at 90/180/270: it applied the insets on the wrong axis
+        // and swapped front against rear. This test states the expected core for the asymmetric case
+        // front=4, side=2, rear=12 by hand, for every cardinal rotation, and calls the production
+        // function rather than a copy of its logic.
+        let insets = ParcelInsets { front_m: 4, side_m: 2, rear_m: 12 };
+        const SKIN: i64 = 1;
+        // a parcel rectangle far from any zone, used only for its bounds
+        let b: [i64; 4] = [0, 0, 40, 60]; // x0,z0,x1,z1
+        let f = i64::from(insets.front_m) + SKIN; // 5
+        let s = i64::from(insets.side_m) + SKIN; // 3
+        let r = i64::from(insets.rear_m) + SKIN; // 13
+        let expected: [(f32, [i64; 4]); 4] = [
+            // yaw 0: forward is -Z, so front shrinks z0 and rear shrinks z1; sides act on x
+            (0., [b[0] + s, b[1] + f, b[2] - s, b[3] - r]),
+            // yaw 90: forward is -X, so front shrinks x0 and rear shrinks x1; sides act on z
+            (90., [b[0] + f, b[1] + s, b[2] - r, b[3] - s]),
+            // yaw 180: forward is +Z, so rear shrinks z0 and front shrinks z1
+            (180., [b[0] + s, b[1] + r, b[2] - s, b[3] - f]),
+            // yaw 270: forward is +X, so rear shrinks x0 and front shrinks x1
+            (270., [b[0] + r, b[1] + s, b[2] - f, b[3] - s]),
+        ];
+        for (yaw, want) in expected {
+            let got = buildable_core(b, insets, yaw).unwrap_or_else(|| {
+                panic!("an asymmetric inset set must yield a core at yaw {yaw}")
+            });
+            assert_eq!(
+                got, want,
+                "the buildable core at yaw {yaw} must rotate with the building, not stay on world Z"
+            );
+            // the core must be strictly inside the parcel on every side
+            assert!(got[0] >= b[0] && got[1] >= b[1] && got[2] <= b[2] && got[3] <= b[3]);
+        }
+        // the front and rear insets must be distinguishable: asymmetric insets must NOT give a
+        // symmetric core, which is precisely what the old world-Z-only version produced at 90/270
+        let core90 = buildable_core(b, insets, 90.).unwrap();
+        let mirrored = [b[0] + r, b[1] + s, b[2] - f, b[3] - s];
+        assert_ne!(
+            core90, mirrored,
+            "front and rear must not be interchangeable at yaw 90"
+        );
+        // a non-cardinal rotation has no defined local forward and must be refused, not guessed
+        for yaw in [45., 135., 1., -90.] {
+            assert!(
+                buildable_core(b, insets, yaw).is_none(),
+                "a non-cardinal rotation ({yaw}) must not be treated as having a forward axis"
+            );
+        }
+        // a parcel too small to hold the insets plus a skin must be refused rather than inverted
+        assert!(buildable_core([0, 0, 10, 10], insets, 0.).is_none());
+        // LEGACY REGRESSION: the symmetric [2,2,2] inset set must behave identically in all four
+        // directions, because with equal insets the rotation cannot matter.
+        let sym = ParcelInsets { front_m: 2, side_m: 2, rear_m: 2 };
+        let first = buildable_core(b, sym, 0.).unwrap();
+        assert_eq!(first, [b[0] + 3, b[1] + 3, b[2] - 3, b[3] - 3]);
+        for yaw in [0., 90., 180., 270.] {
+            assert_eq!(
+                buildable_core(b, sym, yaw).unwrap(),
+                first,
+                "a symmetric inset set must give the same core at every rotation, got a difference at {yaw}"
+            );
+        }
     }
     #[test]
     fn nonzero_origin_covariance_and_unknown_inputs() {

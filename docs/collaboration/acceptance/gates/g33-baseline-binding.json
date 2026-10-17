@@ -1,0 +1,147 @@
+{
+  "schema": "g33-baseline-binding-v1",
+  "round": "G33",
+  "status": "not_started",
+  "scopeRef": "g33-scope.zh-CN.md",
+  "generatedBy": "scope-gate read-only enumeration; every bytes/sha256 below was computed with Get-FileHash on the live files (nothing typed by hand)",
+  "note": "F:/modenmapbox is the Codex working directory but is NOT the root of this evidence; the real repository root is G:/difyllmwiki/GlyphWeave/",
+  "workspaceRoot": "G:/difyllmwiki/GlyphWeave",
+  "productionId": "g32-camera-pan-3-layout-1",
+  "frozenBaselinePackage": {
+    "dir": "bevy/work/collaboration/ds-b01-g32-r2-layout-closeout/cli-runs/c01-export",
+    "fileCount": 6,
+    "totalBytes": 1143797,
+    "files": [
+      {
+        "name": "COMPLETE.json",
+        "bytes": 322,
+        "sha256": "829b1a66880afd28eda93410a7af882acd87ab9589c19c0dc0aac7c789141680"
+      },
+      {
+        "name": "README.md",
+        "bytes": 2112,
+        "sha256": "20b7f279aedf3d6d79bd32376b0e00fb18c323d64ed79d0c0d2501c16f202669"
+      },
+      {
+        "name": "manifest.json",
+        "bytes": 1369,
+        "sha256": "97fd4f0f0cf4d33aa179d4f4b7e8d1ab291d5bc295f1da2d21137f018b89b529"
+      },
+      {
+        "name": "preview3d.html",
+        "bytes": 527911,
+        "sha256": "9e4d2bdcd94bca9340158c861bb63c924012c9ab294c1c41f951553fd820fbc6"
+      },
+      {
+        "name": "render-model-3d.json",
+        "bytes": 517333,
+        "sha256": "922d404cdbd413e567d5ab89094d69ef75f785ab73e469c5676a79dc025f23ff"
+      },
+      {
+        "name": "viewer3d.js",
+        "bytes": 94750,
+        "sha256": "11a2a9544512d425590635136439d51907cc300625c23638472624ec6e27486e"
+      }
+    ]
+  },
+  "productBinding": {
+    "sources": [
+      {
+        "path": "bevy/crates/cli/src/g28_viewer3d.js",
+        "bytes": 94750,
+        "sha256": "11a2a9544512d425590635136439d51907cc300625c23638472624ec6e27486e",
+        "equalsPackageViewer": true
+      },
+      {
+        "path": "bevy/crates/cli/src/context_preview3d.rs",
+        "bytes": 205123,
+        "sha256": "4202ccc3d8a0a1eadb810339072b00f313be0506d8b85fa1d3a4c4f0b754789f"
+      }
+    ],
+    "builtBinary": {
+      "path": "bevy/target/debug/glyphweave.exe",
+      "bytes": 42355200,
+      "sha256": "db5c9488f5abe0c9f86e94551ee6216ab0e653744ac0b736a44126fb991191cb"
+    },
+    "note": "the frozen viewer already contains the pickMethod input-source constant (\"page.mouse.click\" at g28_viewer3d.js:926); it is not an intersection-algorithm label"
+  },
+  "priorRoundsReadOnly": [
+    {
+      "dir": "bevy/work/collaboration/ds-b01-g32-r2-c1-final-browser",
+      "role": "G32-R2-C1 final browser evidence",
+      "manifest": {
+        "sha256": "7ccb03edb4bdc59a7a5d4e85548284c3b162a3298aebc6c47282a9aabf3c403c",
+        "files": 51,
+        "bytes": 1762975
+      },
+      "receiptSha256": "16b0a5962956b7974023c5b92fc2a1fa3516284874f85946cc0492b9a8365dbc",
+      "deliverySha256": "3736f070391be3928ca124251cf3c6696d0983cf9b6067810ddf5da896691419",
+      "expectedDrift": []
+    },
+    {
+      "dir": "bevy/work/collaboration/ds-b01-g32-r2-layout-closeout",
+      "role": "G32-R2 layout closeout (produces the frozen package)",
+      "manifestFiles": 77,
+      "expectedDrift": []
+    },
+    {
+      "dir": "bevy/work/collaboration/ds-b01-g32-r1-pan-lifecycle-repair",
+      "role": "G32-R1 pan lifecycle repair",
+      "manifestFiles": 75,
+      "expectedDrift": []
+    },
+    {
+      "dir": "bevy/work/collaboration/ds-b01-g31-r1-entity-layering",
+      "role": "G31-R1 verified save-window baseline",
+      "manifestFiles": 80,
+      "expectedDrift": [
+        "build-archive.cjs"
+      ],
+      "preExistingGap": "build-archive.cjs is listed by the G31-R1 manifest but absent from disk. This is a pre-existing, already-registered historical gap; it is NOT a G33 drift and must not be repaired or re-typed as new."
+    }
+  ],
+  "layoutFloorsAtBaseline": {
+    "960x640": 0.7877,
+    "1280x800": 0.831,
+    "summary": {
+      "height": 43,
+      "rows": 1
+    },
+    "overflowX": 0,
+    "overflowY": 0
+  },
+  "geometryFloorsAtBaseline": {
+    "indices": 23814,
+    "terrainTriangles": 7938,
+    "vertices": 4096,
+    "totalDrawTriangles": 8022,
+    "solidDraws": 7
+  },
+  "verifyCommand": "node G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/ds-b01-g32-r2-c1-final-browser/verify-delivery.mjs G:/difyllmwiki/GlyphWeave/bevy/work/collaboration/ds-b01-g32-r2-c1-final-browser",
+  "verifyResultAtScopeGate": {
+    "ok": true,
+    "problems": [],
+    "jsonsChecked": 22,
+    "manifestFiles": 51,
+    "status": "delivered_for_inspection"
+  },
+  "g33EvidenceDirProposal": {
+    "dir": "bevy/work/collaboration/ds-b01-g33-overview-minimap",
+    "rule": "a NEW directory; old round directories must never be reused or written back"
+  },
+  "proposedProductAllowlist": {
+    "status": "proposed_only_effective_after_implementation_authorization",
+    "allowed": [
+      "bevy/crates/cli/src/g28_viewer3d.js (new minimap overlay + pure world<->minimap geometry functions only)",
+      "bevy/crates/cli/src/context_preview3d.rs (minimap overlay element/styles, producer build id, and its named static tests)",
+      "the G33 evidence directory (driver, modules, fixtures, records, screenshots, report, manifest/receipt/budget/command-log)"
+    ],
+    "forbidden": [
+      "the 41 protected viewer functions, shader structure, material/light constants",
+      "generation model schema, terrain/entity/road geometry and topology",
+      "pick intersection, pan math, pointer lifecycle",
+      "G31/G32/R1/R2/C1 old packages, manifests, receipts, reports, screenshots",
+      "core, G23, pathA and any ST18 / default-world / natural / route / bake / realize code"
+    ]
+  }
+}

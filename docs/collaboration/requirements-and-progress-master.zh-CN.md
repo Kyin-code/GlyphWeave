@@ -1,0 +1,527 @@
+# GlyphWeave 需求与进度总表（master）
+
+生成日期：2026-10-18。性质：**需求台账 + 进度台账**，不是验收裁定，不替代任何合同文件。
+读者：项目负责人、接手的主 Agent、实现 Agent、独立检查 Agent。
+
+## 0. 怎么用这份文档
+
+- **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
+- **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
+- **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。
+- **要证据** → 第 9 章给路径；验收与检验文档已集中到 `docs/collaboration/acceptance/`。
+
+**口径声明（重要）**
+
+1. 本表的状态判定依据**文档所述的证据层级**（见 2.2），除特别标注外，我**没有**独立重跑世界、gate 或测试。
+2. 数字一律抄自原文，不做单位换算、不跨口径相加。凡原文未给的，写"文中未说明"。
+3. 需求条目保留原始文档的编号（R01–R16、A-01–A-10、B-G1–B-G8、C-N1–C-G1、FUT-01–06）；
+   我新增的域编号 `D1.1` 只用于本文导航，不是新的验收 ID。
+4. 本文不发明"完成度百分比"。用状态词（2.1）表达，避免把测试数/文档数当进度。
+
+---
+
+## 1. 需求谱系（按时间，谁定义了什么）
+
+项目实际有**两条源头**，同在 2026-08-28，一条成为主线、一条被搁置：
+
+| 日期 | 文档 | 性质 | 当前位置 |
+|---|---|---|---|
+| 2026-07-07 / 07-11 | `docs/superpowers/plans/` 与 `docs/superpowers/specs/` 下的 `2026-07-07-bevy-p1-foundation*`、`2026-07-11-gemap-v3-voxel-storage.md` | Bevy P1 底座与 gemap v3 体素存储设计 | 已实现，成为 A 的底座 |
+| **2026-08-28** | **`docs/game-plan.md`、`docs/game-todo.md`** | **殖民挑战沙盒游戏（Flood Fortress）**：建造/挖壕/防洪/铜银金评级，`GameCommand` 命令层，ASR/本地模型接缝，`pnpm bevy:fps` ≥150 workload FPS | **被搁置**，但代码仍在 `bevy/crates/core/src/gameplay/`（command/sim/state/snapshot/mod） |
+| **2026-08-28** | **`docs/glyphweave-world-todo.zh-CN.md`** | **世界生成闭环的产品约束清单**（尺寸/坐标/分块/Manifest/LOD/消费者/资产/多场景/自动验收） | **当前主线的源头** |
+| 2026-08-28/29 | `west-lake-scale-audit`、`nanjing-yangtze-bridge-scale-audit`、`modern-mainland-morphology` | 真实尺度核对与形态研究 | 参数来源素材 |
+| 2026-08-30/31 | `procedural-world-generator`、`mapgen4-hydrology-plan` | 生成器技术方案；Mapgen4 水文计划 | C-N 的来源候选 |
+| 2026-09-01 | `urban-natural-generation-plan`（46KB）、`rules-engine-mvp` | 现代世界总体方案（明确高质量渲染为非目标）；规则引擎 | B/C 的设计母本 |
+| 2026-09-02～04 | `20260902-check-1..25`、`20260903-check-28..31`、`20260904-check-32..37`、`20260902-acceptance-list-1` | 早期逐轮自检/验收清单 | 历史证据 |
+| 2026-09-03 | `terrain-render-contract`、`terrain-visual-baselines`、`html-rendering-handoff` | 地形渲染合同、视觉基线、HTML 交接 | 消费者层约束 |
+| 2026-09-05/06 | `refactor-bake-cli-audit`、`access-v2-acceptance-status`、`access-surface-and-earthwork`、`planning-partition-v2`、`lowland-road-network`、`road-first-development-ownership`、`landcover-candidate-plan`、`yard-surface-realization`、`agriculture-surface-realization` | 工程地形/访问图/规划分区/低地路网/道路先行开发/地表实现 | B 的实现设计层 |
+| 2026-09-07 | `r23`–`r28`、`r37`–`r40`、`r44`–`r46`、`r48`、`r49`、`20260906-natural-human-development-roadmap`（75KB） | 逐轮实现记录，**数值合同的主要出处** | 见第 4 章 |
+| 2026-09-08 | `milestone-a-agent-task`、`milestone-c-agent-task`、`20260905-modern-world-generation-architecture`、`20260906-human-settlement-morphology-research`、`20260906-natural-terrain-generation-research`、`r41`–`r43`、`r47`、`dual-agent-collaboration`、`release-reproducibility` | 里程碑任务书、架构、形态/自然研究、最大图基线、发布可复现 | 合同与护栏 |
+| 2026-09-08→09 | `docs/collaboration/status.zh-CN.md`（735 行调度板）+ `a-*` 系列 | A 的多轮验收 | `acceptance/a-milestone/` |
+| 2026-09-09 | `a-main-acceptance-20260909` | **A 正式签收** | 同上 |
+| 2026-09-16/17 | `milestone-b-plan`、`milestone-b-acceptance`、`ds-v41f-b01-b05-runbook`、`b01-supply-r1..r4` | B 计划/合同/runbook/供给链 | `acceptance/b01-supply/` |
+| 2026-09-20 | `b01-building-street-neighborhood-direction` | 用户补充要求（建筑/街道/新老城/区域工程/双塔/夜市/机场港口等） | `docs/collaboration/` |
+| 2026-09-22～28 | `b01-g11`…`b01-g34`、`dsh-b01-g*` | G 轮次（工程连接、预览消费者、HUD、相机、小地图…） | `acceptance/b01-rounds/` |
+| 2026-09-29 | `abc-goals-realignment-and-roadmap`（R01–R16）、`abc-follow-up-execution-plan`、`external-review-*`、`project-handoff-abc-b-mainline`、`c-post-c-six-capabilities-plan`（FUT-01–06） | **主线纠偏**：回到 B 生产链；登记六项未来能力；两份外部审查（K3/HY4） | `docs/collaboration/` |
+| 2026-09-30 | `dsh-autonomy-charter`、`dsh-b01-t2c-r11-goal-task` | 自主权章程 + 目标式任务（R1–R10 步骤清单作废） | `docs/collaboration/` |
+| 2026-10-01/02 | `dsh-b01-t2c-r11-inspector-note-1/-2` | R11 期间两次检查员便条（1km 额度 2/6） | `docs/collaboration/` |
+| 2026-10-04～09 | `bevy/work/collaboration/rk/T-0010`…`T-0013` | **T 工单流**：重构后 baked_audit 9 红 → 收敛到 1 红 | `bevy/work/collaboration/rk/` |
+| 2026-10-18 | 本文 + `acceptance/` 归档 | 需求/进度总账 | 本文件 |
+
+> 结论：**"最初的需求"是 2026-08-28 三份**。其中 `game-plan`/`game-todo` 的殖民游戏方向已被
+> 2026-09-01 现代世界方案取代（`abc-goals-realignment` R05 明确"游戏旧文档不自动覆盖现代世界路线"），
+> 但**其代码与 FPS 护栏仍在仓库里**（见 D1.5/D1.6），这是容易被忽略的历史包袱。
+
+---
+
+## 2. 状态口径
+
+### 2.1 状态词（互不替代，按强弱排序）
+
+| 词 | 含义 |
+|---|---|
+| `未开始` | 只有需求登记 |
+| `仅设计` | 有文档/字段设计，无生产代码路径 |
+| `字段已接` | 结构体/JSON 有字段，但生成器未真正消费 |
+| `模块已接·输入受限` | 有真实代码路径，缺输入或覆盖面窄 |
+| `仅 fixture` | 只在测试夹具里通过 |
+| `生产可用` | 当前源码在真实输入上跑通该环节 |
+| `真实世界通过` | 固定 1km 真实世界的该项审计通过 |
+| `跨尺度通过` | 512m + 1km + 6×10km 均有证据 |
+| `独立验收通过` | 独立检查者复算输入/hash/结果后裁定通过 |
+
+### 2.2 证据层级（`project-handoff` §10，8 级）
+
+`static` < `compile` < `unit` < `fixture` < `production-world` < `cross-scale` < `consumer` < `independent`。
+**高一级不能替代低一级**：compile 不能替代 fixture；fixture 不能替代 production-world；consumer 画出来不能证明语义正确；旧世界不能证明新源码。
+
+### 2.3 三条硬纪律（违反即返工，与功能进度无关）
+
+1. **质量判定必须同时看 exit code 与 JSON `status`**（只读 exit 0 曾误放过 fail）。
+2. **数值合同不许调松**：坡度、填方上限、走廊宽度、退界、审计精度、容差、需求数量、zoning、保护区、尺寸、比例、seed。
+   判据：改完之后，一个真实缺陷是否更难被发现？是 → 越线。
+3. **失败必须具名持久化**：拒绝写进权威产物，不许静默丢弃/静默压平/改名成"有意留白"。
+
+---
+
+## 3. 里程碑与合同矩阵
+
+### 3.1 三个里程碑
+
+| 里程碑 | 一句话 | 合同 | 状态 | 已知例外 |
+|---|---|---|---|---|
+| **A 稳定底座** | 世界可以难看，但必须可复现、可追溯、消费者不能造物 | A-01～A-10（`acceptance-contract.zh-CN.md`） | ✅ 2026-09-09 `milestone-A-accepted`；`worldQualityStatus=fail` | **六条内容失败**（见 5.3），明文说不许继承到 B/C |
+| **B 真实街区/聚落** | 每个实体都能反查到 道路→地块→建筑→入口→账本，且面积守恒 | B-G1～B-G8（`milestone-b-acceptance`） | ⚠️ `partial` | 全区块内容缺口；细则见第 5 章 |
+| **C 自然—工程—人文** | 自然决定选址，工程反过来改地形水文，消费者读同一版本 | C-N1/N2、C-E1/E2、C-H1/H2、C-L1、C-V1、C-G1 | ❌ 未实质开工 | 局部工程/剖面已存在，不等于闭环 |
+
+### 3.2 B 的五个批次（真正的实施里程碑）
+
+| 批次 | 交付 | 前置条件 | 状态 |
+|---|---|---|---|
+| B-01 独立地块几何 | 真实前/侧/后院临路 parcel，替代"楼框+2m"；512m 小场景 | — | ⚠️ 进行中（当前 T-0013 就在这一段） |
+| B-02 需求与道路容量 | 24 段自动路预算 vs 882 目标的供给限制显式化；主次支路与农田可达 | B-01 工程自测 | ⚠️ 部分（r47 自动路已生成真实增量） |
+| B-03 用途—实际覆盖闭合 | 城市未建地/院落通道/农田田埂农路/自然保留地的实际表面 | B-02 在小场景证明接口 | ⚠️ 部分（缺额 50.23km² 仍在） |
+| B-04 形态与公共服务 | 紧凑混合/低密住宅/村落农田的可辨认差异；设施服务范围、步行联系 | B-01～B-03 接口可用 | ❌ 未开始（形态 profile 未接真实生成） |
+| B-05 集成与生态尾差 | 多 seed 7/42/2026、非零 origin、最大图一次集成、生态缺 1 株 | 上述接口稳定 | ❌ 未开始 |
+
+### 3.3 需求 ID 交叉对照
+
+| 源 | ID 范围 | 含义 | 在本表位置 |
+|---|---|---|---|
+| `abc-goals-realignment` §3 | R01–R16 | 追溯式总需求（最完整的一份） | 第 4 章逐条落位 |
+| `acceptance-contract` | A-01–A-10 | A 的验收边界 | **5.1**（逐条现状）+ D18 |
+| `milestone-b-acceptance` | B-G1–B-G8 | B 的验收边界 | D9 / D10 / D11 / D17 |
+| `milestone-c-agent-task` | C-N1…C-G1（10 项） | C 的最终要求 | D7 / D8 / D11 / D13 / D14 / D15 |
+| `c-post-c-six-capabilities-plan` | FUT-01–FUT-06 | 未来能力（已登记，未实现） | **D19** |
+| 本文 | D1.1–D19.x | 仅导航用 | 第 4 章 |
+
+---
+
+## 4. 需求域表（19 个域）
+
+> 读法：`状态` 用 2.1 的词；`来源` 给出编号或文档；`证据/缺口` 只写有据可查的。
+> 标 ⚠️ 的行是本项目最容易"以为做了其实没做"的地方。
+
+### D1 产品形态与范围
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D1.1 | 默认输出 `2.5d`，可选 `2d`，**不做**对外完整 `3d` 生成模式 | 生产可用 | `renderMode: "2.5d"` 出现在每个 `world.json`；3D 只作为只读预览 |
+| D1.2 | 2.5D 是类 RTS 斜俯视浏览，**不实现**单位/战斗/建造/AI | 生产可用 | G27～G34 均为只读消费者 |
+| D1.3 | 1m×1m 逻辑单元；Heightfield + 地表 + 少量地下体素；默认合并 Mesh，可切 1m³ 方块视觉 | 生产可用 | 高度场 1m 网格；无体素地下层（体素仅 `.gemap` 存储层概念） |
+| D1.4 | 风格由用户决定；参考素材不得自动成为正式资源；默认占位用原创程序化几何 | 部分 | 资产为 Quaternius 外部模型 + 程序化占位 |
+| D1.5 | **殖民挑战游戏方向**（Flood Fortress：`GameCommand` 命令层、铜银金评级、ASR/本地模型接缝） | 已搁置 | 代码仍在 `bevy/crates/core/src/gameplay/{command,sim,state,snapshot}.rs`；未在 09-01 之后的路线中出现 |
+| D1.6 | 大图脚本化检查维持 **≥150 workload FPS**（`pnpm bevy:fps`） | 已搁置但脚本仍在 | `package.json` 仍注册 `bevy:fps`；无当前世界上的最新测量 |
+
+### D2 坐标 / 尺寸 / 分块 / 流式
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D2.1 | 场景尺寸：最小 512×512m，默认 1km×1km，最大 **6km×10km**；任意整数米，不要求 512 倍数 | 跨尺度通过 | A 的最终世界 6000×10000m / 240 chunks；b8 与 R11 为 1000×1000m |
+| D2.2 | 边缘分块按 512m 存储，超出实际场景范围标 `void` | 生产可用 | chunk 索引与 `void` 标记在 `scene.json` |
+| D2.3 | 流式块 512m；一个流式块含多个 `.gemap v3` **16m 存储 Chunk**；32×32 Region 概念保留；三类名词不得混用 | 生产可用 | `chunk-{x}-{z}.*` 命名；文档层面仍未统一口播"块" |
+| D2.4 | 对外坐标 `world_x`(东+)/`world_z`(南+)/`world_y`(米)；`gemap v3` 内部冻结 `(z,x,y)`，转换覆盖正负坐标与分块边界并有单测 | 生产可用 | 多处 `world_x/z/y` 契约；转换测试存在 |
+| D2.5 | 场景数默认 1，可扩到 3~5，>5 只给预算警告不失败 | 仅设计 | 实测全部单场景 |
+| D2.6 | 正式生成必须**完整烘焙**所有场景与分块，不得只生成局部 | 生产可用 | 1km/6×10km 均全量烘焙 |
+| D2.7 | `terrainDomain{originX,originZ,widthM,depthM}`：所有场景须完整位于其中，越界/溢出/未知字段拒绝；同 seed 同域重叠坐标取同高 | 生产可用 | r23 |
+
+### D3 高度精度
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D3.1 | 支持毫米精度（`style.heightPrecision = "millimeter"`），默认仍兼容旧的 0.25m i16 | 生产可用 | r23；当前 1km 与 6×10km 世界均走毫米 |
+| D3.2 | `GWHM v1` 头 16B（magic/version/width/depth）+ 行优先 i32 LE 毫米；长度必须 `16+W×D×4`；单块 1..512 | 生产可用 | r23 §GWHM |
+| D3.3 | sidecar 必须声明 `heightEncoding` 与 `heightPrecisionM`；旧客户端不得跳过 sidecar 直接读 raw i16 | 生产可用 | 两种编码名并存 |
+| D3.4 | LOD overview 的 0.25m 与 chunk `minQuarterM/maxQuarterM` 是**粗摘要**，不能当毫米工程证据 | 生产可用 | r23 |
+| D3.5 | 连续性审计直接算米高度差（`maxBoundaryHeightStepM`），不得先舍入到 0.25m 再判 | 生产可用 | r23 |
+| D3.6 | 采样误差 ≤0.0005m；编码器拒绝非有限值/超 i32/数量错误 | 生产可用 | r23 §encoder |
+
+### D4 存储格式 / LOD / 渲染流
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D4.1 | `.gemap v3` 为发布/交换/离线导入归档格式；sidecar 为消费者分片读取（JSON 元数据 + 二进制主体） | 生产可用 | `world.gemap` + `sidecar.json` 每世界都有 |
+| D4.2 | `world.json` 存范围/场景图/LOD/seed/版本/哈希；`scene.json` 存尺寸/原点/分块索引；chunk JSON 存坐标/有效尺寸/边界摘要/文件名/哈希 | 生产可用 | b8 `world.json` 1KB，字段齐全 |
+| D4.3 | LOD0=1m（近景）、LOD1=4/8m、LOD2=32/64m（战略图）；真源始终是 Manifest+seed | 生产可用 | `lod2.bin` 存在 |
+| D4.4 | 发布前必须校验 `.gemap` 与 sidecar 一致 | 生产可用 | 独立 gate 含该项 |
+| D4.5 | 消费者不得读整份 `scene.json`：必须走内容寻址 render-stream（目录 + 每块 payload） | 生产可用（A-07 后） | r44：367MB scene → 3.24MB 目录 + 240 payload 138.7MB；首块 7.008s→5.311s、JS heap 675MB→61.6MB |
+| D4.6 | 发布顺序：序列化+SHA256 → 同内容文件逐字节相同 → 临时文件 flush/rename → 最后替换 `preview-scene.json`；只有 404 才退回旧 `scene.json` | 生产可用 | r44 §发布顺序 |
+
+### D5 输入 / Manifest / Patch / 可复现
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D5.1 | 自然语言与严格 JSON/YAML 都归一化为唯一 `glyphweave.manifest.json`；确认后才生成 | 生产可用（JSON 路径） | 31 份 `examples/*.manifest.json` 是输入矩阵；NL 入口不是 CLI 能力 |
+| D5.2 | Seed + Manifest + 生成器版本必须可复现；同输入两次字节一致 | 生产可用 | A 的确定性重跑 1777/1778 文件字节相同，唯一差异是 `generation-report.json.output` |
+| D5.3 | 不得覆盖原始 Manifest；每次修改追加**不可变 Patch**；世界版本 = Manifest 哈希 + Patch 链哈希 + 生成器版本 | ⚠️ **未实现** | b8 `world.json` 实测 `"patchChainHash": ""`（空串）；CLI 有 `patch` 子命令但生产链未接 |
+| D5.4 | 关键字段缺失必须追问，禁止静默补写；软约束可降级但要写进报告；**硬冲突必须失败** | 部分 | manifest 校验严格（未知字段拒绝），但"追问"无实现 |
+| D5.5 | CLI 至少 `generate / patch / validate / pack / unpack / inspect` + 输出 `generation-report.json` | 生产可用 | 实际子命令已扩展为 `generate-world`/`world-quality-gate`/`export-preview-stream`/`design-road-corridor` 等 |
+| D5.6 | Agent 不得直接写二进制/改 Manifest；只能产 Patch 由 CLI 重烘焙 | 仅纪律 | 无强制机制 |
+
+### D6 实体身份 / 跨块 / 资源替换
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D6.1 | 每个关键实体唯一全局 `entity_id`；大型实体 anchor/朝向/尺寸/bounds | 生产可用 | 实体命名 `generated.frontage.scene-0....` |
+| D6.2 | 跨 512m 分块的实体**只有一份定义**，分块只存引用/局部代理/裁剪 | 生产可用 | 跨块 patch 按 ID 合并、重复 ID 几何必须一致（r44） |
+| D6.3 | 入口/交互点/碰撞/传送点用全局坐标 | 生产可用 | `frontageRoadPoint` 即全局点 |
+| D6.4 | 资源只引用 `asset_id`；`assets/glyphweave.registry.json` 可覆盖占位；替换不得改坐标/实体 ID | 生产可用 | registry + `licenses/` 存在 |
+| D6.5 | 生成器不得覆盖用户 `assets/`；生成物进 `generated/` | 生产可用 | 输出目录约定 |
+| D6.6 | 稳定 ID / 存量约束：新增无关需求不得重排他人身份；移动/移除要显式记录 | ⚠️ **未达成** | r47 实测：96 个旧 ID 不再出现、117 个新 ID 出现、125 个同名对象数据变化，仅 218 个几何相同只是改名；A-03 的"存量"仍靠测试而非机制 |
+
+### D7 自然地形（形态与侵蚀）
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D7.1 | 连续、可复现的高度场：同一世界坐标同一地形，邻近格高差受控 | 生产可用 | `value_noise2d`/`fbm2d` + `landform_field`（河谷/平原/丘陵/山地四带） |
+| D7.2 | 山脊谷地/盆地/河流/流域/汇流/闭合洼地，多尺度连续 | 部分 | 有 1628 个闭合洼地统计与 4 个未解决平坦终端（r44 gate）；不等于流域水文 |
+| D7.3 | 明确侵蚀模型与近似边界；不得给噪声改名冒充真实侵蚀 | ⚠️ 未达成 | 现有 `erosion_carve` 自述"不是粒子模拟"；r28 标注 `domain-approximation` |
+| D7.4 | C-N1：每个自然算法的出处矩阵（Mapgen4 / symbios-ground / 自写 / 近似边界）+ 可保留/拆分/替换决策 | ❌ 未开始 | 只有 `mapgen4-hydrology-plan` 计划；无逐函数矩阵 |
+| D7.5 | 保护/未知用途不得被建设改写；保护边缘填土包络 `final ≤ natural + 0.5 × Chebyshev距离(m)` | 生产可用 | r24 §保护区；实测保护区 9,602,160m²、高度改变样本 0 |
+| D7.6 | 现有石头/树/旧路/旧农田/围墙/旧建筑作为 `ExistingFeature` 先落地，声明来源、永久性、保护级别、可移动性与转化策略 | 仅设计 | 形态研究 §171；架构文档 §43-45；代码中无该持久化结构 |
+| D7.7 | 版本化快照：`NaturalTerrainSnapshot`（heightfield/climate/drainage/water/landform/hazard/ecology + source/version）与 `EngineeredTerrainSnapshot`（有序操作/土方/结构实体/影响块/排水影响/稳定性/final hash）分别保存、分别审计 | 部分 | `natural-terrain.json` 与 `engineered-terrain.json` 已产出；schema 未达设计文档要求的字段面 |
+| D7.8 | `DrainageGraph`：节点/边/流域/流量等级/洪泛区/沉积带；河流必须是图而不是装饰折线 | 部分 | 现有 32m 采样 D8-style 地表流图（标注 `derived-d8-sampled-v1`）；512m 场景 257 节点/248 边/0 无效边/0 环；最大图 1628 个闭合洼地、**4 个未解决平坦终端** |
+| D7.9 | 宏观地貌波长 ≥ 短边的 1/5–1/2、山脊谷地长程相关、迎风/背风与岩性影响、边缘外延避免截断 | 仅设计 | 自然研究 §97-104 |
+
+### D8 水文与工程地形
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D8.1 | 最大填方 **6000mm**；纵向坡度 **80mm/m = 8%**；硬支撑优先于软过渡；只填高不挖低自然层 | 生产可用 | r45/r46/r47 一致引用；回归测试"路肩只改 1mm 必须失败" |
+| D8.2 | 路面宽 4–32m 偶数、单侧路肩 0–8m（样例 8+3+3=**14m** 支撑） | 生产可用 | r45/r46 |
+| D8.3 | 保护区填土衰减包络；水体相交拒绝，不虚构桥梁 | 生产可用 | r45 §拒绝 |
+| D8.4 | 平台/挖填/路堤/边坡/挡墙/排水/涵洞作为工程实体并参与土方差量 | ❌ 未开始 | r46 §3.2 明说"没有完成走廊外边坡、路拱、排水、竖曲线舒适性或全域土方平衡" |
+| D8.5 | C-E2 工程后水文反馈（阻水/溢流/断流/涵洞正负测试） | ❌ 未开始 | 现有 `sampled drainage` 自述不是水量/洪泛模型 |
+| D8.6 | 工程操作与最终地形/实体/审计共享同一版本 | 部分 | v2 工程快照绑定真实道路实体 ID（r46） |
+| D8.7 | 地形只能通过**显式工程操作**改变：cut / fill / retain / embank / reclaim / channel / bridge / culvert / terrace；每个操作记录 footprint、原始自然场版本、目标高程、材料体积、排水影响、边坡稳定性、相邻影响、原因与审计状态；`final = natural + ordered deltas` | 部分 | 目前只有 fill + road profile 进 bake；其余操作**无实现** |
+| D8.8 | 工程优先级：保育/水体/灾害 > 主排水 > 桥/堤 > 主路 > 次路 > 地块平台 > 建筑地基 > 装饰性微地形 | 部分 | 硬支撑优先级已实现（道路 > 建筑），其余未实现 |
+
+### D9 道路
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D9.1 | 低地骨架路网真实连通并独立审计 | 生产可用 | r47：246 条基线边；`lowland_road_network_is_real_connected_and_independently_audited` |
+| D9.2 | 自动生长：Agent 只给用途/长度/预算，Rust 决定线路；预算耗尽保留未满足目标 | 生产可用 | r47：`maxNewSegments` 样例 24、尝试预算 4096、长度 {512,256,128,64}、`reachDistanceM` 160 |
+| D9.3 | 目标判定必须"footprint 正面积相交 **且** 分区中心 Manhattan 距离 ≤ reach"；只有边界接触不算 | 生产可用 | r47 §74-78（曾出现"目标满足但区内无路"的假阳性） |
+| D9.4 | 显式扩展走廊：轴向、偶数米长、最小 16m、最大 10km；端点须为已有节点且标高一致；平台 ≥8m；路口 8m；跨保护/水体拒绝 | 生产可用 | r46 |
+| D9.5 | 纵断面 `roadProfile`：整数毫米站点、按世界坐标插值；**整条路不能用一个 worldY 推高度** | 生产可用 | 扩展路；⚠️ 基础边在 T 系列重构后也带 profile，正是当前回归源（见 §6） |
+| D9.6 | 毫米道路审计容差 **0.00005m**（旧平路 0.26m）；1mm 篡改必须失败 | 生产可用 | r46 §4 |
+| D9.7 | 共享路口只允许双方声明的端点；隐式 T 形连接拒绝，不自动拆分原路 | 生产可用 | r47 §95-97 |
+| D9.8 | 主次支路分级、小巷、真实转向/路口几何、立交 | ❌ 未开始 | 道路仍是 64m 级低地网格 |
+
+### D10 地块 / 建筑 / 入口 / 院落 / 设施
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D10.1 | 地块边界、建筑 footprint、院落、公共空间各有独立几何来源（不得"楼框+固定 2m"当所有类型地块） | ⚠️ 部分 | 当前仍是 `development::plan` 把 site bbox 各扩 2m；B-01 就是来取消它的 |
+| D10.2 | 院落：1m 单元切分、25% 坡地上限、草地 0.025m 覆盖偏移、面积守恒、拒绝具名 | 生产可用 | r21：208m²/1817m² 实现；1km 有 55m² 因 `yard_grade_exceeds_25_percent` 未实现 |
+| D10.3 | 临街程序 `style.frontageProgram` v1：station 间距 8–128m 偶数、setback 8–32m 偶数、单请求 ≤1024/总 ≤2048/≤64 请求、候选预算 ≤65536 | 生产可用 | r48；必须 road-first + 毫米 |
+| D10.4 | 建筑必须同时具备：平台整地、真实步行入口、指定道路连接面（4m 宽硬支撑） | 生产可用 | r48 `frontageRoadPoint`；门前凸起 1.5–5m 的失败已修 |
+| D10.5 | 住宅最低数 `housingMinimum`（0–65536，按场景）：设施优先后必须补足，不许改低 | 生产可用（fixture 18/18） | r27；`examples/service-program-joint-plains.manifest.json` = 18 |
+| D10.6 | 设施程序：类型/尺寸/数量显式，按原尺寸规划不缩小；三层分离（请求 / 计划候选 / 有入口实现） | 生产可用 | r26：请求 4、计划 3→4、实现 3→4；尺寸范围 store 6–40/6–30/3–12、school 30–128/26–120/4–30、church 12–80/12–80/3–40、town_hall 30–128/24–120/8–60、market 36–128/30–128/3–20 |
+| D10.7 | 联合审计：实体 ID 唯一、类型/尺寸/变换/入口与计划一致；保存的 audit 声称 pass 不能覆盖实际数据 | 生产可用 | r27 §5；CLI 从 manifest+自然重建 |
+| D10.8 | 地块四朝向、非零 origin、跨 zone 分摊、无重叠守恒 | 部分 | 有测试；大规模真实世界未验 |
+| D10.9 | 形态学驱动的街区差异（紧凑混合/低密/村落）、多入口、共享步行网络 | ❌ 未开始 | B-04 |
+| D10.10 | ⚠️ `engineered_placement::reconcile` 必须遵守对象描述符声明的 `fallback`（skip 就跳过），不得把不合规小卖部升级成整图失败；跳过必须具名 + 计数 | **未修**（T-0013 授权项） | T-0012 §2：`assets/objects/storefront.object.toml` 要求 road 距离 8m，而 fixture `setbackM = 12` → 立面间隙约 14m，必然不满足 |
+| D10.11 | 可通行合同：最大纵坡 **25%**（`access::WALKABLE_GRADE = 0.25`，`worldgen/access.rs:16`）、入口引道 **2m**（`ENTRANCE_APRON_RUN_M = 2.`，`worldgen.rs:4258`）→ 引道容差 0.5m；入口台阶 0.30m；通道 1.5m 宽、2m 搜索网格、120m 预算、≤6000 展开节点 | 生产可用 | 一手核对常量；这组数字是当前回归的判据来源（见 §6.1） |
+| D10.12 | 任何建筑（authored 或 generated）都必须有真实入口：缺入口/入口不在边界/被挡/台阶超限各有独立状态码 | 生产可用 | AccessGraph v2；`quality-report` 从最终 heightfield 与实体重算，不信任 scene 里的计数 |
+
+### D11 用途与地表实现 / 账本
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D11.1 | Landcover 候选五角色：`managed_yard` / `agriculture_candidate` / `conservation_candidate` / `future_development` / `unmanaged`；候选**不等于**实现 | 生产可用 | r19；已规划道路/建筑 footprint 不再进 remainder，避免重复消费 |
+| D11.2 | 用途账本四行（urban/rural/nature/unassigned）× 七列物理表面（buildings/roads/managedGrass/accessPavement/cultivatedSoil/fieldHeadland/farmTracks） | 生产可用 | r25 |
+| D11.3 | 三条守恒等式：行 `realized = Σ物理列`；行 `planned = realized + unresolved`；全图 `sceneArea = Σrealized + Σunresolved` | 生产可用 | r25 §41-43；独立 gate 校验 `landUseLedger.status` |
+| D11.4 | `allocationStatus` 与 `realizationStatus` 分离：分配在容差内 ≠ 实现；剩余面积归零才算 realized | 生产可用 | r25 §107 |
+| D11.5 | 口径版本标识必须一致：`disjoint-owned-surfaces-v1/v2/v3`、`disjoint-purpose-cover-v1`、`legacy-entity-proxy` 不得混加 | 生产可用但易错 | r25/r21/r22 三代标识并存；`byKindM2` 已降级为 `entityFootprintDiagnostic` |
+| D11.6 | 庭院实现：1m 单元、25% 坡上限、草地 0.025m 偏移、入口铺装求交去重、面积守恒 | 生产可用 | r21：208m²/1817m²；1km 有 55m² 因 `yard_grade_exceeds_25_percent` 拒绝 |
+| D11.7 | 农业实现：田块尺寸可配 16–128m（4 的倍数，默认 24×24）、耕作面 (w−8)×(d−8)、田面 12% 坡、4m 通道/8%/160m、有界绕行 A*（4096 节点） | 生产可用 | r22/r40/r41；seed42 田块 23→29，seed7 仍 24 |
+| D11.8 | 自然保留地实际地表：16m 网格分类 ground/forest_floor/wetland，面积守恒，水体相交不生成 | 生产可用（示例） | r28：49152m² = 40960+4352+3840 |
+| D11.9 | `future_development` / `unmanaged` / `reserved` 一律不得自动获得 realized 信用 | 生产可用 | r18 §61-70 明确列账 |
+| D11.10 | 最大图用途实现闭合 | ⚠️ **未达成** | r49：实现 9,769,950m²、未实现 **50,230,050m²**；A 例外 #2/#5/#6 即此项 |
+| D11.11 | landcover 实际表面全部实现 | ⚠️ **未达成** | A 例外 #3 `landcover remains unrealized`；小示例已闭合，最大图仍缺 |
+| D11.12 | 保护区填土距离查询精确且高效（Chebyshev，非欧氏） | 生产可用 | r42：8.52–10.75× 加速，1238 个保护矩形、200000 次查询逐项等价 |
+
+### D12 生态
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D12.1 | 密度按面积驱动（单位：实例/ha）：forest 420（canopy 40%/understory 30%/ground 30%）、wetland 280（emergent 70%/understory 30%）、shrubland 190（shrub 60%/ground 40%） | 生产可用 | r38；不是冠幅覆盖率或生物量 |
+| D12.2 | 用**累计取整**而非逐 patch 上取整（100×256m² 森林 = 1075 而非 1100） | 生产可用 | r38 §36-39 |
+| D12.3 | 严格等式：patch 目标 = Σ层目标 = 已生成 + 缺额 | 生产可用 | r38 §49-51 |
+| D12.4 | 定位用精确实体矩形净空（旋转矩形、1e-9 容差、仅边界接触不算重叠），失败在 16m patch 内按 1m 步长找 289 个备用格点 | 生产可用 | r37 |
+| D12.5 | 实例 ID = sourcePatchId + layer + ordinal；用 blake3(seedOffset, id) 取位置扰动，Y 仍从 `BakedTerrain` 采样 | 生产可用 | r38 §57 |
+| D12.6 | 植物有缺额时，即使地表 100% 实现，`SurfaceAudit.status` 也保持 `incomplete` | 生产可用 | r38 §77 |
+| D12.7 | 最大图配额 **342,380** 株 | ⚠️ 缺 1 株 | r43 缺 3 → r46/r47/r49 稳定缺 **1**；A 例外 #4 至今未关 |
+| D12.8 | 渲染用实例化：每活动块/种类一个 `InstancedMesh`，失活块 dispose | 生产可用 | r39：1915 实例 → draw calls 1915→**3**，三角形数不变 21630，geometry 1915→3 |
+| D12.9 | 物种级群落/演替/湿地水位适宜性/林冠真实覆盖 | ❌ 未开始 | r38 §92 自述未完成 |
+
+### D13 形态与文化案例
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D13.1 | 案例规模：**中国 12 + 美国 12 + 欧洲 12**（各 5 城区 + 4 乡村 + 3 荒野）+ **日本 6 城区 + 香港 6 城区**，共 **48** | 仅研究 | 形态研究 §40/64/88/107/120。⚠️ 历史表述对日/港"6 城区"是**合计还是各自**存在歧义（`milestone-b-plan` §5），定稿前不得宣称已覆盖 |
+| D13.2 | 证据等级 A（政府导则/官方数据/法规）、B（OSM/公开卫星/GIS）、C（学术论文）、D（旅游网页，仅观察线索） | 仅研究 | 形态研究 §20-23 |
+| D13.3 | 参数按分布而非"国家开关"：街区尺度、路网层级、地块深度、退界、混合度、绿地比例、坡地工程、滨水公共性、历史叠加 | 仅研究 | 形态研究 §16 |
+| D13.4 | **6 种城市形态**：`dense-core` / `river-delta` / `coastal-bay` / `mountain-valley` / `temperate-plain` / `low-density-suburban`，只改分布先验不改硬约束；路网尺度 260/360/460m | **已实现** | 一手确认：`CityForm` 枚举与字符串解析在 `worldgen.rs:589-604`，有 `profile_entities` 与多主题测试 |
+| D13.5 | **12 种聚落原型**（河谷线性镇/海湾港口/山前台地/平原网格/轨道新城/工业铁路带/湖滨旅游/三角洲堤防/岛屿多中心/林地村镇/农田道路聚落/旧城新区拼接） | 仅设计 | 形态研究 §150-152；代码中无对应结构 |
+| D13.6 | 每个参数的 landRatio 与 density 分开（landRatio 是场景面积比，density 是同类地块内强度），不能混用 | 部分 | 参数基线表存在（道路 0.08–0.22/0.55–1.00 等），未逐条落地 |
+| D13.7 | `MorphologyProfile` 14 字段；每个值须标 `hard_constraint`/`soft_preference`/`observed_source`/`inference`/`confidence` | 仅设计 | 现有 `settlement/morphology.rs` + `morphology_compile.rs` 是编译层，不是该 14 字段合同 |
+| D13.8 | 12 步生成顺序：自然与水文 → 灾害/保护区 → 历史要素 → 基础设施 → 城乡分区 → 主干路与公交节点 → 街区/地块/公共空间 → 建筑入口院落 → 商业/学校/市场/夜市 → 街树/林带/公园 → 人为自然影响 → 全局审计 | 部分 | 现有顺序为 自然→分区→道路→地块→建筑→地表→生态；缺历史要素/公交/公共空间 |
+| D13.9 | 生成器必须能回答"每个对象为什么在这里"（父节点/约束/评分/替代候选/拒绝原因） | 部分 | 各 `*-audit.json` + 决策日志；无统一血缘字段 |
+
+### D14 消费者（HTML / Godot / 预览服务）
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D14.1 | HTML 战略图用 Konva/Canvas，只加载 LOD2 与场景/分块元数据 | 生产可用 | `adapters/html` |
+| D14.2 | Three.js 2.5D 近景只加载视口附近块（3×3 或 5×5），读高度场/地表/实体索引/地标轮廓 | 生产可用 | render-stream 按活动集加载与释放 |
+| D14.3 | 支持 scene_id/chunk_x/chunk_z 与 world_x/z/y 显示、按坐标定位 | 生产可用 | G29～G30 读图栏 |
+| D14.4 | 第一版 HTML 不直接编辑大世界二进制；改动只能经 Patch 回 CLI 重烘焙 | 未实现 | 无编辑通道（依赖 D5.3） |
+| D14.5 | `glyphweave preview <world-dir>` 只读静态结果、不触发生成；可部署到普通静态服务器 | 生产可用 | 多轮用 `preview` 端口 88xx 查看 |
+| D14.6 | 消费者不得自行解释"房屋=院子"、不得再贴地、不得丢毫米偏移 | 生产可用（有回归） | r21/r48 各修过一次同类问题 |
+| D14.7 | Godot 4.7 + GDScript：只读 sidecar、运行时建 Mesh/碰撞/实体节点、相机附近加载卸载、启动校验哈希、缺失块属发布错误 | ⚠️ **从未运行验收** | r23 明说环境无 Godot 可执行文件，未跑 GDScript 测试或截图 |
+| D14.8 | 开发版显示坐标 HUD / 作弊传送；发布版隐藏调试但保留剧情传送点 | 部分 | HUD 有；传送/发布版区分无证据 |
+| D14.9 | A-07：全 240 块加载/卸载/重访与来源一致 | 独立验收通过 | A 签收：240/240 chunks、3 warm、9 revisit、网络重试、过期响应 pass |
+
+### D15 资产 / 许可 / 发布
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D15.1 | 生成器不得覆盖用户 `assets/`；生成物进 `generated/`、参考素材进 `references/`、正式素材进 `assets/` | 生产可用 | 输出目录约定 |
+| D15.2 | 格式：3D 优先 `.glb`，兼容 `.gltf + .bin + textures`；Godot 支持 `.tscn`/`.tres`；2D 支持 `.png`/`.webp` | 部分 | 当前资产为 `.obj`+`.mtl` 与 `.gltf`；`.glb` 无 |
+| D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
+| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **未完成** | 两项明确未解析：Quaternius 建筑资产精确上游包、`@cloudflare/workerd-windows-64@1.20260701.1` 许可元数据（A-09 一直带着这两项签收） |
+| D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | 仅纪律 | 多轮文档反复声明"未复制 Mapgen4/symbios-ground 源码"；**无正式矩阵**（= C-N1 缺口） |
+| D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
+| D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |
+
+### D16 性能与资源
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D16.1 | 最大图生成与独立 gate 各 **600s / 8192MiB**（private bytes），不得事后提高 | 生产可用（多次触线） | r43 379.267s；r46 418.541s/183.121s；r47 452.017s/216.332s；r49 388.459s/176.504s；**r48 曾 600.088s 被预算中止** |
+| D16.2 | 24 段自动路是**内容供给预算**，不是计算预算，两者不得混淆 | 生产可用 | r47 §150-154；B-G7 |
+| D16.3 | 性能优化必须同输入等价对照（linear vs indexed） | 独立验收通过 | A-05：生态 linear/indexed blake3 相同，检查量 4,583,094,907 → 48,484 |
+| D16.4 | 地表阶段耗时须可分解（trace） | 生产可用 | r49：访问图 0.037s / 院落 0.648s / 农业 9.651s / 自然覆盖 0.039s / **生态 59.675s** |
+| D16.5 | 全文读取大 JSON 不得成为瓶颈（流式/紧凑表示） | ⚠️ 风险 | r47 自述权威 JSON 已接近 Node 全字符串读取容量风险区 |
+| D16.6 | 150 workload FPS（游戏侧） | 无当前证据 | 见 D1.6 |
+
+### D17 多场景与转接点
+
+| ID | 需求 | 状态 | 证据 / 缺口 |
+|---|---|---|---|
+| D17.1 | 显式 `scene_graph`，每场景独立 scene_id/尺寸/原点/seed/分块索引 | 部分 | `world.json` 有 `sceneGraph` 字段，实测均单场景 |
+| D17.2 | transition（道路出口/渡口/山口/洞穴/传送门）含源/目标/坐标/朝向/落点 | ❌ 未开始 | 无实测场景 |
+| D17.3 | 相邻场景仅在 Manifest 声明后做连续生成，并校验高度/河流/道路/地表连续性 | ❌ 未开始 | — |
+| D17.4 | 分块可并行但必须读相邻边界摘要校验；冲突则终止发布 | 部分 | 跨 chunk 高度连续性有测试与审计 |
+| D17.5 | 单场景内跨块实体不重复、不遗漏 | 生产可用 | r44 跨块 patch 按 ID 合并 |
+
+### D18 验收与流程纪律（贯穿全项目）
+
+| ID | 需求 | 状态 | 说明 |
+|---|---|---|---|
+| D18.1 | 证据分 8 级，互不替代 | 执行中 | 见 2.2 |
+| D18.2 | 质量判定同时看 exit code 与 JSON `status` | 执行中 | 曾因只看 exit 0 误接受 fail |
+| D18.3 | 不得调松任何数值合同；判据是"真实缺陷是否更难被发现" | 执行中 | 章程 §3 第 4 条 |
+| D18.4 | 拒绝必须具名、持久化、可序列化往返；不许静默丢弃/静默压平 | 执行中 | r26/r27/r48 均把拒绝写进权威 JSON |
+| D18.5 | 测试/世界运行额度逐进程记账，超支保留不抵消 | 执行中 | G 轮次大量超支案例 |
+| D18.6 | 金标准回归：`c3_base_identity_*`、`w4_chain_digest_*` 不得改期望值 | 执行中 | T-0012 §4 明列为不可动 |
+| D18.7 | 世界生成后目录即冻结；预览只能在副本上操作 | 执行中 | 章程 §4 |
+| D18.8 | A 的六条内容例外不得继承为 B/C 的通过条件 | 执行中 | `milestone-b-plan` §8 |
+| D18.9 | 主 Agent 只做范围/裁定/集成，不代写实现；worker 不自行签收 | 执行中 | 多份裁定反复强调 |
+
+### D19 未来能力（FUT-01～06，全部未实现）
+
+| ID | 能力 | 分期 | 当前状态 |
+|---|---|---|---|
+| FUT-01 | 自然语言局部 Patch 编辑 | C 最小版本 | 未开始（且依赖 D5.3 Patch 链） |
+| FUT-02 | LLM 生成非内置 Recipe + 有作用域规则 | C 接口，C 后实现 | 未开始 |
+| FUT-03 | 公里级复合设施拆分组装、跨 chunk 身份与连接 | C 基础接口 | 未开始（机场/港口/高铁等只有需求登记） |
+| FUT-04 | 地理/气候/季风/洋流/地质背景的事实—推断—假设分层 | C 自然主线 | 未开始 |
+| FUT-05 | 现实地名/GIS 分层近似重建 | C 后独立导入包 | 原型存在：`tools/gis-fetch-overpass.js`、`examples/shenzhen-bay-gis.manifest.json`（2000×2000m、132 建筑+145 道路+1 桥）；许可未审 |
+| FUT-06 | 纯代码/preset 种子与 LLM 冻结计划重放分离 | C 先定合同 | 未开始 |
+
+---
+
+## 5. 进度
+
+### 5.1 A 里程碑（A-01～A-10）签收后的实际状态
+
+A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**，不是"今天源码仍然通过"。
+
+| 合同 | 当时的证据 | 今天是否仍成立 |
+|---|---|---|
+| A-01 源码/输入/runtime 对应 | R2/R3 构建来源 + U1 两 JS 增量 hash | ⚠️ 源码已改（T 系列重构），旧 runtime 不再对应当前源码 |
+| A-02 固定实体/入口/访问图 | frontage 144/144 有入口 | ⚠️ 重构动了 profile/entry 链，T-0013 正在修 |
+| A-03 确定性/稳定 ID/存量 | 已绑定 stable-v1 / inventory-preserving 回归；R2 权威世界与冻结世界字节等价 | ⚠️ r47 实测 96 ID 消失/117 新 ID；存量机制仍缺 |
+| A-04 6×10km + 独立 gate | 240 chunks、gate 退出 1、六类失败 | 结构成立；内容缺口仍在 |
+| A-05 性能等价 | 生态 linear/indexed blake3 相同（4,583,094,907 → 48,484 次检查） | ✅ 源码未动该路径 |
+| A-06 权威数据/投影闭包 | header/scene/auditInput 闭包修复 | ✅ |
+| A-07 240 块生命周期 | 240/240、3 warm、9 revisit、2 retry | ✅ 消费者侧；后续 r44 又加了 streaming |
+| A-08 自然/保护/最低需求 | 保护区高度改变样本 0 | ✅ |
+| A-09 许可库存 | Cargo/pnpm 清单 + Three LICENSE | ⚠️ 两项仍未解析（Quaternius 建筑包、workerd-windows-64） |
+| A-10 正负回归 | Rust 470、Vitest 170、Node 252 | ⚠️ 当前全库为 core lib 626 + 其余，见 §6 |
+
+### 5.2 6×10km 最大世界的数字演进（同一类口径，逐轮可比）
+
+| 指标 | r43 基线 | r46 显式走廊 | r47 自动生长 | r49 沿路开发 |
+|---|---:|---:|---:|---:|
+| 实体 | 623 | 625 | 644 | 786 |
+| 道路边 | 246 | 248 | 270 | 270 |
+| 农田 | 270 | 331 | 501 | 428 |
+| 地表 patch | 37,462 | 37,656 | 38,318 | — |
+| 植物 | 342,377 | 342,379 | 342,379 | 342,379 |
+| 植物缺额 | 3 | 1 | 1 | 1 |
+| 城市实际用地 m² | 0 | 4,006 | 106,384 | 190,782 |
+| 城市建筑 footprint m² | 0 | 0 | 0 | **72,000** |
+| 农村 m² | 434,668 | 484,472 | 597,784 | — |
+| 全图已实现 m² | 9,464,668 | 9,518,478 | 9,734,168 | **9,769,950** |
+| 全图未实现 m² | 50,535,332 | 50,481,522 | 50,265,832 | **50,230,050** |
+| 生成耗时 s | 379.267 | 418.541 | 452.017 | 388.459 |
+| 独立 gate 耗时 s | 166.997 | 183.121 | 216.332 | 176.504 |
+| gate 结果 | fail | fail | fail | fail |
+
+> 读法：**城市建筑从 0 到 72,000m² 是 r48/r49 的真实增量**（120 户 + 24 铺），
+> 但未实现面积只从 50,535,332 降到 50,230,050（−0.6%）。这就是"生成了楼，但城市还没被填满"的量化形态。
+
+### 5.3 A 的六条内容例外（至今未关闭，且明令不得继承）
+
+| # | 原文 | 现在 |
+|---|---|---|
+| 1 | `"scene-0" automatic road targets remain out of reach after "segment_budget_exhausted"` | r47 实测 882 目标 / 满足 69 / **813 未满足**；仍有 `segment_budget_exhausted` |
+| 2 | `purpose-area allocation or realization remains incomplete` | 未实现 50,230,050m² |
+| 3 | `landcover remains unrealized` | 农村/城市 remainder 未实现（自然保留地在小示例已闭合） |
+| 4 | `ecology density budget has 1 unfilled plants` | 仍缺 1 株 |
+| 5 | `land-use planning or realization remains incomplete` | 同 2 |
+| 6 | `road-first land-use development remains incomplete` | 同 2 |
+
+### 5.4 B 的实际状态
+
+- **道路**：骨架 + 自动生长 + 显式扩展 + 纵断面 + 独立审计，已是生产可用且跨尺度（1km 与 6×10km）验证。
+- **地块/建筑**：fixture 级闭合（18/18 住宅、4/4 设施、5 个沿路对象），真实 1km 世界只有 1 个 frontage site、21 栋实现建筑、0/120 住宅（b8）。
+- **用途/地表**：账本与守恒成立，内容大面积缺额。
+- **生态**：机制成立，配额缺 1。
+- **形态**：6 种城市形态已有代码，12 种聚落原型与 MorphologyProfile 仍是研究。
+- 结论：**B 整体 partial**，卡点在"基础路 profile → 站点 → 地块 → 建筑"这一段，不在账本、不在消费者、不在性能。
+
+### 5.5 C 的实际状态
+
+C-N1（来源矩阵）未做、C-N2（真实地貌）只有近似、C-E1（工程实体）只有道路 profile 与填土、C-E2（工程后水文）未做、
+C-H1/H2（形态与账本）部分、C-L1（许可）两项未解析、C-V1（最终效果）未做、C-G1（最终 gate）未做。
+**C 尚未实质开工**，现有工程能力只构成 C-E1 的局部预支。
+
+---
+
+## 6. 当前卡点（2026-10-04～10-09 的 T 系列）
+
+一次重构（让**基础边**也带 graded profile）把 `cargo test --workspace` 推红：`baked_audit` 9 条失败 → T-0010/T-0011/T-0012 收敛到 **25 ok / 1 fail**，另 `morphology_compile` 1 ok / 1 fail。**T-0013 已下任务书，但截至 2026-10-18 没有任何执行证据**（`bevy/work/collaboration/rk/T-0013/` 只有 `pm/`）。
+
+### 6.1 卡点一：18 户的入口落差（baked_audit 第 7 条）
+
+- 现象：`joint_program_recovers_housing_minimum_and_preserves_source_obligations` 期望 `realizedResidentialWithAccess = 18`，实际 **1**。
+- 机理：`examples/service-program-joint-plains.manifest.json`（`housingMinimum: {"scene-0": 18}`）在平坦示例上，基础边 profile 使路面在 24m 窗口内下沉约 **1.1m**；站点 pad 靠 **2m 引道**接不上，几何无解。
+- **一手核对**：`WALKABLE_GRADE = 0.25`（`bevy/crates/core/src/worldgen/access.rs:16`）、`ENTRANCE_APRON_RUN_M = 2.`（`bevy/crates/core/src/worldgen.rs:4258`），两处判据在 `worldgen/road_network.rs:400` 与 `:405`。故引道可承载落差 = 0.25 × 2 = **0.5m** < 1.1m → 无解，与 T-0012 的实测一致。
+- 已排除的三条 pad 侧路线（T-0012 实测）：(a)(b) 否决；(c) "pad 窗口内开挖"实现后让 `explicit_services` 的真实缺口消失（期望 `incomplete` 变 `pass`），按"真实缺陷更难被发现"判据回退。
+- T-0013 授权方向：**在基础边 profile 的生成/接受阶段加可行性闸门**——若某边 grading 使自己的 roadside pad 落差超出可行走包络，则拒绝该边 grading、保持平坦、走**具名 refusal**，不得静默压平；若牵动 `c3_base_identity`/`w4_chain_digest` 两条金标则停下报告。
+- 额度：cargo 再 60 次；不需要世界运行。
+
+### 6.2 卡点二：`morphology_compile`（资产合同 vs 测试夹具）
+
+- 根因已定位：`assets/objects/storefront.object.toml` 要求 `road distance = 8.0`（`distance_metric = footprint`，`fallback = "skip"`），而测试 fixture（`crates/cli/tests/morphology_compile.rs:83`）给的 `setbackM = 12` → 立面到路缘约 14m > 8m，对象合同必然不满足。
+- 放大器：`engineered_placement::reconcile` 把**任何**带 `frontage_road_point` 的实体当 fixed，命中规则拒绝直接 `Err`，**不读描述符自己声明的 `fallback = skip`** → 一个不合规小卖部就能让整张世界烘不出来。
+- T-0013 采纳：`reconcile` 遵守 `fallback`（skip 就跳过），硬要求具名 refusal + 计数，不改测试、不改 assets。
+
+### 6.3 卡点三：制度性（非技术）
+
+项目 2026-10-09 之后 9 天无新证据。当前状态是 **"1 条红 + 1 条未修的已知缺陷 + 一份未执行的授权"**，不是"已卡死"，随时可从 `T-0013/a/` 继续。
+
+---
+
+## 7. 缺口清单与优先级
+
+按"挡住多少下游"排序，不按工作量排序。
+
+| 优先级 | 缺口 | 挡住什么 | 建议动作 |
+|---|---|---|---|
+| P0 | 基础边 profile 可行性闸门（§6.1） | 整个 B-01 收口与后续所有建筑内容 | 执行 T-0013 |
+| P0 | `reconcile` 遵守 `fallback`（§6.2） | 世界可烘性；任何不合规对象都能炸整图 | 执行 T-0013 |
+| P0 | Patch 链（D5.3） | FUT-01/02/06、D14.4 编辑通道、R02 | 设计 `patchChainHash` 与 CLI `patch` 的真实接线 |
+| P1 | 稳定 ID / 存量约束（D6.6） | 增量编辑、迁移、A-03 的真正达成 | 定义 identity 合同 + 迁移记录 |
+| P1 | 真实 1km 世界的 frontage 供给（b8：1 个 site） | B-01 的"真实世界"证据 | 沿 b8→r11 链路查为什么站点只有 1 个 |
+| P1 | 农田/未建城市地的地表实现（50.23km²） | B-03、A 例外 2/3/5/6 | 分 urban/rural/自然三类逐项报 realized/unresolved |
+| P1 | 生态缺 1 株 | A 例外 4、C-G1 | 单独查该株的合法候选与拒绝原因，不删需求 |
+| P2 | 主次支路分级、路口真实几何 | B-04、C-H1 | 需要水平曲线与转向几何 |
+| P2 | 工程实体（边坡/挡墙/排水/涵洞）+ 工程后水文 | C-E1/E2 | 先做 C-N1 来源矩阵，再引实现 |
+| P2 | 形态 profile 编译（D13） | B-04 | 先把 12 原型中的 2–3 个落到参数，不追求全覆盖 |
+| P2 | Godot 从未运行验收（D14.7） | C-V1 的跨引擎交付 | 装 Godot 4.7 跑一次最小场景 |
+| P3 | 多场景/转接点（D17） | R12、C-G1 | 单场景稳定后再谈 |
+| P3 | 许可两项未解析 | C-L1、发布 | 建筑资产与 workerd 元数据 |
+
+---
+
+## 8. 需要项目负责人拍板的决策（不是执行问题）
+
+1. **A 例外 1 怎么关**：24 段自动路是**内容供给预算**。是提高这个预算（需前瞻批准，且不能冒充计算预算），还是承认"有限供给"并写进需求？两者都合法，但不能默认 24 段等于够用。
+2. **18 户是需求还是能力投影**：若是需求 → T-0013 的生成侧闸门是正解；若连"拒绝 grading 保平坦"也过不了，下一步只能动 `ENTRANCE_APRON_RUN_M`/`WALKABLE_GRADE` 这类**数值合同**，需要你签字。
+3. **storefront 8m vs fixture 12m**：改测试期望，还是改 `assets/objects/storefront.object.toml` 的距离？这会立"资产合同 vs 测试"谁优先的先例。
+4. **B 的完成是否包含 48 个案例**：文档只说是"研究/参数来源要求"。若要求每个案例可探索，B 的工作量翻倍；若只要求参数有出处，B-04 可以只做 2–3 个原型。
+5. **50.23km² 缺口里"本质不可能"占多少**：A 的 9,769,950/60,000,000 是冻结历史值，需要一次同口径重算（要不要花大图额度？）。
+6. **G27～G34 的 viewer 维护责任**：B/C 一改生成，它们的语义可能失效，但现在是冻结状态。
+
+---
+
+## 9. 证据索引
+
+| 类型 | 位置 |
+|---|---|
+| 验收/检验文档（212 份） | `docs/collaboration/acceptance/`（映射见 `moved-files.json`） |
+| A 的机器证据 | `docs/collaboration/acceptance/a-milestone/evidence/` |
+| 当前 1km 真实世界（b8） | `bevy/work/collaboration/ds-b-mainline-resume-20260929/runs/b8-current-a01/world/` |
+| R1～R11 轮次证据（含 1km 世界） | `bevy/work/collaboration/ds-b01-t2-production-chain-continuation-20260929/r{2..11}/` |
+| 当前 T 工单证据 | `bevy/work/collaboration/rk/T-0010/`～`T-0012/`（`T-0013/` 仅有 `pm/`） |
+| 最大图历史世界 | `bevy/work/r43-maximum-baseline`、`r46-maximum-extensions-v2`、`r47-maximum-auto-final`、`r49-frontage-maximum` |
+| 输入矩阵 | `examples/*.manifest.json`（31 份） |
+| 独立检查脚本 | `scripts/check-*.mjs`（frontage/render-stream/automatic-roads/road-corridor/…） |
+
+---
+
+## 10. 本文的边界与文档卫生问题
+
+**我实际做了什么**：通读 A/B/C 合同、纠偏路线图、交接文档、调度板；精读 r27、r46、r48、r49、形态研究与地表实现三份；
+其余 r23–r43、r44–r45 与 r47 及两份研究文档由只读抽取员逐份整篇读取并给出行号出处，我据此转述；
+**一手核对过源码常量**：`WALKABLE_GRADE`、`ENTRANCE_APRON_RUN_M`（见 §6.1）、`CityForm` 的 6 种形态（`worldgen.rs:589-604`）、
+`baked_audit` 的 26 个测试函数名，以及 b8 `world.json` 中 `patchChainHash` 为空串。
+**我没有做**：独立重跑世界/gate/测试；未通读 Rust 业务源码；未复算任何 hash 或面积。
+
+**文档本身的卫生问题（会误导后来者）**：
+
+1. `r28-conservation-ground-surface.zh-CN.md` 正文标题写的是 **r32**，`generatorRevision` 也是 r32 —— 文件名与内容不一致。
+2. r 系列**缺 r29–r36**，但 `20260906-natural-human-development-roadmap` 里引用了 r33/r34/r36 的内容。
+3. `20260906-natural-human-development-roadmap` 第 10 行**自我校正**：第 20–52 节部分"已完成"声称与实际代码不符 —— 引用该文档时必须先读这一行。
+4. 早期 `game-plan`/`game-todo` 与主线无交叉说明，容易被当成仍有效需求（D1.5）。
+5. `20260902-acceptance-list-1.md` 是**规则引擎**的验收清单，与 B/C 地表链无关，容易误并。
+6. 同一"上限"有三种写法：`6km x 10km`、`6 km × 10 km`、`6000 10000`。
+7. `b8 world.json` 的 `patchChainHash` 为空串，说明 Patch 链未接生产；但多份文档仍以"Patch 可重建"表述需求，容易被读成已实现。
+

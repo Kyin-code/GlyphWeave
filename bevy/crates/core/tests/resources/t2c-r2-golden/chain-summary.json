@@ -1,0 +1,14 @@
+{
+  "candidateSites": 80,
+  "edges": 80,
+  "entities": 80,
+  "entityIdsHash": "9c160ff2a64bdbffae3097c3f7fd81109e942e43475efa6ed7e4461c814c6bcb",
+  "levelM": 6,
+  "model": "zoned-fill-envelope-lowland-frontage-v4",
+  "profileSampleHash": "11826ff626db78b6c75007229b0b4f090ebc22df66d8b2b8f5df0c440e6306f7",
+  "profiledEdges": 80,
+  "rejectionCategories": [],
+  "rejections": 0,
+  "stations": 240,
+  "status": "planned_connected_network"
+}

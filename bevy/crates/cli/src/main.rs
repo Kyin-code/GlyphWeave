@@ -1,3 +1,9 @@
+mod context_preview3d;
+mod context_preview;
+mod context_preview_entry;
+mod engineering_connections;
+mod engineering_context;
+mod engineering_preview;
 mod road_corridor;
 use glyphweave_core::baked_terrain::BakedTerrain;
 use glyphweave_core::height_payload::HeightEncoding;
@@ -81,6 +87,18 @@ fn run(args: Vec<String>) -> CliResult<()> {
         "preview" => preview_command(&args[1..]),
         "design-road-corridor" => road_corridor::run(&args[1..], false),
         "verify-road-corridor" => road_corridor::run(&args[1..], true),
+        "build-engineering-connection" => engineering_connections::run(&args[1..], false),
+        "verify-engineering-connection" => engineering_connections::run(&args[1..], true),
+        "export-engineering-preview" => engineering_preview::run(&args[1..], false),
+        "audit-engineering-preview" => engineering_preview::run(&args[1..], true),
+        "export-engineering-context" => engineering_context::run(&args[1..], false),
+        "audit-engineering-context" => engineering_context::run(&args[1..], true),
+        "export-context-preview" => context_preview::run(&args[1..], false),
+        "audit-context-preview" => context_preview::run(&args[1..], true),
+        "saved-context-preview" => context_preview_entry::run(&args[1..]),
+        "saved-context-preview-handoff" => context_preview_entry::run_handoff(&args[1..]),
+        "export-context-preview3d" => context_preview3d::run(&args[1..], false),
+        "audit-context-preview3d" => context_preview3d::run(&args[1..], true),
         "export-preview-stream" => export_preview_stream_command(&args[1..]),
         "audit-preview-stream" => audit_preview_stream_command(&args[1..]),
         "convert" => convert_command(&args[1..]),
@@ -480,6 +498,9 @@ fn write_generation_report(
     let placement = fs::read(output.join("rules-placement.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let effective = fs::read(output.join("effective-programs.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let report = serde_json::json!({
         "format": "glyphweave.generation-report",
         "version": 1,
@@ -495,6 +516,8 @@ fn write_generation_report(
         "generatorRevision": glyphweave_core::worldgen::WORLD_GENERATOR_REVISION,
         "patchChainHash": manifest.as_ref().map(|m| m.patch_chain_hash.clone()).unwrap_or_default(),
         "placement": placement,
+        // Present only when a morphology profile compiled effective programs.
+        "effectivePrograms": effective,
         "output": output.display().to_string(),
     });
     fs::write(
@@ -666,6 +689,27 @@ fn read_inventory_approvals(path: &Path) -> CliResult<Vec<EntityChangeApproval>>
     Ok(approvals)
 }
 
+/// Independent effective-program audit. The manifest's original style and
+/// morphology profile are recompiled and compared with the published
+/// `effective-programs.json`; the returned value is the recompiled effective
+/// style used by the downstream program audits.
+fn audit_effective_programs(
+    root: &Path,
+    manifest: &WorldManifest,
+) -> CliResult<serde_json::Value> {
+    let published: Option<serde_json::Value> = fs::read(root.join("effective-programs.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let compiled = glyphweave_core::settlement::morphology_compile::audit_published(
+        published.as_ref().unwrap_or(&serde_json::Value::Null),
+        &manifest.style,
+        &manifest.scenes,
+    )?;
+    Ok(compiled
+        .map(|compiled| compiled.style)
+        .unwrap_or_else(|| manifest.style.clone()))
+}
+
 fn validate_world_command(args: &[String]) -> CliResult<()> {
     let root = Path::new(one_path("validate-world", args)?);
     let world: glyphweave_core::worldgen::WorldIndex =
@@ -673,6 +717,23 @@ fn validate_world_command(args: &[String]) -> CliResult<()> {
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
     manifest.validate()?;
+    // Recompile the effective programs from the original manifest+profile and
+    // bind them to the published document. The generator's own report is never
+    // trusted as input.
+    let effective_style = audit_effective_programs(root, &manifest)?;
+    // The road geometry revision is part of the world identity: it is rebuilt
+    // from the original manifest/effective programs, never read from the
+    // product's own claim. A product that can use the 16m graded band must
+    // publish it, and a product that cannot must not.
+    let expected_geometry =
+        glyphweave_core::worldgen::road_geometry_revision_for_style(&effective_style);
+    if world.road_geometry_revision.as_deref() != expected_geometry {
+        return Err(format!(
+            "road geometry revision mismatch: published {:?}, expected {:?} from the recompiled manifest/effective programs",
+            world.road_geometry_revision, expected_geometry
+        )
+        .into());
+    }
     let expected_revision = world_manifest_revision(&manifest)?;
     if world.revision != expected_revision {
         return Err(format!(
@@ -1316,6 +1377,9 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let manifest: WorldManifest =
         serde_json::from_slice(&fs::read(root.join("glyphweave.manifest.json"))?)?;
     manifest.validate()?;
+    // The program audits below must consume the same compiled effective input
+    // that generation used; the published document is re-derived, not trusted.
+    let effective_style = audit_effective_programs(&root, &manifest)?;
     let profile = LandUseProfile::from_style(&manifest.style);
     // The current profile-driven land-use generator runs on land scenes only.
     // Do not falsely grade a water template or naturalOnly scene against a
@@ -1572,9 +1636,15 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             if serde_json::to_value(&published)? != serde_json::to_value(plan)? {
                 return Err("road network plan copies differ".into());
             }
-            let service_program = glyphweave_core::worldgen::services::from_style(&manifest.style)?;
-            let audit = glyphweave_core::worldgen::road_network::verify_with_style(
+            let service_program =
+                glyphweave_core::worldgen::services::from_style(&effective_style)?;
+            // The independent audit derives its natural source from the trusted
+            // original manifest (the same rule generation uses) instead of the
+            // undeclared legacy wrapper, so a version-3 supply program can be
+            // re-planned and compared here.
+            let audit = glyphweave_core::worldgen::road_network::verify_with_manifest(
                 plan,
+                &manifest,
                 spec,
                 &natural_terrain,
                 &terrain,
@@ -1582,7 +1652,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 &scene.entities,
                 Some(&scene.land_use_zones),
                 service_program.as_ref(),
-                &manifest.style,
+                &effective_style,
             )?;
             if audit.status != "pass" {
                 warnings.push(format!(
@@ -1686,10 +1756,25 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             }
             glyphweave_core::settlement::farm_program::audit_source(
                 &plan.farm_pattern,
-                &manifest.style,
+                &effective_style,
                 spec,
             )?;
-            glyphweave_core::settlement::development::audit_landcover(plan, spec, development)?;
+            glyphweave_core::settlement::residual_land::validate_manifest(
+                &effective_style,
+                &manifest.scenes,
+            )?;
+            let expected_residual =
+                glyphweave_core::settlement::residual_land::audit_source(
+                    plan.residual_program.as_ref(),
+                    &effective_style,
+                    spec,
+                )?;
+            glyphweave_core::settlement::development::audit_landcover(
+                plan,
+                spec,
+                development,
+                expected_residual.as_ref(),
+            )?;
             let surfaces = scene
                 .landcover_surfaces
                 .as_ref()
@@ -2822,7 +2907,17 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> CliResult<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave apply-patch-preserving BASE_WORLD MANIFEST.json PATCH.json APPROVALS.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave export-preview-stream WORLD_DIR\n  glyphweave design-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave verify-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
+        "Usage:\n  glyphweave init-world MANIFEST.json\n  glyphweave generate-demo-world OUTPUT_DIR\n  glyphweave generate-procedural-world OUTPUT_DIR WIDTH_M DEPTH_M [SEED] [THEME] [URBAN_RATIO] [PROFILE]\n  glyphweave generate-world MANIFEST.json OUTPUT_DIR\n  glyphweave apply-patch MANIFEST.json PATCH.json OUTPUT_DIR\n  glyphweave apply-patch-preserving BASE_WORLD MANIFEST.json PATCH.json APPROVALS.json OUTPUT_DIR\n  glyphweave quality-report WORLD_DIR\n  glyphweave scale-audit WORLD_DIR\n  glyphweave export-preview-stream WORLD_DIR\n  glyphweave design-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave verify-road-corridor WORLD_DIR REQUEST.json DESIGN.json\n  glyphweave build-engineering-connection --input INPUT.json --out BUNDLE.json --views DIR --report REPORT.json\n  glyphweave verify-engineering-connection --input INPUT.json --bundle BUNDLE.json --report REPORT.json
+  glyphweave export-engineering-preview --input INPUT.json --bundle BUNDLE.json --out NEW_DIR
+  glyphweave audit-engineering-preview --preview DIR --report NEW_REPORT.json
+  glyphweave export-engineering-context --world WORLD_DIR --window X,Z,W,D --out NEW_DIR [--scene SCENE_ID]
+  glyphweave audit-engineering-context --world WORLD_DIR --context DIR --report NEW_REPORT.json [--window X,Z,W,D]
+  glyphweave export-context-preview --world WORLD_DIR --context CONTEXT_DIR --out NEW_DIR [--window X,Z,W,D]
+  glyphweave audit-context-preview --world WORLD_DIR --context CONTEXT_DIR --preview DIR --report NEW_REPORT.json [--window X,Z,W,D]
+  glyphweave saved-context-preview --preview PREVIEW_DIR [--port N] [--report NEW_FILE.json] [--expect-scene SCENE_ID]
+  glyphweave export-context-preview3d --world WORLD_DIR --context CONTEXT_DIR --preview V1_DIR --out NEW_DIR [--context-audit REPORT.json]
+  glyphweave audit-context-preview3d --world WORLD_DIR --context CONTEXT_DIR --preview V1_DIR --preview3d DIR --report NEW_REPORT.json [--context-audit REPORT.json]
+  glyphweave saved-context-preview-handoff --preview PREVIEW_DIR [--port N] [--report NEW_FILE.json] [--expect-scene SCENE_ID]\n  glyphweave preview WORLD_DIR [PORT]\n  glyphweave convert [--mode flatten|preserve-layers] INPUT OUTPUT\n  glyphweave dump-chunk (--coord z,x,y | --section cz,rx,ry,rcx,rcy) [--limit N|--all] FILE\n  glyphweave inspect FILE\n  glyphweave validate FILE\n  glyphweave rules list DIR\n  glyphweave rules validate FILE\n  glyphweave rules check-dir DIR\n  glyphweave rules audit WORLD_DIR --rules DIR [--report PATH]\n  glyphweave intent draft INPUT.txt OUTPUT.json\n  glyphweave intent validate INTENT.json\n  glyphweave intent compile INTENT.json MANIFEST.json\n  glyphweave compact FILE"
     );
 }
 

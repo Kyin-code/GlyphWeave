@@ -641,6 +641,8 @@ mod tests {
         let roads = RoadNetworkPlan {
             automatic_extensions: None,
             frontage: None,
+            base_profile_rejections: Vec::new(),
+            roadside_site_rejections: Vec::new(),
             extensions: vec![],
             model: "test".into(),
             natural_heightfield_hash: "test".into(),
@@ -668,6 +670,8 @@ mod tests {
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,
+                // B01-T2 mechanical sync: this fixture builds an unprofiled legacy base edge
+                profile: None,
             }],
             roadside_sites: vec![],
         };

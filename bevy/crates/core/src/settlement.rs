@@ -12,7 +12,11 @@ mod pedestrian_index;
 pub mod farm_program;
 pub mod landcover;
 pub mod landuse_ledger;
+pub mod morphology;
+pub mod morphology_compile;
 pub mod proposals;
+pub mod residual_land;
+pub mod service_relations;
 
 use crate::worldgen::{EntityInstance, SceneSpec};
 use serde::{Deserialize, Serialize};

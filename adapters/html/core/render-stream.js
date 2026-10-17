@@ -38,10 +38,19 @@ export function createRenderStream(scene, fetcher = fetch) {
       loadedChunks: [...cache.keys()], residentBytes: [...cache.keys()].reduce((n, key) => n + descriptors.get(key).bytes, 0),
       attempts, requests, bytesFetched, discarded, failures, lastError }
   }
-  function read(d) {
+  async function read(d) {
     const key = d.chunkX + ':' + d.chunkZ
     if (pending.has(key)) return pending.get(key).promise
-    if (pending.size >= 2) throw new Error('Render stream pending budget exceeded (2)')
+    // The pending budget is a CONCURRENCY limit, not a failure. `load` starts
+    // every active chunk in one Promise.all, so a world with more than two
+    // chunks in view used to throw 'pending budget exceeded' on the third
+    // request even though nothing was wrong with the data. Wait for a slot
+    // instead; the accounting (peakPending, requests, bytesFetched) is
+    // unchanged, and `dispose` still aborts everything in flight.
+    while (pending.size >= 2) {
+      await Promise.race([...pending.values()].map(entry => entry.promise.catch(() => {})))
+      if (disposed) throw new Error('Render stream disposed')
+    }
     const controller = new AbortController()
     attempts++
     const promise = readPayload(d, controller.signal).finally(() => pending.delete(key))

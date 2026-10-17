@@ -2,7 +2,9 @@
 //! zone-sized building proxies. Half-open integer rectangles conserve area;
 //! zoning targets, building footprint and unfinished yard are distinct facts.
 use crate::worldgen::{
-    AccessGraph, EntityInstance, LandUseZone, SceneSpec, road_network::RoadNetworkPlan,
+    AccessGraph, EntityInstance, LandUseZone, SceneSpec,
+    parcel_geometry::{self, ParcelInsets},
+    road_network::RoadNetworkPlan,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,6 +89,8 @@ pub struct LandcoverPlan {
     pub cells: Vec<LandcoverCell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub farm_pattern: Option<super::farm_program::FarmPattern>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residual_program: Option<super::residual_land::SceneResidualProgram>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -146,6 +150,7 @@ pub fn plan_landcover(
         .collect();
     let plan = LandcoverPlan {
         farm_pattern: None,
+        residual_program: None,
         version: 1,
         source: "development-cells-v1".into(),
         scene_id: scene.scene_id.clone(),
@@ -162,6 +167,7 @@ pub fn plan_landcover_with_program(
 ) -> Result<LandcoverPlan, String> {
     let mut plan = plan_landcover(scene, development)?;
     plan.farm_pattern = super::farm_program::for_scene(style, scene)?;
+    plan.residual_program = super::residual_land::for_scene(style, scene)?;
     validate_landcover(&plan, scene, development)?;
     Ok(plan)
 }
@@ -188,6 +194,9 @@ pub fn validate_landcover(
                 return Err("farm pattern references non-rural or unknown source zone".into());
             }
         }
+    }
+    if let Some(program) = &plan.residual_program {
+        program.validate()?;
     }
     let source: BTreeMap<_, _> = development.cells.iter().map(|c| (&c.id, c)).collect();
     let mut ids = BTreeSet::new();
@@ -237,17 +246,48 @@ pub struct LandcoverAudit {
     pub cells: usize,
     pub failures: Vec<String>,
 }
-pub fn audit_landcover(
+/// Generation-time plan validation. Callers performing an independent audit
+/// must use `audit_landcover` with an explicitly sourced expected policy.
+pub fn validate_landcover_plan(
     record: &LandcoverPlan,
     scene: &SceneSpec,
     development: &DevelopmentPlan,
 ) -> Result<LandcoverAudit, String> {
     let mut expected = plan_landcover(scene, development)?;
     expected.farm_pattern = record.farm_pattern.clone();
+    expected.residual_program = record.residual_program.clone();
     if serde_json::to_value(record).map_err(|e| e.to_string())?
         != serde_json::to_value(&expected).map_err(|e| e.to_string())?
     {
         return Err("landcover plan differs from independently rebuilt remainder".into());
+    }
+    validate_landcover(record, scene, development)?;
+    let planned = record.cells.iter().map(|c| c.boundary.area()).sum::<u64>();
+    Ok(LandcoverAudit {
+        status: if planned == 0 { "pass" } else { "incomplete" }.into(),
+        planned_area_m2: planned,
+        realized_area_m2: 0,
+        unresolved_area_m2: planned,
+        cells: record.cells.len(),
+        failures: Vec::new(),
+    })
+}
+
+/// Independent landcover audit. `expected_residual` must come from the frozen
+/// manifest/scene source, never from `record` itself.
+pub fn audit_landcover(
+    record: &LandcoverPlan,
+    scene: &SceneSpec,
+    development: &DevelopmentPlan,
+    expected_residual: Option<&super::residual_land::SceneResidualProgram>,
+) -> Result<LandcoverAudit, String> {
+    let mut expected = plan_landcover(scene, development)?;
+    expected.farm_pattern = record.farm_pattern.clone();
+    expected.residual_program = expected_residual.cloned();
+    if serde_json::to_value(record).map_err(|e| e.to_string())?
+        != serde_json::to_value(&expected).map_err(|e| e.to_string())?
+    {
+        return Err("landcover plan differs from authoritative remainder/policy".into());
     }
     validate_landcover(record, scene, development)?;
     let planned = record.cells.iter().map(|c| c.boundary.area()).sum::<u64>();
@@ -283,6 +323,8 @@ pub struct FrontageParcel {
     pub boundary: Rect,
     pub footprint_m2: u64,
     pub yard_m2: u64,
+    #[serde(default, skip_serializing_if = "ParcelInsets::is_legacy")]
+    pub parcel_insets: ParcelInsets,
     /// A real lot may straddle the coarse zoning grid. Preserve exact source
     /// contributions instead of choosing a nearest zone and losing area.
     pub source_zones: BTreeMap<String, u64>,
@@ -401,7 +443,7 @@ pub fn plan(
     for e in roads.entities() {
         if !road_ids.insert(e.entity_id.clone())
             || (e.width_m != 64. && e.grounding.road_profile.is_none())
-            || e.depth_m != 8.
+            || !matches!(e.depth_m, 8. | 12. | 16.)
             || !matches!(e.rotation_y_deg, 0. | 90.)
         {
             return Err("invalid development source road".into());
@@ -410,9 +452,9 @@ pub fn plan(
             profile.validate_entity(&e).map_err(|error|error.to_string())?;
         }
         let (w, d) = if e.rotation_y_deg == 0. {
-            (e.width_m as u32, 8)
+            (e.width_m as u32, e.depth_m as u32)
         } else {
-            (8, e.width_m as u32)
+            (e.depth_m as u32, e.width_m as u32)
         };
         let r = Rect {
             x: i64::from(e.world_x) - i64::from(w / 2),
@@ -441,11 +483,13 @@ pub fn plan(
             return Err("invalid development source site".into());
         }
         let (hw, hd) = site.world_half_extents();
+        let insets = site.parcel_insets.unwrap_or_default();
+        let p = parcel_geometry::boundary_for_entity(&site.entity(), insets)?;
         let boundary = Rect {
-            x: i64::from(site.world_x) - i64::from(hw + 2),
-            z: i64::from(site.world_z) - i64::from(hd + 2),
-            width_m: (hw + 2) * 2,
-            depth_m: (hd + 2) * 2,
+            x: p[0],
+            z: p[1],
+            width_m: (p[2] - p[0]) as u32,
+            depth_m: (p[3] - p[1]) as u32,
         };
         if !scene_rect.contains(boundary)
             || road_rects.iter().any(|r| r.intersect(boundary).is_some())
@@ -475,6 +519,7 @@ pub fn plan(
             boundary,
             footprint_m2: footprint.area(),
             yard_m2: boundary.area() - footprint.area(),
+            parcel_insets: insets,
             source_zones,
         });
         entity.normalize_spatial_semantics();
@@ -602,11 +647,15 @@ pub fn validate(
         let b = buildings
             .get(&parcel.building_id)
             .ok_or("parcel missing building plan")?;
+        let expected_boundary = parcel_geometry::boundary_for_entity(&b.entity, parcel.parcel_insets)?;
         if !b.footprint.valid()
             || b.parcel_id != parcel.id
             || b.road_id != parcel.road_id
             || !parcel.boundary.contains(b.footprint)
             || b.footprint.area() != parcel.footprint_m2
+            || [parcel.boundary.x, parcel.boundary.z,
+                parcel.boundary.x + i64::from(parcel.boundary.width_m),
+                parcel.boundary.z + i64::from(parcel.boundary.depth_m)] != expected_boundary
         {
             return Err("building/parcel relationship mismatch".into());
         }
@@ -856,6 +905,8 @@ mod tests {
         let roads = RoadNetworkPlan {
             automatic_extensions: None,
             frontage: None,
+            base_profile_rejections: Vec::new(),
+            roadside_site_rejections: Vec::new(),
             extensions: vec![],
             model: "test".into(),
             natural_heightfield_hash: "source".into(),
@@ -888,6 +939,8 @@ mod tests {
                     rotation_y_deg: 0.,
                     natural_min_m: 0.,
                     natural_max_m: 0.,
+                    // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
+                    profile: None,
                 },
                 RoadEdge {
                     id: "road1".into(),
@@ -899,6 +952,8 @@ mod tests {
                     rotation_y_deg: 90.,
                     natural_min_m: 0.,
                     natural_max_m: 0.,
+                    // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
+                    profile: None,
                 },
             ],
             roadside_sites: vec![RoadsideSite {
@@ -910,7 +965,8 @@ mod tests {
                 width_m: 24,
                 depth_m: 24,
                 support_level_m: 0,
-                    support_level_mm: None,
+                parcel_insets: None,
+                support_level_mm: None,
                     frontage_road_point: None,
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
@@ -965,6 +1021,43 @@ mod tests {
             serde_json::to_value(&p).unwrap(),
             serde_json::to_value(plan(&s, &z, &r).unwrap()).unwrap()
         );
+    }
+    #[test]
+    fn explicit_asymmetric_parcel_insets_are_authoritative_and_tamper_evident() {
+        let (s, z, mut r) = fixture();
+        r.roadside_sites[0].width_m = 12;
+        r.roadside_sites[0].depth_m = 10;
+        r.roadside_sites[0].parcel_insets = Some(ParcelInsets {
+            front_m: 4,
+            side_m: 4,
+            rear_m: 12,
+        });
+        let p = plan(&s, &z, &r).unwrap();
+        let parcel = &p.parcels[0];
+        assert_eq!(
+            [
+                parcel.boundary.x,
+                parcel.boundary.z,
+                parcel.boundary.x + i64::from(parcel.boundary.width_m),
+                parcel.boundary.z + i64::from(parcel.boundary.depth_m),
+            ],
+            [54, 79, 74, 105]
+        );
+        assert_eq!(parcel.boundary.area(), 520);
+        assert_eq!(parcel.footprint_m2, 120);
+        assert_eq!(parcel.yard_m2, 400);
+        assert_eq!(parcel.source_zones.values().copied().collect::<Vec<_>>(), [260, 260]);
+        let mut forged = p.clone();
+        forged.parcels[0].boundary.x += 1;
+        assert!(verify(
+            &forged,
+            &s,
+            &z,
+            &r,
+            &forged.building_entities(),
+            &access(&forged)
+        )
+        .is_err());
     }
     #[test]
     fn subtraction_partitions_all_overlap_cases() {
@@ -1147,7 +1240,7 @@ mod tests {
         let (s, z, r) = fixture();
         let p = plan(&s, &z, &r).unwrap();
         let lc = plan_landcover(&s, &p).unwrap();
-        let audit = audit_landcover(&lc, &s, &p).unwrap();
+        let audit = audit_landcover(&lc, &s, &p, None).unwrap();
         assert_eq!(audit.status, "incomplete");
         assert_eq!(audit.realized_area_m2, 0);
         assert_eq!(audit.unresolved_area_m2, 128 * 128 - 992 - 576);
@@ -1162,7 +1255,7 @@ mod tests {
         let mut bad = lc.clone();
         bad.cells[0].realization_status = "realized".into();
         assert!(validate_landcover(&bad, &s, &p).is_err());
-        assert!(audit_landcover(&bad, &s, &p).is_err());
+        assert!(audit_landcover(&bad, &s, &p, None).is_err());
         let mut bad = lc.clone();
         bad.cells.pop();
         assert!(validate_landcover(&bad, &s, &p).is_err());
@@ -1176,7 +1269,7 @@ mod tests {
         assert!(validate_landcover(&bad, &s, &p).is_err());
         let mut bad = lc.clone();
         bad.cells[0].role = LandcoverRole::Unmanaged;
-        assert!(audit_landcover(&bad, &s, &p).is_err());
+        assert!(audit_landcover(&bad, &s, &p, None).is_err());
     }
     #[test]
     fn landcover_does_not_invent_agriculture_or_conservation_implementation() {
@@ -1191,7 +1284,7 @@ mod tests {
         assert_eq!(lc.cells[1].role, LandcoverRole::ConservationCandidate);
         assert!(lc.cells.iter().all(|c| c.realization_status == "planned"));
         assert_eq!(
-            audit_landcover(&lc, &s, &p).unwrap().unresolved_area_m2,
+            audit_landcover(&lc, &s, &p, None).unwrap().unresolved_area_m2,
             128 * 128
         );
     }

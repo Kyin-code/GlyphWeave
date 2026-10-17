@@ -20,6 +20,8 @@ pub struct PhysicalCover {
     pub roads_m2: f64,
     pub managed_grass_m2: f64,
     pub access_pavement_m2: f64,
+    pub public_open_space_m2: f64,
+    pub pasture_m2: f64,
     pub cultivated_soil_m2: f64,
     pub field_headland_m2: f64,
     pub farm_tracks_m2: f64,
@@ -31,6 +33,8 @@ impl PhysicalCover {
             + self.roads_m2
             + self.managed_grass_m2
             + self.access_pavement_m2
+            + self.public_open_space_m2
+            + self.pasture_m2
             + self.cultivated_soil_m2
             + self.field_headland_m2
             + self.farm_tracks_m2
@@ -205,6 +209,8 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
         match patch.material {
             Material::ManagedGrass => row.physical.managed_grass_m2 += size,
             Material::AccessPavement => row.physical.access_pavement_m2 += size,
+            Material::PublicOpenSpace => row.physical.public_open_space_m2 += size,
+            Material::PastureGround => row.physical.pasture_m2 += size,
             Material::CultivatedSoil => row.physical.cultivated_soil_m2 += size,
             Material::FieldHeadland => row.physical.field_headland_m2 += size,
             Material::FarmTrack => row.physical.farm_tracks_m2 += size,
@@ -371,7 +377,18 @@ mod tests {
     #[test]
     fn area_source_and_geometry_forgery_fail_closed() {
         let (scene, profile) = fixture();
-        for mode in 0..4 {
+        // Each forgery must fail for its OWN reason. Asserting only `is_err()` would let a forgery pass
+        // because some unrelated guard fired first, which is exactly the trap the reserved-purpose check
+        // sits behind: landuse_ledger's "hard development in reserved ledger purpose" is UNREACHABLE
+        // through analyze(), because the surface/source purpose mismatch is caught earlier at line 188
+        // and development.rs already refuses non-urban, non-rural development cells upstream.
+        let expected = [
+            (0, "ledger surface declared area differs from geometry"),
+            (1, "ledger surface purpose differs from source"),
+            (2, "ledger surface has no source cell"),
+            (3, "duplicate ledger surface id"),
+        ];
+        for (mode, reason) in expected {
             let mut bad = scene.clone();
             let patches = &mut bad.landcover_surfaces.as_mut().unwrap().patches;
             match mode {
@@ -380,7 +397,13 @@ mod tests {
                 2 => patches[0].source_cell_id = "forged".into(),
                 _ => patches.push(patches[0].clone()),
             }
-            assert!(analyze(&bad, &profile).is_err());
+            match analyze(&bad, &profile) {
+                Err(error) => assert_eq!(
+                    error, reason,
+                    "forgery mode {mode} must fail for its own reason, not for an unrelated guard"
+                ),
+                Ok(_) => panic!("forgery mode {mode} must not analyse cleanly"),
+            }
         }
         let mut missing = scene.clone();
         missing.landcover_surfaces = None;
