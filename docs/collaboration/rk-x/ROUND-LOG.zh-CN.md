@@ -59,7 +59,34 @@ round/reason/descriptorFallback）并把 `removedItems` 计入报告。authored 
 
 ---
 
-## 下一步（Round 3 计划）
+## Round 3 · 2026-10-18 · 真实 1km 世界对照（只读证据，无代码改动）
+
+用 b8 自己的 manifest（`ds-b-mainline-resume-20260929/runs/b8-current-a01/world/glyphweave.manifest.json`）
+在当前 exe 上重新生成：`bevy/work/rk-x/b8-with-r13`（512×512 视作 1 km 场景，51.7s，exit 0）。
+
+| 指标 | b8（修复前，文档记录） | 修复后（同输入，本次实测） |
+|---|---:|---:|
+| road edges | 46 | 46 |
+| 有分级 profile 的边 | 20 | **3** |
+| `grading_leaves_no_enterable_pad` 拒绝 | — | **23** |
+| roadside sites | 22 | 25 |
+| 带 frontage point 的站点 | 1 | **5** |
+| 有入口的 frontage 实现 | 1 | **3** |
+| quality status | fail | warn |
+
+**结论 1**：该闸门在真实场景同样成立——23 条基础边的分级会让自己的路边垫层无法进入，
+被具名拒绝后临街实现从 1 提升到 3，quality 从 fail 升到 warn。
+
+**结论 2（更重要）**：`frontageAudit` 显示 **requested 144 / planned 3 / realizedWithAccess 3 / unfilled 141**。
+即真实 1 km 世界的临街供给只有需求的 **2%**，瓶颈已经不在"垫层可进入性"，而在
+**frontage 候选供给**（`frontage_supply.rs`）：绝大多数请求连候选都没找到。
+这是下一轮 B-01 的主攻点，优先级高于继续调垫层。
+
+**额度记账**：本次 1 km 生成 1 次（R11 池 2/6 → 3/6）。调试 exe，不是 release。
+
+---
+
+## 下一步（Round 4 计划）
 
 1. **垫层模型决策（需项目负责人）**：平板垫层 + 纯填方 + 2 m 引道在坡度 ≥3.6% 的地形上
    数学上不可建（0.5 m ÷ 14 m 窗口）。这解释了 b8 真实 1 km 世界只有 1 个 frontage site。
