@@ -762,6 +762,7 @@ pub(super) fn plan_with_zones_demand(
                 side_m: 0,
                 rear_m: 0,
             }),
+            rural_conversion: super::frontage::RuralConversion::Disabled,
         };
         // B01-T2 R13 (T-0013): a grading is only usable if THIS edge's own roadside
         // pad can be entered from its graded surface. The pad is flat and the carve
@@ -4329,6 +4330,7 @@ mod tests {
             setback_m: 4,
             max_candidate_attempts: 8,
             parcel_insets: Some(super::super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
+            rural_conversion: super::super::frontage::RuralConversion::Disabled,
         }
     }
 

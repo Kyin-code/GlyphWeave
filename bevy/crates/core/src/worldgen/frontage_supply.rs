@@ -782,7 +782,19 @@ impl<'a> SupplyContext<'a> {
                 trace.attempted += 1;
                 let site = frontage::candidate_site(road, &r, &self.scene.scene_id, station, side)?;
                 let parcel = frontage::parcel_boundary(&site)?;
-                let envelope = frontage::envelope_reason(parcel, r.parcel_insets.unwrap_or_default(), site.rotation_y_deg, self.scene, self.zones, &r.purpose);
+                // The same gate production uses, including this request's along-road purpose
+                // conversion, so a measured supply can never disagree with the placement it predicts.
+                // The converted AREA is discarded here: this measurement is read-only and the bake's
+                // own `append` is the only authority that may publish a conversion record.
+                let (envelope, _converted_m2) = frontage::envelope_verdict(
+                    parcel,
+                    r.parcel_insets.unwrap_or_default(),
+                    site.rotation_y_deg,
+                    self.scene,
+                    self.zones,
+                    &r.purpose,
+                    r.rural_conversion,
+                );
                 let (reason, detail) = match envelope {
                     Some(reason) => (Some(reason), None),
                     None => state.assess_detailed(&site, plan)?,

@@ -7,7 +7,11 @@ use super::{
     development::{self, LandRole},
     landcover::{self, Material},
 };
-use crate::worldgen::{LandUseProfile, SceneIndex, SceneSpec};
+use crate::worldgen::{
+    LandUseProfile, LandUseZone, SceneIndex, SceneSpec, WaterGeometry,
+    frontage::{self, Conversion},
+    road_network::RoadNetworkPlan,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 const EPS: f64 = 1e-6;
@@ -70,9 +74,184 @@ pub struct LandUseLedger {
     pub unresolved_m2: f64,
     /// Subset of realized_m2, NOT another area to add to the purpose rows.
     pub transport_subset_m2: f64,
+    /// The purpose conversions this ledger applied, in plan order. Empty (and therefore absent) for
+    /// every world that never enabled the explicit along-road switch, so an old ledger round-trips
+    /// unchanged. Each row moved exactly its `area_m2` from rural to urban realization and from
+    /// nowhere else, which is what `audit_conversions` re-checks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversions: Vec<Conversion>,
     pub allocation_status: String,
     pub realization_status: String,
     pub status: String,
+}
+
+/// Independent verdict on the conversion accounting of one scene.
+///
+/// Nothing here is taken on trust: every record is re-derived from the plan's own parcel geometry,
+/// the zoning and the water authority, and the ledger's rows must be exactly the plan's records.
+/// A hand-edited ledger therefore fails by name instead of inflating urban realization.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversionAudit {
+    pub status: String,
+    /// Records the plan claims.
+    pub planned: usize,
+    /// Records the ledger applied.
+    pub applied: usize,
+    /// Sum of the verified conversion areas; the exact amount the ledger must have moved.
+    pub converted_m2: i64,
+    pub failures: Vec<String>,
+}
+
+/// The plan's conversion records, re-derived from their own parcels before any area moves.
+///
+/// A record is refused by name when it is not rural-to-urban, when its area is not a positive whole
+/// area, when the same parcel is counted twice, or when the parcel's buildable core is not wholly
+/// rural land. Water has no authority at this layer; the quality gate re-runs the same derivation
+/// WITH the water geometry.
+fn planned_conversions(
+    plan: &RoadNetworkPlan,
+    zones: &[LandUseZone],
+) -> Result<Vec<Conversion>, String> {
+    let records = plan
+        .frontage
+        .as_ref()
+        .map(|report| report.conversions.clone())
+        .unwrap_or_default();
+    let mut counted = BTreeSet::new();
+    for record in &records {
+        if !counted.insert(record.parcel_id.clone()) {
+            return Err(format!(
+                "ledger conversion parcel {} is counted twice",
+                record.parcel_id
+            ));
+        }
+        let recomputed = frontage::verify_conversion(plan, zones, None, record)?;
+        if recomputed != record.area_m2 {
+            return Err(format!(
+                "ledger conversion parcel {} declares {} m2 but its buildable core is {} m2",
+                record.parcel_id, record.area_m2, recomputed
+            ));
+        }
+    }
+    Ok(records)
+}
+
+/// Re-check the conversion accounting a PUBLISHED ledger claims against the plan it was built from.
+///
+/// The published ledger is the document a reader sees, so it is the one that must agree with the
+/// plan: a recomputed ledger alone would only prove the code agrees with itself. `None` means no
+/// published ledger carries the claim, which is itself a failure — a conversion that exists only in
+/// the plan earns no realization credit anywhere.
+pub fn audit_conversions(
+    plan: &RoadNetworkPlan,
+    zones: &[LandUseZone],
+    water: WaterGeometry,
+    ledger: Option<&LandUseLedger>,
+) -> ConversionAudit {
+    let records = plan
+        .frontage
+        .as_ref()
+        .map(|report| report.conversions.as_slice())
+        .unwrap_or(&[]);
+    let mut failures = Vec::new();
+    let mut converted_m2 = 0_i64;
+    let mut duplicated = BTreeSet::new();
+    for record in records {
+        if !duplicated.insert(record.parcel_id.as_str()) {
+            failures.push(format!(
+                "plan conversion parcel {} is recorded twice",
+                record.parcel_id
+            ));
+            continue;
+        }
+        match frontage::verify_conversion(plan, zones, Some(water), record) {
+            Ok(recomputed) if recomputed == record.area_m2 => converted_m2 += record.area_m2,
+            Ok(recomputed) => failures.push(format!(
+                "conversion parcel {} claims {} m2 but its buildable core is {} m2",
+                record.parcel_id, record.area_m2, recomputed
+            )),
+            Err(error) => failures.push(error),
+        }
+    }
+    let Some(ledger) = ledger else {
+        failures.push(format!(
+            "no published ledger carries the {} conversion(s) the plan claims",
+            records.len()
+        ));
+        return ConversionAudit {
+            status: "fail".into(),
+            planned: records.len(),
+            applied: 0,
+            converted_m2,
+            failures,
+        };
+    };
+    // The ledger rows must be exactly the plan's records: same count, same parcel ids, same areas.
+    let mut applied_by_parcel = BTreeMap::new();
+    for applied in &ledger.conversions {
+        if applied_by_parcel
+            .insert(applied.parcel_id.as_str(), applied)
+            .is_some()
+        {
+            failures.push(format!(
+                "ledger counts conversion parcel {} twice",
+                applied.parcel_id
+            ));
+        }
+    }
+    if ledger.conversions.len() != records.len() {
+        failures.push(format!(
+            "ledger applied {} conversions while the plan records {}",
+            ledger.conversions.len(),
+            records.len()
+        ));
+    }
+    for record in records {
+        match applied_by_parcel.get(record.parcel_id.as_str()) {
+            Some(applied) if *applied == record => {}
+            Some(applied) => failures.push(format!(
+                "ledger conversion parcel {} is {}-to-{} {} m2 but the plan records {} m2",
+                record.parcel_id, applied.from, applied.to, applied.area_m2, record.area_m2
+            )),
+            None => failures.push(format!(
+                "ledger is missing conversion parcel {}",
+                record.parcel_id
+            )),
+        }
+    }
+    // And the ledger's own rows must have moved exactly what its own conversion list claims, once.
+    // This is the `sum(conversions) == urban delta == rural delta` identity, checked against the
+    // ledger's OWN records so it stays meaningful even when the plan's claim could not be verified.
+    let claimed = ledger
+        .conversions
+        .iter()
+        .map(|record| record.area_m2)
+        .sum::<i64>() as f64;
+    match (
+        ledger.by_purpose.get("urban"),
+        ledger.by_purpose.get("rural"),
+    ) {
+        (Some(urban), Some(rural)) => {
+            let moved_in = urban.realized_m2 - urban.physical.total();
+            let moved_out = rural.physical.total() - rural.realized_m2;
+            if (moved_in - claimed).abs() > EPS || (moved_out - claimed).abs() > EPS {
+                failures.push(format!(
+                    "ledger moved {moved_in} m2 into urban and {moved_out} m2 out of rural, but \
+                     its conversions account for {claimed} m2"
+                ));
+            }
+        }
+        _ => failures.push("ledger is missing its urban or rural purpose row".into()),
+    }
+    let status = if failures.is_empty() { "pass" } else { "fail" };
+    ConversionAudit {
+        status: status.into(),
+        planned: records.len(),
+        applied: ledger.conversions.len(),
+        converted_m2,
+        failures,
+    }
 }
 
 pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLedger, String> {
@@ -106,6 +285,14 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
     if area <= 0. {
         return Err("ledger requires nonempty scene".into());
     }
+    // Explicit along-road purpose conversions are resolved BEFORE the rows are closed, so every
+    // conservation identity below is computed on the AFTER state instead of being patched up after
+    // the fact. Each record is re-derived from its own parcel, so a forged entry cannot move area.
+    let conversions = planned_conversions(roads, &scene.land_use_zones)?;
+    let converted_m2 = conversions
+        .iter()
+        .map(|record| record.area_m2)
+        .sum::<i64>() as f64;
     let norm = (profile.urban_target() + profile.rural_target() + profile.nature_target()).max(1.);
     let targets = [
         profile.urban_target() / norm,
@@ -121,6 +308,7 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
         realized_m2: 0.,
         unresolved_m2: 0.,
         transport_subset_m2: 0.,
+        conversions,
         allocation_status: "pass".into(),
         realization_status: "incomplete".into(),
         status: "incomplete".into(),
@@ -224,9 +412,21 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
             return Err("ledger source overcredited".into());
         }
     }
-    for row in result.by_purpose.values_mut() {
+    for (kind, row) in result.by_purpose.iter_mut() {
         row.planned_scene_ratio = row.planned_m2 / area;
         row.realized_m2 = row.physical.total();
+        // The converted land is a PURPOSE transfer, not new physical cover: the converted parcel keeps
+        // its buildings and roads in the rural row's physical totals (it still stands in a rural zone),
+        // and only the purpose realization moves. Both sides move by the same amount, so the totals
+        // below conserve exactly as before and nothing is counted twice.
+        match kind.as_str() {
+            "urban" => row.realized_m2 += converted_m2,
+            "rural" => row.realized_m2 -= converted_m2,
+            _ => {}
+        }
+        if row.realized_m2 < -EPS {
+            return Err("ledger conversion exceeds realized rural area".into());
+        }
         if row.realized_m2 > row.planned_m2 + EPS {
             return Err("ledger purpose overcredited".into());
         }
@@ -349,6 +549,177 @@ mod tests {
         assert!(scene.entities.iter().any(|e| e.kind == "residential_home"));
         assert_eq!(crate::worldgen::analyze_landuse_areas(&scene).rural_m2, 0.);
     }
+    /// B01 follow-up: an explicit along-road conversion must move EXACTLY the converted buildable
+    /// core from rural realization to urban realization, conserve every area identity, and be
+    /// auditable against the plan instead of trusting a published number.
+    #[test]
+    fn explicit_conversion_moves_exactly_the_buildable_core_and_forgery_fails() {
+        let (mut scene, profile) = fixture();
+        // The fixture's only frontage parcel is a 24x24 m home on a 28x28 m parcel with the legacy 2 m
+        // insets, so the 1 m skin inside those insets leaves a 22x22 = 484 m2 buildable core. It stands
+        // in the rural zone, which is exactly the land an explicit conversion may take.
+        let site_id = scene.road_network_plan.as_ref().unwrap().roadside_sites[0]
+            .id
+            .clone();
+        assert_eq!(site_id, "home");
+        let record = Conversion::rural_to_urban(&site_id, 484);
+        let baseline = analyze(&scene, &profile).unwrap();
+        let request = frontage::Request {
+            id: "homes".into(),
+            scene_id: "ledger".into(),
+            purpose: "urban".into(),
+            kind: "residential_home".into(),
+            count: 1,
+            width_m: 24,
+            depth_m: 24,
+            height_m: 8,
+            station_spacing_m: 16,
+            setback_m: 8,
+            max_candidate_attempts: 8,
+            parcel_insets: None,
+            rural_conversion: frontage::RuralConversion::RuralToUrban,
+        };
+        scene.road_network_plan.as_mut().unwrap().frontage = Some(frontage::Report {
+            version: 1,
+            model: "local-road-station-frontage-v1".into(),
+            outcomes: vec![frontage::Outcome {
+                request,
+                site_ids: vec![site_id.clone()],
+                attempted: 1,
+                unfilled: 0,
+                rejected: BTreeMap::new(),
+                stop_reason: "demand_satisfied".into(),
+            }],
+            conversions: vec![record.clone()],
+        });
+        let zones = scene.land_use_zones.clone();
+        let ledger = analyze(&scene, &profile).unwrap();
+        assert_eq!(ledger.conversions, vec![record.clone()]);
+        let urban = &ledger.by_purpose["urban"];
+        let rural = &ledger.by_purpose["rural"];
+        let base_urban = &baseline.by_purpose["urban"];
+        let base_rural = &baseline.by_purpose["rural"];
+        // 484 m2 moved, once, into urban and out of rural, and nowhere else
+        assert_eq!(ledger.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 484);
+        assert!((urban.realized_m2 - base_urban.realized_m2 - 484.).abs() < EPS);
+        assert!((base_rural.realized_m2 - rural.realized_m2 - 484.).abs() < EPS);
+        assert!((urban.realized_m2 - urban.physical.total() - 484.).abs() < EPS);
+        assert!((rural.physical.total() - rural.realized_m2 - 484.).abs() < EPS);
+        assert_eq!(
+            ledger.by_purpose["nature"].realized_m2,
+            baseline.by_purpose["nature"].realized_m2
+        );
+        // the conservation identities still hold on the AFTER state
+        assert!((ledger.realized_m2 + ledger.unresolved_m2 - 384. * 256.).abs() < EPS);
+        assert!((ledger.realized_m2 - baseline.realized_m2).abs() < EPS);
+        assert!((ledger.unresolved_m2 - baseline.unresolved_m2).abs() < EPS);
+        for (kind, row) in &ledger.by_purpose {
+            assert!(
+                (row.realized_m2 + row.unresolved_m2 - row.planned_m2).abs() < EPS,
+                "{kind} row does not conserve planned area"
+            );
+        }
+        let spec = SceneSpec {
+            scene_id: "ledger".into(),
+            width_m: 384,
+            depth_m: 256,
+            origin_x: -128,
+            origin_z: 40,
+            seed_offset: 0,
+        };
+        let dry = crate::worldgen::water_geometry(
+            crate::worldgen::WaterKind::None,
+            &[],
+            &spec,
+            &serde_json::Value::Null,
+        );
+        let plan = scene.road_network_plan.as_ref().unwrap();
+        let audit = audit_conversions(plan, &zones, dry, Some(&ledger));
+        assert_eq!(audit.status, "pass", "{audit:?}");
+        assert_eq!(
+            (audit.planned, audit.applied, audit.converted_m2),
+            (1, 1, 484)
+        );
+        // a ledger that is not published at all cannot carry the claim
+        let unpublished = audit_conversions(plan, &zones, dry, None);
+        assert_eq!(unpublished.status, "fail");
+        assert_eq!(
+            unpublished.failures,
+            vec!["no published ledger carries the 1 conversion(s) the plan claims".to_string()]
+        );
+        // A hand-edited ledger row cannot pass: the records must be the plan's records.
+        let mut forged = ledger.clone();
+        forged.conversions[0].area_m2 = 500;
+        let forged_audit = audit_conversions(plan, &zones, dry, Some(&forged));
+        assert_eq!(forged_audit.status, "fail");
+        assert!(
+            forged_audit
+                .failures
+                .iter()
+                .any(|failure| failure.contains("but the plan records")),
+            "{forged_audit:?}"
+        );
+        // and the ledger itself re-derives every claimed area, so a forged plan cannot move area
+        let mut inflated = scene.clone();
+        inflated
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .frontage
+            .as_mut()
+            .unwrap()
+            .conversions[0]
+            .area_m2 = 500;
+        assert_eq!(
+            analyze(&inflated, &profile).unwrap_err(),
+            "ledger conversion parcel home declares 500 m2 but its buildable core is 484 m2"
+        );
+        // a parcel the plan does not hold cannot be converted
+        let mut ghost = scene.clone();
+        ghost
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .frontage
+            .as_mut()
+            .unwrap()
+            .conversions[0]
+            .parcel_id = "ghost".into();
+        assert_eq!(
+            analyze(&ghost, &profile).unwrap_err(),
+            "conversion parcel ghost is not a planned frontage parcel"
+        );
+        // the same parcel may not be counted twice
+        let mut twice = scene.clone();
+        twice
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .frontage
+            .as_mut()
+            .unwrap()
+            .conversions
+            .push(record.clone());
+        assert_eq!(
+            analyze(&twice, &profile).unwrap_err(),
+            "ledger conversion parcel home is counted twice"
+        );
+        // water has no authority in the ledger, but the quality gate supplies it: the same honest
+        // record fails the audit once a lake covers the parcel
+        let lake = crate::worldgen::water_geometry(
+            crate::worldgen::WaterKind::Lake,
+            &[],
+            &spec,
+            &serde_json::Value::Null,
+        );
+        let wet_audit = audit_conversions(plan, &zones, lake, Some(&ledger));
+        assert_eq!(wet_audit.status, "fail");
+        assert_eq!(
+            wet_audit.failures,
+            vec!["conversion parcel home touches water".to_string()]
+        );
+    }
+
     #[test]
     fn missing_duplicate_or_moved_owners_never_earn_footprint_credit() {
         let (scene, profile) = fixture();

@@ -1040,6 +1040,14 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
             if scene["frontageAudit"].is_object() && scene["frontageAudit"]["status"] != "pass" {
                 failures.push(format!("{} local-height frontage demand or realization remains incomplete",scene["sceneId"]));
             }
+            if scene["purposeConversionAudit"].is_object()
+                && scene["purposeConversionAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} rural-to-urban purpose conversion is not provable",
+                    scene["sceneId"]
+                ));
+            }
             if scene["automaticRoads"]["unservedTargets"].as_u64().unwrap_or(0)>0 {
                 failures.push(format!("{} automatic road targets remain out of reach after {}",scene["sceneId"],scene["automaticRoads"]["stopReason"]));
             }
@@ -1341,6 +1349,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         serde_json::from_slice(&fs::read(root.join("world.json"))?)?;
     let mut scene_reports = Vec::new();
     let mut access_surface_failed = false;
+    let mut conversion_failed = false;
     let mut warnings = Vec::new();
     let mut chunks = 0_usize;
     let mut entities = 0_usize;
@@ -1865,6 +1874,48 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         } else {
             None
         };
+        // An explicit along-road conversion moves purpose realization, so it must be provable from the
+        // plan's own geometry and the water authority, and the PUBLISHED ledger's rows must be exactly
+        // the plan's records. A hand-edited ledger inflating urban realization therefore fails here by
+        // name instead of becoming the realization a reader sees.
+        let conversion_audit = match &scene.road_network_plan {
+            Some(plan)
+                if land_use_ledger.is_some()
+                    && plan
+                        .frontage
+                        .as_ref()
+                        .is_some_and(|report| !report.conversions.is_empty()) =>
+            {
+                // The published ledger is the document a reader sees, so that is what must agree with
+                // the plan; a missing one carries no claim at all and therefore fails.
+                let published = fs::read(
+                    root.join("scenes")
+                        .join(&scene.scene_id)
+                        .join("land-use-ledger.json"),
+                )
+                .ok()
+                .and_then(|bytes| {
+                    serde_json::from_slice::<
+                        glyphweave_core::settlement::landuse_ledger::LandUseLedger,
+                    >(&bytes)
+                    .ok()
+                });
+                let audit = glyphweave_core::settlement::landuse_ledger::audit_conversions(
+                    plan,
+                    &scene.land_use_zones,
+                    expected_water,
+                    published.as_ref(),
+                );
+                if audit.status != "pass" {
+                    conversion_failed = true;
+                    for failure in &audit.failures {
+                        warnings.push(format!("{}: {failure}", scene.scene_id));
+                    }
+                }
+                Some(audit)
+            }
+            _ => None,
+        };
         if profile_applied
             && land_use_ledger.is_none()
             && !has_structured_water
@@ -1944,7 +1995,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 "status": graph.status,
             })),
         }));
-        scene_reports.push(serde_json::json!({
+        let mut scene_report = serde_json::json!({
             "sceneId": scene.scene_id, "sizeM": [scene.width_m, scene.depth_m],
             "chunks": scene.chunks.len(), "expectedChunks": expected,
             "landmarks": scene.landmarks.len(), "entities": scene.entities.len(),
@@ -1969,11 +2020,17 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             })),
             "entityKinds": kinds,
             "landUseArea": area_reports.last(),
-        }));
+        });
+        // Only worlds that actually converted land carry the key, so a manifest without the explicit
+        // switch keeps the exact report shape it always had.
+        if let Some(audit) = &conversion_audit {
+            scene_report["purposeConversionAudit"] = serde_json::json!(audit);
+        }
+        scene_reports.push(scene_report);
     }
     let report = serde_json::json!({
         "format": "glyphweave.quality-report", "version": 2,
-        "status": if scale_failed || access_surface_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
+        "status": if scale_failed || access_surface_failed || conversion_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "warnings": warnings, "scenes": scene_reports,

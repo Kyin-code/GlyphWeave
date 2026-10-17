@@ -5487,6 +5487,7 @@ mod tests {
             setback_m: 12,
             max_candidate_attempts: 32,
             parcel_insets: None,
+            rural_conversion: super::super::frontage::RuralConversion::Disabled,
         }
     }
 

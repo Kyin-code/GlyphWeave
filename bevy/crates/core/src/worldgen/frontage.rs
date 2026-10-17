@@ -20,10 +20,81 @@ use std::collections::{BTreeMap, BTreeSet};
 /// rejecting one that mostly stands in another kind of zone.
 const MIN_PURPOSE_COVERAGE_PERCENT: i64 = 75;
 
+/// The explicit along-road purpose-conversion policy of one request.
+///
+/// The authored switch is `style.frontageProgram.ruralConversion`. Only the exact string
+/// [`RuralConversion::EXPLICIT`] turns it on: a missing key, `null` or any other value leaves the
+/// historical purpose gate in place, so no previously authored manifest can change. `Disabled` is
+/// the default, which is why an old manifest still produces a byte-identical plan.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RuralConversion {
+    /// The historical gate: only zones of the request's own purpose may carry a parcel.
+    #[default]
+    Disabled,
+    /// An urban request may also take a parcel whose buildable core lies WHOLLY in rural land. The
+    /// parcel is then recorded as a rural-to-urban conversion, which the land-use ledger applies.
+    RuralToUrban,
+}
+
+impl RuralConversion {
+    /// The one authored value that enables the switch.
+    pub const EXPLICIT: &'static str = "explicit";
+
+    /// Read the switch from the authored style value. Anything but the exact string is off, so a
+    /// typo can never silently enable a land-use conversion.
+    pub fn from_declared(value: Option<&serde_json::Value>) -> Self {
+        match value.and_then(serde_json::Value::as_str) {
+            Some(Self::EXPLICIT) => Self::RuralToUrban,
+            _ => Self::Disabled,
+        }
+    }
+
+    /// True only for the authored, explicit policy.
+    pub fn is_explicit(self) -> bool {
+        self == Self::RuralToUrban
+    }
+}
+
+/// One parcel whose purpose this program converted from rural to urban.
+///
+/// The record is the only thing a ledger may use to move purpose area: it names the parcel, the
+/// direction of the conversion and the converted land (the parcel's buildable core, in whole square
+/// metres), so the transfer can be re-derived and audited instead of trusted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Conversion {
+    pub parcel_id: String,
+    pub from: String,
+    pub to: String,
+    pub area_m2: i64,
+}
+
+impl Conversion {
+    /// The purpose a converted parcel came from. Only rural land may be converted, and the record
+    /// states it so a forged direction fails by name instead of being applied.
+    pub const RURAL: &'static str = "rural";
+    /// The purpose a converted parcel becomes.
+    pub const URBAN: &'static str = "urban";
+
+    pub fn rural_to_urban(parcel_id: &str, area_m2: i64) -> Self {
+        Self {
+            parcel_id: parcel_id.into(),
+            from: Self::RURAL.into(),
+            to: Self::URBAN.into(),
+            area_m2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Program {
     pub version: u32,
+    /// `style.frontageProgram.ruralConversion`, kept verbatim: only the exact string "explicit" is a
+    /// policy, every other value (and a missing one) is off. `from_style` derives the typed policy
+    /// onto each request, because a request is what the gate and the placement loop decide on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rural_conversion: Option<serde_json::Value>,
     pub requests: Vec<Request>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,6 +113,11 @@ pub struct Request {
     pub max_candidate_attempts: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parcel_insets: Option<ParcelInsets>,
+    /// The along-road purpose-conversion policy this request is placed under. It is DERIVED by
+    /// `from_style` from the program-level switch and skipped by serde on purpose: a request may not
+    /// widen its own purpose gate, and every already published request must serialize byte-identically.
+    #[serde(skip)]
+    pub rural_conversion: RuralConversion,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -59,6 +135,10 @@ pub struct Report {
     pub version: u32,
     pub model: String,
     pub outcomes: Vec<Outcome>,
+    /// Every parcel this report accepted by converting rural land to urban land, in placement order.
+    /// Empty (and therefore absent) whenever the switch is off, so an old plan round-trips unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversions: Vec<Conversion>,
 }
 fn err(s: impl Into<String>) -> TerrainError {
     TerrainError(s.into())
@@ -67,7 +147,7 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
     let Some(v) = style.get("frontageProgram") else {
         return Ok(None);
     };
-    let p: Program = serde_json::from_value(v.clone()).map_err(|e| err(e.to_string()))?;
+    let mut p: Program = serde_json::from_value(v.clone()).map_err(|e| err(e.to_string()))?;
     if p.version != 1 || p.requests.is_empty() || p.requests.len() > 64 {
         return Err(err("invalid frontage program"));
     }
@@ -115,6 +195,12 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
     }
     if count > 2048 {
         return Err(err("frontage program exceeds 2048 buildings"));
+    }
+    // The switch is authored once per program and applied to every request of it, so placement and
+    // the read-only supply measurement (which both work from a `Request`) cannot disagree about it.
+    let conversion = RuralConversion::from_declared(p.rural_conversion.as_ref());
+    for r in &mut p.requests {
+        r.rural_conversion = conversion;
     }
     Ok(Some(p))
 }
@@ -329,11 +415,7 @@ pub(super) fn envelope_reason(
     zones: &[LandUseZone],
     purpose: &str,
 ) -> Option<&'static str> {
-    if parcel[0] < i64::from(scene.origin_x) + 8
-        || parcel[1] < i64::from(scene.origin_z) + 8
-        || parcel[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
-        || parcel[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
-    {
+    if outside_scene(parcel, scene) {
         Some("outside_scene")
     } else if !in_purpose_core(parcel, insets, rotation_y_deg, zones, purpose) {
         Some("wrong_purpose_or_protected")
@@ -341,6 +423,205 @@ pub(super) fn envelope_reason(
         None
     }
 }
+
+/// The scene envelope test, shared by the historical gate and the conversion gate so the two can
+/// never disagree about the edge margin.
+fn outside_scene(parcel: [i64; 4], scene: &SceneSpec) -> bool {
+    parcel[0] < i64::from(scene.origin_x) + 8
+        || parcel[1] < i64::from(scene.origin_z) + 8
+        || parcel[2] + 8 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
+        || parcel[3] + 8 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
+}
+
+/// The gate as production applies it to ONE request, with the purpose conversion this parcel earns.
+///
+/// The disabled branch calls `envelope_reason` ITSELF rather than a copy of its logic, so switching
+/// the conversion off cannot change a single decision. The enabled branch adds exactly one
+/// acceptance: an urban request whose buildable core lies WHOLLY in rural land. Nature, unassigned
+/// and protection zones reject the parcel in both branches, and `preflight` still refuses water, so
+/// a conversion can never be pointed at land that is not rural.
+///
+/// Returns the rejection reason (the same `&'static str` keys the audit counts) and, when the parcel
+/// is accepted by conversion, the converted buildable-core area in whole square metres.
+pub(super) fn envelope_verdict(
+    parcel: [i64; 4],
+    insets: ParcelInsets,
+    rotation_y_deg: f32,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    purpose: &str,
+    conversion: RuralConversion,
+) -> (Option<&'static str>, Option<i64>) {
+    if !conversion.is_explicit() {
+        return (
+            envelope_reason(parcel, insets, rotation_y_deg, scene, zones, purpose),
+            None,
+        );
+    }
+    if outside_scene(parcel, scene) {
+        return (Some("outside_scene"), None);
+    }
+    let Some(core) = buildable_core(parcel, insets, rotation_y_deg) else {
+        // a parcel too small for a buildable core, or a non-cardinal rotation, cannot be converted
+        return (Some("wrong_purpose_or_protected"), None);
+    };
+    if in_purpose(core, zones, purpose) {
+        return (None, None);
+    }
+    if purpose == Conversion::URBAN && core_entirely_in(core, zones, Conversion::RURAL) {
+        return (None, Some(area(core)));
+    }
+    (Some("wrong_purpose_or_protected"), None)
+}
+
+/// Re-derive what a conversion claim MUST be, from the plan's own parcel geometry and the zoning.
+///
+/// Every published record is compared with this result instead of being trusted, so a hand-edited
+/// ledger entry fails here by name. `water` is optional because the ledger layer has no water
+/// authority; the quality gate always passes it, so a claim that touches water is refused where it
+/// can be.
+pub fn verify_conversion(
+    plan: &RoadNetworkPlan,
+    zones: &[LandUseZone],
+    water: Option<WaterGeometry>,
+    conversion: &Conversion,
+) -> Result<i64, String> {
+    if conversion.from != Conversion::RURAL || conversion.to != Conversion::URBAN {
+        return Err("conversion is not rural to urban".into());
+    }
+    if conversion.area_m2 <= 0 {
+        return Err("conversion area is not a positive whole area".into());
+    }
+    let site = plan
+        .roadside_sites
+        .iter()
+        .find(|site| site.id == conversion.parcel_id)
+        .ok_or_else(|| {
+            format!(
+                "conversion parcel {} is not a planned frontage parcel",
+                conversion.parcel_id
+            )
+        })?;
+    let purpose = plan
+        .frontage
+        .as_ref()
+        .and_then(|report| {
+            report.outcomes.iter().find(|outcome| {
+                outcome
+                    .site_ids
+                    .iter()
+                    .any(|id| id == &conversion.parcel_id)
+            })
+        })
+        .map(|outcome| outcome.request.purpose.clone())
+        .ok_or_else(|| {
+            format!(
+                "conversion parcel {} belongs to no authored request",
+                conversion.parcel_id
+            )
+        })?;
+    if purpose != Conversion::URBAN {
+        return Err(format!(
+            "conversion parcel {} belongs to a {purpose} request, not an urban one",
+            conversion.parcel_id
+        ));
+    }
+    let parcel = parcel_boundary(site).map_err(|e| e.0)?;
+    let core = buildable_core(
+        parcel,
+        site.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+    )
+    .ok_or_else(|| {
+        format!(
+            "conversion parcel {} has no buildable core",
+            conversion.parcel_id
+        )
+    })?;
+    if !core_entirely_in(core, zones, Conversion::RURAL) {
+        return Err(format!(
+            "conversion parcel {} core is not wholly rural land",
+            conversion.parcel_id
+        ));
+    }
+    if let Some(water) = water {
+        let center_x = (parcel[0] + parcel[2]) as f64 * 0.5;
+        let center_z = (parcel[1] + parcel[3]) as f64 * 0.5;
+        let half_w = (parcel[2] - parcel[0]) as f64 * 0.5;
+        let half_d = (parcel[3] - parcel[1]) as f64 * 0.5;
+        if water.intersects_axis_aligned(center_x, center_z, half_w, half_d) {
+            return Err(format!(
+                "conversion parcel {} touches water",
+                conversion.parcel_id
+            ));
+        }
+    }
+    Ok(area(core))
+}
+
+/// Whole square metres of one parcel rectangle.
+fn area(b: [i64; 4]) -> i64 {
+    (b[2] - b[0]) * (b[3] - b[1])
+}
+
+/// Area one rectangle shares with one zone, in whole square metres.
+fn intersection_area(b: [i64; 4], zone: &LandUseZone) -> i64 {
+    let width = (b[2].min(i64::from(zone.world_x) + i64::from(zone.width_m))
+        - b[0].max(i64::from(zone.world_x)))
+    .max(0);
+    let depth = (b[3].min(i64::from(zone.world_z) + i64::from(zone.depth_m))
+        - b[1].max(i64::from(zone.world_z)))
+    .max(0);
+    width * depth
+}
+
+/// True when EVERY square metre of `b` lies inside a zone of exactly `kind`, and no zone of any
+/// other kind touches `b` at all.
+///
+/// Both halves matter for a purpose conversion: an uncovered sliver is not rural land, and a core
+/// that overlaps a nature, unassigned or protection zone would convert protected land. The
+/// sum-of-intersections test is exact for the production zoning, whose cells tile the scene without
+/// overlap (`ZoningMask::new` refuses anything else); when zones do overlap the sum can exceed the
+/// core area, so the claim is re-checked square metre by square metre instead of being trusted.
+fn core_entirely_in(b: [i64; 4], zones: &[LandUseZone], kind: &str) -> bool {
+    let total = area(b);
+    if total <= 0 {
+        return false;
+    }
+    let mut covered = 0;
+    for zone in zones {
+        let shared = intersection_area(b, zone);
+        if shared == 0 {
+            continue;
+        }
+        if zone.kind != kind {
+            return false;
+        }
+        covered += shared;
+    }
+    if covered < total {
+        return false;
+    }
+    if covered == total {
+        return true;
+    }
+    for z in b[1]..b[3] {
+        for x in b[0]..b[2] {
+            let inside = zones.iter().any(|zone| {
+                zone.kind == kind
+                    && x >= i64::from(zone.world_x)
+                    && z >= i64::from(zone.world_z)
+                    && x < i64::from(zone.world_x) + i64::from(zone.width_m)
+                    && z < i64::from(zone.world_z) + i64::from(zone.depth_m)
+            });
+            if !inside {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// The BUILDABLE CORE of a parcel rectangle: the building envelope minus a one metre skin, expressed
 /// as [x0, z0, x1, z1]. The purpose-coverage rule is measured over this core rather than over the whole
 /// parcel, because the parcel rectangle also contains the front, side and rear SETBACKS, and setback
@@ -942,6 +1223,9 @@ impl RequestBudget {
 }
 /// Try ONE candidate site for ONE request at ONE station and side, recording the outcome on the
 /// request's budget. Extracted so the station-sharing loop in `append` stays readable.
+///
+/// Returns the purpose conversion the accepted parcel earned, if any, so `append` writes the record
+/// that the land-use ledger later applies. A rejected peer contributes nothing.
 #[allow(clippy::too_many_arguments)]
 fn claim_and_place(
     road: &EntityInstance,
@@ -953,32 +1237,34 @@ fn claim_and_place(
     budget: &mut RequestBudget,
     station: usize,
     side: i32,
-) -> Result<(), TerrainError> {
+) -> Result<Option<Conversion>, TerrainError> {
     if !budget.claim_attempt() {
-        return Ok(());
+        return Ok(None);
     }
     let mut site = candidate_site(road, r, &scene.scene_id, station, side)?;
     let parcel = parcel_boundary(&site)?;
-    let mut reason = envelope_reason(
+    let (mut reason, converted_m2) = envelope_verdict(
         parcel,
         r.parcel_insets.unwrap_or_default(),
         site.rotation_y_deg,
         scene,
         zones,
         &r.purpose,
+        r.rural_conversion,
     );
     if reason.is_none() {
         reason = state.assess(&site, staged)?;
     }
     if let Some(reason) = reason {
         budget.reject(reason);
-        return Ok(());
+        return Ok(None);
     }
     state.sample_natural(&mut site, parcel)?;
     state.commit(&site);
     budget.accept(&site.id);
+    let conversion = converted_m2.map(|area_m2| Conversion::rural_to_urban(&site.id, area_m2));
     staged.roadside_sites.push(site);
-    Ok(())
+    Ok(conversion)
 }
 
 pub(super) fn append(
@@ -1022,6 +1308,7 @@ pub(super) fn append(
         version: 1,
         model: "local-road-station-frontage-v1".into(),
         outcomes: vec![],
+        conversions: vec![],
     };
     // B01 measured defect: the requests used to be served strictly one after another, each scanning
     // every road and station to exhaustion before the next request was considered. On the real 512 m
@@ -1066,7 +1353,7 @@ pub(super) fn append(
                     let Some(&station) = list.get(position) else {
                         continue;
                     };
-                    claim_and_place(
+                    if let Some(conversion) = claim_and_place(
                         road,
                         &requests[index],
                         scene,
@@ -1076,7 +1363,11 @@ pub(super) fn append(
                         budget,
                         station,
                         side,
-                    )?;
+                    )? {
+                        // Recorded ONLY for an accepted parcel, so the ledger can never apply a
+                        // conversion for a candidate that engineering refused afterwards.
+                        report.conversions.push(conversion);
+                    }
                 }
             }
         }
@@ -1508,6 +1799,167 @@ mod tests {
         // NOTE: the purpose gate may still fire for OTHER stations in this fixture; what this test
         // pins is that it does not prevent THESE two parcels from being realized.
     }
+    #[test]
+    fn explicit_rural_to_urban_conversion_is_off_by_default_and_never_takes_protected_land() {
+        // B01 measured defect: on the real 1 km input the urban frontage requests are rejected with
+        // `wrong_purpose_or_protected` 96-98% of the time, because the zoning cell is cut by the road
+        // corridor and the parcel's buildable core stands in rural land next to an urban zone. The
+        // authored switch `frontageProgram.ruralConversion: "explicit"` may convert exactly that land
+        // and nothing else. This test pins the whole boundary of that permission:
+        //   * switch OFF -> zero conversions and a plan that cannot even gain the new key,
+        //   * switch ON  -> 4 of 4 urban homes on rural land, 80 m2 of core each, 320 m2 in total,
+        //   * nature / unassigned land and water are still refused, with nothing recorded.
+        let (s, n, w, urban_zones, base, style) = fixture(0);
+        // The fixture corridor runs east-west at z = 128 and every candidate parcel stands between
+        // z = 104 and z = 152, so one horizontal cut at z = 100 decides the purpose of EVERY candidate.
+        let banded = |kind: &str| -> Vec<LandUseZone> {
+            vec![
+                LandUseZone {
+                    id: "north".into(),
+                    kind: "urban".into(),
+                    world_x: 0,
+                    world_z: 0,
+                    width_m: 512,
+                    depth_m: 100,
+                    source: "test-north".into(),
+                },
+                LandUseZone {
+                    id: "band".into(),
+                    kind: kind.into(),
+                    world_x: 0,
+                    world_z: 100,
+                    width_m: 512,
+                    depth_m: 412,
+                    source: "test-band".into(),
+                },
+            ]
+        };
+        let rural = banded("rural");
+        // OFF is the historical behaviour: an urban request earns nothing on rural land.
+        let mut off = base.clone();
+        append(&mut off, &s, &n, w, Some(&rural), &style).unwrap();
+        let off_report = off.frontage.as_ref().unwrap();
+        let off_outcome = &off_report.outcomes[0];
+        assert!(off.roadside_sites.is_empty(), "{off_outcome:?}");
+        assert_eq!(off_outcome.unfilled, 4);
+        assert!(off_report.conversions.is_empty());
+        assert_eq!(
+            off_outcome
+                .rejected
+                .get("wrong_purpose_or_protected")
+                .copied()
+                .unwrap_or(0),
+            off_outcome.attempted,
+            "with the switch off the historical purpose gate must refuse every attempt"
+        );
+        let off_json = serde_json::to_value(&off).unwrap();
+        assert!(
+            off_json["frontage"].get("conversions").is_none(),
+            "a plan without conversions must not gain the conversions key"
+        );
+        assert!(
+            off_json["frontage"]["outcomes"][0]["request"]
+                .get("ruralConversion")
+                .is_none(),
+            "the derived policy must never leak into a published request"
+        );
+        // Only the exact string enables the switch; every other spelling is the historical gate.
+        for other in ["", "off", "true", "Explicit"] {
+            let mut disabled = base.clone();
+            let mut other_style = style.clone();
+            other_style["frontageProgram"]["ruralConversion"] = serde_json::json!(other);
+            append(&mut disabled, &s, &n, w, Some(&rural), &other_style).unwrap();
+            assert_eq!(
+                serde_json::to_value(&disabled).unwrap(),
+                off_json,
+                "the switch must accept the exact string \"explicit\" only, not {other:?}"
+            );
+        }
+        // ON: the same four urban homes land on rural land. Each converts the 10x8 m buildable core of
+        // its 16x14 m parcel (12x10 m building, legacy 2 m insets and the 1 m skin are not built land).
+        let mut explicit_style = style.clone();
+        explicit_style["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        let mut on = base.clone();
+        append(&mut on, &s, &n, w, Some(&rural), &explicit_style).unwrap();
+        let report = on.frontage.as_ref().unwrap();
+        assert_eq!(report.outcomes[0].unfilled, 0, "{:?}", report.outcomes[0]);
+        assert_eq!(report.outcomes[0].site_ids.len(), 4);
+        assert_eq!(report.conversions.len(), 4);
+        assert_eq!(report.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 320);
+        for conversion in &report.conversions {
+            assert_eq!(conversion.from, "rural");
+            assert_eq!(conversion.to, "urban");
+            assert_eq!(conversion.area_m2, 80);
+            assert!(report.outcomes[0].site_ids.contains(&conversion.parcel_id));
+            assert_eq!(verify_conversion(&on, &rural, None, conversion).unwrap(), 80);
+        }
+        // PROTECTED: nature and unassigned land are not convertible, so the switch earns nothing there.
+        for kind in ["nature", "unassigned"] {
+            let zones = banded(kind);
+            let mut protected = base.clone();
+            append(&mut protected, &s, &n, w, Some(&zones), &explicit_style).unwrap();
+            let report = protected.frontage.as_ref().unwrap();
+            assert!(
+                protected.roadside_sites.is_empty(),
+                "the switch must not convert {kind} land"
+            );
+            assert_eq!(report.outcomes[0].unfilled, 4);
+            assert!(report.conversions.is_empty());
+            assert_eq!(
+                report.outcomes[0]
+                    .rejected
+                    .get("wrong_purpose_or_protected")
+                    .copied()
+                    .unwrap_or(0),
+                report.outcomes[0].attempted,
+                "{kind} land must still be refused by the purpose gate"
+            );
+        }
+        // WATER: the engineering preflight still refuses a wet parcel, so it is never converted.
+        let lake = WaterGeometry {
+            kind: super::super::WaterKind::Lake,
+            center_x: 256.,
+            center_z: 128.,
+            half_width: 400.,
+            half_depth: 200.,
+            scene_width_m: s.width_m,
+            scene_depth_m: s.depth_m,
+            terrain_origin_x: s.origin_x,
+            terrain_origin_z: s.origin_z,
+            smooth_rolling: false,
+        };
+        let mut wet = base.clone();
+        append(&mut wet, &s, &n, lake, Some(&rural), &explicit_style).unwrap();
+        let report = wet.frontage.as_ref().unwrap();
+        assert!(
+            wet.roadside_sites.is_empty(),
+            "a wet parcel must never be converted"
+        );
+        assert_eq!(report.outcomes[0].unfilled, 4);
+        assert!(report.conversions.is_empty());
+        assert!(
+            report.outcomes[0].rejected.contains_key("water"),
+            "{:?}",
+            report.outcomes[0]
+        );
+        // and the audit primitive refuses the same record once water is part of the evidence
+        for conversion in &on.frontage.as_ref().unwrap().conversions {
+            assert_eq!(
+                verify_conversion(&on, &rural, Some(lake), conversion).unwrap_err(),
+                format!("conversion parcel {} touches water", conversion.parcel_id)
+            );
+        }
+        // A parcel whose buildable core is urban land cannot be claimed as a conversion at all.
+        let mut urban_plan = base.clone();
+        append(&mut urban_plan, &s, &n, w, Some(&urban_zones), &style).unwrap();
+        let parcel_id = urban_plan.frontage.as_ref().unwrap().outcomes[0].site_ids[0].clone();
+        let forged = Conversion::rural_to_urban(&parcel_id, 80);
+        assert_eq!(
+            verify_conversion(&urban_plan, &urban_zones, None, &forged).unwrap_err(),
+            format!("conversion parcel {parcel_id} core is not wholly rural land")
+        );
+    }
+
     #[test]
     fn wrong_purpose_and_protection_do_not_earn_buildings() {
         let (s, n, w, mut z, mut p, style) = fixture(0);
