@@ -151,7 +151,45 @@ round/reason/descriptorFallback）并把 `removedItems` 计入报告。authored 
 
 ---
 
-## 下一步（Round 7 计划）
+## Round 8 · 2026-10-18 · 沿路用途转换在真实 1 km 世界上的效果（只读验证）
+
+同一冻结输入 `b8-current-a01/world/glyphweave.manifest.json`，只在 `style.frontageProgram`
+里插入 `"ruralConversion": "explicit"`（文件 28,787 → 28,824 字节，删掉这 37 字节后与原文件逐字节相同）。
+输出：`bevy/work/rk-x/b8-conv/world`。基线的 gate 退出码在副本 `b8-with-r13-gatecopy` 上取得。
+
+| 字段 | 关闭（基线） | 开启 |
+|---|---:|---:|
+| `frontageAudit.planned` | 3 | **67** |
+| `frontageAudit.realizedWithAccess` | 3 | **67** |
+| `frontageAudit.unfilled`（requested 144） | 141 | **77** |
+| `urban-homes` siteIds | 0 | **43** |
+| `urban-homes` unfilled | 120 | 77 |
+| `urban-shops` siteIds / unfilled | 3 / 21 | **24 / 0**（`demand_satisfied`） |
+| `frontage.conversions` | 0 | **64 条，Σ 22,492 m²**（484×43 住宅 + 80×21 商铺） |
+| `purposeConversionAudit` | 不存在 | planned 64 / applied 64 / convertedM2 22,492 / **pass** |
+| 账本 urban realized | 8,648 | **30,988** |
+| 账本 rural realized | 168,635 | **141,577** |
+| gate 退出码 / 失败条数 | 1 / 7 | 1 / **7（同一组，与转换无关）** |
+
+**守恒（精确，全部差 0）**：每行 `realized + unresolved == plannedM2`；全图
+`Σrealized + Σunresolved == 1,000,000`；转换额双向相等——urban `30,988 − 8,496 physical = 22,492`
+= rural `164,069 physical − 141,577 = 22,492` = `Σconversions`。gate 未出现
+`rural-to-urban purpose conversion is not provable`。
+
+**结论**：沿路用途转换把真实 1 km 世界的临街实现从 **3 栋提到 67 栋**（22 倍），
+商铺需求 100% 满足，且账本三账本守恒、转换可独立复核。人工/自然边界未破：
+nature 行前后完全不变（162,735 / 162,735 / 0），保护地未被转换。
+
+**剩余缺口（下一轮主攻）**：`urban-homes` 仍差 77 栋，拒绝原因已从"用途"转为工程类：
+`natural_support_or_fill_limit 233`、`occupied_or_road_support 90`、`existing_support_changed 21`、
+`engineered_platform_not_flat 6`、`wrong_purpose_or_protected` 仅剩 19。
+即下一步是**支撑/填方包络**，不是用途。
+
+**额度记账**：1 km 生成 1 次（R11 池 3/6 → 4/6），调试 exe；gate 在副本上跑 1 次（不占额度）。
+
+---
+
+## 下一步（Round 9 计划）
 
 1. **垫层模型决策（需项目负责人）**：平板垫层 + 纯填方 + 2 m 引道在坡度 ≥3.6% 的地形上
    数学上不可建（0.5 m ÷ 14 m 窗口）。这解释了 b8 真实 1 km 世界只有 1 个 frontage site。
