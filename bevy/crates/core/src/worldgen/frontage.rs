@@ -348,6 +348,76 @@ pub(super) fn stations(
             .collect(),
     ))
 }
+/// One candidate handed out by [`StationSchedule`]: the request that gets its
+/// turn, and the station and side the candidate is tried at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Turn {
+    pub request: usize,
+    pub station: usize,
+    pub side: i32,
+}
+/// The candidate order of ONE road, shared by placement and measurement.
+///
+/// `append` places from this schedule and `frontage_supply::diagnose` measures
+/// from it, so a read-only diagnosis cannot describe a search the bake never
+/// performs. The order is: per station, per side, with the requests ROTATED by
+/// that diagonal. At a shared station usually only ONE parcel fits, so a fixed
+/// request order would let the first request take every contested station while
+/// the later requests place nothing even though they are considered.
+pub(super) struct StationSchedule<'a> {
+    requests: &'a [Request],
+    /// Station ordinates per request; `None` when that request has no station on
+    /// this road. `stations` is `?`-propagated once per road, exactly as
+    /// production always evaluated it before placing anything on that road.
+    stations: Vec<Option<Vec<usize>>>,
+    /// Longest station list: the number of diagonals this road offers.
+    diagonals: usize,
+}
+impl<'a> StationSchedule<'a> {
+    pub(super) fn new(
+        road: &EntityInstance,
+        requests: &'a [Request],
+    ) -> Result<Self, TerrainError> {
+        let mut lists = Vec::with_capacity(requests.len());
+        for request in requests {
+            lists.push(stations(road, request)?);
+        }
+        let diagonals = lists
+            .iter()
+            .filter_map(|list| list.as_ref().map(Vec::len))
+            .max()
+            .unwrap_or(0);
+        Ok(Self {
+            requests,
+            stations: lists,
+            diagonals,
+        })
+    }
+    /// Station list of one request on this road, if the road carries it.
+    pub(super) fn stations_of(&self, request: usize) -> Option<&[usize]> {
+        self.stations.get(request)?.as_deref()
+    }
+    /// Every candidate this road offers, in production order. A request that
+    /// has no station at a diagonal simply takes no turn there, which is what
+    /// keeps the rotation from inventing a candidate.
+    pub(super) fn turns(&self) -> impl Iterator<Item = Turn> + '_ {
+        let count = self.requests.len();
+        (0..self.diagonals).flat_map(move |position| {
+            [-1_i32, 1].into_iter().flat_map(move |side| {
+                let offset = (position * 2 + usize::from(side > 0)) % count.max(1);
+                (0..count).filter_map(move |step| {
+                    let request = (offset + step) % count.max(1);
+                    let station = *self.stations_of(request)?.get(position)?;
+                    Some(Turn {
+                        request,
+                        station,
+                        side,
+                    })
+                })
+            })
+        })
+    }
+}
 /// Build the exact `RoadsideSite` production would try at this station/side.
 pub(super) fn candidate_site(
     road: &EntityInstance,
@@ -1318,57 +1388,31 @@ pub(super) fn append(
     // The allocation is now round-robin over stations: for every road, in station order, each request
     // gets its turn at that station before any request moves on. A request that has met its own demand
     // or exhausted its attempt budget simply skips its turn, so nothing can be starved by an
-    // insatiable request ahead of it. Realization evidence is written in program order afterwards, so
-    // the published outcome order is unchanged.
+    // insatiable request ahead of it. The schedule itself lives in `StationSchedule` so the read-only
+    // diagnosis walks the very same order instead of re-deriving it. Realization evidence is written
+    // in program order afterwards, so the published outcome order is unchanged.
     let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
     for road in &roads {
-        let mut samples: Vec<Option<Vec<usize>>> = Vec::with_capacity(requests.len());
-        for (index, r) in requests.iter().enumerate() {
-            let stations = stations(road, r)?;
-            let _ = index;
-            samples.push(stations);
-        }
-        let station_count = samples
-            .iter()
-            .filter_map(|s| s.as_ref().map(|v| v.len()))
-            .max()
-            .unwrap_or(0);
-        for position in 0..station_count {
-            for side in [-1_i32, 1] {
-                // Rotate which request gets first refusal as the station advances. At a shared station
-                // usually only ONE parcel fits, so with a fixed order the first request would take
-                // every contested station and the later requests would never place anything even
-                // though they are considered. Rotating by side and station index gives each request a
-                // fair share of the contested frontage while keeping the order fully deterministic.
-                let offset = ((position as i64) * 2 + (if side < 0 { 0 } else { 1 })) as usize % requests.len();
-                for step in 0..requests.len() {
-                    let index = (offset + step) % requests.len();
-                    let budget = &mut budgets[index];
-                    if budget.satisfied() || !budget.budget_left() {
-                        continue;
-                    }
-                    let Some(Some(list)) = samples.get(index) else {
-                        continue;
-                    };
-                    let Some(&station) = list.get(position) else {
-                        continue;
-                    };
-                    if let Some(conversion) = claim_and_place(
-                        road,
-                        &requests[index],
-                        scene,
-                        zones,
-                        &mut state,
-                        &mut staged,
-                        budget,
-                        station,
-                        side,
-                    )? {
-                        // Recorded ONLY for an accepted parcel, so the ledger can never apply a
-                        // conversion for a candidate that engineering refused afterwards.
-                        report.conversions.push(conversion);
-                    }
-                }
+        let schedule = StationSchedule::new(road, &requests)?;
+        for turn in schedule.turns() {
+            let budget = &mut budgets[turn.request];
+            if budget.satisfied() || !budget.budget_left() {
+                continue;
+            }
+            if let Some(conversion) = claim_and_place(
+                road,
+                &requests[turn.request],
+                scene,
+                zones,
+                &mut state,
+                &mut staged,
+                budget,
+                turn.station,
+                turn.side,
+            )? {
+                // Recorded ONLY for an accepted parcel, so the ledger can never apply a
+                // conversion for a candidate that engineering refused afterwards.
+                report.conversions.push(conversion);
             }
         }
     }

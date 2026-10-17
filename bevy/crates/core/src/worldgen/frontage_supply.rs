@@ -724,11 +724,130 @@ pub(super) struct SupplyContext<'a> {
     pub zones: &'a [LandUseZone],
 }
 
+/// The per-(road, request) evidence header of one measurement. The station
+/// bounds come from the shared schedule, so the reported geometry is the one the
+/// candidate search actually visits.
+fn road_supply_header(
+    road: &EntityInstance,
+    r: &Request,
+    stations: Option<&[usize]>,
+) -> RoadSupply {
+    RoadSupply {
+        request_id: r.id.clone(),
+        road_id: road.entity_id.clone(),
+        road_width_m: road.depth_m as u32,
+        profile_length_m: road
+            .grounding
+            .road_profile
+            .as_ref()
+            .map(|p| p.elevations_mm.len() - 1)
+            .unwrap_or(0),
+        margin_m: r.width_m / 2 + 8,
+        station_start: stations.and_then(|list| list.first().copied()).unwrap_or(0),
+        station_count: stations.map_or(0, <[usize]>::len),
+        attempts_budget: r.max_candidate_attempts,
+        attempted: 0,
+        accepted: 0,
+        accepted_ids: vec![],
+        geometry_exhausted: true,
+        rejected: BTreeMap::new(),
+        rejection_details: vec![],
+        samples: vec![],
+    }
+}
+
 impl<'a> SupplyContext<'a> {
     pub(super) fn state(&self, plan: &RoadNetworkPlan) -> PlacementState<'a> {
         let mut existing = plan.entities();
         existing.extend(plan.site_entities());
         PlacementState::new(self.terrain, self.mask, self.water, existing)
+    }
+
+    /// Try ONE candidate turn and record the production decision on the request's
+    /// cumulative budget and on its evidence trace. The accepted site is returned
+    /// so the caller can commit it to its own plan view; `state` is advanced here,
+    /// exactly as the placement loop does, so every later candidate sees the new
+    /// footprint. `sample_cap` only limits how much evidence is kept.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn attempt_turn(
+        &self,
+        plan: &RoadNetworkPlan,
+        state: &mut PlacementState<'_>,
+        road: &EntityInstance,
+        r: &Request,
+        station: usize,
+        side: i32,
+        budget: &mut RequestBudget,
+        trace: &mut RoadSupply,
+        sample_cap: usize,
+    ) -> Result<Option<RoadsideSite>, TerrainError> {
+        if !budget.claim_attempt() {
+            return Ok(None);
+        }
+        trace.attempted += 1;
+        let site = frontage::candidate_site(road, r, &self.scene.scene_id, station, side)?;
+        let parcel = frontage::parcel_boundary(&site)?;
+        // The same gate production uses, including this request's along-road purpose
+        // conversion, so a measured supply can never disagree with the placement it predicts.
+        // The converted AREA is discarded here: this measurement is read-only and the bake's
+        // own `append` is the only authority that may publish a conversion record.
+        let (envelope, _converted_m2) = frontage::envelope_verdict(
+            parcel,
+            r.parcel_insets.unwrap_or_default(),
+            site.rotation_y_deg,
+            self.scene,
+            self.zones,
+            &r.purpose,
+            r.rural_conversion,
+        );
+        let (reason, detail) = match envelope {
+            Some(reason) => (Some(reason), None),
+            None => state.assess_detailed(&site, plan)?,
+        };
+        let (natural_min_mm, natural_max_mm) = natural_range(self.terrain, parcel)?;
+        let mut accepted = false;
+        let outcome = match reason {
+            Some(reason) => {
+                budget.reject(reason);
+                *trace.rejected.entry(reason.into()).or_default() += 1;
+                if trace.rejection_details.len() < sample_cap {
+                    trace.rejection_details.push(
+                        detail.unwrap_or_else(|| RejectDetail::envelope(reason, parcel)),
+                    );
+                }
+                reason.to_string()
+            }
+            None => {
+                state.commit(&site);
+                budget.accept(&site.id);
+                trace.accepted += 1;
+                trace.accepted_ids.push(site.id.clone());
+                accepted = true;
+                "accepted".into()
+            }
+        };
+        if trace.samples.len() < sample_cap {
+            trace.samples.push(CandidateSample {
+                request_id: r.id.clone(),
+                road_id: road.entity_id.clone(),
+                station,
+                side,
+                world_x: site.world_x,
+                world_z: site.world_z,
+                parcel,
+                purpose: r.purpose.clone(),
+                // R7-1.4: fall back to the integer-metre support instead of
+                // handing the supply chain a bare None (which read as 0 mm).
+                design_level_mm: Some(i64::from(
+                    site.support_level_mm
+                        .unwrap_or_else(|| site.support_level_m * 1000),
+                )),
+                natural_min_mm,
+                natural_max_mm,
+                outcome,
+            });
+        }
+        Ok(accepted.then_some(site))
     }
 
     /// Re-run the production candidate path for ONE road and ONE request on the
@@ -745,104 +864,30 @@ impl<'a> SupplyContext<'a> {
     ) -> Result<RoadMeasurement, TerrainError> {
         let r = budget.request.clone();
         let mut state = self.state(plan);
-        let mut trace = RoadSupply {
-            request_id: r.id.clone(),
-            road_id: road.entity_id.clone(),
-            road_width_m: road.depth_m as u32,
-            profile_length_m: road
-                .grounding
-                .road_profile
-                .as_ref()
-                .map(|p| p.elevations_mm.len() - 1)
-                .unwrap_or(0),
-            margin_m: r.width_m / 2 + 8,
-            station_start: 0,
-            station_count: 0,
-            attempts_budget: r.max_candidate_attempts,
-            attempted: 0,
-            accepted: 0,
-            accepted_ids: vec![],
-            geometry_exhausted: true,
-            rejected: BTreeMap::new(),
-            rejection_details: vec![],
-            samples: vec![],
-        };
+        // One request: the shared schedule degenerates to this request's own
+        // stations × sides, in the order placement would try them.
+        let schedule = frontage::StationSchedule::new(road, std::slice::from_ref(&r))?;
+        let mut trace = road_supply_header(road, &r, schedule.stations_of(0));
         let mut accepted = vec![];
-        let Some(stations) = frontage::stations(road, &r)? else {
-            return Ok(RoadMeasurement { trace, accepted });
-        };
-        trace.station_start = stations.first().copied().unwrap_or(0);
-        trace.station_count = stations.len();
-        'search: for station in stations {
-            for side in [-1_i32, 1] {
-                if !budget.claim_attempt() {
-                    trace.geometry_exhausted = false;
-                    break 'search;
-                }
-                trace.attempted += 1;
-                let site = frontage::candidate_site(road, &r, &self.scene.scene_id, station, side)?;
-                let parcel = frontage::parcel_boundary(&site)?;
-                // The same gate production uses, including this request's along-road purpose
-                // conversion, so a measured supply can never disagree with the placement it predicts.
-                // The converted AREA is discarded here: this measurement is read-only and the bake's
-                // own `append` is the only authority that may publish a conversion record.
-                let (envelope, _converted_m2) = frontage::envelope_verdict(
-                    parcel,
-                    r.parcel_insets.unwrap_or_default(),
-                    site.rotation_y_deg,
-                    self.scene,
-                    self.zones,
-                    &r.purpose,
-                    r.rural_conversion,
-                );
-                let (reason, detail) = match envelope {
-                    Some(reason) => (Some(reason), None),
-                    None => state.assess_detailed(&site, plan)?,
-                };
-                let (natural_min_mm, natural_max_mm) = natural_range(self.terrain, parcel)?;
-                let outcome = match reason {
-                    Some(reason) => {
-                        budget.reject(reason);
-                        *trace.rejected.entry(reason.into()).or_default() += 1;
-                        if trace.rejection_details.len() < sample_cap {
-                            trace.rejection_details.push(
-                                detail.unwrap_or_else(|| RejectDetail::envelope(reason, parcel)),
-                            );
-                        }
-                        reason.to_string()
-                    }
-                    None => {
-                        state.commit(&site);
-                        budget.accept(&site.id);
-                        accepted.push(site.clone());
-                        "accepted".into()
-                    }
-                };
-                if trace.samples.len() < sample_cap {
-                    trace.samples.push(CandidateSample {
-                        request_id: r.id.clone(),
-                        road_id: road.entity_id.clone(),
-                        station,
-                        side,
-                        world_x: site.world_x,
-                        world_z: site.world_z,
-                        parcel,
-                        purpose: r.purpose.clone(),
-                        // R7-1.4: fall back to the integer-metre support instead of
-                        // handing the supply chain a bare None (which read as 0 mm).
-                        design_level_mm: Some(i64::from(
-                            site.support_level_mm
-                                .unwrap_or_else(|| site.support_level_m * 1000),
-                        )),
-                        natural_min_mm,
-                        natural_max_mm,
-                        outcome,
-                    });
-                }
+        for turn in schedule.turns() {
+            if budget.satisfied() || !budget.budget_left() {
+                trace.geometry_exhausted = false;
+                break;
+            }
+            if let Some(site) = self.attempt_turn(
+                plan,
+                &mut state,
+                road,
+                &r,
+                turn.station,
+                turn.side,
+                budget,
+                &mut trace,
+                sample_cap,
+            )? {
+                accepted.push(site);
             }
         }
-        trace.accepted = accepted.len();
-        trace.accepted_ids = accepted.iter().map(|site| site.id.clone()).collect();
         Ok(RoadMeasurement { trace, accepted })
     }
 }
@@ -917,30 +962,24 @@ pub(super) fn diagnose(
         .filter(|road| road.grounding.road_profile.is_some())
         .collect();
     // The diagnosis owns its accumulation copy; the frozen plan is untouched.
+    //
+    // Only the parcels of the DIAGNOSED requests are stripped. Production keeps
+    // every other program site (service and joint-layout parcels) standing while
+    // it places frontage, so a replay that cleared all of them would judge
+    // candidates against ground the bake never offered.
+    let diagnosed: BTreeSet<&str> = requests.iter().map(|r| r.id.as_str()).collect();
     let mut joint_plan = plan.clone();
-    joint_plan.roadside_sites.retain(|site| site.program.is_none());
+    joint_plan.roadside_sites.retain(|site| {
+        !site
+            .program
+            .as_ref()
+            .is_some_and(|program| diagnosed.contains(program.request_id.as_str()))
+    });
     let mut joint = vec![];
     let mut standalone = vec![];
-    let mut summaries: Vec<RequestSummary> = vec![];
-    // Request-major, road-minor: the exact placement order of
-    // `frontage::append`, driven by the same cumulative budgets.
-    let mut session = SupplySession {
-        budgets: requests.iter().map(RequestBudget::new).collect(),
-        committed: vec![],
-        commitments: BTreeMap::new(),
-        verified_report: None,
-        protected_parcels: BTreeMap::new(),
-        protected_owners: BTreeMap::new(),
-    };
-    let without_sites = {
-        let mut base = plan.clone();
-        base.roadside_sites.retain(|site| site.program.is_none());
-        base.frontage = None;
-        base
-    };
-    for (index, r) in requests.iter().enumerate() {
-        let mut joint_attempted = 0_u32;
-        let mut summary = RequestSummary {
+    let mut summaries: Vec<RequestSummary> = requests
+        .iter()
+        .map(|r| RequestSummary {
             request_id: r.id.clone(),
             kind: r.kind.clone(),
             purpose: r.purpose.clone(),
@@ -955,27 +994,71 @@ pub(super) fn diagnose(
             standalone_accepted: 0,
             rejected: BTreeMap::new(),
             stop_reason: String::new(),
-        };
-        for road in &usable {
-            if session.budgets[index].satisfied() || !session.budgets[index].budget_left() {
-                break;
+        })
+        .collect();
+    let without_sites = {
+        let mut base = joint_plan.clone();
+        base.frontage = None;
+        base
+    };
+    // Road-major, station-major, side-minor and rotated over the requests: the
+    // exact placement order of `frontage::append`, from the same shared
+    // `StationSchedule` and driven by the same cumulative budgets. The plan view
+    // and the engineering state are owned once for the whole pass, as the bake
+    // owns them, so every accepted parcel is already occupied ground for the
+    // candidate that follows it.
+    let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
+    let mut state = context.state(&joint_plan);
+    for road in &usable {
+        let schedule = frontage::StationSchedule::new(road, requests)?;
+        // One trace per request still in play on this road, in program order.
+        let mut slots: Vec<Option<usize>> = vec![None; requests.len()];
+        for (index, r) in requests.iter().enumerate() {
+            if budgets[index].satisfied() || !budgets[index].budget_left() {
+                continue;
             }
-            let measured = context.measure_road_for_request(
+            slots[index] = Some(joint.len());
+            joint.push(road_supply_header(road, r, schedule.stations_of(index)));
+        }
+        for turn in schedule.turns() {
+            let Some(slot) = slots[turn.request] else {
+                continue;
+            };
+            let budget = &mut budgets[turn.request];
+            if budget.satisfied() || !budget.budget_left() {
+                // The request met its demand or spent its budget on an earlier
+                // diagonal, so this road was not searched to the end for it.
+                joint[slot].geometry_exhausted = false;
+                continue;
+            }
+            let accepted = context.attempt_turn(
                 &joint_plan,
+                &mut state,
                 road,
-                &mut session.budgets[index],
+                &requests[turn.request],
+                turn.station,
+                turn.side,
+                budget,
+                &mut joint[slot],
                 sample_cap,
             )?;
-            joint_attempted += measured.trace.attempted;
-            joint_plan.roadside_sites.extend(measured.accepted);
-            joint.push(measured.trace);
+            if let Some(site) = accepted {
+                joint_plan.roadside_sites.push(site);
+            }
         }
-        summary.joint_attempted = joint_attempted;
-        summary.joint_accepted = session.budgets[index].site_ids.len();
-        summary.rejected = session.budgets[index].rejected.clone();
-        summary.stop_reason = session.budgets[index].stop_reason();
-        summaries.push(summary);
-        // Standalone pass: one road, untouched committed state.
+    }
+    for (index, r) in requests.iter().enumerate() {
+        summaries[index].joint_attempted = joint
+            .iter()
+            .filter(|trace| trace.request_id == r.id)
+            .map(|trace| trace.attempted)
+            .sum();
+        summaries[index].joint_accepted = budgets[index].site_ids.len();
+        summaries[index].rejected = budgets[index].rejected.clone();
+        summaries[index].stop_reason = budgets[index].stop_reason();
+    }
+    // Standalone pass: one road, untouched committed state, never shared.
+    for (index, r) in requests.iter().enumerate() {
         let mut standalone_accepted = 0;
         for road in &usable {
             let mut fresh = RequestBudget::new(r);
@@ -2705,6 +2788,172 @@ mod tests {
             "witness24": planned == requested && requested == 24 && entrances >= 24,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
+    /// The read-only diagnosis of ONE PUBLISHED world must agree, request for
+    /// request, with the `frontage` report that world was actually built from.
+    ///
+    /// This is the regression gate for the candidate order shared with
+    /// `frontage::append`. While the diagnosis walked request-major it reported
+    /// 50 homes / 317 shop attempts on this world against the published
+    /// 43 / 176, so a downstream judgement could trust a search the bake never
+    /// performed. The world is a `bevy/work` artifact and the suite must not
+    /// depend on it, so the test skips when the directory is absent.
+    #[test]
+    fn diagnosis_of_a_published_world_reproduces_its_frontage_report() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/rk-x/b8-conv/world");
+        if !root.exists() {
+            return;
+        }
+        let manifest: super::super::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).expect("published manifest"),
+        )
+        .expect("manifest json");
+        let scene = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&scene.scene_id);
+        let plan: RoadNetworkPlan = serde_json::from_slice(
+            &std::fs::read(dir.join("road-network-plan.json")).expect("published road plan"),
+        )
+        .expect("plan json");
+        let zones: Vec<LandUseZone> = serde_json::from_slice(
+            &std::fs::read(dir.join("land-use-zones.json")).expect("published zoning"),
+        )
+        .expect("zoning json");
+        let mask = ZoningMask::new(&scene, &zones).expect("zoning mask");
+        let mut natural = BakedTerrain::new(&scene).expect("raster");
+        for chunk_z in 0..scene.depth_m.div_ceil(512) {
+            for chunk_x in 0..scene.width_m.div_ceil(512) {
+                let dx = chunk_x * 512;
+                let dz = chunk_z * 512;
+                let width = (scene.width_m - dx).min(512);
+                let depth = (scene.depth_m - dz).min(512);
+                let bytes = std::fs::read(
+                    dir.join(format!("chunk-{chunk_x}-{chunk_z}.natural.height.bin")),
+                )
+                .expect("published natural chunk");
+                natural
+                    .insert_chunk(
+                        scene.origin_x + dx as i32,
+                        scene.origin_z + dz as i32,
+                        width,
+                        depth,
+                        &bytes,
+                    )
+                    .expect("chunk insert");
+            }
+        }
+        natural.require_complete().expect("complete raster");
+        assert_eq!(
+            natural.content_hash().expect("raster hash"),
+            plan.natural_heightfield_hash,
+            "the replay must use the published natural surface"
+        );
+        assert_eq!(
+            plan.zoning_hash.as_deref(),
+            Some(mask.hash.as_str()),
+            "the replay must use the published zoning"
+        );
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            &scene,
+            &manifest.style,
+        );
+        let requests: Vec<Request> = frontage::from_style(&manifest.style)
+            .expect("frontage program")
+            .expect("frontage program present")
+            .requests
+            .into_iter()
+            .filter(|r| r.scene_id == scene.scene_id)
+            .collect();
+        let published = plan.frontage.as_ref().expect("published frontage report");
+        // The replay starts from the plan `append` saw: strip exactly the parcels
+        // this report placed, and keep every other pre-existing program site.
+        let placed: BTreeSet<String> = published
+            .outcomes
+            .iter()
+            .flat_map(|outcome| outcome.site_ids.iter().cloned())
+            .collect();
+        let mut stripped = plan.clone();
+        stripped
+            .roadside_sites
+            .retain(|site| !placed.contains(&site.id));
+        stripped.frontage = None;
+        let diagnosis = diagnose(
+            &scene, &natural, &mask, water, &zones, &stripped, &requests, 0,
+        )
+        .expect("diagnosis");
+        assert_eq!(
+            diagnosis.requests.len(),
+            published.outcomes.len(),
+            "one summary per published request"
+        );
+        assert_eq!(
+            published.outcomes.len(),
+            2,
+            "this world carries the homes and shops requests"
+        );
+        for (summary, outcome) in diagnosis.requests.iter().zip(&published.outcomes) {
+            assert_eq!(summary.request_id, outcome.request.id);
+            assert_eq!(
+                summary.joint_accepted,
+                outcome.site_ids.len(),
+                "planned frontage for {}",
+                outcome.request.id
+            );
+            assert_eq!(
+                summary.joint_attempted, outcome.attempted,
+                "candidate attempts for {}",
+                outcome.request.id
+            );
+            assert_eq!(
+                summary.rejected, outcome.rejected,
+                "rejection counts for {}",
+                outcome.request.id
+            );
+            assert_eq!(
+                summary.stop_reason, outcome.stop_reason,
+                "stop reason for {}",
+                outcome.request.id
+            );
+            // Identity for identity, in acceptance order.
+            let accepted: Vec<String> = diagnosis
+                .joint
+                .iter()
+                .filter(|trace| trace.request_id == outcome.request.id)
+                .flat_map(|trace| trace.accepted_ids.clone())
+                .collect();
+            assert_eq!(
+                accepted, outcome.site_ids,
+                "accepted parcel identities for {}",
+                outcome.request.id
+            );
+        }
+        // The concrete numbers this world was published with, asserted directly so
+        // the regression cannot pass by both sides drifting together.
+        let by_id: BTreeMap<&str, &RequestSummary> = diagnosis
+            .requests
+            .iter()
+            .map(|summary| (summary.request_id.as_str(), summary))
+            .collect();
+        let homes = by_id["urban-homes"];
+        assert_eq!(
+            (homes.joint_accepted, homes.joint_attempted),
+            (43, 412),
+            "homes: planned / attempted"
+        );
+        assert_eq!(homes.stop_reason, "no_feasible_frontage");
+        let shops = by_id["urban-shops"];
+        assert_eq!(
+            (shops.joint_accepted, shops.joint_attempted),
+            (24, 176),
+            "shops: planned / attempted"
+        );
+        assert_eq!(shops.stop_reason, "demand_satisfied");
+        assert_eq!(diagnosis.joint_accepted, 43 + 24);
+        assert_eq!(diagnosis.joint_station_attempts, 412 + 176);
+        assert_eq!(diagnosis.stop_reason, "no_feasible_frontage");
     }
 
     /// Read-only support-gate audit of ONE PUBLISHED world.
