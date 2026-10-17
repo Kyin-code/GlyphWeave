@@ -120,7 +120,38 @@ round/reason/descriptorFallback）并把 `removedItems` 计入报告。authored 
 
 ---
 
-## 下一步（Round 5 计划）
+## Round 6 · 2026-10-18 · 沿路用途转换的落点定位（只读，无代码改动）
+
+本轮只做一件事：把 Round 4 结论落到具体代码位置，避免下一轮再从零找。
+
+**闸门位置**：`bevy/crates/core/src/worldgen/frontage.rs`
+
+- `envelope_reason()`（:324）先判场景边界（`outside_scene`），再判用途（`wrong_purpose_or_protected`，:338-339）
+- 用途判定走 `in_purpose_core(parcel, insets, rotation_y_deg, zones, purpose)`
+- 注释（:344-354）已经把这件事说清楚：24×24 住宅中心落在 `road/2 + setback + depth/2`，
+  即离路 12–36 m 的一条带；143 m 的 urban zone 被道路走廊切开后，这条带的外缘常常已经在区外，
+  于是"建址在 urban、地块矩形跨出区"也被判成 `wrong_purpose_or_protected`。
+  — 这条注释本身就是 B01 的历史证据（0/120 住宅）。
+
+**实现方案（待批准语义后执行）**
+
+1. **开关**：`style.frontageProgram.ruralConversion`，取 `"explicit"` 才启用，缺省关闭（旧行为逐字节不变）。
+2. **闸门**：`in_purpose_core` 在该开关下，对 `purpose == "urban"` 的请求，额外接受
+   "**可建核心完整落在 rural 区**"的地块；`nature` / `unassigned` / 保护 / 水体仍然拒绝。
+   返回一个转换记录 `{parcelId, from:"rural", to:"urban", areaM2}`。
+3. **记账**：`settlement/landuse_ledger.rs` 在计算行之前应用转换——
+   `urban.realizedM2 += area`、`rural.realizedM2 -= area`，并在账本里输出 `conversions[]`；
+   三条守恒等式必须仍成立，且 `Σconversions.area == urban 增量 == rural 减量`。
+4. **审计**：`world-quality-gate` 增加一条——任何转换不得触及保护/nature/unassigned/水体；
+   账本 `conversions` 与 frontage plan 的转换记录必须逐条一致（防伪造）。
+5. **测试**：1 km 冻结输入上 `urban-homes` 的 `planned` 必须 > 0 且账本守恒；
+   再加负例（保护地/水体地块必须仍被拒绝）。
+
+**风险与边界**：这是"用途转换"，不是放宽几何合同；坡度、填方、退界、引道、保护区一律不动。
+
+---
+
+## 下一步（Round 7 计划）
 
 1. **垫层模型决策（需项目负责人）**：平板垫层 + 纯填方 + 2 m 引道在坡度 ≥3.6% 的地形上
    数学上不可建（0.5 m ÷ 14 m 窗口）。这解释了 b8 真实 1 km 世界只有 1 个 frontage site。
