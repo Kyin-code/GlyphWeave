@@ -436,6 +436,15 @@ C-H1/H2（形态与账本）部分、C-L1（许可）两项未解析、C-V1（�
 
 ## 6. 当前卡点（2026-10-04～10-09 的 T 系列）
 
+> **2026-10-18 更新（Round 1–4，证据见 `rk-x/ROUND-LOG.zh-CN.md`）**
+>
+> - §6.1、§6.2 两条 P0 **已修并提交**（`0fe6ebd`、`7a713c2`）；`cargo test --workspace` **exit 0 全绿**
+>   （baked_audit 26/26、core lib 626/626、morphology_compile 2/2，两条金标未动）。
+> - 真实 1 km 世界同输入对照：23 条基础边的分级被具名拒绝，临街实现 1 → 3，quality fail → warn。
+> - **瓶颈已转移**：`frontageAudit` 实测 `requested 144 / planned 3 / unfilled 141`，候选站点 96–98%
+>   被 `wrong_purpose_or_protected` 拒绝——沿路用地不是 urban。B-01 现在卡在**沿路用途转换**，
+>   不在垫层可进入性、不在几何、不在性能。§7 的 P1 顺序应据此调整（先供给，再垫层模型）。
+
 一次重构（让**基础边**也带 graded profile）把 `cargo test --workspace` 推红：`baked_audit` 9 条失败 → T-0010/T-0011/T-0012 收敛到 **25 ok / 1 fail**，另 `morphology_compile` 1 ok / 1 fail。**T-0013 已下任务书，但截至 2026-10-18 没有任何执行证据**（`bevy/work/collaboration/rk/T-0013/` 只有 `pm/`）。
 
 ### 6.1 卡点一：18 户的入口落差（baked_audit 第 7 条）
