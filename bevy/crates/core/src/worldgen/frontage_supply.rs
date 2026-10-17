@@ -2706,4 +2706,564 @@ mod tests {
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
+
+    /// Read-only support-gate audit of ONE PUBLISHED world.
+    ///
+    /// It loads the published natural raster chunks, the published zoning and the
+    /// published road plan, replays the production frontage search through
+    /// `diagnose` (which shares every candidate constructor and every preflight
+    /// decision with `frontage::append`), and then splits the
+    /// `natural_support_or_fill_limit` family by the sub-condition each candidate
+    /// actually violates:
+    ///
+    /// * `natural_above_design_level`  - a sample is above the pad's design level (a cut)
+    /// * `fill_exceeds_roadbed_limit`  - fill > `maxRoadbedFillM` (6 m)
+    /// * `fill_exceeds_zoning_capacity`- fill > the zoning taper capacity at the sample
+    ///
+    /// Nothing is regenerated and nothing is written: the raster is the published
+    /// chunk set (its content hash must equal `naturalHeightfieldHash`), and the
+    /// zoning hash must equal `zoningHash`, so the replay provably uses the same
+    /// inputs the published plan used. Prints one `SUPPORT-AUDIT-JSON:` line.
+    #[test]
+    #[ignore = "reads one published world from GLYPHWEAVE_SUPPORT_AUDIT_WORLD; writes nothing"]
+    fn support_gate_audit_of_a_published_world() {
+        let Ok(root) = std::env::var("GLYPHWEAVE_SUPPORT_AUDIT_WORLD") else {
+            eprintln!("SKIP: set GLYPHWEAVE_SUPPORT_AUDIT_WORLD to a published world directory");
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let manifest: super::super::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).expect("published manifest"),
+        )
+        .expect("manifest json");
+        let scene = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&scene.scene_id);
+        let plan: RoadNetworkPlan = serde_json::from_slice(
+            &std::fs::read(dir.join("road-network-plan.json")).expect("published road plan"),
+        )
+        .expect("plan json");
+        let zones: Vec<LandUseZone> = serde_json::from_slice(
+            &std::fs::read(dir.join("land-use-zones.json")).expect("published zoning"),
+        )
+        .expect("zoning json");
+        let mask = ZoningMask::new(&scene, &zones).expect("zoning mask");
+        let mut natural = BakedTerrain::new(&scene).expect("raster");
+        for chunk_z in 0..scene.depth_m.div_ceil(512) {
+            for chunk_x in 0..scene.width_m.div_ceil(512) {
+                let dx = chunk_x * 512;
+                let dz = chunk_z * 512;
+                let width = (scene.width_m - dx).min(512);
+                let depth = (scene.depth_m - dz).min(512);
+                let bytes = std::fs::read(
+                    dir.join(format!("chunk-{chunk_x}-{chunk_z}.natural.height.bin")),
+                )
+                .expect("published natural chunk");
+                natural
+                    .insert_chunk(
+                        scene.origin_x + dx as i32,
+                        scene.origin_z + dz as i32,
+                        width,
+                        depth,
+                        &bytes,
+                    )
+                    .expect("chunk insert");
+            }
+        }
+        natural.require_complete().expect("complete raster");
+        let natural_hash = natural.content_hash().expect("raster hash");
+        let natural_hash_matches = natural_hash == plan.natural_heightfield_hash;
+        let zoning_hash_matches = plan.zoning_hash.as_deref() == Some(mask.hash.as_str());
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            &scene,
+            &manifest.style,
+        );
+        let requests: Vec<Request> = frontage::from_style(&manifest.style)
+            .expect("frontage program")
+            .expect("frontage program present")
+            .requests
+            .into_iter()
+            .filter(|r| r.scene_id == scene.scene_id)
+            .collect();
+        let published = plan.frontage.as_ref().expect("published frontage report");
+        // The requests the published plan actually ran must be the ones this style
+        // declares, identity for identity; otherwise the replay would audit a
+        // different demand than the world was built from.
+        let request_identity_matches = requests.len() == published.outcomes.len()
+            && requests.iter().zip(&published.outcomes).all(|(r, o)| {
+                serde_json::to_value(r).unwrap() == serde_json::to_value(&o.request).unwrap()
+            });
+        // 1. Production replay: reconstruct the exact PRE-frontage plan from the
+        //    published receipts and call the same `frontage::append` entry point the
+        //    bake calls. `plan_with_program` runs `joint_frontage::plan` (service
+        //    program version 2) BEFORE frontage, so the base roadside sites, the
+        //    service sites and the joint layout's housing-recovery sites are already
+        //    present when `append` starts; the only parcels to remove are the ones the
+        //    frontage report itself placed. Identical per-request outcomes prove the
+        //    stripped plan is exactly that state. Nothing is regenerated or written.
+        let placed: BTreeSet<String> = published
+            .outcomes
+            .iter()
+            .flat_map(|outcome| outcome.site_ids.iter().cloned())
+            .collect();
+        let mut stripped = plan.clone();
+        stripped
+            .roadside_sites
+            .retain(|site| !placed.contains(&site.id));
+        stripped.frontage = None;
+        let mut produced = stripped.clone();
+        frontage::append(
+            &mut produced,
+            &scene,
+            &natural,
+            water,
+            Some(&zones),
+            &manifest.style,
+        )
+        .expect("production frontage append");
+        let produced_report = produced.frontage.as_ref().expect("replayed report");
+        let mut production_matches = published.outcomes.len() == produced_report.outcomes.len();
+        let mut production_rows: Vec<serde_json::Value> = vec![];
+        for (was, now) in published.outcomes.iter().zip(&produced_report.outcomes) {
+            let identical = was.request.id == now.request.id
+                && was.attempted == now.attempted
+                && was.unfilled == now.unfilled
+                && was.rejected == now.rejected
+                && was.site_ids == now.site_ids
+                && was.stop_reason == now.stop_reason;
+            production_matches &= identical;
+            production_rows.push(serde_json::json!({
+                "requestId": now.request.id,
+                "publishedAttempted": was.attempted,
+                "replayedAttempted": now.attempted,
+                "publishedAccepted": was.site_ids.len(),
+                "replayedAccepted": now.site_ids.len(),
+                "publishedRejected": was.rejected,
+                "replayedRejected": now.rejected,
+                "identical": identical,
+            }));
+        }
+
+        // 2. Shadow replay: the SAME loops and the SAME functions as `frontage::append`,
+        //    with the structured rejection evidence kept. `append` itself discards that
+        //    evidence, and it must not grow a published field (the plan is contracted),
+        //    so the audit duplicates the loop here and proves below that it reproduces
+        //    the production selection identity for identity.
+        #[derive(Clone, Default)]
+        struct SupportTruth {
+            cut: bool,
+            fill_roadbed: bool,
+            fill_capacity: bool,
+            cut_mm: i64,
+            fill_mm: i64,
+            natural_min_mm: i64,
+            natural_max_mm: i64,
+            raise_delta_mm: i64,
+            raise_legal: bool,
+            /// Fill the pad would need if it were raised to the highest ground it
+            /// covers, and whether that raised pad still fits the zoning taper.
+            raise_fill_mm: i64,
+            raise_capacity_ok: bool,
+            /// Natural ground above the design level AT the frontage point on the
+            /// road: non-zero would mean the road's own datum is in cut.
+            road_point_cut_mm: i64,
+            /// The same at the pad's entrance anchor, 20 m off the centreline.
+            entrance_cut_mm: i64,
+        }
+        struct Attempt {
+            request: String,
+            reason: String,
+            note: String,
+            side: i32,
+            truth: SupportTruth,
+        }
+        let roads = frontage::profile_roads(&stripped);
+        let mut state = PlacementState::new(&natural, &mask, water, {
+            let mut existing = roads.clone();
+            existing.extend(stripped.site_entities());
+            existing
+        });
+        let mut staged = stripped.clone();
+        let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
+        let mut attempts: Vec<Attempt> = vec![];
+        let max_fill_mm = (plan.max_roadbed_fill_m * 1000.).round() as i64;
+        let apron_rise_mm =
+            (super::super::access::WALKABLE_GRADE * super::super::ENTRANCE_APRON_RUN_M * 1000.)
+                .round() as i64;
+        for road in &roads {
+            let mut samples: Vec<Option<Vec<usize>>> = Vec::with_capacity(requests.len());
+            for r in &requests {
+                samples.push(frontage::stations(road, r).expect("station list"));
+            }
+            let station_count = samples
+                .iter()
+                .filter_map(|s| s.as_ref().map(|v| v.len()))
+                .max()
+                .unwrap_or(0);
+            for position in 0..station_count {
+                for side in [-1_i32, 1] {
+                    let offset = ((position as i64) * 2 + (if side < 0 { 0 } else { 1 })) as usize
+                        % requests.len();
+                    for step in 0..requests.len() {
+                        let index = (offset + step) % requests.len();
+                        let budget = &mut budgets[index];
+                        if budget.satisfied() || !budget.budget_left() {
+                            continue;
+                        }
+                        let Some(Some(list)) = samples.get(index) else {
+                            continue;
+                        };
+                        let Some(&station) = list.get(position) else {
+                            continue;
+                        };
+                        if !budget.claim_attempt() {
+                            continue;
+                        }
+                        let r = &requests[index];
+                        let mut site =
+                            frontage::candidate_site(road, r, &scene.scene_id, station, side)
+                                .expect("candidate site");
+                        let parcel = frontage::parcel_boundary(&site).expect("parcel");
+                        let (mut reason, _converted) = frontage::envelope_verdict(
+                            parcel,
+                            r.parcel_insets.unwrap_or_default(),
+                            site.rotation_y_deg,
+                            &scene,
+                            &zones,
+                            &r.purpose,
+                            r.rural_conversion,
+                        );
+                        let mut detail = None;
+                        if reason.is_none() {
+                            let (found, evidence) =
+                                state.assess_detailed(&site, &staged).expect("preflight");
+                            reason = found;
+                            detail = evidence;
+                        }
+                        if let Some(reason) = reason {
+                            budget.reject(reason);
+                            let level = i64::from(site.support_level_mm.expect("precise"));
+                            let (half_w, half_d) = crate::worldgen::support_pad_half_extents(
+                                site.width_m as f32,
+                                site.depth_m as f32,
+                                site.rotation_y_deg,
+                                site.frontage_road_point.is_some(),
+                            );
+                            let (x0, z0, x1, z1) = (
+                                site.world_x - half_w as i32,
+                                site.world_z - half_d as i32,
+                                site.world_x + half_w as i32,
+                                site.world_z + half_d as i32,
+                            );
+                            let mut truth = SupportTruth {
+                                natural_min_mm: i64::MAX,
+                                natural_max_mm: i64::MIN,
+                                ..SupportTruth::default()
+                            };
+                            for z in z0..=z1 {
+                                for x in x0..=x1 {
+                                    let Some(h) = natural.height_millimetres(x, z) else {
+                                        continue;
+                                    };
+                                    let h = i64::from(h);
+                                    truth.natural_min_mm = truth.natural_min_mm.min(h);
+                                    truth.natural_max_mm = truth.natural_max_mm.max(h);
+                                    if h > level {
+                                        truth.cut = true;
+                                        truth.cut_mm = truth.cut_mm.max(h - level);
+                                    } else {
+                                        let fill = level - h;
+                                        truth.fill_mm = truth.fill_mm.max(fill);
+                                        if fill > max_fill_mm {
+                                            truth.fill_roadbed = true;
+                                        }
+                                        if fill as f64 > mask.fill_capacity_at(x, z) * 1000. {
+                                            truth.fill_capacity = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if truth.natural_max_mm < truth.natural_min_mm {
+                                truth.natural_min_mm = level;
+                                truth.natural_max_mm = level;
+                            }
+                            // Where does the excess come from: is the road's own datum
+                            // already below natural ground, or does the ground rise
+                            // ACROSS the setback between the road and the pad?
+                            if let Some([rx, rz]) = site.frontage_road_point {
+                                truth.road_point_cut_mm = natural
+                                    .height_millimetres(rx, rz)
+                                    .map_or(0, |h| (i64::from(h) - level).max(0));
+                            }
+                            let anchor = site.entity().anchors[0].clone();
+                            truth.entrance_cut_mm = natural
+                                .height_millimetres(anchor.world_x, anchor.world_z)
+                                .map_or(0, |h| (i64::from(h) - level).max(0));
+                            // What-if: the pad raised to the highest ground it must
+                            // cover, so the cut disappears and the pad becomes fill-only.
+                            // That is only legal while the rise stays inside the walkable
+                            // entrance run and the added fill stays inside the roadbed
+                            // and zoning fill budgets. `familyRaiseLegalByRampMm` below
+                            // reports how many pads each authorised ramp run would unlock.
+                            let raised = level.max(truth.natural_max_mm);
+                            truth.raise_delta_mm = raised - level;
+                            truth.raise_fill_mm = raised - truth.natural_min_mm;
+                            let mut capacity_ok = true;
+                            for z in z0..=z1 {
+                                for x in x0..=x1 {
+                                    let Some(h) = natural.height_millimetres(x, z) else {
+                                        continue;
+                                    };
+                                    let fill = raised - i64::from(h);
+                                    if fill as f64 > mask.fill_capacity_at(x, z) * 1000. {
+                                        capacity_ok = false;
+                                    }
+                                }
+                            }
+                            truth.raise_capacity_ok = capacity_ok;
+                            truth.raise_legal = truth.raise_delta_mm <= apron_rise_mm
+                                && truth.raise_fill_mm <= max_fill_mm
+                                && capacity_ok;
+                            attempts.push(Attempt {
+                                request: r.id.clone(),
+                                reason: reason.into(),
+                                note: detail.and_then(|d| d.note).unwrap_or_default(),
+                                side,
+                                truth,
+                            });
+                        } else {
+                            state
+                                .sample_natural(&mut site, parcel)
+                                .expect("natural range");
+                            state.commit(&site);
+                            budget.accept(&site.id);
+                            staged.roadside_sites.push(site);
+                        }
+                    }
+                }
+            }
+        }
+        let mut shadow_matches = true;
+        for (index, r) in requests.iter().enumerate() {
+            let Some(now) = produced_report
+                .outcomes
+                .iter()
+                .find(|outcome| outcome.request.id == r.id)
+            else {
+                shadow_matches = false;
+                continue;
+            };
+            shadow_matches &= budgets[index].attempted == now.attempted
+                && budgets[index].site_ids == now.site_ids
+                && budgets[index].rejected == now.rejected;
+        }
+        // 3. Split the family by the sub-condition each candidate actually violates.
+        let bucket = |mm: i64| -> &'static str {
+            if mm <= 0 {
+                "none"
+            } else if mm <= 500 {
+                "<=0.5m"
+            } else if mm <= 1000 {
+                "<=1m"
+            } else if mm <= 2000 {
+                "<=2m"
+            } else if mm <= 4000 {
+                "<=4m"
+            } else {
+                ">4m"
+            }
+        };
+        let mut rows: Vec<serde_json::Value> = vec![];
+        let mut totals = BTreeMap::<String, i64>::new();
+        for outcome in &published.outcomes {
+            let family: Vec<&Attempt> = attempts
+                .iter()
+                .filter(|a| a.request == outcome.request.id)
+                .filter(|a| a.reason == "natural_support_or_fill_limit")
+                .collect();
+            let mut combos = BTreeMap::<String, u32>::new();
+            let mut notes = BTreeMap::<String, u32>::new();
+            let mut cut_buckets = BTreeMap::<&'static str, u32>::new();
+            let mut fill_buckets = BTreeMap::<&'static str, u32>::new();
+            let mut raise_buckets = BTreeMap::<&'static str, u32>::new();
+            let mut side_split = BTreeMap::<&'static str, u32>::new();
+            // Always present, so a zero is reported as a zero instead of vanishing.
+            let mut conditions = BTreeMap::<&'static str, u32>::from([
+                ("cut", 0),
+                ("fill_roadbed", 0),
+                ("fill_capacity", 0),
+            ]);
+            let mut max_cut = 0_i64;
+            let mut max_fill = 0_i64;
+            let mut raise_legal = 0_u32;
+            let mut road_point_cut = 0_u32;
+            let mut entrance_cut = 0_u32;
+            let mut entrance_cut_buckets = BTreeMap::<&'static str, u32>::new();
+            for attempt in &family {
+                let truth = &attempt.truth;
+                let mut needs: Vec<&str> = vec![];
+                if truth.cut {
+                    needs.push("cut");
+                }
+                if truth.fill_roadbed {
+                    needs.push("fill_roadbed");
+                }
+                if truth.fill_capacity {
+                    needs.push("fill_capacity");
+                }
+                let key = needs.join("+");
+                let key = if key.is_empty() { "none".into() } else { key };
+                *combos.entry(key).or_default() += 1;
+                if truth.cut {
+                    *conditions.entry("cut").or_default() += 1;
+                }
+                if truth.fill_roadbed {
+                    *conditions.entry("fill_roadbed").or_default() += 1;
+                }
+                if truth.fill_capacity {
+                    *conditions.entry("fill_capacity").or_default() += 1;
+                }
+                *notes.entry(attempt.note.clone()).or_default() += 1;
+                *cut_buckets.entry(bucket(truth.cut_mm)).or_default() += 1;
+                *fill_buckets.entry(bucket(truth.fill_mm)).or_default() += 1;
+                *raise_buckets
+                    .entry(bucket(truth.raise_delta_mm))
+                    .or_default() += 1;
+                *side_split
+                    .entry(if attempt.side < 0 {
+                        "negative"
+                    } else {
+                        "positive"
+                    })
+                    .or_default() += 1;
+                max_cut = max_cut.max(truth.cut_mm);
+                max_fill = max_fill.max(truth.fill_mm);
+                if truth.raise_legal {
+                    raise_legal += 1;
+                }
+                if truth.road_point_cut_mm > 0 {
+                    road_point_cut += 1;
+                }
+                if truth.entrance_cut_mm > 0 {
+                    entrance_cut += 1;
+                }
+                *entrance_cut_buckets
+                    .entry(bucket(truth.entrance_cut_mm))
+                    .or_default() += 1;
+            }
+            // Candidates whose support truth is ALSO violated but whose first failing
+            // gate was something else: the cut/fill envelope blocks more frontage than
+            // the family counter shows.
+            let mut hidden = BTreeMap::<String, u32>::new();
+            for attempt in attempts
+                .iter()
+                .filter(|a| a.request == outcome.request.id)
+                .filter(|a| a.reason != "natural_support_or_fill_limit")
+            {
+                let truth = &attempt.truth;
+                if truth.cut || truth.fill_roadbed || truth.fill_capacity {
+                    *hidden.entry(attempt.reason.clone()).or_default() += 1;
+                }
+            }
+            let family_total = family.len() as i64;
+            // Authorisation table: how many of this request's family rejections a
+            // fill-only pad raised off the road datum would unlock, per walkable
+            // entrance run the project lead might authorise. The 0.5 m row is the
+            // current 2 m apron at the 25 % walkable grade.
+            let mut raise_by_ramp = BTreeMap::<&'static str, u32>::new();
+            for (label, rise_mm) in [
+                ("0.5m", 500_i64),
+                ("1m", 1000),
+                ("2m", 2000),
+                ("3m", 3000),
+                ("4m", 4000),
+                ("6m", 6000),
+            ] {
+                let count = family
+                    .iter()
+                    .filter(|attempt| {
+                        let truth = &attempt.truth;
+                        truth.raise_delta_mm <= rise_mm
+                            && truth.raise_fill_mm <= max_fill_mm
+                            && truth.raise_capacity_ok
+                    })
+                    .count() as u32;
+                raise_by_ramp.insert(label, count);
+            }
+            totals.insert(format!("{}.family", outcome.request.id), family_total);
+            totals.insert(
+                format!("{}.cut", outcome.request.id),
+                i64::from(*conditions.get("cut").unwrap_or(&0)),
+            );
+            totals.insert(
+                format!("{}.fillRoadbed", outcome.request.id),
+                i64::from(*conditions.get("fill_roadbed").unwrap_or(&0)),
+            );
+            totals.insert(
+                format!("{}.fillCapacity", outcome.request.id),
+                i64::from(*conditions.get("fill_capacity").unwrap_or(&0)),
+            );
+            totals.insert(
+                format!("{}.raiseLegal", outcome.request.id),
+                i64::from(raise_legal),
+            );
+            rows.push(serde_json::json!({
+                "requestId": outcome.request.id,
+                "demand": outcome.request.count,
+                "attempted": outcome.attempted,
+                "accepted": outcome.site_ids.len(),
+                "unfilled": outcome.unfilled,
+                "publishedRejected": outcome.rejected,
+                "familyRejected": family_total,
+                "familySubconditions": combos,
+                "familyConditionCounts": conditions,
+                "familyFirstSampleNotes": notes,
+                "familyCutDepthBuckets": cut_buckets,
+                "familyFillDepthBuckets": fill_buckets,
+                "familyRaiseToNaturalMaxLegal": raise_legal,
+                "familyRaiseLegalByRampMm": raise_by_ramp,
+                "familyRaiseDeltaBuckets": raise_buckets,
+                "familyRoadPointCut": road_point_cut,
+                "familyEntranceCut": entrance_cut,
+                "familyEntranceCutBuckets": entrance_cut_buckets,
+                "familySideSplit": side_split,
+                "familyMaxCutMm": max_cut,
+                "familyMaxFillMm": max_fill,
+                "supportInfeasibleButBlockedEarlier": hidden,
+            }));
+        }
+        let report = serde_json::json!({
+            "world": root.display().to_string(),
+            "scene": scene.scene_id,
+            "naturalHashMatches": natural_hash_matches,
+            "zoningHashMatches": zoning_hash_matches,
+            "requestIdentityMatches": request_identity_matches,
+            "maxRoadbedFillM": plan.max_roadbed_fill_m,
+            "apronRiseBudgetMm": apron_rise_mm,
+            "profileRoads": roads.len(),
+            "productionReproducesPublished": production_matches,
+            "productionReplay": production_rows,
+            "shadowReproducesProduction": shadow_matches,
+            "requests": rows,
+            "totals": totals,
+        });
+        println!(
+            "SUPPORT-AUDIT-JSON: {}",
+            serde_json::to_string(&report).unwrap()
+        );
+        assert!(
+            natural_hash_matches && zoning_hash_matches && request_identity_matches,
+            "the audit must run on the published inputs"
+        );
+        assert!(
+            production_matches,
+            "stripping the frontage sites and re-running `frontage::append` must reproduce the \
+             published outcome exactly"
+        );
+        assert!(
+            shadow_matches,
+            "the shadow replay must reproduce the production selection exactly"
+        );
+    }
 }
