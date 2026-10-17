@@ -22,6 +22,7 @@ pub(super) fn reconcile(
         .map_err(|e| WorldgenError::InvalidRules(e.to_string()))?;
     let mut entities = base.to_vec();
     let mut moves = Vec::new();
+    let mut skips: Vec<serde_json::Value> = Vec::new();
     let mut original_positions = BTreeMap::new();
     for entity in base {
         original_positions.insert(entity.entity_id.clone(), (entity.world_x, entity.world_z));
@@ -43,12 +44,14 @@ pub(super) fn reconcile(
         )
         .map_err(|e| WorldgenError::InvalidRules(e.to_string()))?;
         if audit.rejected_items == 0 {
+            let output_items = entities.len();
             return Ok((
                 entities,
                 carves,
                 serde_json::json!({
                     "sceneId":scene.scene_id,"rounds":round,"moves":moves,
-                    "inputItems":base.len(),"outputItems":base.len(),"removedItems":0,
+                    "inputItems":base.len(),"outputItems":output_items,"removedItems":skips.len(),
+                    "skips":skips,
                     "checkedItems":audit.checked_items,"rejectedItems":0,
                 }),
             ));
@@ -77,6 +80,37 @@ pub(super) fn reconcile(
                     "road" | "bridge" | "railway" | "canal" | "causeway" | "sidewalk"
                 )
             {
+                // T-0013 (ii): a GENERATED frontage object whose own object descriptor
+                // declares `fallback = skip` may be SKIPPED rather than failing the whole
+                // bake. Its contract already says "if you cannot satisfy me, do not place
+                // me"; before this the reconciliation treated every frontage-bearing
+                // entity as fixed and returned `fixed entity ... fails engineered terrain`,
+                // so one shop whose authored setback (12 m) cannot satisfy its own 8 m
+                // road-distance contract made a whole world unbuildable (measured on
+                // `morphology_compile`). Authored entities, landmarks, infrastructure
+                // layout and objects that ask to move/shrink stay hard errors, and every
+                // skip is NAMED and COUNTED - never silent.
+                let skippable = source.entity_id.starts_with("generated.")
+                    && !landmarks.iter().any(|l| l.entity_id == source.entity_id)
+                    && !matches!(
+                        source.kind.as_str(),
+                        "road" | "bridge" | "railway" | "canal" | "causeway" | "sidewalk"
+                    )
+                    && crate::rules::audit::descriptor_for(&registry, &source).is_some_and(|d| {
+                        d.placement.fallback == crate::rules::schema::Fallback::Skip
+                    });
+                if skippable {
+                    entities.remove(index);
+                    skips.push(serde_json::json!({
+                        "entityId": source.entity_id,
+                        "kind": source.kind,
+                        "round": round + 1,
+                        "reason": reject.reason,
+                        "descriptorFallback": "skip",
+                    }));
+                    progress = true;
+                    continue;
+                }
                 return Err(WorldgenError::InvalidRules(format!(
                     "fixed entity {} fails engineered terrain: {}",
                     source.entity_id, reject.reason
