@@ -45,6 +45,7 @@ mod shorefront;
 mod terrain_context;
 mod water_query;
 pub mod shore_band;
+pub mod urban_growth;
 pub mod zoning;
 use std::collections::BTreeMap;
 use std::fs;
@@ -843,6 +844,74 @@ pub fn plan_landuse_zones(scene: &SceneSpec, profile: &LandUseProfile) -> Vec<La
         profile.rural_target() / total,
         profile.nature_target() / total,
     ];
+    let cx = f64::from(scene.origin_x) + f64::from(scene.width_m) * 0.5;
+    let cz = f64::from(scene.origin_z) + f64::from(scene.depth_m) * 0.5;
+    let mut cells: Vec<(f64, ZoningCell)> = zoning_cells(scene)
+        .into_iter()
+        .map(|cell| {
+            let radius = (f64::from(cell.world_x) + f64::from(cell.width_m) * 0.5 - cx).powi(2)
+                + (f64::from(cell.world_z) + f64::from(cell.depth_m) * 0.5 - cz).powi(2);
+            (radius, cell)
+        })
+        .collect();
+    cells.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.index.cmp(&b.1.index)));
+    let area = f64::from(scene.width_m) * f64::from(scene.depth_m);
+    let boundaries = [
+        targets[0] * area,
+        (targets[0] + targets[1]) * area,
+        (targets[0] + targets[1] + targets[2]) * area,
+    ];
+    let names = ["urban", "rural", "nature", "unassigned"];
+    let mut consumed = 0.0;
+    let mut category = 0;
+    cells
+        .into_iter()
+        .map(|(_, cell)| {
+            let size = f64::from(cell.width_m) * f64::from(cell.depth_m);
+            // Nearest cumulative area boundary, not rounded cell count. Zero
+            // targets remain zero and an unspecified remainder stays unassigned.
+            while category < 3
+                && (consumed + size - boundaries[category]).abs()
+                    >= (consumed - boundaries[category]).abs()
+            {
+                category += 1;
+            }
+            let kind = names[category];
+            consumed += size;
+            LandUseZone {
+                id: format!("{}.zone.{kind}.{}", scene.scene_id, cell.index),
+                kind: kind.into(),
+                world_x: cell.world_x,
+                world_z: cell.world_z,
+                width_m: cell.width_m,
+                depth_m: cell.depth_m,
+                source: RADIAL_ZONE_SOURCE.into(),
+            }
+        })
+        .collect()
+}
+
+/// The published `source` of the default, radial land-use plan.
+pub const RADIAL_ZONE_SOURCE: &str = "balanced-area-radial-v3";
+
+/// One cell of the land-use planning grid: the unit every zoning rectangle is an exact cut of.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ZoningCell {
+    /// Row-major index of the cell in the plan, which is the suffix of its zone ids.
+    pub index: usize,
+    pub world_x: i32,
+    pub world_z: i32,
+    pub width_m: u32,
+    pub depth_m: u32,
+}
+
+/// The planning grid one scene is zoned on: the same cells the radial plan and the opt-in
+/// axis-and-node growth both cut, so the two plans are directly comparable square metre for square
+/// metre.
+pub(crate) fn zoning_cells(scene: &SceneSpec) -> Vec<ZoningCell> {
+    if scene.width_m == 0 || scene.depth_m == 0 {
+        return Vec::new();
+    }
     // The zoning cell is 240 m for scenes whose longest side is at least 5 km and 160 m otherwise.
     //
     // A round 12 experiment replaced this with `(longest / 4).clamp(160, 240)` on the theory that a
@@ -861,9 +930,7 @@ pub fn plan_landuse_zones(scene: &SceneSpec, profile: &LandUseProfile) -> Vec<La
     };
     let cols = scene.width_m.div_ceil(cell);
     let rows = scene.depth_m.div_ceil(cell);
-    let cx = f64::from(scene.origin_x) + f64::from(scene.width_m) * 0.5;
-    let cz = f64::from(scene.origin_z) + f64::from(scene.depth_m) * 0.5;
-    let mut cells = Vec::new();
+    let mut cells = Vec::with_capacity((cols * rows) as usize);
     for row in 0..rows {
         for col in 0..cols {
             // Redistribute the partial edge rather than emitting a 32m sliver.
@@ -876,46 +943,62 @@ pub fn plan_landuse_zones(scene: &SceneSpec, profile: &LandUseProfile) -> Vec<La
             let (Ok(wx), Ok(wz)) = (i32::try_from(wx), i32::try_from(wz)) else {
                 continue;
             };
-            let radius = (f64::from(wx) + f64::from(right - x) * 0.5 - cx).powi(2)
-                + (f64::from(wz) + f64::from(bottom - z) * 0.5 - cz).powi(2);
-            cells.push((radius, row * cols + col, wx, wz, right - x, bottom - z));
+            cells.push(ZoningCell {
+                index: (row * cols + col) as usize,
+                world_x: wx,
+                world_z: wz,
+                width_m: right - x,
+                depth_m: bottom - z,
+            });
         }
     }
-    cells.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    let area = f64::from(scene.width_m) * f64::from(scene.depth_m);
-    let boundaries = [
-        targets[0] * area,
-        (targets[0] + targets[1]) * area,
-        (targets[0] + targets[1] + targets[2]) * area,
-    ];
-    let names = ["urban", "rural", "nature", "unassigned"];
-    let mut consumed = 0.0;
-    let mut category = 0;
     cells
-        .into_iter()
-        .map(|(_, index, x, z, w, d)| {
-            let size = f64::from(w) * f64::from(d);
-            // Nearest cumulative area boundary, not rounded cell count. Zero
-            // targets remain zero and an unspecified remainder stays unassigned.
-            while category < 3
-                && (consumed + size - boundaries[category]).abs()
-                    >= (consumed - boundaries[category]).abs()
-            {
-                category += 1;
-            }
-            let kind = names[category];
-            consumed += size;
-            LandUseZone {
-                id: format!("{}.zone.{kind}.{index}", scene.scene_id),
-                kind: kind.into(),
-                world_x: x,
-                world_z: z,
-                width_m: w,
-                depth_m: d,
-                source: "balanced-area-radial-v3".into(),
-            }
-        })
-        .collect()
+}
+
+/// The land-use plan one scene's style states.
+///
+/// With the opt-in switch off this is [`plan_landuse_zones`] and nothing else, so no existing world
+/// can move by a byte. With `style.landUseProfile.urbanGrowth = "axis-and-node"` the plan grows along
+/// the road network the world builds under its OWN (radial) land-use plan - the network it already
+/// had - and the urban, rural and nature totals stay the radial plan's, exactly.
+///
+/// `style` must be the EFFECTIVE style the bake plans with (the compiled one: the morphology
+/// compiler fills in the frontage program's derived setbacks), never the raw manifest style.
+pub fn plan_landuse_zones_for_style(
+    scene: &SceneSpec,
+    profile: &LandUseProfile,
+    style: &serde_json::Value,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    program: Option<&services::ServiceProgram>,
+    source: NaturalSource,
+) -> Result<urban_growth::GrowthPlan, TerrainError> {
+    if !urban_growth::enabled(style) {
+        return Ok(urban_growth::GrowthPlan {
+            zones: plan_landuse_zones(scene, profile),
+            selection: None,
+            source: RADIAL_ZONE_SOURCE.into(),
+        });
+    }
+    // The network the world already builds: the one the RADIAL plan produces, planned exactly as the
+    // bake plans it (same zones, same style, same natural source). It is a pure function of inputs
+    // the audit also holds, so the grown plan is reproducible without trusting the bake.
+    let network = if road_network::enabled(style, water) {
+        let radial = plan_landuse_zones(scene, profile);
+        let skeleton = road_network::plan_with_style_declared(
+            scene,
+            natural,
+            water,
+            Some(&radial),
+            program,
+            style,
+            source,
+        )?;
+        Some(urban_growth::Network::from_plan(&skeleton))
+    } else {
+        None
+    };
+    Ok(urban_growth::plan(scene, profile, network.as_ref(), water))
 }
 
 
@@ -2369,8 +2452,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             snapshot
         };
         trace.stage(&scene.scene_id,"road-and-service-planning");
-        let planned_zones =
-            LandUseProfile::from_style(&manifest.style).map(|p| plan_landuse_zones(scene, &p));
+        let planned_zones = match LandUseProfile::from_style(&manifest.style) {
+            Some(profile) => Some(
+                plan_landuse_zones_for_style(
+                    scene,
+                    &profile,
+                    &effective_style,
+                    &natural_samples,
+                    water,
+                    service_program.as_ref(),
+                    declared_natural_source(manifest, scene)?,
+                )?
+                .zones,
+            ),
+            None => None,
+        };
         let road_plan = if road_network::enabled(&manifest.style, water) {
             Some(road_network::plan_with_style_declared(
                 scene,
@@ -2397,11 +2493,11 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         drop(natural_samples);
         trace.stage(&scene.scene_id,"development-partition");
         let development_plan = if let Some(roads) = &road_plan {
-            let profile = LandUseProfile::from_style(&manifest.style).ok_or_else(|| {
+            let zones = planned_zones.as_deref().ok_or_else(|| {
                 WorldgenError::InvalidRules("road development requires land-use profile".into())
             })?;
             Some(
-                development::plan(scene, &plan_landuse_zones(scene, &profile), roads)
+                development::plan(scene, zones, roads)
                     .map_err(WorldgenError::InvalidRules)?,
             )
         } else {
@@ -2436,6 +2532,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 &effective_style,
                 road_plan.as_ref(),
                 development_plan.as_ref(),
+                planned_zones.as_deref(),
             )?;
         if let Some((proposed_count, outcome)) = placement_outcome {
             let mut by_reason = BTreeMap::<String, usize>::new();
@@ -2855,7 +2952,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             development_proposals,
         };
         if let Some(profile) = LandUseProfile::from_style(&manifest.style) {
-            let zones = plan_landuse_zones(scene, &profile);
+            // The plan the bake decided, not a second derivation of it: a scene whose style opted
+            // into the axis-and-node growth publishes the zones its road plan, development plan and
+            // ledger were built from.
+            let zones = planned_zones
+                .clone()
+                .unwrap_or_else(|| plan_landuse_zones(scene, &profile));
             fs::write(
                 scene_dir.join("land-use-zones.json"),
                 serde_json::to_vec_pretty(&zones)?,
@@ -5075,6 +5177,7 @@ fn generate_entities_with_geometry(
         &serde_json::Value::Null,
         None,
         None,
+        None,
     )
     .expect("valid candidate identity")
     .0
@@ -5088,9 +5191,15 @@ fn generate_entities_with_profile(
     geometry: WaterGeometry,
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
-    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None).expect("valid candidate identity").0
+    generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None, None)
+        .expect("valid candidate identity").0
 }
 
+/// `zones` is the land-use plan the bake ALREADY decided (see
+/// `plan_landuse_zones_for_style`): a scene whose style opted into the axis-and-node growth must be
+/// generated under the plan it was planned with, not under a second, radial derivation of it. A
+/// caller that passes `None` keeps the historical recomputation, so every input that does not opt in
+/// is byte-identical.
 fn generate_entities_with_profile_report(
     seed: u64,
     scene: &SceneSpec,
@@ -5099,6 +5208,7 @@ fn generate_entities_with_profile_report(
     style: &serde_json::Value,
     road_plan: Option<&road_network::RoadNetworkPlan>,
     development_plan: Option<&DevelopmentPlan>,
+    zones: Option<&[LandUseZone]>,
 ) -> WorldgenResult<(
     Vec<EntityInstance>,
     Option<(usize, crate::rules::PlacementOutcome)>,
@@ -5313,6 +5423,7 @@ fn generate_entities_with_profile_report(
                     development_plan,
                     &mut development_proposals,
                     &ids,
+                    zones,
                 )
             }
             Some("city" | "town") => append_generic_land_content(seed, scene, &mut entities, &ids),
@@ -5335,6 +5446,7 @@ fn generate_entities_with_profile_report(
                             development_plan,
                             &mut development_proposals,
                             &ids,
+                            zones,
                         );
                     } else {
                         append_generic_land_content(seed, scene, &mut entities, &ids);
@@ -5368,6 +5480,7 @@ fn generate_entities_with_profile_report(
             development_plan,
             &mut development_proposals,
             &ids,
+            zones,
         )
     } else if matches!(explicit_settlement, Some("city" | "town")) {
         // Water geometry is already present in the template. Add the settlement
@@ -5405,7 +5518,16 @@ fn generate_entities_with_profile_report(
     if rules_mode == "rules" {
         let proposed_count = entities.len();
         let (rule_entities, outcome) =
-            apply_rules_mode(seed, scene, geometry, style, landmarks, entities, road_plan);
+            apply_rules_mode(
+                seed,
+                scene,
+                geometry,
+                style,
+                landmarks,
+                entities,
+                road_plan,
+                zones,
+            );
         entities = rule_entities;
         placement_outcome = Some((proposed_count, outcome));
         sanitize_natural_detail_clearance(&mut entities);
@@ -5452,6 +5574,7 @@ fn apply_rules_mode(
     landmarks: &[LandmarkSpec],
     proposed: Vec<EntityInstance>,
     road_plan: Option<&road_network::RoadNetworkPlan>,
+    zones: Option<&[LandUseZone]>,
 ) -> (Vec<EntityInstance>, crate::rules::PlacementOutcome) {
     // Object rules location: <repo>/assets/objects (resolved from the caller).
     let rules_dir = rules_dir_from_style(style);
@@ -5476,20 +5599,27 @@ fn apply_rules_mode(
         .collect();
     let mut requests = Vec::new();
     let mut passthrough = Vec::new();
-    // Opt-in waterfront: a planned roadside pad is an OBLIGATION, and a legacy
+    // Opt-in: a planned roadside pad is an OBLIGATION, and a legacy
     // template filler that stands on one blocks the entrance the pad was designed
     // around - the rules engine then refuses the PAD, the road-network audit
     // reports a missing planned site, and a city loses a home to scenery. The
     // filler is refused BY NAME here (it reaches `rules-placement.json` like every
     // other named refusal) so the plan's site keeps its ground. Off for every
     // world that did not opt in, and the pads themselves are exempt.
-    let planned_pads: Vec<EntityInstance> = if water.road_water_crossings() {
-        road_plan
-            .map(|plan| plan.site_entities())
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    //
+    // The axis-and-node growth policy opts in too, for the same reason and one more: a pad whose
+    // order the RADIAL plan did not inherit stands where a filler could not have stood before, and a
+    // filler platform that merely reaches into the pad's audit window buries the pad's declared flat
+    // top - the bake then fails its bounded-cut ledger with `bounded_cut_pad_top_not_flat` on a pad
+    // the planner was right to accept. The window is the same one the pad's own flat-top audit uses.
+    let planned_pads: Vec<EntityInstance> =
+        if water.road_water_crossings() || urban_growth::enabled(style) {
+            road_plan
+                .map(|plan| plan.site_entities())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
     let planned_pad_ids: std::collections::BTreeSet<&str> = planned_pads
         .iter()
         .map(|pad| pad.entity_id.as_str())
@@ -5624,11 +5754,21 @@ fn apply_rules_mode(
         }
     }
 
-    let source_zones = road_plan
-        .and_then(|_| LandUseProfile::from_style(style))
-        .map(|p| plan_landuse_zones(scene, &p));
+    // The bake hands its own land-use plan down; a caller that passes none keeps the historical
+    // recomputation from the style, byte for byte.
+    let computed;
+    let source_zones: Option<&[LandUseZone]> = match (road_plan, zones) {
+        (None, _) => None,
+        (Some(_), Some(zones)) => Some(zones),
+        (Some(_), None) => match LandUseProfile::from_style(style) {
+            Some(profile) => {
+                computed = plan_landuse_zones(scene, &profile);
+                Some(&computed)
+            }
+            None => None,
+        },
+    };
     let source_zoning = source_zones
-        .as_deref()
         .map(|z| zoning::ZoningMask::new(scene, z).expect("computed planning zones are valid"));
     let terrain_context = TerrainContext {
         seed,
@@ -6911,6 +7051,7 @@ fn append_modern_landuse_content(
     development_plan: Option<&DevelopmentPlan>,
     development_proposals: &mut Vec<DevelopmentProposal>,
     ids: &CandidateIds,
+    zones: Option<&[LandUseZone]>,
 ) {
     let params = CityFormParams::resolve(style);
     let min_x = scene.origin_x + 80;
@@ -6964,11 +7105,21 @@ fn append_modern_landuse_content(
     }
     entities.extend(planned_roads.iter().cloned());
     entities.extend(planned_sites.iter().cloned());
-    let source_zones = road_plan
-        .and_then(|_| LandUseProfile::from_style(style))
-        .map(|p| plan_landuse_zones(scene, &p));
+    // The bake hands its own land-use plan down; a caller that passes none keeps the historical
+    // recomputation from the style, byte for byte.
+    let computed;
+    let source_zones: Option<&[LandUseZone]> = match (road_plan, zones) {
+        (None, _) => None,
+        (Some(_), Some(zones)) => Some(zones),
+        (Some(_), None) => match LandUseProfile::from_style(style) {
+            Some(profile) => {
+                computed = plan_landuse_zones(scene, &profile);
+                Some(&computed)
+            }
+            None => None,
+        },
+    };
     let source_zoning = source_zones
-        .as_deref()
         .map(|z| zoning::ZoningMask::new(scene, z).expect("computed planning zones are valid"));
     // The scene's OWN water geometry, landmarks included. For a waterless scene
     // this is the same empty body the old landmark-free derivation produced, so
@@ -7172,7 +7323,14 @@ fn append_modern_landuse_content(
         } else if is_bulk && occ.collides_hard(x, z, half_w, half_d) {
             return false;
         }
-        if !planned_roads.is_empty() && (is_building || entity_kind == "parking_lot") {
+        // Every building kind - not only the ones the density loop emits - is asked the same
+        // question while the axis-and-node growth policy is on: its fill envelope must not bury a
+        // planned pad, a planned parcel or a road. Off for every other input, so no existing world
+        // gains or loses a single placement.
+        let fill_guard = is_building
+            || entity_kind == "parking_lot"
+            || (urban_growth::enabled(style) && crate::settlement::is_building(entity_kind));
+        if !planned_roads.is_empty() && fill_guard {
             let water = legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.);
             let mut proposed = generated_intent_entity(
                 "generated.preflight".into(),
@@ -7190,7 +7348,14 @@ fn append_modern_landuse_content(
             // planned parcel: a higher building whose fill envelope floods the
             // pad would bury it in the final raster. Opt-in waterfront only, so
             // every existing world keeps the placements it already publishes.
-            let planned_roadside = if source_water.road_water_crossings() {
+            //
+            // The axis-and-node growth policy opts in for the same reason: its pads do not inherit
+            // the radial plan's order, so a land-use building can stand where no pad was before and
+            // its fill envelope can bury a pad's declared flat top - which the bake then reports as
+            // `bounded_cut_pad_top_not_flat` on a pad the frontage programme was right to accept.
+            let planned_roadside = if source_water.road_water_crossings()
+                || urban_growth::enabled(style)
+            {
                 road_plan.map(|plan| plan.site_entities()).unwrap_or_default()
             } else {
                 Vec::new()
@@ -8624,6 +8789,7 @@ mod tests {
             &style,
             std::slice::from_ref(&authored),
             vec![landmark_to_entity(&authored)],
+            None,
             None,
         );
         assert_eq!(entities.len(), 1);

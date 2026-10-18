@@ -1577,10 +1577,11 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             return Err("missing required natural road network plan".into());
         }
         if let Some(profile) = &profile {
-            let zones = glyphweave_core::worldgen::plan_landuse_zones(spec, profile);
-            if serde_json::to_value(&zones)? != serde_json::to_value(&scene.land_use_zones)? {
-                return Err("persisted zones differ from manifest planning inputs".into());
-            }
+            // The zoning is re-derived independently BELOW, once this scene's natural raster is
+            // loaded: the axis-and-node policy reads the road network the world builds, which is a
+            // function of the natural terrain. What this block checks is that the PUBLISHED zoning,
+            // the published plan and the published budget all describe one another.
+            let zones = &scene.land_use_zones;
             let folder = root.join("scenes").join(&scene.scene_id);
             if scene.road_network_plan.is_some() {
                 if scene.parcel_plan.is_some() {
@@ -1607,7 +1608,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                     .parcel_plan
                     .as_ref()
                     .ok_or("missing parcel plan; rebake required")?;
-                glyphweave_core::settlement::verify_parcel_plan(plan, &zones, &scene.entities)?;
+                glyphweave_core::settlement::verify_parcel_plan(plan, zones, &scene.entities)?;
                 for (file, expected) in [
                     ("parcel-plan.json", serde_json::to_value(plan)?),
                     (
@@ -1634,7 +1635,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                     "persisted land-use budget differs from rebuilt entity and zone areas".into(),
                 );
             }
-            for (file, expected) in [("land-use-zones.json", serde_json::to_value(&zones)?)] {
+            for (file, expected) in [("land-use-zones.json", serde_json::to_value(zones)?)] {
                 let published: serde_json::Value =
                     serde_json::from_slice(&fs::read(folder.join(file))?)?;
                 if published != expected {
@@ -1712,6 +1713,29 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             && scene.road_network_plan.is_none()
         {
             return Err("missing required natural road network plan".into());
+        }
+        if let Some(profile) = &profile {
+            // The one independent re-derivation of the scene's land-use plan. It is a pure function
+            // of the manifest style, the scene envelope, the natural raster and the water geometry -
+            // every input the published world carries - so a bake cannot smuggle in a plan its own
+            // inputs do not state, and an opted-in axis-and-node plan is reproduced from scratch
+            // (including the road network it grows along) rather than trusted.
+            let program = glyphweave_core::worldgen::services::from_style(&effective_style)?;
+            let source = glyphweave_core::worldgen::declared_natural_source(&manifest, spec)?;
+            let expected = glyphweave_core::worldgen::plan_landuse_zones_for_style(
+                spec,
+                profile,
+                &effective_style,
+                &natural_terrain,
+                water,
+                program.as_ref(),
+                source,
+            )?;
+            if serde_json::to_value(&expected.zones)?
+                != serde_json::to_value(&scene.land_use_zones)?
+            {
+                return Err("persisted zones differ from manifest planning inputs".into());
+            }
         }
         let road_network_audit = if let Some(plan) = &scene.road_network_plan {
             let published: glyphweave_core::worldgen::road_network::RoadNetworkPlan =
