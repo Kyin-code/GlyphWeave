@@ -28,16 +28,46 @@ impl FieldTemplate {
         Ok(())
     }
 }
+/// Authored permission for one farm lane to terminate on an already realized
+/// farm track instead of a road footprint. Absent means the pre-existing rule
+/// (every lane reaches a road) stays in force, so published worlds keep their
+/// exact bytes and an audit can tell the two policies apart from the plan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrackNetwork {
+    pub model: String,
+}
+/// The only shared-track model, so a typo cannot silently select a different
+/// budget rule than the one the audit re-checks.
+pub const SHARED_TRACK_MODEL: &str = "shared-farm-track-v1";
+impl TrackNetwork {
+    pub fn shared() -> Self {
+        Self {
+            model: SHARED_TRACK_MODEL.into(),
+        }
+    }
+    pub fn validate(&self) -> Result<(), String> {
+        if self.model != SHARED_TRACK_MODEL {
+            return Err("unsupported shared farm track model".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FarmPattern {
     pub default_field: FieldTemplate,
     #[serde(default)]
     pub zone_fields: BTreeMap<String, FieldTemplate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_network: Option<TrackNetwork>,
 }
 impl FarmPattern {
     pub fn validate(&self) -> Result<(), String> {
         self.default_field.validate()?;
+        if let Some(network) = &self.track_network {
+            network.validate()?;
+        }
         if self.zone_fields.len() > 256 {
             return Err("too many agriculture zone overrides".into());
         }
@@ -349,9 +379,47 @@ mod tests {
                 depth_m: 32,
             },
             zone_fields: BTreeMap::from([("small".into(), FieldTemplate::default())]),
+            track_network: None,
         };
         p.validate().unwrap();
         assert_eq!(p.for_zone("small"), FieldTemplate::default());
         assert_eq!(p.for_zone("other"), p.default_field);
+    }
+    #[test]
+    fn shared_track_policy_is_explicit_and_unknown_models_fail_closed() {
+        assert_eq!(
+            TrackNetwork::shared(),
+            TrackNetwork {
+                model: "shared-farm-track-v1".into()
+            }
+        );
+        assert!(TrackNetwork::shared().validate().is_ok());
+        for model in ["", "shared-farm-track", "SHARED-FARM-TRACK-V1"] {
+            assert!(
+                TrackNetwork {
+                    model: model.into()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        // A pattern without the policy is still the exact legacy value, so an
+        // old agricultureProgram round-trips without gaining a field.
+        let legacy = FarmPattern {
+            default_field: FieldTemplate::default(),
+            zone_fields: BTreeMap::new(),
+            track_network: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap(),
+            serde_json::json!({"defaultField":{"widthM":24,"depthM":24},"zoneFields":{}})
+        );
+        let shared = serde_json::from_value::<FarmPattern>(serde_json::json!({
+            "defaultField":{"widthM":24,"depthM":24},
+            "trackNetwork":{"model":"shared-farm-track-v1"}
+        }))
+        .unwrap();
+        shared.validate().unwrap();
+        assert_eq!(shared.track_network, Some(TrackNetwork::shared()));
     }
 }

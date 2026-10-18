@@ -26,6 +26,17 @@ pub(super) struct Search {
     pub expanded: usize,
     pub reason: &'static str,
 }
+/// Result of hunting for the shortest spur onto an already realized lane.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Spur {
+    /// Centreline of the spur. Empty when no realized square could be joined.
+    pub path: Vec<Point>,
+    /// The realized 1m square this spur ends on. The caller extends the path
+    /// onto it, so the published lane ends exactly where it joins.
+    pub join: Option<Point>,
+    pub expanded: usize,
+    pub reason: &'static str,
+}
 fn simplify(points: Vec<Point>) -> Vec<Point> {
     let mut result: Vec<Point> = vec![];
     for p in points {
@@ -129,6 +140,118 @@ pub(super) fn find(
                 continue;
             }
             nodes.insert(next, (next_cost, Some(p)));
+            frontier.push(Reverse((next_cost + h, next_cost, next)));
+        }
+    }
+    result
+}
+/// Bounded search for the shortest spur from a field edge onto an already
+/// realized farm-track square. `terminals` carries the metres each offered
+/// square already spends back to a real road, so a join only counts while the
+/// spur and that spend fit inside the unchanged budget together. Hops are never
+/// counted: a chain of shared lanes is limited by metres of path.
+///
+/// The goal is a square *within 2m of the last centre* rather than the centre
+/// itself. A lane runs beside a field, so standing on the track's outer row
+/// would need that neighbour's ground even though driving the lane there does
+/// not; the caller extends the centreline onto the square, re-checks the swept
+/// corridor and charges that last arm to the same budget before publishing it.
+pub(super) fn find_spur(
+    starts: &[Point],
+    terminals: &[(Point, u64)],
+    max_length: u64,
+    max_expanded: usize,
+    mut legal: impl FnMut(Point) -> bool,
+) -> Spur {
+    let mut result = Spur {
+        path: vec![],
+        join: None,
+        expanded: 0,
+        reason: "no_shared_track_within_budget",
+    };
+    if terminals.is_empty() {
+        return result;
+    }
+    // Remaining cost to the best offered square, spend included. Without this
+    // the search would spend its whole expansion budget exploring the flat
+    // ground next to the field instead of reaching a lane tens of metres away.
+    let heuristic = |p: Point| {
+        terminals
+            .iter()
+            .map(|&(t, spent)| p[0].abs_diff(t[0]) + p[1].abs_diff(t[1]) + spent)
+            .min()
+            .unwrap_or(u64::MAX)
+    };
+    let mut visited = BTreeMap::<Point, u64>::new();
+    let mut parents = BTreeMap::<Point, Option<Point>>::new();
+    let mut frontier = BinaryHeap::new();
+    let mut starts = starts.to_vec();
+    starts.sort();
+    starts.dedup();
+    for p in starts {
+        let h = heuristic(p);
+        if h > max_length || visited.contains_key(&p) || !legal(p) {
+            continue;
+        }
+        visited.insert(p, 0);
+        parents.insert(p, None);
+        frontier.push(Reverse((h, 0_u64, p)));
+    }
+    let mut feasibility = BTreeMap::new();
+    while let Some(Reverse((_, g, p))) = frontier.pop() {
+        if visited[&p] != g {
+            continue;
+        }
+        if result.expanded >= max_expanded {
+            result.reason = "shared_track_expansion_budget_exhausted";
+            return result;
+        }
+        result.expanded += 1;
+        // Cheapest square this centre's 4m block can reach, ties broken by cell
+        // so the choice never depends on iteration order.
+        let mut hit = None;
+        for &(square, spent) in terminals {
+            if square[0].abs_diff(p[0]) > 2
+                || square[1].abs_diff(p[1]) > 2
+                || g + spent > max_length
+            {
+                continue;
+            }
+            if hit.map_or(true, |best: (u64, Point)| (spent, square) < best) {
+                hit = Some((spent, square));
+            }
+        }
+        if let Some((_, square)) = hit {
+            let mut chain = vec![p];
+            let mut cursor = p;
+            while let Some(parent) = parents[&cursor] {
+                chain.push(parent);
+                cursor = parent;
+            }
+            chain.reverse();
+            result.path = simplify(chain);
+            result.join = Some(square);
+            result.reason = "verified_shared_track";
+            return result;
+        }
+        let next_cost = g + 2;
+        if next_cost > max_length {
+            continue;
+        }
+        for [dx, dz] in [[-2, 0], [0, -2], [0, 2], [2, 0]] {
+            let (Some(x), Some(z)) = (p[0].checked_add(dx), p[1].checked_add(dz)) else {
+                continue;
+            };
+            let next = [x, z];
+            let h = heuristic(next);
+            if h > max_length - next_cost || visited.get(&next).is_some_and(|n| *n <= next_cost) {
+                continue;
+            }
+            if !*feasibility.entry(next).or_insert_with(|| legal(next)) {
+                continue;
+            }
+            visited.insert(next, next_cost);
+            parents.insert(next, Some(p));
             frontier.push(Reverse((next_cost + h, next_cost, next)));
         }
     }

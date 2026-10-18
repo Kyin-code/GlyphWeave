@@ -807,6 +807,37 @@ pub fn verify(
             return Err("landcover mesh area mismatch".into());
         }
     }
+    // The farm-track network is re-derived from the published lanes: a square
+    // belongs to exactly one lane, the lane that published it must be the one
+    // the access graph says owns it, and a join may not invent a shorter way
+    // back to a road. Checking only the generator would make this circular.
+    let track_owners = super::agriculture::verify_access_network(&actual.agriculture, entities)?;
+    let mut published_tracks = BTreeMap::<(i64, i64), &str>::new();
+    for patch in actual
+        .patches
+        .iter()
+        .filter(|p| p.material == Material::FarmTrack)
+    {
+        for square in patch.vertices.chunks_exact(4) {
+            let cell = (square[0][0] as i64, square[0][2] as i64);
+            if published_tracks
+                .insert(cell, patch.parcel_id.as_str())
+                .is_some()
+            {
+                return Err("farm track square is laid by two lanes".into());
+            }
+            if track_owners
+                .get(&cell)
+                .map(|owner| owner.field_id.as_str())
+                != Some(patch.parcel_id.as_str())
+            {
+                return Err("farm track square is not owned by its realized lane".into());
+            }
+        }
+    }
+    if published_tracks.len() != track_owners.len() {
+        return Err("realized farm track squares differ from the access network".into());
+    }
     let planned = plan.cells.iter().map(|c| c.boundary.area()).sum::<u64>();
     let yard = plan
         .cells

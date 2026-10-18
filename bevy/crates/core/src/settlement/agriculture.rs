@@ -29,6 +29,28 @@ pub struct FarmField {
     pub access_length_m: u64,
     pub access_search_expanded: usize,
     pub preparation: String,
+    /// Present only when the lane ends on an already realized farm track
+    /// instead of a road footprint. Absent (and therefore absent from the
+    /// published bytes) for every world that never enabled shared tracks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_track: Option<SharedTrackJoin>,
+}
+/// One lane that joins an already realized farm track. `road_distance_m` is the
+/// length that track already spends between the join square and the nearest
+/// real road, so `access_length_m + road_distance_m` is the whole unchanged
+/// budget this field consumes: a chain is bounded in metres, never in hops.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SharedTrackJoin {
+    /// Field whose realized lane is reused.
+    pub field_id: String,
+    /// The 1m farm-track square this lane ends on.
+    pub cell: [i64; 2],
+    /// Metres that square already spends to reach a real road.
+    pub road_distance_m: u64,
+    /// How many realized lanes stand between this field and that road. The
+    /// metre budget above is what actually bounds the chain.
+    pub chain_lanes: u32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -183,6 +205,205 @@ fn path_cells(path: &[[i64; 2]]) -> BTreeSet<(i64, i64)> {
     }
     out
 }
+/// Ownership of one realized 1m farm-track square. The road distance is
+/// cumulative, so a chain of lanes can never hide metres behind a hop count,
+/// and the owning field is unique because a square is only ever lain once.
+#[derive(Debug, Clone)]
+struct TrackClaim {
+    field_id: String,
+    road_id: String,
+    road_distance_m: u64,
+    chain_lanes: u32,
+}
+/// Metres from every square covered by `path` back to its far end. Taking the
+/// minimum over the path vertices keeps the number exact on the centreline and
+/// over-counts by at most the 2m corridor half-width beside it, so a lane is
+/// never credited with a shorter chain than the one it physically travels.
+fn lane_distances(path: &[[i64; 2]]) -> BTreeMap<(i64, i64), u64> {
+    let mut remaining = vec![0_u64; path.len()];
+    for i in (0..path.len().saturating_sub(1)).rev() {
+        remaining[i] = remaining[i + 1]
+            + path[i][0].abs_diff(path[i + 1][0])
+            + path[i][1].abs_diff(path[i + 1][1]);
+    }
+    let mut out = BTreeMap::new();
+    for cell in path_cells(path) {
+        let distance = path
+            .iter()
+            .zip(&remaining)
+            .map(|(v, r)| r + cell.0.abs_diff(v[0]) + cell.1.abs_diff(v[1]))
+            .min()
+            .unwrap_or(0);
+        out.insert(cell, distance);
+    }
+    out
+}
+/// Cheapest whole path from these field edges onto any already realized farm
+/// track: the straight line to a square plus the metres that square already
+/// spends back to a real road. It is a lower bound on the real lane, so when it
+/// overruns the budget the chain is over budget however it is laid.
+fn nearest_shared_track(
+    claimed_tracks: &BTreeMap<(i64, i64), TrackClaim>,
+    starts: &[[i64; 2]],
+) -> Option<u64> {
+    let mut nearest = None::<u64>;
+    for (&(x, zz), claim) in claimed_tracks {
+        for start in starts {
+            let straight = start[0].abs_diff(x) + start[1].abs_diff(zz);
+            if straight > MAX_ACCESS_LENGTH as u64 {
+                continue;
+            }
+            let bound = straight + claim.road_distance_m;
+            nearest = Some(nearest.map_or(bound, |n: u64| n.min(bound)));
+        }
+    }
+    nearest
+}
+/// The realized squares a spur is worth aiming at: the cheapest whole paths
+/// from these field edges. Aiming at a bounded offer set keeps the spur search
+/// as cheap as the road search it complements, and a blocked first choice still
+/// has neighbours to fall back on instead of failing the whole field.
+const SHARED_TRACK_TERMINALS: usize = 32;
+fn shared_track_terminals(
+    claimed_tracks: &BTreeMap<(i64, i64), TrackClaim>,
+    starts: &[[i64; 2]],
+) -> Vec<([i64; 2], u64)> {
+    // The road search steps 2m at a time from field edges that all share one
+    // parity, so a square on the other parity could never be a goal: it is not
+    // offered, and the offer set stays honest about what the search can reach.
+    let Some(parity) = starts.first() else {
+        return vec![];
+    };
+    let mut bounds = BTreeMap::<[i64; 2], u64>::new();
+    for (&(x, zz), claim) in claimed_tracks {
+        if x.rem_euclid(2) != parity[0].rem_euclid(2)
+            || zz.rem_euclid(2) != parity[1].rem_euclid(2)
+        {
+            continue;
+        }
+        for start in starts {
+            let straight = start[0].abs_diff(x) + start[1].abs_diff(zz);
+            if straight > MAX_ACCESS_LENGTH as u64 {
+                continue;
+            }
+            let bound = straight + claim.road_distance_m;
+            // Squares already over the budget cannot become a legal goal, so
+            // they never enter the offer set.
+            if bound > MAX_ACCESS_LENGTH as u64 {
+                continue;
+            }
+            bounds
+                .entry([x, zz])
+                .and_modify(|best| *best = (*best).min(bound))
+                .or_insert(bound);
+        }
+    }
+    let mut ordered: Vec<([i64; 2], u64)> = bounds.into_iter().collect();
+    ordered.sort_by_key(|&(cell, bound)| (bound, cell));
+    ordered.truncate(SHARED_TRACK_TERMINALS);
+    ordered
+        .into_iter()
+        .map(|(cell, _)| (cell, claimed_tracks[&(cell[0], cell[1])].road_distance_m))
+        .collect()
+}
+/// Joins an already realized farm track instead of demanding a fresh lane all
+/// the way to a road, which is what a real field road network does: one lane
+/// serves several fields. The whole path back to the nearest real road stays on
+/// the clock, so the chain is bounded in metres, never in hops.
+fn join_realized_track(
+    claimed_tracks: &BTreeMap<(i64, i64), TrackClaim>,
+    starts: &[[i64; 2]],
+    max_expanded: usize,
+    failures: &mut BTreeSet<&'static str>,
+    check_cell: &mut impl FnMut(i64, i64) -> Result<(), &'static str>,
+) -> Result<
+    Option<(
+        String,
+        Vec<[i64; 2]>,
+        BTreeSet<(i64, i64)>,
+        SharedTrackJoin,
+        usize,
+    )>,
+    String,
+> {
+    let terminals = shared_track_terminals(claimed_tracks, starts);
+    let spur = farm_access::find_spur(
+        starts,
+        &terminals,
+        MAX_ACCESS_LENGTH as u64,
+        max_expanded,
+        |[cx, cz]| {
+            // A centre is legal only when its entire 4m x 4m support is legal,
+            // exactly the rule the road search applies to its own centres.
+            let mut legal = true;
+            for zz in cz - 2..cz + 2 {
+                for xx in cx - 2..cx + 2 {
+                    if let Err(reason) = check_cell(xx, zz) {
+                        failures.insert(reason);
+                        legal = false;
+                    }
+                }
+            }
+            legal
+        },
+    );
+    if spur.path.is_empty() {
+        match nearest_shared_track(claimed_tracks, starts) {
+            // No realized lane is even in range: keep the older evidence.
+            None => {}
+            // Near, but every whole path back to a road overruns the budget.
+            Some(nearest) if nearest > MAX_ACCESS_LENGTH as u64 => {
+                failures.insert("access_via_existing_track_exceeds_budget");
+            }
+            Some(_) => {
+                failures.insert(spur.reason);
+            }
+        }
+        return Ok(None);
+    }
+    let centre = *spur.path.last().expect("a spur path is nonempty");
+    let join = spur
+        .join
+        .ok_or("shared farm track spur ended without a join")?;
+    // Extend the centreline onto the square it joins, so the published lane
+    // ends exactly there and its length is the whole path it travels.
+    for bend in [[join[0], centre[1]], [centre[0], join[1]]] {
+        let mut path = spur.path.clone();
+        path.push(bend);
+        path.push(join);
+        path.dedup();
+        let claim = &claimed_tracks[&(join[0], join[1])];
+        if farm_access::length(&path) + claim.road_distance_m > MAX_ACCESS_LENGTH as u64 {
+            continue;
+        }
+        let corridor = path_cells(&path);
+        let mut failure = None;
+        for &(xx, zz) in &corridor {
+            // Recheck the swept corridor, not just the search centres.
+            if let Err(reason) = check_cell(xx, zz) {
+                failure = Some(reason);
+                break;
+            }
+        }
+        if let Some(reason) = failure {
+            failures.insert(reason);
+            continue;
+        }
+        return Ok(Some((
+            claim.road_id.clone(),
+            path,
+            corridor,
+            SharedTrackJoin {
+                field_id: claim.field_id.clone(),
+                cell: join,
+                road_distance_m: claim.road_distance_m,
+                chain_lanes: claim.chain_lanes + 1,
+            },
+            spur.expanded,
+        )));
+    }
+    Ok(None)
+}
 /// All roads supplied here are final actual entities. Callers additionally
 /// enforce the RoadNetworkPlan/final-raster contract before release.
 pub fn realize(
@@ -298,13 +519,24 @@ fn realize_with_query(
             grade(t, x, z).ok_or("missing_final_terrain_sample")
         })
     };
+    let track_network = plan
+        .farm_pattern
+        .as_ref()
+        .and_then(|p| p.track_network.as_ref());
     let mut result = AgricultureRealization {
-        model: "explicit-rectangular-field-access-v3".into(),
+        // The model states which access rule produced this scene, so a world
+        // that shares realized tracks cannot claim the road-only model.
+        model: if track_network.is_some() {
+            "explicit-rectangular-field-access-v4-shared-tracks"
+        } else {
+            "explicit-rectangular-field-access-v3"
+        }
+        .into(),
         ..Default::default()
     };
     let mut patches = vec![];
     let mut claimed_fields = BTreeSet::new();
-    let mut claimed_tracks = BTreeMap::<(i64, i64), String>::new();
+    let mut claimed_tracks = BTreeMap::<(i64, i64), TrackClaim>::new();
     let mut candidates = vec![];
     for cell in plan
         .cells
@@ -443,7 +675,12 @@ fn realize_with_query(
             }
         }
         routes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-        let mut accepted = None;
+        let mut accepted: Option<(
+            String,
+            Vec<[i64; 2]>,
+            BTreeSet<(i64, i64)>,
+            Option<SharedTrackJoin>,
+        )> = None;
         let mut route_failures = BTreeSet::new();
         let mut access_search_expanded = 0;
         let mut check_cell = |xx: i64, zz: i64| -> Result<(), &'static str> {
@@ -478,7 +715,7 @@ fn realize_with_query(
                 route_failures.insert(reason);
                 continue;
             }
-            accepted = Some((road_id, path, track));
+            accepted = Some((road_id, path, track, None));
             break;
         }
         if accepted.is_none() && !detour_pass {
@@ -523,12 +760,32 @@ fn realize_with_query(
                     check_cell(xx, zz)
                         .map_err(|r| format!("detour swept footprint mismatch: {r}"))?;
                 }
-                accepted = Some((road_id, search.path, track));
+                accepted = Some((road_id, search.path, track, None));
             } else {
                 route_failures.insert(search.reason);
+                // A road route must be proven impossible first, so every field
+                // this rule already accepted keeps its exact lane geometry and
+                // shared tracks can only add fields, never rewrite one.
+                if track_network.is_some() {
+                    match join_realized_track(
+                        &claimed_tracks,
+                        &starts,
+                        4096,
+                        &mut route_failures,
+                        &mut check_cell,
+                    )? {
+                        Some((road_id, path, corridor, join, expanded)) => {
+                            accepted = Some((road_id, path, corridor, Some(join)));
+                            // The accepted lane's own search is the evidence the
+                            // expansion budget bounds, as for every other lane.
+                            access_search_expanded = expanded;
+                        }
+                        None => {}
+                    }
+                }
             }
         }
-        let Some((road_id, path, track)) = accepted else {
+        let Some((road_id, path, track, join)) = accepted else {
             let reasons = route_failures.into_iter().collect::<Vec<_>>().join("|");
             result
                 .rejected_fields
@@ -560,6 +817,13 @@ fn realize_with_query(
         }
         patches.extend([soil, headland]);
         let mut track_patches = BTreeMap::<String, SurfacePatch>::new();
+        // A lane that joins an existing track inherits everything that track
+        // already spent, so the square it lays must carry the whole sum.
+        let spent_m = join.as_ref().map_or(0, |j| j.road_distance_m);
+        // Squares laid by this lane are one shared join further from the road
+        // than the join itself, so the next lane's chain grows by exactly one.
+        let chain_lanes = join.as_ref().map_or(0, |j| j.chain_lanes);
+        let lane = lane_distances(&path);
         for (xx, zz) in track {
             if contains(bounds, xx, zz)
                 || roads.iter().any(|(_, r)| contains(*r, xx, zz))
@@ -580,7 +844,19 @@ fn realize_with_query(
                 )
             });
             append_cell(p, t, xx, zz)?;
-            claimed_tracks.insert((xx, zz), id.clone());
+            claimed_tracks.insert(
+                (xx, zz),
+                TrackClaim {
+                    field_id: id.clone(),
+                    road_id: road_id.clone(),
+                    road_distance_m: spent_m
+                        + lane
+                            .get(&(xx, zz))
+                            .copied()
+                            .ok_or("accepted agricultural lane lost its own distance")?,
+                    chain_lanes,
+                },
+            );
         }
         patches.extend(track_patches.into_values());
         result.fields.push(FarmField {
@@ -591,7 +867,9 @@ fn realize_with_query(
             road_id,
             access_length_m: farm_access::length(&path),
             access_path: path,
-            access_method: if detour_pass {
+            access_method: if join.is_some() {
+                "shared_farm_track_spur"
+            } else if detour_pass {
                 "bounded_grid_detour"
             } else {
                 "direct_axis_route"
@@ -599,9 +877,141 @@ fn realize_with_query(
             .into(),
             access_search_expanded,
             preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
+            shared_track: join,
         });
     }
     Ok((result, patches))
+}
+
+/// Ownership of one realized 1m farm-track square, rebuilt from the published
+/// lanes alone. `road_distance_m` is the whole distance that square spends back
+/// to a real road, so an auditor can re-check a chain in metres without
+/// trusting the generator's own bookkeeping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackOwnership {
+    pub field_id: String,
+    pub road_id: String,
+    pub road_distance_m: u64,
+    pub chain_lanes: u32,
+}
+
+/// Rebuilds the realized farm-track ownership from the published lanes alone
+/// and re-checks every access budget, join and chain. Nothing here trusts a
+/// recorded number: the claim map, the metres each square already spends and
+/// the chain length are recomputed from the plan's own paths, so a lane that
+/// quietly counted one hop instead of the whole way to a road fails by name.
+pub fn verify_access_network(
+    realization: &AgricultureRealization,
+    entities: &[EntityInstance],
+) -> Result<BTreeMap<(i64, i64), TrackOwnership>, String> {
+    let mut roads: Vec<_> = entities.iter().filter_map(road_rect).collect();
+    roads.sort_by_key(|r| (r.x, r.z, r.width_m, r.depth_m));
+    let mut claims = BTreeMap::<(i64, i64), TrackClaim>::new();
+    let position: BTreeMap<&str, usize> = realization
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| (field.id.as_str(), index))
+        .collect();
+    if position.len() != realization.fields.len() {
+        return Err("agricultural fields do not have unique ids".into());
+    }
+    for field in &realization.fields {
+        if field.access_path.is_empty() {
+            return Err("agricultural lane has no access path".into());
+        }
+        if field.access_length_m != farm_access::length(&field.access_path) {
+            return Err("agricultural lane length differs from its own path".into());
+        }
+        let lane = lane_distances(&field.access_path);
+        let spent_m = field
+            .shared_track
+            .as_ref()
+            .map_or(0, |join| join.road_distance_m);
+        // The whole path back to a real road is on the clock. One hop is not a
+        // unit of this contract, so a chain cannot tunnel past the budget.
+        if field.access_length_m + spent_m > MAX_ACCESS_LENGTH as u64 {
+            return Err("agricultural access exceeds the unchanged 160m budget".into());
+        }
+        let end = *field
+            .access_path
+            .last()
+            .expect("the access path is nonempty");
+        match &field.shared_track {
+            None => {
+                if !matches!(
+                    field.access_method.as_str(),
+                    "direct_axis_route" | "bounded_grid_detour"
+                ) {
+                    return Err("agricultural access method differs from its evidence".into());
+                }
+                if !roads.iter().any(|r| contains(*r, end[0], end[1])) {
+                    return Err("agricultural lane does not reach a road footprint".into());
+                }
+            }
+            Some(join) => {
+                if field.access_method != "shared_farm_track_spur" {
+                    return Err("shared farm track lane has the wrong access method".into());
+                }
+                if join.cell != end {
+                    return Err("shared farm track lane does not end on its join".into());
+                }
+                if roads.iter().any(|r| contains(*r, end[0], end[1])) {
+                    return Err("shared farm track join sits in a road footprint".into());
+                }
+                let owner = claims
+                    .get(&(end[0], end[1]))
+                    .ok_or("shared farm track lane joins a track that was never laid")?;
+                if owner.field_id != join.field_id
+                    || owner.road_distance_m != join.road_distance_m
+                    || owner.road_id != field.road_id
+                    || owner.chain_lanes + 1 != join.chain_lanes
+                {
+                    return Err(
+                        "shared farm track join differs from the realized network".into(),
+                    );
+                }
+                match position.get(owner.field_id.as_str()) {
+                    Some(&owner_index) if owner_index < position[field.id.as_str()] => {}
+                    _ => {
+                        return Err(
+                            "shared farm track lane joins a track that is not older".into(),
+                        )
+                    }
+                }
+            }
+        }
+        for (cell, own_m) in &lane {
+            if contains(field.boundary, cell.0, cell.1)
+                || roads.iter().any(|r| contains(*r, cell.0, cell.1))
+            {
+                continue;
+            }
+            claims.entry(*cell).or_insert(TrackClaim {
+                field_id: field.id.clone(),
+                road_id: field.road_id.clone(),
+                road_distance_m: own_m + spent_m,
+                chain_lanes: field
+                    .shared_track
+                    .as_ref()
+                    .map_or(0, |join| join.chain_lanes),
+            });
+        }
+    }
+    Ok(claims
+        .into_iter()
+        .map(|(cell, claim)| {
+            (
+                cell,
+                TrackOwnership {
+                    field_id: claim.field_id,
+                    road_id: claim.road_id,
+                    road_distance_m: claim.road_distance_m,
+                    chain_lanes: claim.chain_lanes,
+                },
+            )
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -684,7 +1094,558 @@ mod tests {
         let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
         (scene, plan, terrain, water, roads.entities())
     }
+    /// A 4m-wide road footprint plus a rock wall with one 4m gap. The road is
+    /// narrow on purpose: its search inset is a single odd row, which the
+    /// established 2m centre lattice can never stand on, so the road search
+    /// cannot terminate there while a realized lane still can.
+    fn barrier_fixture_at(depth_m: u32) -> (
+        SceneSpec,
+        development::DevelopmentPlan,
+        LandcoverPlan,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<EntityInstance>,
+    ) {
+        let scene = SceneSpec {
+            scene_id: "farms".into(),
+            width_m: 160,
+            depth_m,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let zones = vec![LandUseZone {
+            id: "rural".into(),
+            kind: "rural".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 160,
+            depth_m,
+            source: "fixture".into(),
+        }];
+        let roads = RoadNetworkPlan {
+            automatic_extensions: None,
+            frontage: None,
+            base_profile_rejections: Vec::new(),
+            roadside_site_rejections: Vec::new(),
+            extensions: vec![],
+            model: "test".into(),
+            natural_heightfield_hash: "test".into(),
+            scene_id: scene.scene_id.clone(),
+            status: "planned".into(),
+            grid_spacing_m: 64,
+            max_roadbed_fill_m: 6.,
+            level_m: Some(0),
+            candidates: 1,
+            rejected_water: 0,
+            rejected_relief: 0,
+            unselected_candidates: 0,
+            zoning_hash: None,
+            zoning_rejections: vec![],
+            service_outcomes: Vec::new(),
+            joint_layout: None,
+            nodes: vec![],
+            edges: vec![RoadEdge {
+                id: "road".into(),
+                from: 0,
+                to: 1,
+                world_x: 80,
+                world_z: 80,
+                length_m: 64,
+                rotation_y_deg: 0.,
+                natural_min_m: 0.,
+                natural_max_m: 0.,
+                profile: None,
+            }],
+            roadside_sites: vec![],
+        };
+        let development_plan = development::plan(&scene, &zones, &roads).unwrap();
+        let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
+        let template = plan.cells[0].clone();
+        plan.cells = [Rect {
+            x: 0,
+            z: 0,
+            width_m: 160,
+            depth_m,
+        }]
+        .into_iter()
+        .enumerate()
+        .map(|(index, boundary)| {
+            let mut cell = template.clone();
+            cell.id = format!("barrier.cell.{index}");
+            cell.boundary = boundary;
+            cell.role = LandcoverRole::AgricultureCandidate;
+            cell
+        })
+        .collect();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        let chunk = crate::worldgen::STREAM_CHUNK_METERS;
+        let mut z = 0_u32;
+        while z < depth_m {
+            let tall = (depth_m - z).min(chunk);
+            terrain
+                .insert_chunk(
+                    0,
+                    z as i32,
+                    160,
+                    tall,
+                    &0_i16.to_le_bytes().repeat((160 * tall) as usize),
+                )
+                .unwrap();
+            z += chunk;
+        }
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
+        let road = EntityInstance {
+            entity_id: "road".into(),
+            asset_id: "prop.road".into(),
+            kind: "road".into(),
+            world_x: 80,
+            world_z: 41,
+            world_y: 0,
+            width_m: 64.,
+            depth_m: 4.,
+            height_m: 0.24,
+            scale: 1.,
+            rotation_y_deg: 0.,
+            grounding: GroundingSpec::default(),
+            anchors: vec![],
+            bounds: None,
+        };
+        let mut entities = vec![road];
+        for (index, (world_x, width_m)) in [(34, 68.), (118, 84.)].into_iter().enumerate() {
+            entities.push(EntityInstance {
+                entity_id: format!("wall.{index}"),
+                asset_id: "prop.rock".into(),
+                kind: "rock".into(),
+                world_x,
+                world_z: 44,
+                world_y: 0,
+                width_m,
+                depth_m: 2.,
+                height_m: 2.,
+                scale: 1.,
+                rotation_y_deg: 0.,
+                grounding: GroundingSpec::default(),
+                anchors: vec![],
+                bounds: None,
+            });
+        }
+        (scene, development_plan, plan, terrain, water, entities)
+    }
+
+    fn barrier_fixture() -> (
+        SceneSpec,
+        development::DevelopmentPlan,
+        LandcoverPlan,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<EntityInstance>,
+    ) {
+        barrier_fixture_at(160)
+    }
+
+    fn with_track_network(plan: &LandcoverPlan, shared: bool) -> LandcoverPlan {
+        use super::super::farm_program::{FarmPattern, TrackNetwork};
+        let mut plan = plan.clone();
+        let mut pattern = plan.farm_pattern.clone().unwrap_or(FarmPattern {
+            default_field: Default::default(),
+            zone_fields: BTreeMap::new(),
+            track_network: None,
+        });
+        pattern.track_network = shared.then(TrackNetwork::shared);
+        plan.farm_pattern = Some(pattern);
+        plan
+    }
+
+        #[test]
+    fn shared_track_terminals_realize_more_fields_on_the_same_input() {
+        let (scene, _, plan, terrain, water, entities) = barrier_fixture();
+        let plain = with_track_network(&plan, false);
+        let shared = with_track_network(&plan, true);
+        // Same terrain, same plan geometry, same final entities: only the
+        // authored policy differs, which is exactly what the manifest sets.
+        let (before, before_patches) =
+            realize(&scene, &plain, &terrain, water, &entities, &[]).unwrap();
+        let (after, after_patches) =
+            realize(&scene, &shared, &terrain, water, &entities, &[]).unwrap();
+        assert_eq!(before.model, "explicit-rectangular-field-access-v3");
+        assert_eq!(
+            after.model,
+            "explicit-rectangular-field-access-v4-shared-tracks"
+        );
+        // The measured delta on this input: 6 fields before, 15 after.
+        assert_eq!(before.fields.len(), 6);
+        assert_eq!(after.fields.len(), 15);
+        let joined: Vec<_> = after
+            .fields
+            .iter()
+            .filter(|field| field.shared_track.is_some())
+            .collect();
+        assert_eq!(joined.len(), 9);
+        // Every field the road-only rule accepted survives with identical lane
+        // geometry: shared tracks can only add fields, they never rewrite one.
+        for field in &before.fields {
+            let kept = after
+                .fields
+                .iter()
+                .find(|other| other.id == field.id)
+                .expect("a realized field must not be lost");
+            assert_eq!(kept.access_path, field.access_path);
+            assert_eq!(kept.access_length_m, field.access_length_m);
+            assert_eq!(kept.access_method, field.access_method);
+            assert_eq!(kept.shared_track, None);
+        }
+        let mut budgets = BTreeSet::new();
+        let mut chains = BTreeSet::new();
+        for field in &joined {
+            assert_eq!(field.access_method, "shared_farm_track_spur");
+            assert!(before.fields.iter().all(|other| other.id != field.id));
+            let join = field.shared_track.as_ref().unwrap();
+            assert_eq!(
+                field.access_length_m,
+                farm_access::length(&field.access_path)
+            );
+            // The published lane ends exactly on the square it joins.
+            assert_eq!(*field.access_path.last().unwrap(), join.cell);
+            // The whole path back to a real road is the budget, not one hop.
+            assert!(field.access_length_m + join.road_distance_m <= 160);
+            budgets.insert(field.access_length_m + join.road_distance_m);
+            chains.insert(join.chain_lanes);
+            // A joined square is reused, never dug again: it stays owned by the
+            // earlier lane and out of this field's own track surface.
+            assert!(after_patches.iter().all(|patch| {
+                !(patch.parcel_id == field.id
+                    && patch.vertices.chunks_exact(4).any(|square| {
+                        square[0][0] as i64 == join.cell[0]
+                            && square[0][2] as i64 == join.cell[1]
+                    }))
+            }));
+        }
+        // Chains of one and two shared lanes both occur, and every one of them
+        // is bounded by metres of path to a road rather than by hops.
+        assert_eq!(chains, BTreeSet::from([1, 2]));
+        assert_eq!(
+            budgets,
+            BTreeSet::from([47, 75, 87, 103, 131])
+        );
+        // Determinism and unique area ownership survive the new rule.
+        let (again, again_patches) =
+            realize(&scene, &shared, &terrain, water, &entities, &[]).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&after).unwrap(),
+            serde_json::to_vec(&again).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&after_patches).unwrap(),
+            serde_json::to_vec(&again_patches).unwrap()
+        );
+        let mut owned = BTreeSet::new();
+        for patch in after_patches
+            .iter()
+            .filter(|patch| patch.material == Material::FarmTrack)
+        {
+            for square in patch.vertices.chunks_exact(4) {
+                assert!(
+                    owned.insert((square[0][0] as i64, square[0][2] as i64)),
+                    "a farm-track square was laid twice"
+                );
+            }
+        }
+        // Both realizations satisfy the independent access-network audit, and
+        // the audit's square count is exactly the published track surface.
+        assert_eq!(
+            verify_access_network(&before, &entities).unwrap().len(),
+            before_patches
+                .iter()
+                .filter(|patch| patch.material == Material::FarmTrack)
+                .map(|patch| patch.vertices.len() / 4)
+                .sum::<usize>()
+        );
+        assert_eq!(
+            verify_access_network(&after, &entities).unwrap().len(),
+            owned.len()
+        );
+    }
+
     #[test]
+    fn chain_over_the_unchanged_budget_is_rejected_by_name() {
+        let (scene, _, plan, terrain, water, entities) = barrier_fixture_at(200);
+        let plain = with_track_network(&plan, false);
+        let shared = with_track_network(&plan, true);
+        let (before, _) = realize(&scene, &plain, &terrain, water, &entities, &[]).unwrap();
+        let (after, _) = realize(&scene, &shared, &terrain, water, &entities, &[]).unwrap();
+        assert_eq!(before.fields.len(), 6);
+        assert_eq!(after.fields.len(), 18);
+        let joined = after
+            .fields
+            .iter()
+            .filter_map(|field| {
+                field
+                    .shared_track
+                    .as_ref()
+                    .map(|join| field.access_length_m + join.road_distance_m)
+            })
+            .max()
+            .unwrap();
+        // The rule accepts up to the unchanged 160m and not one metre more.
+        assert_eq!(joined, 159);
+        let token = "access_via_existing_track_exceeds_budget";
+        assert!(
+            before
+                .rejected_fields
+                .iter()
+                .all(|rejection| !rejection.reason.contains(token)),
+            "the road-only rule cannot name a shared-track budget"
+        );
+        let over: Vec<_> = after
+            .rejected_fields
+            .iter()
+            .filter(|rejection| rejection.reason.contains(token))
+            .collect();
+        assert_eq!(over.len(), 1);
+        assert_eq!(over[0].boundary.z, 170);
+        // Recompute that refusal from the published realization alone: the
+        // cheapest realized square plus its whole spend back to a road is more
+        // than the budget, which is why it is named and not left generic.
+        let owners = verify_access_network(&after, &entities).unwrap();
+        let b = over[0].boundary;
+        let starts = [
+            [b.x + 12, b.z + 2],
+            [b.x + 22, b.z + 12],
+            [b.x + 12, b.z + 22],
+            [b.x + 2, b.z + 12],
+        ];
+        let cheapest = owners
+            .iter()
+            .map(|(&(x, z), owner)| {
+                let straight = starts
+                    .iter()
+                    .map(|start| start[0].abs_diff(x) + start[1].abs_diff(z))
+                    .min()
+                    .unwrap();
+                straight + owner.road_distance_m
+            })
+            .min()
+            .unwrap();
+        assert!(cheapest > 160);
+        assert_eq!(cheapest, 167);
+    }
+
+    #[test]
+    fn audit_rebuilds_the_shared_track_network_from_plan_and_terrain() {
+        let (scene, _, plan, terrain, water, entities) = barrier_fixture();
+        let shared = with_track_network(&plan, true);
+        let (realization, patches) =
+            realize(&scene, &shared, &terrain, water, &entities, &[]).unwrap();
+        // `landcover::verify` runs exactly this function over the published
+        // surfaces, so auditing it here audits the reconstruction rule itself.
+        let owners = verify_access_network(&realization, &entities).unwrap();
+        let published = patches
+            .iter()
+            .filter(|patch| patch.material == Material::FarmTrack)
+            .map(|patch| patch.vertices.len() / 4)
+            .sum::<usize>();
+        assert_eq!(owners.len(), published);
+        // Every shared lane's join is genuinely owned by an older lane, and the
+        // recomputed metres agree with what the lane recorded.
+        let mut shared_lanes = 0;
+        for field in realization
+            .fields
+            .iter()
+            .filter(|field| field.shared_track.is_some())
+        {
+            shared_lanes += 1;
+            let join = field.shared_track.as_ref().unwrap();
+            let owner = &owners[&(join.cell[0], join.cell[1])];
+            assert_eq!(owner.field_id, join.field_id);
+            assert_eq!(owner.road_distance_m, join.road_distance_m);
+            assert_eq!(owner.chain_lanes + 1, join.chain_lanes);
+            assert_eq!(owner.road_id, field.road_id);
+        }
+        assert_eq!(shared_lanes, 9);
+        // The metres an audit attributes to a square are the whole distance back
+        // to a road along its own lane, not one hop: the deepest square of a
+        // chained lane still reports the full spend.
+        let deepest = owners.values().map(|owner| owner.road_distance_m).max();
+        assert_eq!(deepest, Some(129));
+        let chains = owners
+            .values()
+            .map(|owner| owner.chain_lanes)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(chains, BTreeSet::from([0, 1, 2]));
+        // A falsified join cannot pass: the audit recomputes from the lanes.
+        let mut shrunk = realization.clone();
+        let tampered = shrunk
+            .fields
+            .iter_mut()
+            .find(|field| field.shared_track.is_some())
+            .expect("the fixture realizes shared lanes");
+        tampered.shared_track.as_mut().unwrap().road_distance_m += 1;
+        assert_eq!(
+            verify_access_network(&shrunk, &entities).unwrap_err(),
+            "shared farm track join differs from the realized network"
+        );
+        let mut lengthened = realization.clone();
+        let tampered = lengthened
+            .fields
+            .iter_mut()
+            .find(|field| field.shared_track.is_some())
+            .expect("the fixture realizes shared lanes");
+        tampered.shared_track.as_mut().unwrap().chain_lanes = 9;
+        assert_eq!(
+            verify_access_network(&lengthened, &entities).unwrap_err(),
+            "shared farm track join differs from the realized network"
+        );
+        // A lane whose own path no longer reaches the budget fails by name too.
+        // A lane whose recorded length no longer matches its own path fails.
+        let mut over = realization.clone();
+        let field = over
+            .fields
+            .iter_mut()
+            .find(|field| field.shared_track.is_some())
+            .unwrap();
+        field.access_length_m = 161;
+        assert_eq!(
+            verify_access_network(&over, &entities).unwrap_err(),
+            "agricultural lane length differs from its own path"
+        );
+        // A chain that spends the whole path plus one metre is over budget even
+        // though both lanes are individually short: the audit counts the whole
+        // way back to a real road, never the last hop.
+        let road = entities[0].entity_id.clone();
+        let lane = |spur: i64| {
+            let mut realization = AgricultureRealization {
+                model: "explicit-rectangular-field-access-v4-shared-tracks".into(),
+                ..Default::default()
+            };
+            // The older lane runs 139m from the join back to the road footprint.
+            realization.fields.push(FarmField {
+                id: "owner".into(),
+                source_cell_id: "cell".into(),
+                boundary: Rect {
+                    x: 48,
+                    z: 156,
+                    width_m: 24,
+                    depth_m: 24,
+                },
+                cultivated: Rect {
+                    x: 52,
+                    z: 160,
+                    width_m: 16,
+                    depth_m: 16,
+                },
+                road_id: road.clone(),
+                access_path: vec![[60, 180], [60, 41]],
+                access_method: "bounded_grid_detour".into(),
+                access_length_m: 139,
+                access_search_expanded: 0,
+                preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
+                shared_track: None,
+            });
+            realization.fields.push(FarmField {
+                id: "joined".into(),
+                source_cell_id: "cell".into(),
+                boundary: Rect {
+                    x: 48,
+                    z: 156,
+                    width_m: 24,
+                    depth_m: 24,
+                },
+                cultivated: Rect {
+                    x: 52,
+                    z: 160,
+                    width_m: 16,
+                    depth_m: 16,
+                },
+                road_id: road.clone(),
+                access_path: vec![[60, 180 + spur], [60, 180]],
+                access_method: "shared_farm_track_spur".into(),
+                access_length_m: spur as u64,
+                access_search_expanded: 0,
+                preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
+                shared_track: Some(SharedTrackJoin {
+                    field_id: "owner".into(),
+                    cell: [60, 180],
+                    road_distance_m: 139,
+                    chain_lanes: 1,
+                }),
+            });
+            realization
+        };
+        assert!(
+            verify_access_network(&lane(21), &entities).is_ok(),
+            "a whole path of exactly 160m must be accepted"
+        );
+        assert_eq!(
+            verify_access_network(&lane(22), &entities).unwrap_err(),
+            "agricultural access exceeds the unchanged 160m budget"
+        );
+        // A lane that forgets its join is no longer allowed to end on a track.
+        let mut orphan = realization.clone();
+        let field = orphan
+            .fields
+            .iter_mut()
+            .find(|field| field.shared_track.is_some())
+            .unwrap();
+        field.shared_track = None;
+        field.access_method = "bounded_grid_detour".into();
+        assert_eq!(
+            verify_access_network(&orphan, &entities).unwrap_err(),
+            "agricultural lane does not reach a road footprint"
+        );
+    }
+    #[test]
+    fn legacy_agriculture_output_is_byte_identical_and_policy_defaults_off() {
+        use super::super::farm_program::FarmPattern;
+        let (scene, plan, terrain, water, entities) = fixture();
+        // The fixture carries no agriculture program at all: the pre-existing
+        // rule stays in force and the published bytes cannot move.
+        assert!(plan.farm_pattern.is_none());
+        let (realization, patches) =
+            realize(&scene, &plan, &terrain, water, &entities, &[]).unwrap();
+        assert_eq!(realization.model, "explicit-rectangular-field-access-v3");
+        assert!(realization
+            .fields
+            .iter()
+            .all(|field| field.shared_track.is_none()));
+        let bytes = serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap();
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("sharedTrack"),
+            "the legacy surface must not grow a shared-track field"
+        );
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            LEGACY_AGRICULTURE_HASH
+        );
+        // An old agricultureProgram without the policy still resolves to the
+        // road-only rule, so published manifests deserialize unchanged.
+        let legacy: FarmPattern = serde_json::from_value(serde_json::json!({
+            "defaultField": {"widthM": 48, "depthM": 32},
+            "zoneFields": {}
+        }))
+        .unwrap();
+        assert_eq!(legacy.track_network, None);
+        legacy.validate().unwrap();
+        let mut with_program = plan.clone();
+        with_program.farm_pattern = Some(legacy);
+        let (unchanged, _) =
+            realize(&scene, &with_program, &terrain, water, &entities, &[]).unwrap();
+        assert!(unchanged
+            .fields
+            .iter()
+            .all(|field| field.shared_track.is_none()));
+        assert_eq!(
+            serde_json::to_value(&unchanged.model).unwrap(),
+            serde_json::to_value("explicit-rectangular-field-access-v3").unwrap()
+        );
+    }
+
+    /// Locked bytes of the road-only agriculture surface on the flat fixture.
+    /// Any change to the legacy path breaks this constant on purpose.
+    const LEGACY_AGRICULTURE_HASH: &str =
+    "57268eb9f4126518ce6d15a479ff6ceb5d37f6a0bd8f8024d8fc5fe138727f82";
+
+#[test]
     fn flat_fields_have_four_metre_access_and_disjoint_surface_ownership() {
         let (s, p, t, w, e) = fixture();
         let (a, patches) = realize(&s, &p, &t, w, &e, &[]).unwrap();
@@ -819,6 +1780,7 @@ mod tests {
                 depth_m: 32,
             },
             zone_fields: BTreeMap::new(),
+            track_network: None,
         });
         let (result, patches) = realize(&s, &plan, &t, w, &e, &[]).unwrap();
         assert!(!result.fields.is_empty());
@@ -887,6 +1849,7 @@ mod tests {
                     depth_m: 24,
                 },
             )]),
+            track_network: None,
         });
         let (result, _) = realize(&s, &plan, &t, w, &e, &[]).unwrap();
         assert!(result.fields.iter().any(|f| f.boundary.width_m == 48));

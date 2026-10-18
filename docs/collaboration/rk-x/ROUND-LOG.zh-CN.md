@@ -227,7 +227,39 @@ nature 行前后完全不变（162,735 / 162,735 / 0），保护地未被转换�
 
 ---
 
-## 下一步（Round 10 计划）
+## Round 11 · 2026-10-18 · 农田共享农道接入（B-03 第一切片）
+
+实现：`style.agricultureProgram.scenes.<id>.trackNetwork = "shared-farm-track-v1"`（默认关闭=现状逐字节不变）。
+农道成为合法接入终点，预算按**到最近真实道路的累计米数**算（不是跳数），160 m / 8% / 12% / 4 m
+全部未动；审计新增 `verify_access_network`，从已发布路径独立重建归属表并逐字段复算。
+
+1 km 世界实测（`b8-conv/world`，只改策略，terrain/plan/entities 全同）：
+
+| | 关闭 | 开启 |
+|---|---:|---:|
+| 田块 | 100（45 直达 + 55 绕行） | **103**（+3 共享 spur） |
+| rural realized | 141,577 m² | **143,585**（+2,008） |
+| rural unresolved | 654,790 m² | **652,782** |
+| farm track 面积 | 16,182 m² | 16,462 |
+| 旧田块被改写 | — | **0** |
+
+**重要诊断（比功能本身更有价值）**：增量只有 3 块，因为**旧规则下共享已经发生**——
+`check_cell` 从不拒绝已铺农道格，实测 100 条车道里 **51 条已与更早车道走廊重叠（11,481 格）**。
+所以"以农道为终点"只补搜索完备性，不扩大可达范围。
+rural 缺额的真正主因是物理约束：`field_grade_exceeds_12_percent` **264 次**、
+`source_too_small_for_requested_field_and_margin`（小 cell）、`existing_land_use_reserved` 26 次；
+预算类只有 21 次 + ~80 次（其中 66 次 160 m 内根本没有已实现农道）。
+
+**结论：B-03 的杠杆在"田块尺寸与 cell 划分、坡地可用性"，不在接入终点。** 下一轮应改
+`plan_landcover` 的 cell 划分（现在小 cell 直接判 `source_too_small`）与坡地田块形状，
+而不是继续扩接入规则。
+
+**验证**：workspace exit 0；core lib **634 passed / 30 ignored**（+5 新测试）；
+关闭态序列化 blake3 已锁定为 `57268eb9…`，旧输入逐字节不变。
+
+---
+
+## 下一步（Round 12 计划）
 
 1. **垫层模型决策（需项目负责人）**：平板垫层 + 纯填方 + 2 m 引道在坡度 ≥3.6% 的地形上
    数学上不可建（0.5 m ÷ 14 m 窗口）。这解释了 b8 真实 1 km 世界只有 1 个 frontage site。
