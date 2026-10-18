@@ -10,6 +10,15 @@ pub struct EngineeredTerrainSnapshot {
     pub status: String,
     pub source_heightfield: String,
     pub operations: Vec<EngineeredTerrainOperation>,
+    /// The OPT-IN bounded-cut ledger: what this world excavated, pad by pad.
+    ///
+    /// Present only when `style.frontageProgram.terrainPolicy` was declared at
+    /// all, so every input that never asked publishes exactly the bytes it
+    /// published before this field existed. A declared-but-illegal pair is
+    /// published too, with `enabled: false` and the named reason, so a style that
+    /// asked for a cut and did not get one is answered in writing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_cut: Option<super::worldgen::bounded_cut::CutLedger>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +53,25 @@ impl EngineeredTerrainSnapshot {
             .into(),
             source_heightfield: "natural-terrain-snapshot".into(),
             operations,
+            bounded_cut: None,
         }
+    }
+
+    /// Publish the bounded-cut ledger. The format version states the extension
+    /// only for a world that actually carries one, so the version every existing
+    /// world publishes is untouched.
+    pub fn with_bounded_cut(mut self, ledger: super::worldgen::bounded_cut::CutLedger) -> Self {
+        if ledger.enabled {
+            if self.version < 3 {
+                self.version = 3;
+            }
+            self.status = if self.version == 3 && self.status.contains("profile") {
+                "profile-and-footprint-fill-surfaces-with-bounded-cut".into()
+            } else {
+                "ordered-footprint-carves-with-bounded-cut".into()
+            };
+        }
+        self.bounded_cut = Some(ledger);
+        self
     }
 }

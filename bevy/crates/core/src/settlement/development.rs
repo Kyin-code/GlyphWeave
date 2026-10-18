@@ -972,6 +972,7 @@ mod tests {
                 parcel_insets: None,
                 support_level_mm: None,
                     frontage_road_point: None,
+                    bounded_cut_mm: None,
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,

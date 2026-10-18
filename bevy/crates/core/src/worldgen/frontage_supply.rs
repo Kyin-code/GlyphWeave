@@ -722,6 +722,10 @@ pub(super) struct SupplyContext<'a> {
     pub mask: &'a ZoningMask,
     pub water: WaterGeometry,
     pub zones: &'a [LandUseZone],
+    /// The world's OPT-IN bounded-cut policy, read from the same authored style
+    /// `frontage::append` reads it from, so a read-only measurement predicts the
+    /// production decision instead of a policy the bake never used.
+    pub policy: super::bounded_cut::CutPolicy,
 }
 
 /// The per-(road, request) evidence header of one measurement. The station
@@ -760,7 +764,7 @@ impl<'a> SupplyContext<'a> {
     pub(super) fn state(&self, plan: &RoadNetworkPlan) -> PlacementState<'a> {
         let mut existing = plan.entities();
         existing.extend(plan.site_entities());
-        PlacementState::new(self.terrain, self.mask, self.water, existing)
+        PlacementState::new(self.terrain, self.mask, self.water, existing, self.policy)
     }
 
     /// Try ONE candidate turn and record the production decision on the request's
@@ -938,7 +942,7 @@ pub(super) struct Diagnosis {
 /// way the bake does; `standalone` measures each road alone against the
 /// untouched committed state, so per-road capacity is never presented as a
 /// joint witness.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(super) fn diagnose(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
@@ -948,6 +952,7 @@ pub(super) fn diagnose(
     plan: &RoadNetworkPlan,
     requests: &[Request],
     sample_cap: usize,
+    policy: super::bounded_cut::CutPolicy,
 ) -> Result<Diagnosis, TerrainError> {
     let context = SupplyContext {
         scene,
@@ -955,6 +960,7 @@ pub(super) fn diagnose(
         mask,
         water,
         zones,
+        policy,
     };
     let roads = frontage::profile_roads(plan);
     let usable: Vec<&EntityInstance> = roads
@@ -1268,6 +1274,7 @@ mod tests {
         let before = serde_json::to_value(&plan).unwrap();
         let diagnosis = diagnose(
             &scene, &terrain, &mask, water, &zones, &plan, &requests, 4,
+            super::super::bounded_cut::CutPolicy::Disabled,
         )
         .unwrap();
         assert_eq!(serde_json::to_value(&plan).unwrap(), before);
@@ -1388,6 +1395,7 @@ mod tests {
         let before = serde_json::to_value(&plan).unwrap();
         let diagnosis = diagnose(
             &scene, &terrain, &mask, water, &zones, &plan, &requests, 64,
+            super::super::bounded_cut::CutPolicy::Disabled,
         )
         .unwrap();
         assert_eq!(
@@ -2181,6 +2189,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::from_style(&style).0,
         };
         let node_levels = super::super::auto_roads::levels(&verified, &verified.entities()).unwrap();
 
@@ -2882,6 +2891,7 @@ mod tests {
         stripped.frontage = None;
         let diagnosis = diagnose(
             &scene, &natural, &mask, water, &zones, &stripped, &requests, 0,
+            super::super::bounded_cut::CutPolicy::Disabled,
         )
         .expect("diagnosis");
         assert_eq!(
@@ -2954,6 +2964,160 @@ mod tests {
         assert_eq!(diagnosis.joint_accepted, 43 + 24);
         assert_eq!(diagnosis.joint_station_attempts, 412 + 176);
         assert_eq!(diagnosis.stop_reason, "no_feasible_frontage");
+    }
+
+    /// Read-only replay of the SAME published world under the OPT-IN bounded
+    /// cut: how many frontage pads the world could plan if a frontage pad were
+    /// allowed to excavate up to `maxCutMm`, and which named rejections it lost.
+    ///
+    /// Nothing is regenerated and nothing is written: the natural raster, the
+    /// zoning and the plan come from the published bytes, and the production
+    /// `frontage::append` is re-run on the stripped plan exactly as the support
+    /// audit does. The only difference between the two arms is the authored
+    /// `style.frontageProgram.terrainPolicy` pair, so the delta is the policy's.
+    /// Prints one `BOUNDED-CUT-REPLAY-JSON:` line.
+    #[test]
+    #[ignore = "reads one published world from GLYPHWEAVE_SUPPORT_AUDIT_WORLD; writes nothing"]
+    fn bounded_cut_offline_replay_of_a_published_world() {
+        let Ok(root) = std::env::var("GLYPHWEAVE_SUPPORT_AUDIT_WORLD") else {
+            eprintln!("SKIP: set GLYPHWEAVE_SUPPORT_AUDIT_WORLD to a published world directory");
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let manifest: super::super::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).expect("published manifest"),
+        )
+        .expect("manifest json");
+        let scene = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&scene.scene_id);
+        let plan: RoadNetworkPlan = serde_json::from_slice(
+            &std::fs::read(dir.join("road-network-plan.json")).expect("published road plan"),
+        )
+        .expect("plan json");
+        let zones: Vec<LandUseZone> = serde_json::from_slice(
+            &std::fs::read(dir.join("land-use-zones.json")).expect("published zoning"),
+        )
+        .expect("zoning json");
+        let mask = ZoningMask::new(&scene, &zones).expect("zoning mask");
+        let mut natural = BakedTerrain::new(&scene).expect("raster");
+        for chunk_z in 0..scene.depth_m.div_ceil(512) {
+            for chunk_x in 0..scene.width_m.div_ceil(512) {
+                let dx = chunk_x * 512;
+                let dz = chunk_z * 512;
+                let width = (scene.width_m - dx).min(512);
+                let depth = (scene.depth_m - dz).min(512);
+                let bytes = std::fs::read(
+                    dir.join(format!("chunk-{chunk_x}-{chunk_z}.natural.height.bin")),
+                )
+                .expect("published natural chunk");
+                natural
+                    .insert_chunk(
+                        scene.origin_x + dx as i32,
+                        scene.origin_z + dz as i32,
+                        width,
+                        depth,
+                        &bytes,
+                    )
+                    .expect("chunk insert");
+            }
+        }
+        natural.require_complete().expect("complete raster");
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            &scene,
+            &manifest.style,
+        );
+        let published = plan.frontage.as_ref().expect("published frontage report");
+        let placed: BTreeSet<String> = published
+            .outcomes
+            .iter()
+            .flat_map(|outcome| outcome.site_ids.iter().cloned())
+            .collect();
+        let mut stripped = plan.clone();
+        stripped
+            .roadside_sites
+            .retain(|site| !placed.contains(&site.id));
+        stripped.frontage = None;
+        let mut arms: Vec<serde_json::Value> = vec![];
+        let mut arm_state: Vec<(super::super::bounded_cut::CutPolicy, frontage::Report)> = vec![];
+        for (label, policy) in [
+            ("off", super::super::bounded_cut::CutPolicy::Disabled),
+            (
+                "bounded-cut",
+                super::super::bounded_cut::CutPolicy::Bounded {
+                    max_cut_mm: super::super::bounded_cut::MAX_CUT_MM,
+                },
+            ),
+        ] {
+            let mut style = manifest.style.clone();
+            if policy.enabled() {
+                style["frontageProgram"]["terrainPolicy"] =
+                    serde_json::json!(super::super::bounded_cut::POLICY_VALUE);
+                style["frontageProgram"]["maxCutMm"] =
+                    serde_json::json!(super::super::bounded_cut::MAX_CUT_MM);
+            }
+            let mut produced = stripped.clone();
+            frontage::append(&mut produced, &scene, &natural, water, Some(&zones), &style)
+                .expect("production frontage append");
+            let report = produced.frontage.clone().expect("replayed report");
+            let rows: Vec<serde_json::Value> = report
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    serde_json::json!({
+                        "requestId": outcome.request.id,
+                        "demand": outcome.request.count,
+                        "planned": outcome.site_ids.len(),
+                        "attempted": outcome.attempted,
+                        "unfilled": outcome.unfilled,
+                        "rejected": outcome.rejected,
+                        "stopReason": outcome.stop_reason,
+                    })
+                })
+                .collect();
+            let cut_pads = produced
+                .roadside_sites
+                .iter()
+                .filter(|site| site.bounded_cut_mm.is_some())
+                .count();
+            arms.push(serde_json::json!({
+                "arm": label,
+                "enabled": policy.enabled(),
+                "maxCutMm": policy.cap_mm(),
+                "padsWithACut": cut_pads,
+                "requests": rows,
+            }));
+            arm_state.push((policy, report));
+        }
+        // The delta, per request, in the family the capability exists to relieve.
+        let family = "natural_support_or_fill_limit";
+        let mut deltas: Vec<serde_json::Value> = vec![];
+        for (was, now) in arm_state[0].1.outcomes.iter().zip(&arm_state[1].1.outcomes) {
+            let off = u64::from(*was.rejected.get(family).unwrap_or(&0));
+            let on = u64::from(*now.rejected.get(family).unwrap_or(&0));
+            deltas.push(serde_json::json!({
+                "requestId": was.request.id,
+                "plannedOff": was.site_ids.len(),
+                "plannedOn": now.site_ids.len(),
+                "familyRejectedOff": off,
+                "familyRejectedOn": on,
+                "familyDrop": off.saturating_sub(on),
+                "capRejectedOn": now.rejected.get("bounded_cut_exceeds_cap").copied().unwrap_or(0),
+                "rejectedOn": now.rejected,
+            }));
+        }
+        let report = serde_json::json!({
+            "world": root.display().to_string(),
+            "scene": scene.scene_id,
+            "maxCutMm": super::super::bounded_cut::MAX_CUT_MM,
+            "arms": arms,
+            "deltas": deltas,
+        });
+        println!(
+            "BOUNDED-CUT-REPLAY-JSON: {}",
+            serde_json::to_string(&report).unwrap()
+        );
     }
 
     /// Read-only support-gate audit of ONE PUBLISHED world.
@@ -3128,11 +3292,17 @@ mod tests {
             truth: SupportTruth,
         }
         let roads = frontage::profile_roads(&stripped);
-        let mut state = PlacementState::new(&natural, &mask, water, {
-            let mut existing = roads.clone();
-            existing.extend(stripped.site_entities());
-            existing
-        });
+        let mut state = PlacementState::new(
+            &natural,
+            &mask,
+            water,
+            {
+                let mut existing = roads.clone();
+                existing.extend(stripped.site_entities());
+                existing
+            },
+            super::super::bounded_cut::CutPolicy::from_style(&manifest.style).0,
+        );
         let mut staged = stripped.clone();
         let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
         let mut attempts: Vec<Attempt> = vec![];

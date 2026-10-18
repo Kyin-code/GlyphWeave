@@ -1134,6 +1134,10 @@ fn run_supply_phase(
         mask: &mask,
         water,
         zones,
+        // The road-supply phase runs BEFORE frontage placement, so no pad has a
+        // cap yet and the measurement must use the same policy `frontage::append`
+        // will read from this world's style.
+        policy: super::bounded_cut::CutPolicy::from_style(style).0,
     };
     let base_report = if mode == SupplyMode::Append {
         plan.automatic_extensions.clone().map(Box::new)
@@ -4129,6 +4133,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::Disabled,
         };
         let node_levels = levels(&verified, &verified.entities()).unwrap();
 
@@ -4737,6 +4742,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::Disabled,
         };
         let node_levels = levels(&verified, &verified.entities()).unwrap();
 
@@ -5936,6 +5942,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::Disabled,
         };
         let node_levels = levels(&verified, &verified.entities()).unwrap();
 
@@ -6509,6 +6516,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::Disabled,
         };
         let node_levels = levels(&verified, &verified.entities()).unwrap();
 
@@ -7714,6 +7722,7 @@ mod tests {
             mask: &mask,
             water,
             zones: &zones,
+            policy: super::super::bounded_cut::CutPolicy::Disabled,
         };
         let node_levels = levels(&verified, &verified.entities()).unwrap();
         let preparation = serde_json::json!({
@@ -9998,6 +10007,7 @@ mod tests {
             blend_m: 2.0,
             priority: 2,
             disturbance: 160,
+            cut_cap_mm: None,
         }
     }
 
@@ -10018,6 +10028,7 @@ mod tests {
             blend_m: 120.0,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         }
     }
 
@@ -10056,6 +10067,7 @@ mod tests {
             blend_m: 120.0,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         }
     }
 
@@ -12025,6 +12037,7 @@ mod tests {
                 blend_m: 2.0,
                 priority,
                 disturbance: 160,
+                cut_cap_mm: None,
             },
             CarveTag {
                 owner_entity_id: owner.into(),
@@ -14233,6 +14246,7 @@ mod tests {
             blend_m: original.blend_m,
             priority: original.priority,
             disturbance: original.disturbance,
+            cut_cap_mm: original.cut_cap_mm,
         })
     }
 
@@ -18996,6 +19010,7 @@ mod tests {
                 blend_m,
                 priority,
                 disturbance,
+                cut_cap_mm: None,
             };
             let influence = g11_carve_box(&carve);
             let mut cells: Vec<serde_json::Value> = vec![];
@@ -19184,6 +19199,7 @@ mod tests {
                 blend_m: 200.0,
                 priority: 10,
                 disturbance: 255,
+                cut_cap_mm: None,
             }];
             carves.extend((0..terraces)
                 .map(|index| super::super::TerrainCarve {
@@ -19196,6 +19212,7 @@ mod tests {
                     blend_m: 2.0,
                     priority: 2,
                     disturbance: 160,
+                    cut_cap_mm: None,
                 })
                 .collect::<Vec<_>>());
             carves
@@ -19303,6 +19320,7 @@ mod tests {
                 blend_m: 2.0,
                 priority: 2,
                 disturbance: 160,
+                cut_cap_mm: None,
             },
             super::super::TerrainCarve {
                 profile: None,
@@ -19314,6 +19332,7 @@ mod tests {
                 blend_m: 2.0,
                 priority: 2,
                 disturbance: 160,
+                cut_cap_mm: None,
             },
         ];
         let overlap_high = super::super::apply_terrain_carves(0.0, 19, 16, &overlapping);
@@ -19332,6 +19351,7 @@ mod tests {
                 blend_m: 2.0,
                 priority: 10,
                 disturbance: 255,
+                cut_cap_mm: None,
             },
             super::super::TerrainCarve {
                 profile: None,
@@ -19343,6 +19363,7 @@ mod tests {
                 blend_m: 2.0,
                 priority: 2,
                 disturbance: 160,
+                cut_cap_mm: None,
             },
         ];
         assert!(
@@ -19495,6 +19516,7 @@ mod tests {
             rotation_y_deg: 0.,
             grounding: super::super::GroundingSpec {
                 frontage_road_point: Some([20, 10]),
+                bounded_cut_mm: None,
                 ..Default::default()
             },
             anchors: vec![super::super::SpatialAnchor {
@@ -20877,6 +20899,7 @@ mod tests {
                 blend_m: 0.25,
                 priority: 2,
                 disturbance: 160,
+                cut_cap_mm: None,
             };
             blocks.push(json_map(vec![
                 ("block", serde_json::json!(format!("R{}-row{}", k, z))),
@@ -20902,6 +20925,7 @@ mod tests {
             blend_m: 0.25,
             priority: 2,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         blocks.push(json_map(vec![
             ("block", serde_json::json!("N-flatNorth")),
@@ -23393,6 +23417,7 @@ mod tests {
                         blend_m: *blend,
                         priority: *priority,
                         disturbance: *disturbance,
+                        cut_cap_mm: None,
                     }
                 },
             )
@@ -23585,6 +23610,7 @@ mod tests {
             blend_m: 120.0,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let graded = super::super::TerrainCarve {
             profile: Some(std::sync::Arc::new(super::super::road_profile::RoadProfile {
@@ -23603,6 +23629,7 @@ mod tests {
             blend_m: 18.0,
             priority: 10,
             disturbance: 255,
+            cut_cap_mm: None,
         };
         let w1 = blocks
             .iter()
@@ -23630,6 +23657,7 @@ mod tests {
             blend_m: 6.0,
             priority: 10,
             disturbance: 255,
+            cut_cap_mm: None,
         };
         let w1_under_p10 = apply(&[old_fill.clone(), graded.clone(), higher_priority.clone(), w1.clone()]);
         let peer_high = super::super::TerrainCarve {
@@ -23642,6 +23670,7 @@ mod tests {
             blend_m: 6.0,
             priority: 2,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let peer_low = super::super::TerrainCarve {
             profile: None,
@@ -23653,6 +23682,7 @@ mod tests {
             blend_m: 6.0,
             priority: 2,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let peer_overlap_high = apply(&[old_fill.clone(), graded.clone(), peer_high.clone(), w1.clone()]);
         let peer_overlap_low = apply(&[old_fill.clone(), graded.clone(), peer_low.clone(), w1.clone()]);
@@ -23721,6 +23751,7 @@ mod tests {
             parcel_insets: None,
             support_level_mm: Some(2390),
             frontage_road_point: Some([site_entity.world_x, 180]),
+            bounded_cut_mm: None,
             rotation_y_deg: site_entity.rotation_y_deg,
             natural_min_m: f32::INFINITY,
             natural_max_m: f32::NEG_INFINITY,
@@ -23837,6 +23868,7 @@ mod tests {
             blend_m: 2.,
             priority: 2,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let (sy_protected_before, sy_protected_flag, _) =
             g11_sample_mm(&zone_terrain, &zone_mask, &base_carves, 220, 160).unwrap();

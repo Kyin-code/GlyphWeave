@@ -15,6 +15,7 @@ use crate::settlement::{
     realize_infrastructure_plan, realize_parcel_plan, validate_parcel_plan,
 };
 mod access;
+pub mod bounded_cut;
 #[path = "worldgen/entity_identity.rs"]
 mod entity_identity;
 pub use entity_identity::{ENTITY_ID_SCHEME, EntityCandidateKey, EntityChangeKind, EntityChangeApproval, EntityInventoryMode, EntityInventoryChange, EntityInventoryAudit, audit_entity_inventory};
@@ -120,6 +121,11 @@ struct TerrainCarve {
     priority: i32,
     /// Render/analysis mask: 0 natural, 160 building/parcel pad, 255 roadbed.
     disturbance: u8,
+    /// OPT-IN bounded cut: the deepest excavation this carve may take from the
+    /// natural surface, in whole millimetres. `None` - every carve of every input
+    /// that did not opt in - is the historical fill-only contract, and
+    /// `apply_terrain_carves` never lowers the ground for it.
+    cut_cap_mm: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -155,6 +161,16 @@ pub struct GroundingSpec {
     /// published bytes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub structure_deck: bool,
+    /// OPT-IN bounded cut: the deepest excavation, in whole millimetres, this
+    /// entity's own support pad may take from the natural surface.
+    ///
+    /// Only `frontage::append` ever sets it, and only when
+    /// `style.frontageProgram.terrainPolicy = "bounded-cut"` is declared with a
+    /// legal `maxCutMm` AND the accepted pad actually needs a cut. Absent (and
+    /// therefore not serialized) for every other entity, so an input that never
+    /// asked keeps its published bytes exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_cut_mm: Option<i32>,
 }
 
 fn default_grounding_tolerance_m() -> f32 {
@@ -171,6 +187,7 @@ impl Default for GroundingSpec {
             roadbed_offset_m: 0.0,
             tolerance_m: default_grounding_tolerance_m(),
             structure_deck: false,
+            bounded_cut_mm: None,
         }
     }
 }
@@ -2135,6 +2152,83 @@ impl BakeTrace {
         if self.enabled {eprintln!("{}",serde_json::json!({"format":"glyphweave.bake-trace","event":"begin","sceneId":scene,"stage":stage,"elapsedMs":self.started.elapsed().as_millis()}));}
     }
 }
+/// The published bounded-cut ledger of ONE scene, or `None` when the style never
+/// declared the policy.
+///
+/// The ledger is WRITTEN from the published rasters (the excavation the world
+/// actually made) and then verified against the plan and the natural raster by
+/// the same `bounded_cut::verify` a reader runs, so a bake that cannot prove its
+/// own excavation fails instead of publishing it. A declared-but-illegal policy
+/// publishes `enabled: false` plus the named reason - never a silent downgrade.
+#[allow(clippy::too_many_arguments)]
+fn bounded_cut_ledger_for(
+    manifest: &WorldManifest,
+    scene: &SceneSpec,
+    plan: &road_network::RoadNetworkPlan,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    zones: Option<&[LandUseZone]>,
+    water: WaterGeometry,
+) -> WorldgenResult<Option<bounded_cut::CutLedger>> {
+    if !bounded_cut::CutPolicy::declared(&manifest.style) {
+        return Ok(None);
+    }
+    let (policy, not_enabled) = bounded_cut::CutPolicy::from_style(&manifest.style);
+    if !policy.enabled() {
+        return Ok(Some(bounded_cut::CutLedger::off(
+            &manifest.style,
+            not_enabled.unwrap_or(bounded_cut::NotEnabled::NotDeclared),
+        )));
+    }
+    let pads = bounded_cut::measure_from_rasters(&plan.roadside_sites, natural, final_terrain)
+        .map_err(WorldgenError::InvalidRules)?;
+    let mut ledger = bounded_cut::CutLedger {
+        requested: Some(
+            manifest
+                .style
+                .get("frontageProgram")
+                .and_then(|program| program.get(bounded_cut::POLICY_KEY))
+                .and_then(|value| value.as_str())
+                .unwrap_or(bounded_cut::POLICY_VALUE)
+                .to_string(),
+        ),
+        enabled: true,
+        not_enabled: None,
+        max_cut_mm: Some(policy.cap_mm()),
+        pads,
+        cut_cells: 0,
+        cut_depth_sum_mm: 0,
+        cut_volume_m3: 0.,
+        max_cut_depth_mm: 0,
+    };
+    ledger.totals();
+    if let Some(zones) = zones {
+        let audit = bounded_cut::verify(
+            scene,
+            Some(plan),
+            zones,
+            water,
+            natural,
+            final_terrain,
+            Some(&ledger),
+            policy,
+        )
+        .map_err(WorldgenError::InvalidRules)?;
+        if audit.status != "pass" {
+            return Err(WorldgenError::InvalidRules(format!(
+                "bounded cut ledger does not verify for {}: {}",
+                scene.scene_id,
+                audit.failures.join("; ")
+            )));
+        }
+    } else if !ledger.pads.is_empty() {
+        return Err(WorldgenError::InvalidRules(
+            "bounded cut requires the scene's zoning to verify its pads".into(),
+        ));
+    }
+    Ok(Some(ledger))
+}
+
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
     let trace=BakeTrace::new();
     trace.stage("", "manifest-validation");
@@ -2592,6 +2686,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }
         }
 
+        let mut bounded_cut_ledger: Option<bounded_cut::CutLedger> = None;
         if let Some(plan) = &road_plan {
             let mut natural = BakedTerrain::new(scene)?;
             for chunk in &chunks {
@@ -2652,10 +2747,49 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     serde_json::to_vec_pretty(&service_audit)?,
                 )?;
             }
+            // The OPT-IN bounded-cut ledger, from what the world ACTUALLY
+            // excavated (natural -> final raster), published beside the earthwork
+            // operations. `None` whenever the style never declared
+            // `frontageProgram.terrainPolicy`, which is why every other world's
+            // `engineered-terrain.json` keeps its exact bytes.
+            bounded_cut_ledger = bounded_cut_ledger_for(
+                manifest,
+                scene,
+                plan,
+                &natural,
+                &baked_samples,
+                planned_zones.as_deref(),
+                water,
+            )?;
             fs::write(
                 scene_dir.join("road-network-audit.json"),
                 serde_json::to_vec_pretty(&audit)?,
             )?;
+        }
+        // A style that declared the policy but produced no road plan has no pad
+        // that could have been cut: the record says so instead of vanishing.
+        if bounded_cut_ledger.is_none() && bounded_cut::CutPolicy::declared(&manifest.style) {
+            let (policy, not_enabled) = bounded_cut::CutPolicy::from_style(&manifest.style);
+            bounded_cut_ledger = Some(if policy.enabled() {
+                let mut ledger = bounded_cut::CutLedger {
+                    requested: Some(bounded_cut::POLICY_VALUE.into()),
+                    enabled: true,
+                    not_enabled: None,
+                    max_cut_mm: Some(policy.cap_mm()),
+                    pads: vec![],
+                    cut_cells: 0,
+                    cut_depth_sum_mm: 0,
+                    cut_volume_m3: 0.,
+                    max_cut_depth_mm: 0,
+                };
+                ledger.totals();
+                ledger
+            } else {
+                bounded_cut::CutLedger::off(
+                    &manifest.style,
+                    not_enabled.unwrap_or(bounded_cut::NotEnabled::NotDeclared),
+                )
+            });
         }
         let engineered_terrain = {
             let operations = carves
@@ -2682,6 +2816,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 })
                 .collect();
             let snapshot = EngineeredTerrainSnapshot::new(operations);
+            let snapshot = match bounded_cut_ledger.take() {
+                Some(ledger) => snapshot.with_bounded_cut(ledger),
+                None => snapshot,
+            };
             fs::write(
                 scene_dir.join("engineered-terrain.json"),
                 serde_json::to_vec_pretty(&snapshot)?,
@@ -4351,6 +4489,22 @@ pub(crate) fn support_pad_half_extents(
     (half_w + margin, half_d + margin)
 }
 
+/// The earthwork geometry of one FRONTAGE pad's own support carve, derived once
+/// and read by `plan_terrain_carves`, by `bounded_cut::CutFootprint` and by the
+/// independent audit. One definition, so "the cells the ledger describes",
+/// "the cells the raster carves" and "the cells the audit recomputes" cannot
+/// drift.
+pub(crate) fn frontage_pad_carve_geometry(entity: &EntityInstance) -> (f64, f64, f64) {
+    let (half_w, half_d) = support_pad_half_extents(
+        entity.width_m,
+        entity.depth_m,
+        entity.rotation_y_deg,
+        entity.grounding.frontage_road_point.is_some(),
+    );
+    let blend = 6.0_f64.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0));
+    (half_w, half_d, blend)
+}
+
 fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
     let mut carves = Vec::new();
     for entity in entities {
@@ -4415,13 +4569,18 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         } else {
             // Buildings keep local width/depth in the entity contract; rotate
             // those dimensions into world axes before baking their support pad.
-            let (half_w, half_d) = support_pad_half_extents(
-                entity.width_m,
-                entity.depth_m,
-                entity.rotation_y_deg,
-                entity.grounding.frontage_road_point.is_some(),
-            );
-            (half_w, half_d, 6.0)
+            let (half_w, half_d, blend) = frontage_pad_carve_geometry(entity);
+            (half_w, half_d, blend)
+        };
+        // OPT-IN bounded cut: only a FRONTAGE pad may excavate, and only when its
+        // own entity carries a cap (`frontage::append` sets it after the policy
+        // and the per-cell guards held). The pad's flat top, its entrance apron
+        // and its frontage-point apron belong to the same support surface, so
+        // all three carry the cap; nothing else in this function ever does.
+        let cut_cap_mm = if is_building {
+            entity.grounding.bounded_cut_mm
+        } else {
+            None
         };
         carves.push(TerrainCarve {
             profile: entity.grounding.road_profile.clone().map(std::sync::Arc::new),
@@ -4437,6 +4596,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             blend_m: blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0)),
             priority: if is_road { 10 } else { 1 },
             disturbance: if is_road { 255 } else { 160 },
+            cut_cap_mm,
         });
         if is_building {
             if let Some([rx,rz]) = entity.grounding.frontage_road_point {
@@ -4449,6 +4609,13 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                         half_d: (f64::from(anchor.world_z)-f64::from(rz)).abs()*0.5+2.,
                         target_h_m: f64::from(entity.ground_height_m()),
                         blend_m: ENTRANCE_APRON_RUN_M, priority: 2, disturbance:160,
+                        // The aprons stay fill-only. Scoping the cap to the
+                        // pad's OWN flat top keeps one auditable footprint per
+                        // pad: the ledger, the raster and the audit all describe
+                        // exactly the same rectangle plus its graded ring, and a
+                        // walkable 25% approach over the 20 m setback carries the
+                        // same rise the cut takes out of the platform.
+                        cut_cap_mm: None,
                     });
                 }
             }
@@ -4466,6 +4633,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     blend_m: 2.0,
                     priority: 1,
                     disturbance: 160,
+                    cut_cap_mm: None,
                 });
             }
         }
@@ -4515,7 +4683,13 @@ fn terrain_height_zoned(
     }
     let engineered = apply_terrain_carves(natural, x, z, carves);
     if engineered <= natural {
-        return natural;
+        // Below the natural surface is a bounded cut - the only earthwork that
+        // can lower ground, and only from an OPT-IN frontage pad's own carve. The
+        // zoning fill taper is a FILL bound and has nothing to say about it; the
+        // cut's own per-cell guards (protected land, water, shore band, occupied
+        // cells, the millimetre cap) already decided every cell. Equal is the
+        // historical "no earthwork here" answer and is returned unchanged.
+        return engineered;
     }
     engineered.min(natural + mask.fill_capacity_at(x, z))
 }
@@ -4639,6 +4813,12 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
     let mut graded_influence=false;
     let mut full_priority=i32::MIN;
     let mut full_target=base_terrain;
+    // The deepest bounded cut any carve asks for at this cell (a strictly lower
+    // surface than the natural one). `None` unless an OPT-IN frontage pad's carve
+    // or one of its aprons reaches here, so every fill-only input leaves it
+    // untouched and the answer is the historical one.
+    let mut cut_floor: Option<f64> = None;
+    let mut road_owns_cell = false;
     for carve in carves {
         let dx = (xf - carve.cx).abs();
         let dz = (zf - carve.cz).abs();
@@ -4648,6 +4828,7 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
         let target = carve.profile.as_ref().and_then(|p|p.height_at(xf,zf)).unwrap_or(carve.target_h_m);
         let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p|base_terrain + f64::from(p.max_fill_mm)/1000.);
         if carve.priority == 10 && outside < carve.blend_m { graded_influence = true; }
+        if carve.priority == 10 && outside <= 0. { road_owns_cell = true; }
         if outside <= 0. && carve.priority >= full_priority {
             if carve.priority > full_priority { full_target=base_terrain; }
             full_priority=carve.priority; full_target=full_target.max(target);
@@ -4666,12 +4847,31 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
             let fill = target + (base_terrain - target) * smooth_t;
             terrain = terrain.max(fill.min(limit));
         }
+        // OPT-IN bounded cut. The carve's own cap is the ONLY way a cell can be
+        // lowered: a carve without one cannot excavate, however high the natural
+        // ground stands. `bounded_cut::cut_surface_m` is the one formula the
+        // ledger and the audit also read, so the published depth is provable
+        // from the plan and the natural raster alone.
+        if let Some(cap) = carve.cut_cap_mm {
+            let surface = bounded_cut::cut_surface_m(base_terrain, target.min(limit), outside, cap);
+            if surface < base_terrain {
+                cut_floor = Some(cut_floor.map_or(surface, |known: f64| known.min(surface)));
+            }
+        }
     }
     // A neighbouring blended fill cannot overwrite a validated hard support
     // surface. New graded worlds resolve overlaps by road/building priority;
     // legacy worlds without a graded influence retain their old envelopes.
     if graded_influence && full_priority!=i32::MIN { terrain=full_target.max(base_terrain); }
-    terrain.clamp(-32., 256.)
+    // Fill always wins: a cell that any carve raises above the natural surface is
+    // a fill cell and is never excavated. A road's own graded band is never cut,
+    // because the road's flat top is its pavement contract, not a building pad.
+    let resolved = if terrain > base_terrain || road_owns_cell {
+        terrain
+    } else {
+        cut_floor.unwrap_or(terrain)
+    };
+    resolved.clamp(-32., 256.)
 }
 
 /// Climate moisture field in world space (0 = arid, 1 = humid).
@@ -9100,6 +9300,7 @@ mod tests {
             blend_m: 4.0,
             priority: 10,
             disturbance: 255,
+            cut_cap_mm: None,
         };
         let (height, surface, lod2, terrain) =
             generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, std::slice::from_ref(&carve));
@@ -9168,6 +9369,7 @@ mod tests {
                     blend_m: 1.5,
                     priority: 1,
                     disturbance: 160,
+                    cut_cap_mm: None,
                 },
                 TerrainCarve {
                     profile: None,
@@ -9179,6 +9381,7 @@ mod tests {
                     blend_m: 1.5,
                     priority: 1,
                     disturbance: 160,
+                    cut_cap_mm: None,
                 },
             ];
             let filtered: Vec<_> = carves
@@ -9206,6 +9409,7 @@ mod tests {
             blend_m: 6.,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let far = TerrainCarve {
             profile: None,
@@ -9217,6 +9421,7 @@ mod tests {
             blend_m: 6.,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         assert!(carve_intersects_chunk(&near, 0, 0, 512, 512));
         assert!(!carve_intersects_chunk(&far, 0, 0, 512, 512));
@@ -9262,6 +9467,7 @@ mod tests {
             blend_m: 80.,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let b = TerrainCarve {
             profile: None,
@@ -9294,6 +9500,7 @@ mod tests {
             blend_m: 6.0,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         assert_eq!(
             terrain_height_with_geometry_carved(20260829, 400, 400, water, std::slice::from_ref(&carve)),
@@ -9315,6 +9522,7 @@ mod tests {
             blend_m: 4.0,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         // Inside the pad the height is the flat target, independent of the
         // underlying natural terrain (which varies with position).

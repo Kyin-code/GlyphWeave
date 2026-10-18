@@ -151,6 +151,16 @@ pub struct RoadsideSite {
     pub support_level_mm: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frontage_road_point: Option<[i32; 2]>,
+    /// OPT-IN bounded cut: the deepest excavation this pad's own support surface
+    /// may take from the natural surface, in whole millimetres.
+    ///
+    /// Only `frontage::append` sets it, only under
+    /// `style.frontageProgram.terrainPolicy = "bounded-cut"` with a legal
+    /// `maxCutMm`, and only when the pad actually needs a cut. Every other pad of
+    /// every input publishes no such key, which is what keeps the default output
+    /// byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_cut_mm: Option<i32>,
     pub rotation_y_deg: f32,
     pub natural_min_m: f32,
     pub natural_max_m: f32,
@@ -184,6 +194,10 @@ impl RoadsideSite {
                 bottom_offset_m: s
                     .support_level_mm
                     .map_or(0., |mm| mm.rem_euclid(1000) as f32 / 1000.),
+                // The pad record the earthwork ledger is keyed by: a published
+                // entity carries the cap its own pad was accepted under, so the
+                // audit can recompute the excavation from the world itself.
+                bounded_cut_mm: s.bounded_cut_mm,
                 ..Default::default()
             },
             anchors: vec![s.front_anchor()],
@@ -1686,6 +1700,10 @@ pub(super) fn plan_with_zones_demand(
                         },
                         support_level_mm: support_mm,
                         frontage_road_point: support_mm.map(|_| [e.world_x, e.world_z]),
+                        bounded_cut_mm: None,
+                        // A roadside pad of the settlement programme is NOT a
+                        // frontageProgram parcel and never excavates: the opt-in
+                        // bounded cut is scoped to `frontage::append`'s pads.
                         rotation_y_deg: if e.rotation_y_deg == 0. {
                             if side < 0 { 180. } else { 0. }
                         } else if side < 0 {
@@ -1794,6 +1812,8 @@ pub(super) fn plan_with_zones_demand(
                     parcel_insets: Some(super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
                     support_level_mm: support_mm,
                     frontage_road_point: support_mm.map(|_| frontage_point),
+                    bounded_cut_mm: None,
+                    // Settlement-programme pad: never excavates (see above).
                     rotation_y_deg: if e.rotation_y_deg == 0. {
                         if side < 0 { 180. } else { 0. }
                     } else if side < 0 {
@@ -6921,6 +6941,11 @@ pub struct RoadNetworkAudit {
     pub realized_sites: usize,
     pub max_final_site_fill_m: f32,
     pub max_site_design_height_error_m: f32,
+    /// The deepest excavation any pad of this plan took, in metres. Absent for
+    /// every world whose pads are fill-only (the whole project before the opt-in
+    /// bounded cut), so the published bytes of those worlds do not move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_site_cut_m: Option<f32>,
     pub max_final_roadbed_fill_m: f32,
     pub max_design_height_error_m: f32,
     pub failures: Vec<String>,
@@ -7166,6 +7191,7 @@ fn verify_impl(
             realized_sites: 0,
             max_final_site_fill_m: 0.,
             max_site_design_height_error_m: 0.,
+            max_site_cut_m: None,
             max_final_roadbed_fill_m: 0.,
             max_design_height_error_m: 0.,
             failures: crossing_failures,
@@ -7210,6 +7236,7 @@ fn verify_impl(
         realized_sites: 0,
         max_final_site_fill_m: 0.,
         max_site_design_height_error_m: 0.,
+        max_site_cut_m: None,
         max_final_roadbed_fill_m: 0.,
         max_design_height_error_m: 0.,
         failures: Vec::new(),
@@ -7466,19 +7493,39 @@ fn verify_impl(
             .iter()
             .find(|s| s.id == planned.entity_id)
             .and_then(|s| s.support_level_mm);
+        // OPT-IN bounded cut: a pad whose own published record carries a cap is
+        // allowed to stand BELOW the natural surface inside that cap - that is
+        // the excavation its plan declared, and `bounded_cut::verify` recomputes
+        // every cell of it. A pad without a cap keeps the historical fill-only
+        // contract, so no world that did not opt in changes here.
+        let cut_limit_m: f32 = expected
+            .roadside_sites
+            .iter()
+            .find(|s| s.id == planned.entity_id)
+            .and_then(|s| s.bounded_cut_mm)
+            .map_or(0., |cap| super::bounded_cut::clamp_cap(cap) as f32 / 1000.);
+        // The declared top is held over the FOOTPRINT. A cut pad's own graded ring
+        // stands outside it by design (that is how a platform is carved out of a
+        // slope instead of leaving a wall one metre thick), so its +2 m audit
+        // margin is not a flat-top claim any more; a fill-only pad keeps the full
+        // window.
         let mismatch_mm = precise.and_then(|level| {
-            (e.world_z - hd - 2..=e.world_z + hd + 2).find_map(|z| {
-                (e.world_x - hw - 2..=e.world_x + hw + 2).find_map(|x| {
+            let margin = if cut_limit_m > 0. { 0 } else { 2 };
+            (e.world_z - hd - margin..=e.world_z + hd + margin).find_map(|z| {
+                (e.world_x - hw - margin..=e.world_x + hw + margin).find_map(|x| {
                     let actual = final_terrain.height_millimetres(x, z);
                     (actual != Some(level)).then_some((x, z, level, actual))
                 })
             })
         });
         let precision = if precise.is_some() { 0.0001 } else { 0.26 };
+        if cut_limit_m > 0. {
+            audit.max_site_cut_m = Some(audit.max_site_cut_m.map_or(cut, |known| known.max(cut)));
+        }
         if mismatch_mm.is_some()
             || error > precision
             || fill > expected.max_roadbed_fill_m + precision
-            || cut > precision
+            || cut > cut_limit_m + precision
         {
             audit.failures.push(format!("roadside site {} changed after planning: design error {error}m, fill {fill}m, cut {cut}m, support sample {mismatch_mm:?}", e.entity_id));
         } else {

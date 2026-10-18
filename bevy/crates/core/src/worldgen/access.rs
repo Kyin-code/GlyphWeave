@@ -1414,6 +1414,7 @@ mod tests {
             parcel_insets: None,
             support_level_mm: Some(support_mm),
             frontage_road_point: Some(road_point),
+            bounded_cut_mm: None,
             rotation_y_deg: yaw as f32,
             natural_min_m: support_mm as f32 / 1000.,
             natural_max_m: support_mm as f32 / 1000.,

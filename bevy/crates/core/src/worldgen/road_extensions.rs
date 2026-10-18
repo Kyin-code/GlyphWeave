@@ -583,6 +583,7 @@ mod tests {
             blend_m: 100.,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         });
         let actual = super::super::apply_terrain_carves(1.2, 160, 128, &mixed);
         assert_eq!(actual, profile.height_at(160., 128.).unwrap());

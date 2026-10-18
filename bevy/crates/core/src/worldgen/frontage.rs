@@ -250,6 +250,15 @@ pub struct Program {
     /// onto each request, because a request is what the gate and the placement loop decide on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rural_conversion: Option<serde_json::Value>,
+    /// OPT-IN bounded cut, kept verbatim: `"bounded-cut"` is the only value that
+    /// can turn it on, and `maxCutMm` is the millimetre cap that goes with it.
+    /// Both are read by `bounded_cut::CutPolicy::from_style`, which is also the
+    /// one place that decides whether an authored pair is legal, so the typed
+    /// policy cannot drift from what the manifest says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terrain_policy: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cut_mm: Option<serde_json::Value>,
     pub requests: Vec<Request>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -625,6 +634,7 @@ pub(super) fn candidate_site(
         parcel_insets: r.parcel_insets,
         support_level_mm: Some(level),
         frontage_road_point: Some([rx, rz]),
+        bounded_cut_mm: None,
         rotation_y_deg: yaw,
         natural_min_m: f32::INFINITY,
         natural_max_m: f32::NEG_INFINITY,
@@ -1027,9 +1037,11 @@ fn sample(
     let h = if mask.protected_at(x, z) {
         base
     } else {
-        super::apply_terrain_carves(base, x, z, carves)
-            .max(base)
-            .min(base + mask.fill_capacity_at(x, z))
+        // The engineering answer, exactly as the bake composes it: a raise is a
+        // fill and still tapers into the zoning capacity, a lower sample is a
+        // bounded cut (an OPT-IN frontage pad's own carve) and is taken as it is.
+        // With no cut carve in the list this is the historical `.max(base)`.
+        super::apply_terrain_carves(base, x, z, carves).min(base + mask.fill_capacity_at(x, z))
     };
     Ok((h * 1000.).round() as i32)
 }
@@ -1085,41 +1097,157 @@ impl RejectDetail {
         }
     }
 }
+/// The pad's support window verdict.
+///
+/// `max_fill_mm` is the roadbed fill budget. `policy` is the OPT-IN bounded-cut
+/// policy: off (the default) keeps the historical rejection - natural ground
+/// above the design level is `natural_above_design_level`, full stop. On, a cell
+/// above the design level is a legal CUT while three things hold, all checked
+/// per cell here and re-derived from the published bytes by
+/// `bounded_cut::verify`:
+///
+///  * the excess is at most the policy's cap (`bounded_cut_exceeds_cap` when it
+///    is deeper, which names the cap as the thing that blocked it);
+///  * the cell is not protected land, not the water body, not the shoreline
+///    public band, and not a cell an already accepted entity occupies
+///    (`bounded_cut_on_*`);
+///  * the pad's own graded ring - the part of the cut that stands outside the
+///    flat top - holds the same prohibition cell by cell.
+#[allow(clippy::too_many_arguments)]
 fn support_check(
     site: &RoadsideSite,
     n: &BakedTerrain,
     mask: &ZoningMask,
+    water: WaterGeometry,
+    existing: &[EntityInstance],
+    policy: super::bounded_cut::CutPolicy,
     max_fill_mm: i32,
     detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     let b = bounds(&e, 2);
     let level = site.support_level_mm.expect("new sites are precise");
+    let cap_mm = policy.cap_mm();
+    let occupied = super::bounded_cut::entity_occupies(existing);
+    let guards = super::bounded_cut::CellGuards {
+        mask,
+        water,
+        occupied: &occupied,
+    };
     for z in b[1]..=b[3] {
         for x in b[0]..=b[2] {
             let h = raw_mm(n, x as i32, z as i32)?;
-            let note = if h > level {
-                Some("natural_above_design_level")
+            // The refusal is named by the rule that actually blocked it. With the
+            // policy off this is exactly the historical pair of keys and notes, so
+            // no existing world's rejection table moves; with it on, a pad the cap
+            // blocked says so in the count instead of hiding inside the family.
+            let (reason, note): (&'static str, &'static str) = if h > level {
+                if cap_mm <= 0 {
+                    ("natural_support_or_fill_limit", "natural_above_design_level")
+                } else if i64::from(h) - i64::from(level) > i64::from(cap_mm) {
+                    (
+                        "bounded_cut_exceeds_cap",
+                        "bounded_cut_exceeds_cap",
+                    )
+                } else if let Some(blocked) = guards.blocks(x as i32, z as i32) {
+                    (blocked, blocked)
+                } else {
+                    // A legal bounded cut: this cell is not a rejection at all.
+                    continue;
+                }
             } else if i64::from(level) - i64::from(h) > i64::from(max_fill_mm) {
-                Some("fill_exceeds_roadbed_limit")
+                ("natural_support_or_fill_limit", "fill_exceeds_roadbed_limit")
             } else if f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000. {
-                Some("fill_exceeds_zoning_capacity")
+                (
+                    "natural_support_or_fill_limit",
+                    "fill_exceeds_zoning_capacity",
+                )
             } else {
-                None
+                continue;
             };
-            if let Some(note) = note {
-                *detail = Some(RejectDetail {
-                    at: Some([x as i32, z as i32]),
-                    natural_mm: Some(h),
-                    design_mm: Some(level),
-                    note: Some(note.into()),
-                    ..RejectDetail::of("natural_support_or_fill_limit")
-                });
-                return Ok(Some("natural_support_or_fill_limit"));
+            *detail = Some(RejectDetail {
+                at: Some([x as i32, z as i32]),
+                natural_mm: Some(h),
+                design_mm: Some(level),
+                note: Some(note.into()),
+                ..RejectDetail::of(reason)
+            });
+            return Ok(Some(reason));
+        }
+    }
+    // The pad is legal. The ring its own cut needs reaches outside the window, so
+    // it gets its own pass: an excavation that would reach protected land, the
+    // water body, the shore band or an occupied cell is refused before the pad
+    // can land, cell by cell.
+    if cap_mm > 0 {
+        let footprint = super::bounded_cut::CutFootprint::of(&e, cap_mm);
+        for z in footprint.top..=footprint.bottom {
+            for x in footprint.left..=footprint.right {
+                if !footprint.contains(x, z) {
+                    continue;
+                }
+                let Some(base) = n.height_millimetres(x, z) else {
+                    continue;
+                };
+                if i64::from(base) <= i64::from(level) {
+                    continue;
+                }
+                if footprint.depth_mm(f64::from(base) / 1000., x, z) <= 0 {
+                    continue;
+                }
+                if let Some(blocked) = guards.blocks(x, z) {
+                    *detail = Some(RejectDetail {
+                        at: Some([x, z]),
+                        natural_mm: Some(base),
+                        design_mm: Some(level),
+                        note: Some(blocked.into()),
+                        ..RejectDetail::of(blocked)
+                    });
+                    return Ok(Some(blocked));
+                }
             }
         }
     }
     Ok(None)
+}
+
+/// The cap the accepted pad's own record must carry, or `None` when the pad needs
+/// no excavation at all.
+///
+/// THE one place the decision "does this pad cut?" is made. The placement
+/// preflight, the recorded pad and the published entity all read it, so a pad can
+/// never be planned as a cut and published as a fill (or the other way round).
+/// An entity only gains `boundedCutMm` when the pad ACTUALLY cuts, so a fill-only
+/// pad of an opted-in world publishes exactly the bytes it published before the
+/// switch existed, and the ledger only ever lists pads with a real cut.
+fn cut_cap_for_site(
+    site: &RoadsideSite,
+    n: &BakedTerrain,
+    policy: super::bounded_cut::CutPolicy,
+) -> Option<i32> {
+    let cap = policy.cap_mm();
+    if cap <= 0 {
+        return None;
+    }
+    let level = site.support_level_mm?;
+    let entity = site.entity();
+    let footprint = super::bounded_cut::CutFootprint::of(&entity, cap);
+    for z in footprint.top..=footprint.bottom {
+        for x in footprint.left..=footprint.right {
+            if !footprint.contains(x, z) {
+                continue;
+            }
+            let Some(base) = n.height_millimetres(x, z) else {
+                continue;
+            };
+            if i64::from(base) > i64::from(level)
+                && footprint.depth_mm(f64::from(base) / 1000., x, z) > 0
+            {
+                return Some(cap);
+            }
+        }
+    }
+    None
 }
 fn connection_is_reserved(mask: &ZoningMask, e: &EntityInstance, x: i32, z: i32) -> bool {
     let a = &e.anchors[0];
@@ -1135,6 +1263,7 @@ fn connection_is_reserved(mask: &ZoningMask, e: &EntityInstance, x: i32, z: i32)
     }
     false
 }
+#[allow(clippy::too_many_arguments)]
 fn preflight(
     site: &RoadsideSite,
     plan: &RoadNetworkPlan,
@@ -1143,10 +1272,17 @@ fn preflight(
     water: WaterGeometry,
     existing: &[EntityInstance],
     base_carves: &[super::TerrainCarve],
+    policy: super::bounded_cut::CutPolicy,
     detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
     validate_entity(&e)?;
+    // Does this candidate need to excavate at all? Read ONCE here so every gate
+    // below (the support window, the entrance corridor, the flat-top platform and
+    // the accepted pad's own record) uses the SAME answer, and so a fill-only pad
+    // of an opted-in world is indistinguishable from one planned without the
+    // switch.
+    let prospective_cut_cap = cut_cap_for_site(site, n, policy);
     let b = bounds(&e, 2);
     let (hw, hd) = site.world_half_extents();
     let parcel = parcel_boundary(site)?;
@@ -1210,6 +1346,9 @@ fn preflight(
         site,
         n,
         mask,
+        water,
+        existing,
+        policy,
         (plan.max_roadbed_fill_m * 1000.).round() as i32,
         detail,
     )? {
@@ -1292,7 +1431,11 @@ fn preflight(
         for x in corridor[0]..corridor[2] {
             let before = raw_mm(n, x as i32, z as i32)?;
             let after = sample(n, mask, &carves, x as i32, z as i32)?;
-            if after < before
+            // A lowered sample is legal only as a bounded cut of this pad's own
+            // support surface, at most the policy cap - the same cap the ledger
+            // and the audit read. Everything else keeps the fill-only refusal.
+            let cut_limit_mm = i64::from(prospective_cut_cap.unwrap_or(0));
+            if i64::from(before) - i64::from(after) > cut_limit_mm
                 || i64::from(after) - i64::from(before)
                     > (plan.max_roadbed_fill_m * 1000.).round() as i64
             {
@@ -1345,8 +1488,15 @@ fn preflight(
     )?;
     // Same final platform must be present, not simply a low centre point.
     let level = site.support_level_mm.unwrap();
-    for z in e.world_z - hd as i32 - 2..=e.world_z + hd as i32 + 2 {
-        for x in e.world_x - hw as i32 - 2..=e.world_x + hw as i32 + 2 {
+    // A bounded-cut pad publishes the same flat top, but its own graded ring
+    // stands OUTSIDE the footprint by construction (that is how a platform is
+    // carved out of a slope instead of leaving a wall one metre thick), so the
+    // flat-top claim is measured on the footprint for a cut pad and on the whole
+    // +-2 m window for a fill-only one - exactly the distinction the independent
+    // road audit makes from the published bytes.
+    let platform_margin = if prospective_cut_cap.is_some() { 0 } else { 2 };
+    for z in e.world_z - hd as i32 - platform_margin..=e.world_z + hd as i32 + platform_margin {
+        for x in e.world_x - hw as i32 - platform_margin..=e.world_x + hw as i32 + platform_margin {
             if raw_mm(&raster, x, z)? != level {
                 *detail = Some(RejectDetail {
                     at: Some([x, z]),
@@ -1393,6 +1543,10 @@ pub(super) struct PlacementState<'a> {
     pub water: WaterGeometry,
     pub existing: Vec<EntityInstance>,
     pub carves: Vec<super::TerrainCarve>,
+    /// The OPT-IN bounded-cut policy of the world being planned. `Disabled` for
+    /// every input that did not author `frontageProgram.terrainPolicy`, and then
+    /// every decision below is the historical fill-only one.
+    pub policy: super::bounded_cut::CutPolicy,
 }
 impl<'a> PlacementState<'a> {
     pub(super) fn new(
@@ -1400,6 +1554,7 @@ impl<'a> PlacementState<'a> {
         mask: &'a ZoningMask,
         water: WaterGeometry,
         existing: Vec<EntityInstance>,
+        policy: super::bounded_cut::CutPolicy,
     ) -> Self {
         let carves = super::plan_terrain_carves(&existing);
         Self {
@@ -1408,7 +1563,13 @@ impl<'a> PlacementState<'a> {
             water,
             existing,
             carves,
+            policy,
         }
+    }
+    /// The cap the accepted pad's own record must carry, or `None` when the pad
+    /// needs no excavation at all. Delegates to the one decision function.
+    pub(super) fn cut_cap_for(&self, site: &RoadsideSite) -> Option<i32> {
+        cut_cap_for_site(site, self.n, self.policy)
     }
     /// Full production engineering preflight for one candidate.
     pub(super) fn assess(
@@ -1425,6 +1586,7 @@ impl<'a> PlacementState<'a> {
             self.water,
             &self.existing,
             &self.carves,
+            self.policy,
             &mut detail,
         )
     }
@@ -1443,6 +1605,7 @@ impl<'a> PlacementState<'a> {
             self.water,
             &self.existing,
             &self.carves,
+            self.policy,
             &mut detail,
         )?;
         Ok((reason, detail))
@@ -1563,6 +1726,9 @@ fn claim_and_place(
         return Ok(None);
     }
     state.sample_natural(&mut site, parcel)?;
+    // The pad record: the cap only when this pad really excavates, so a fill-only
+    // pad of an opted-in world publishes no new field at all.
+    site.bounded_cut_mm = state.cut_cap_for(&site);
     state.commit(&site);
     budget.accept(&site.id);
     let conversion = converted_m2.map(|area_m2| Conversion::rural_to_urban(&site.id, area_m2));
@@ -1594,6 +1760,11 @@ pub(super) fn append(
     }
     let zones = zones.ok_or_else(|| err("frontage requires zoning"))?;
     let mask = ZoningMask::new(scene, zones)?;
+    // The one place the OPT-IN bounded-cut policy is read from the authored
+    // style. A declared-but-illegal pair leaves it off; the named reason travels
+    // with the engineering ledger, so a style that asked for a cut and did not
+    // get one is told which rule refused it.
+    let (policy, _not_enabled) = super::bounded_cut::CutPolicy::from_style(style);
     // The append is atomic on error, while unsatisfied valid demand is reported.
     let mut staged = plan.clone();
     let roads = profile_roads(&staged);
@@ -1606,6 +1777,7 @@ pub(super) fn append(
             existing.extend(staged.site_entities());
             existing
         },
+        policy,
     );
     let mut report = Report {
         version: 1,
@@ -1807,6 +1979,125 @@ mod tests {
         let style = serde_json::json!({"frontageProgram":{"version":1,"requests":[{"id":"homes","sceneId":"frontage","purpose":"urban","kind":"residential_home","count":4,"widthM":12,"depthM":10,"heightM":8,"stationSpacingM":16,"setbackM":8,"maxCandidateAttempts":128}]}});
         (s, n, w, zones, p, style)
     }
+    /// Requirement 1: with the switch off - absent, or declared with anything the
+    /// project does not accept - every published byte is frozen, and this pins the
+    /// blake3 of the whole plan document so a regression cannot pass by both sides
+    /// drifting together.
+    #[test]
+    fn the_bounded_cut_switch_is_off_by_default_and_its_off_state_is_byte_frozen() {
+        let arms = [
+            serde_json::Value::Null,
+            serde_json::json!("bounded-cut"),
+            serde_json::json!(5000),
+            serde_json::json!("trench"),
+        ];
+        let mut digests = Vec::new();
+        for arm in arms {
+            let (s, n, w, z, mut p, mut style) = fixture(0);
+            match &arm {
+                serde_json::Value::Null => {}
+                serde_json::Value::String(value) => {
+                    style["frontageProgram"]["terrainPolicy"] = serde_json::json!(value);
+                }
+                other => {
+                    // "bounded-cut" without a legal integer cap inside the range.
+                    style["frontageProgram"]["terrainPolicy"] =
+                        serde_json::json!(super::super::bounded_cut::POLICY_VALUE);
+                    style["frontageProgram"]["maxCutMm"] = other.clone();
+                }
+            }
+            if arm == serde_json::json!("bounded-cut") {
+                // The one accepted value without its cap is still off.
+                assert!(
+                    super::super::bounded_cut::CutPolicy::from_style(&style)
+                        .0
+                        .enabled()
+                        == false
+                );
+            }
+            append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+            let bytes = serde_json::to_vec(&p).unwrap();
+            assert!(
+                p.roadside_sites
+                    .iter()
+                    .all(|site| site.bounded_cut_mm.is_none()),
+                "no pad may carry a cap while the policy is off"
+            );
+            digests.push(blake3::hash(&bytes).to_hex().to_string());
+        }
+        for digest in &digests {
+            assert_eq!(digest, &digests[0], "every off arm must be byte-identical");
+        }
+        assert_eq!(
+            digests[0], "8eacf2d67db83733c1ee6b456988d17e914fba84ed21353813dc1cf9393119e5",
+            "the frozen blake3 of the fixture plan with the bounded cut off"
+        );
+    }
+
+    /// Requirement 2 and 4 at the decision level: the SAME pad over the SAME
+    /// raster is refused while the switch is off, refused BY NAME OF THE CAP when
+    /// its bank is deeper than `maxCutMm`, and accepted - with the cap recorded -
+    /// when the bank fits, up to the one constant the raster and the audit read.
+    #[test]
+    fn the_support_gate_names_the_cap_and_the_ground_it_may_not_cut() {
+        let (s, _n, w, z, p, style) = fixture(0);
+        let _ = (&p, &style);
+        let mask = ZoningMask::new(&s, &z).unwrap();
+        let level = 1000_i32;
+        let make = |bank_mm: i32| {
+            let mut n = BakedTerrain::new(&s).unwrap();
+            let values = vec![f64::from(level + bank_mm) / 1000.; 512 * 512];
+            n.insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
+                .unwrap();
+            n
+        };
+        let site = RoadsideSite {
+            program: None,
+            purpose: None,
+            id: "generated.frontage.probe.homes.0.negative".into(),
+            road_id: "base".into(),
+            world_x: 200,
+            world_z: 120,
+            width_m: 12,
+            depth_m: 10,
+            support_level_m: 1,
+            parcel_insets: None,
+            support_level_mm: Some(level),
+            frontage_road_point: Some([200, 112]),
+            bounded_cut_mm: None,
+            rotation_y_deg: 0.,
+            natural_min_m: 2.,
+            natural_max_m: 2.,
+        };
+        let bank_fits = make(1500);
+        let bank_too_deep = make(2500);
+        let off = super::super::bounded_cut::CutPolicy::Disabled;
+        let cap_2000 = super::super::bounded_cut::CutPolicy::Bounded { max_cut_mm: 2000 };
+        let cap_1499 = super::super::bounded_cut::CutPolicy::Bounded { max_cut_mm: 1499 };
+        let check = |terrain: &BakedTerrain, policy| {
+            let mut detail = None;
+            let reason = support_check(&site, terrain, &mask, w, &[], policy, 6000, &mut detail)
+                .unwrap();
+            (reason, detail.and_then(|d| d.note))
+        };
+        // Off: the historical refusal, unchanged in key and in note.
+        let (reason, note) = check(&bank_fits, off);
+        assert_eq!(reason, Some("natural_support_or_fill_limit"));
+        assert_eq!(note.as_deref(), Some("natural_above_design_level"));
+        // On: a 1500 mm bank fits a 2000 mm cap, and misses it by one millimetre
+        // at 1499 - refused under the cap's own name, not inside the family.
+        assert_eq!(check(&bank_fits, cap_2000), (None, None));
+        let (reason, note) = check(&bank_fits, cap_1499);
+        assert_eq!(reason, Some("bounded_cut_exceeds_cap"));
+        assert_eq!(note.as_deref(), Some("bounded_cut_exceeds_cap"));
+        assert_eq!(check(&bank_too_deep, cap_2000).0, Some("bounded_cut_exceeds_cap"));
+        // The pad that fits records the cap the ledger is keyed by; a pad that
+        // needs no cut records nothing at all.
+        assert_eq!(cut_cap_for_site(&site, &bank_fits, cap_2000), Some(2000));
+        assert_eq!(cut_cap_for_site(&site, &make(-500), cap_2000), None);
+        assert_eq!(cut_cap_for_site(&site, &bank_fits, off), None);
+    }
+
     #[test]
     fn local_millimetre_buildings_have_access_and_preserve_roads() {
         let (s, n, w, z, mut p, style) = fixture(0);
@@ -2728,6 +3019,7 @@ mod tests {
             blend_m: 50.,
             priority: 1,
             disturbance: 160,
+            cut_cap_mm: None,
         };
         let mut before = e.clone();
         before.grounding.frontage_road_point = None;
@@ -3070,6 +3362,7 @@ mod tests {
             parcel_insets: Some(insets),
             support_level_mm: None,
             frontage_road_point: None,
+            bounded_cut_mm: None,
             rotation_y_deg: 0.,
             natural_min_m: 0.,
             natural_max_m: 0.,
