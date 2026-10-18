@@ -351,6 +351,12 @@ struct Metrics {
     zone_area_m2: BTreeMap<String, f64>,
     protected_area_m2: u64,
     protected_changed_height_samples: u64,
+    /// Area of the development plan's `building`/`yard` cells that stand in a zone
+    /// whose kind is neither urban nor rural. The development audit already treats
+    /// every such square metre as a failure ("residential parcel conflicts with
+    /// nature/unassigned zoning"); the matrix asserts it is zero, because a
+    /// protected cell partitioned into yard cells loses its conservation surface.
+    zone_conflict_m2: u64,
     conservation_ground_m2: f64,
     agriculture_fields: usize,
     cultivated_m2: f64,
@@ -408,6 +414,7 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
     let ledger = scene("land-use-ledger.json");
     let landcover = scene("landcover-audit.json");
     let protection = scene("land-protection-audit.json");
+    let development = scene("development-audit.json");
     let roads = scene("road-network-plan.json");
     let zones = scene("land-use-zones.json");
 
@@ -505,6 +512,7 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
         zone_area_m2,
         protected_area_m2: number(&protection, &["protectedAreaM2"]) as u64,
         protected_changed_height_samples: number(&protection, &["changedHeightSamples"]) as u64,
+        zone_conflict_m2: number(&development, &["zoneConflictM2"]) as u64,
         conservation_ground_m2: number(&landcover, &["conservationGroundAreaM2"]),
         agriculture_fields: number(&landcover, &["agricultureFields"]) as usize,
         cultivated_m2: number(&landcover, &["cultivatedAreaM2"]),
@@ -587,16 +595,14 @@ fn matrix() -> Matrix {
 // Checks
 // ---------------------------------------------------------------------------
 
+/// One acceptance check. Every check is an invariant: the matrix tolerates only
+/// the findings named in `EXPECTED_FINDINGS`, so a real encroachment cannot hide
+/// behind a "measurement" that is allowed to move.
 #[derive(Clone, Debug)]
 struct Check {
     name: String,
     passed: bool,
     detail: String,
-    /// `invariant` checks are part of the acceptance contract and must pass.
-    /// `observation` checks record a measured property that is allowed to move
-    /// with the fixture (e.g. how much of a protected cell's surface another
-    /// surface occupies); they are written to the record with their numbers.
-    observation: bool,
 }
 
 impl Check {
@@ -605,15 +611,6 @@ impl Check {
             name: name.into(),
             passed,
             detail: detail.into(),
-            observation: false,
-        }
-    }
-    fn observation(name: impl Into<String>, passed: bool, detail: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            passed,
-            detail: detail.into(),
-            observation: true,
         }
     }
 }
@@ -729,13 +726,17 @@ fn all_checks(matrix: &Matrix) -> Vec<Check> {
                 off.protected_area_m2, on.protected_area_m2
             ),
         ));
-        // A protected cell's own surface can be partly occupied by a material the
-        // remainder planner lays over it; the authoritative protection facts are
-        // the footprint and the terrain, asserted below. The surface split is
-        // recorded with its exact numbers instead of being asserted, so a real
-        // encroachment is visible without pretending the accounting is static.
-        checks.push(Check::observation(
-            format!("seed {seed}: realised conservation surface delta"),
+        // A protected cell's own surface must survive the four features completely.
+        // This used to be only an observation because the fixture measured a 480 m2
+        // hole on seed 42 (49152 -> 48672 m2): two converted shops had rear setbacks
+        // reaching 12 m into a nature zone, so the development plan partitioned
+        // 480 m2 of protected cell into yard cells and the nature ledger booked it as
+        // unresolved. The parcel-rectangle rule now refuses such a parcel, so the
+        // realisation is asserted identical on the whole numbers.
+        checks.push(Check::invariant(
+            format!(
+                "seed {seed}: realised conservation surface is identical with and without the four features"
+            ),
             off.conservation_ground_m2 == on.conservation_ground_m2,
             format!(
                 "off {} m2 vs on {} m2 (delta {} m2)",
@@ -744,6 +745,37 @@ fn all_checks(matrix: &Matrix) -> Vec<Check> {
                 on.conservation_ground_m2 - off.conservation_ground_m2
             ),
         ));
+        // No generated cell may stand in a protected zone: the development audit
+        // counts every `building`/`yard` square metre there as a failure.
+        checks.push(Check::invariant(
+            format!("seed {seed}: no frontage parcel claims protected zoning on either side"),
+            off.zone_conflict_m2 == 0 && on.zone_conflict_m2 == 0,
+            format!(
+                "zoneConflictM2 off {} m2 vs on {} m2",
+                off.zone_conflict_m2, on.zone_conflict_m2
+            ),
+        ));
+        if seed == 42 {
+            // The exact numbers of the defect this matrix regresses on one fixture.
+            checks.push(Check::invariant(
+                "seed 42: all 49152 m2 of protected land are realised as conservation surface",
+                on.conservation_ground_m2 == 49152.0 && off.conservation_ground_m2 == 49152.0,
+                format!(
+                    "off {} m2 vs on {} m2 vs protectedArea {} m2",
+                    off.conservation_ground_m2, on.conservation_ground_m2, on.protected_area_m2
+                ),
+            ));
+            checks.push(Check::invariant(
+                "seed 42: the nature row books no unresolved protected surface",
+                on.purposes.get("nature").map(|row| row.unresolved_m2) == Some(0.0)
+                    && off.purposes.get("nature").map(|row| row.unresolved_m2) == Some(0.0),
+                format!(
+                    "nature unresolved off {:?} m2 vs on {:?} m2",
+                    off.purposes.get("nature").map(|row| row.unresolved_m2),
+                    on.purposes.get("nature").map(|row| row.unresolved_m2)
+                ),
+            ));
+        }
         checks.push(Check::invariant(
             format!("seed {seed}: planned nature area unchanged by the four features"),
             off.purposes.get("nature").map(|row| row.planned_m2)
@@ -918,7 +950,7 @@ fn print_table(matrix: &Matrix) {
 fn failing_invariants(checks: &[Check]) -> Vec<String> {
     let mut names: Vec<String> = checks
         .iter()
-        .filter(|check| !check.passed && !check.observation)
+        .filter(|check| !check.passed)
         .map(|check| check.name.clone())
         .collect();
     names.sort();
@@ -928,7 +960,7 @@ fn failing_invariants(checks: &[Check]) -> Vec<String> {
 fn failing_details(checks: &[Check]) -> Vec<String> {
     checks
         .iter()
-        .filter(|check| !check.passed && !check.observation)
+        .filter(|check| !check.passed)
         .map(|check| format!("{}: {}", check.name, check.detail))
         .collect()
 }
@@ -953,6 +985,49 @@ fn b05_multiseed_l2_acceptance() {
         "the B-05 matrix took {} ms, over the {BUDGET_MS} ms budget",
         matrix.wall_ms
     );
+}
+
+/// The protection-surface regression, on the exact fixture that measured it.
+///
+/// Seed 42 (village-farmland, 512 m) used to publish 48672 m2 of realised
+/// conservation surface with the four features on against 49152 m2 with them off:
+/// the `ruralConversion` switch earned shop parcels whose rear setbacks reached
+/// into two nature zones, so the development plan reserved 480 m2 of protected cell
+/// as yard and the nature ledger booked it as unresolved. This test re-bakes only
+/// those two worlds and asserts the numbers, so a regression is a named failure
+/// instead of a "measurement".
+#[test]
+fn b05_protected_surface_is_identical_with_and_without_the_four_features() {
+    let on = Case::new(42, (0, 0), Variant::All, false).run();
+    let off = Case::new(42, (0, 0), Variant::Off, false).run();
+    // The protected source facts are untouched by the four features.
+    assert_eq!(on.protected_area_m2, 49_152, "on-side protected footprint");
+    assert_eq!(off.protected_area_m2, 49_152, "off-side protected footprint");
+    assert_eq!(on.protected_changed_height_samples, 0, "on-side re-grading");
+    assert_eq!(off.protected_changed_height_samples, 0, "off-side re-grading");
+    // Every protected square metre is realised as its conservation surface, both sides.
+    assert_eq!(
+        on.conservation_ground_m2, 49_152.0,
+        "on-side realised conservation surface"
+    );
+    assert_eq!(
+        off.conservation_ground_m2, 49_152.0,
+        "off-side realised conservation surface"
+    );
+    assert_eq!(
+        on.conservation_ground_m2, off.conservation_ground_m2,
+        "the four features must not move a single protected square metre"
+    );
+    // No generated yard/building cell stands in a protected zone.
+    assert_eq!(on.zone_conflict_m2, 0, "on-side yard cells in protected zoning");
+    assert_eq!(off.zone_conflict_m2, 0, "off-side yard cells in protected zoning");
+    // The nature row claims exactly what it surfaces, with no unresolved remainder.
+    let on_nature = &on.purposes["nature"];
+    let off_nature = &off.purposes["nature"];
+    assert_eq!(on_nature.planned_m2, 49_152.0);
+    assert_eq!(on_nature.realized_m2, 49_152.0);
+    assert_eq!(on_nature.unresolved_m2, 0.0, "on-side nature unresolved");
+    assert_eq!(off_nature.unresolved_m2, 0.0, "off-side nature unresolved");
 }
 
 /// Machine-readable acceptance record. Ignored by default: it re-bakes the whole
@@ -1018,6 +1093,7 @@ fn b05_multiseed_acceptance_record() {
                 },
                 "protectedAreaM2": metrics.protected_area_m2,
                 "protectedChangedHeightSamples": metrics.protected_changed_height_samples,
+                "zoneConflictM2": metrics.zone_conflict_m2,
                 "conservationGroundM2": metrics.conservation_ground_m2,
                 "waterAreaM2": 0.0,
                 "landcover": {
@@ -1064,7 +1140,7 @@ fn b05_multiseed_acceptance_record() {
                 .iter()
                 .map(|check| json!({
                     "name": check.name,
-                    "kind": if check.observation { "observation" } else { "invariant" },
+                    "kind": "invariant",
                     "passed": check.passed,
                     "detail": check.detail,
                 }))
@@ -1079,13 +1155,18 @@ fn b05_multiseed_acceptance_record() {
                     "shared farm tracks are recorded when enabled and never when disabled"
                 ],
                 "class": "product-behaviour-limit",
-                "detail": "With the shared farm-track model on, every seed publishes exactly the same field set as the road-endpoints-only control (seed 7: 12 = 12, seed 42: 21 = 21, seed 2026: 4 = 4 in the 32x24/24x24 matrix) and zero `sharedTrack` joins. agriculture::realize only attempts a join in the detour pass, after the direct road search is proven impossible, and it requires a legal 1 m spur onto an already-realised lane within the same 160 m budget. At 512 m every rural cell touches a road-first road within that budget, so the precondition never becomes true; the feature is therefore exercised but dormant at this fixture size. The unit fixture that does trigger it (agriculture::barrier_fixture) needs a 4 m road no 2 m centre lattice can stand on, i.e. a barrier production road-first planning does not create."
+                "detail": "With the shared farm-track model on, every seed publishes exactly the same field set as the road-endpoints-only control (seed 7: 12 = 12, seed 42: 22 = 22, seed 2026: 4 = 4 in the 32x24/24x24 matrix) and zero `sharedTrack` joins. agriculture::realize only attempts a join in the detour pass, after the direct road search is proven impossible, and it requires a legal 1 m spur onto an already-realised lane within the same 160 m budget. At 512 m every rural cell touches a road-first road within that budget, so the precondition never becomes true; the feature is therefore exercised but dormant at this fixture size. The unit fixture that does trigger it (agriculture::barrier_fixture) needs a 4 m road no 2 m centre lattice can stand on, i.e. a barrier production road-first planning does not create."
             },
             {
-                "id": "contour-strips-occupy-part-of-a-protected-cell-surface",
-                "checks": ["seed 42: realised conservation surface delta"],
-                "class": "observation-not-asserted",
-                "detail": "On seed 42 the dense agriculture programme realises 480 m2 less conservation *surface* than the features-off control (49152 -> 48672 m2). The protection footprint is unchanged (protectedAreaM2 49152 in both, changedHeightSamples 0) and the nature ledger keeps the 480 m2 as unresolved instead of claiming it, so both conservation identities still close. The check is recorded as an observation rather than an invariant: the authoritative protection facts (footprint + terrain) are asserted, the surface split is reported."
+                "id": "converted-shop-rear-yards-claimed-480m2-of-protected-land",
+                "checks": [
+                    "seed 42: realised conservation surface is identical with and without the four features",
+                    "seed 42: no frontage parcel claims protected zoning on either side",
+                    "seed 42: all 49152 m2 of protected land are realised as conservation surface",
+                    "seed 42: the nature row books no unresolved protected surface"
+                ],
+                "class": "fixed-defect",
+                "detail": "Before the fix, seed 42 with all four features on realised 480 m2 less conservation surface than the features-off control (48672 vs 49152 m2) while the protection footprint stayed 49152 m2 with 0 changed height samples, and the nature ledger booked the 480 m2 as unresolved instead of claiming it. The cause was `frontageProgram.ruralConversion=explicit`: the switch earned eight shops on land whose buildable core could convert (rural -> urban, 80 m2 of core each, 640 m2 in total), and three of those parcel rectangles reached into a nature zone through the 20 m rear inset -- `scene-0.zone.nature.3` by 240 m2 (x 384..396, z 100..120) and 48 m2 (x 384..396, z 124..128), `scene-0.zone.nature.12` by 192 m2 (x 116..128, z 384..400), 480 m2 in total. The shop buildings themselves were never realised (yard 600 m2 per parcel, `unresolvedYardM2` 4800 m2), so no other patch took the land: it was simply reserved as `yard` cells, which the development audit already counted as `zoneConflictM2` 480 and reported as `residential parcel conflicts with nature/unassigned zoning`. The fix (`frontage::parcel_claims_protected`, enforced by `envelope_reason` and `envelope_verdict`) refuses a parcel whose rectangle shares any square metre with a zone that is neither urban nor rural. Seed 42 now earns five shops (conversion 400 m2, none of them claiming protected land), realises 49152 m2 of conservation surface on both sides (delta 0 m2), `zoneConflictM2` 0, and the nature row unresolved 0 m2."
             },
             {
                 "id": "waterfront-context-unreachable-for-these-features",

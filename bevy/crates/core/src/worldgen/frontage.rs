@@ -496,11 +496,38 @@ pub(super) fn envelope_reason(
 ) -> Option<&'static str> {
     if outside_scene(parcel, scene) {
         Some("outside_scene")
+    } else if parcel_claims_protected(parcel, zones) {
+        // The setback exemption below is what lets a parcel's rear band cross a
+        // zone edge, and it is correct for urban/rural edges: setback land is not
+        // built land. It is NOT correct for protected land, because the parcel
+        // rectangle is the ownership unit the development plan partitions into
+        // yard cells, so protected land inside it is reserved as private yard.
+        Some("wrong_purpose_or_protected")
     } else if !in_purpose_core(parcel, insets, rotation_y_deg, zones, purpose) {
         Some("wrong_purpose_or_protected")
     } else {
         None
     }
+}
+
+/// True when the parcel rectangle shares at least one whole square metre with a
+/// zone that is neither `urban` nor `rural`.
+///
+/// This is the parcel-level form of the development audit's own rule
+/// (`settlement::development::verify`: a `Building`/`Yard` cell in a zone whose
+/// kind is not urban/rural is counted in `zone_conflict_m2` and fails with
+/// "residential parcel conflicts with nature/unassigned zoning"). B05 measured
+/// the consequence: on the seed-42 village-farmland fixture two converted shops
+/// had rear setbacks reaching 12 m into the nature zone, which turned 480 m2 of
+/// protected cell into yard cells; the conservation surface lost exactly that
+/// 480 m2 (49152 -> 48672) and the nature ledger booked it as unresolved. A
+/// parcel may therefore not straddle a protected boundary at all, no matter
+/// which purpose or conversion earned it.
+fn parcel_claims_protected(parcel: [i64; 4], zones: &[LandUseZone]) -> bool {
+    zones
+        .iter()
+        .filter(|zone| !matches!(zone.kind.as_str(), "urban" | "rural"))
+        .any(|zone| intersection_area(parcel, zone) > 0)
 }
 
 /// The scene envelope test, shared by the historical gate and the conversion gate so the two can
@@ -518,7 +545,9 @@ fn outside_scene(parcel: [i64; 4], scene: &SceneSpec) -> bool {
 /// the conversion off cannot change a single decision. The enabled branch adds exactly one
 /// acceptance: an urban request whose buildable core lies WHOLLY in rural land. Nature, unassigned
 /// and protection zones reject the parcel in both branches, and `preflight` still refuses water, so
-/// a conversion can never be pointed at land that is not rural.
+/// a conversion can never be pointed at land that is not rural. A parcel rectangle that includes any
+/// protected square metre is refused in both branches too (`parcel_claims_protected`): the
+/// conversion only decides what the BUILDABLE CORE stands on, never what the parcel may own.
 ///
 /// Returns the rejection reason (the same `&'static str` keys the audit counts) and, when the parcel
 /// is accepted by conversion, the converted buildable-core area in whole square metres.
@@ -539,6 +568,9 @@ pub(super) fn envelope_verdict(
     }
     if outside_scene(parcel, scene) {
         return (Some("outside_scene"), None);
+    }
+    if parcel_claims_protected(parcel, zones) {
+        return (Some("wrong_purpose_or_protected"), None);
     }
     let Some(core) = buildable_core(parcel, insets, rotation_y_deg) else {
         // a parcel too small for a buildable core, or a non-cardinal rotation, cannot be converted
@@ -606,6 +638,12 @@ pub fn verify_conversion(
         ));
     }
     let parcel = parcel_boundary(site).map_err(|e| e.0)?;
+    if parcel_claims_protected(parcel, zones) {
+        return Err(format!(
+            "conversion parcel {} claims protected land",
+            conversion.parcel_id
+        ));
+    }
     let core = buildable_core(
         parcel,
         site.parcel_insets.unwrap_or_default(),
@@ -1860,6 +1898,226 @@ mod tests {
         assert_eq!(p.roadside_sites.len(), 2);
         // NOTE: the purpose gate may still fire for OTHER stations in this fixture; what this test
         // pins is that it does not prevent THESE two parcels from being realized.
+    }
+    #[test]
+    fn a_parcel_rectangle_that_includes_protected_land_is_refused() {
+        // B05 measured defect on the seed-42 village-farmland fixture: two urban shops
+        // earned by `ruralConversion: "explicit"` had their BUILDABLE CORE wholly in
+        // rural land (so the conversion gate accepted them) while their parcel
+        // rectangles, which is what the development plan partitions into yard cells,
+        // reached 12 m into a nature zone through the 20 m rear inset. 480 m2 of a
+        // protected cell became yard cells, the conservation surface fell from 49152
+        // to 48672 m2, and the nature ledger booked the difference as unresolved.
+        //
+        // The fixture below is that geometry in miniature: a 40 x 80 m parcel whose
+        // core [13,13,43,75] is entirely rural, and a protected band that starts where
+        // the core ends, so ONLY the parcel rectangle test can refuse it.
+        let scene = SceneSpec {
+            scene_id: "protected-parcel".into(),
+            width_m: 128,
+            depth_m: 128,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let zone = |id: &str, kind: &str, z: i32, depth: u32| LandUseZone {
+            id: id.into(),
+            kind: kind.into(),
+            world_x: 0,
+            world_z: z,
+            width_m: 128,
+            depth_m: depth,
+            source: "test".into(),
+        };
+        let insets = ParcelInsets {
+            front_m: 4,
+            side_m: 4,
+            rear_m: 12,
+        };
+        let parcel = [8_i64, 8, 48, 88];
+        assert_eq!(
+            buildable_core(parcel, insets, 0.),
+            Some([13, 13, 43, 75]),
+            "the core must be the part the conversion gate measures"
+        );
+        let rural_only = vec![zone("rural", "rural", 0, 128)];
+        let protected_tail = vec![zone("rural", "rural", 0, 76), zone("preserve", "nature", 76, 52)];
+        // The protected band shares exactly 40 m x 12 m with the parcel: the same 480 m2
+        // the seed-42 fixture lost.
+        assert_eq!(
+            intersection_area(parcel, &protected_tail[1]),
+            480,
+            "the protected band must overlap the parcel by the measured 480 m2"
+        );
+        // Without the protected band the conversion is legal: the core is wholly rural.
+        assert_eq!(
+            envelope_verdict(
+                parcel,
+                insets,
+                0.,
+                &scene,
+                &rural_only,
+                "urban",
+                RuralConversion::RuralToUrban
+            ),
+            (None, Some(area([13, 13, 43, 75])))
+        );
+        // The historical (switch-off) gate refuses the urban request either way, but the
+        // reason must be the purpose/parcel rule, not an unrelated failure.
+        assert_eq!(
+            envelope_verdict(
+                parcel,
+                insets,
+                0.,
+                &scene,
+                &protected_tail,
+                "urban",
+                RuralConversion::RuralToUrban
+            ),
+            (Some("wrong_purpose_or_protected"), None)
+        );
+        assert_eq!(
+            envelope_reason(parcel, insets, 0., &scene, &protected_tail, "urban"),
+            Some("wrong_purpose_or_protected")
+        );
+        // A rural request on the same parcel is refused for the same reason: protected
+        // land is not a matter of purpose.
+        assert_eq!(
+            envelope_reason(parcel, insets, 0., &scene, &protected_tail, "rural"),
+            Some("wrong_purpose_or_protected")
+        );
+        // A parcel that stops at the protected boundary keeps its permission, so the rule
+        // refuses the overlap and not the neighbourhood.
+        let clear = [8_i64, 8, 48, 76];
+        assert_eq!(
+            envelope_verdict(
+                clear,
+                insets,
+                0.,
+                &scene,
+                &protected_tail,
+                "urban",
+                RuralConversion::RuralToUrban
+            ),
+            (None, Some(area([13, 13, 43, 63])))
+        );
+    }
+    #[test]
+    fn a_protected_band_across_the_rear_setback_rejects_the_parcel_end_to_end() {
+        // Same calibration as `a_zone_edge_across_the_rear_setback_does_not_reject_the_parcel`,
+        // but the rear band is a NATURE zone instead of a rural one. The buildable core
+        // stays in urban land and the parcel is only refused by the parcel-rectangle rule,
+        // which is exactly the seed-42 B05 shape reached through the real `append` path.
+        let (s, n, w, z, mut p, style) = fixture(0);
+        let insets = serde_json::json!({"frontM":4,"sideM":4,"rearM":12});
+        let mut home = style["frontageProgram"]["requests"][0].clone();
+        home["id"] = serde_json::json!("homes-rear-protected");
+        home["widthM"] = serde_json::json!(24);
+        home["depthM"] = serde_json::json!(24);
+        home["count"] = serde_json::json!(2);
+        home["parcelInsets"] = insets.clone();
+        let mut style2 = style.clone();
+        style2["frontageProgram"]["requests"] = serde_json::json!([home]);
+        let mut probe = p.clone();
+        append(&mut probe, &s, &n, w, Some(&z), &style2).unwrap();
+        assert_eq!(probe.roadside_sites.len(), 2, "the calibration must place both");
+        let site = &probe.roadside_sites[0];
+        let parcel = parcel_boundary(site).unwrap();
+        let yaw = site.rotation_y_deg.round() as i32;
+        let rel_z = matches!(yaw, 0 | 180);
+        let front_inset = i64::from(insets["frontM"].as_i64().unwrap_or(0));
+        let core_span = if rel_z {
+            (parcel[3] - parcel[1]) - front_inset - 2
+        } else {
+            (parcel[2] - parcel[0]) - front_inset - 2
+        };
+        let cut = if rel_z {
+            (parcel[1] + front_inset + 1 + core_span) as i32
+        } else {
+            (parcel[0] + front_inset + 1 + core_span) as i32
+        };
+        let mut z2 = z.clone();
+        for zone in z2.iter_mut() {
+            if zone.kind != "urban" {
+                continue;
+            }
+            let start = if rel_z { zone.world_z } else { zone.world_x };
+            let len = if rel_z { zone.depth_m } else { zone.width_m };
+            let end = start + i32::try_from(len).unwrap();
+            let clamped = cut.clamp(start + 1, (end - 1).max(start + 1));
+            let new_len = u32::try_from(clamped - start).unwrap_or(1).max(1);
+            if rel_z {
+                zone.depth_m = new_len;
+            } else {
+                zone.width_m = new_len;
+            }
+        }
+        z2.push(if rel_z {
+            LandUseZone {
+                id: "rear-preserve".into(),
+                kind: "nature".into(),
+                world_x: 0,
+                world_z: cut,
+                width_m: 512,
+                depth_m: (512 - cut).max(1) as u32,
+                source: "test-rear-preserve".into(),
+            }
+        } else {
+            LandUseZone {
+                id: "rear-preserve".into(),
+                kind: "nature".into(),
+                world_x: cut,
+                world_z: 0,
+                width_m: (512 - cut).max(1) as u32,
+                depth_m: 512,
+                source: "test-rear-preserve".into(),
+            }
+        });
+        append(&mut p, &s, &n, w, Some(&z2), &style2).unwrap();
+        // The calibrated parcel is the one that WOULD have been accepted: its buildable
+        // core is still entirely urban, so the historical purpose gate alone still lets
+        // it through, and only the parcel rectangle reaches into the preserve.
+        let preserve = z2.iter().find(|zone| zone.kind == "nature").unwrap();
+        assert!(
+            intersection_area(parcel, preserve) > 0,
+            "the preserve must reach into the calibrated parcel"
+        );
+        assert!(
+            in_purpose_core(
+                parcel,
+                site.parcel_insets.unwrap_or_default(),
+                site.rotation_y_deg,
+                &z2,
+                "urban"
+            ),
+            "the buildable core must stay inside the urban zone, so the purpose gate is not the reason"
+        );
+        assert_eq!(
+            envelope_verdict(
+                parcel,
+                site.parcel_insets.unwrap_or_default(),
+                site.rotation_y_deg,
+                &s,
+                &z2,
+                "urban",
+                RuralConversion::Disabled,
+            ),
+            (Some("wrong_purpose_or_protected"), None),
+            "the parcel rectangle rule must be the refusal"
+        );
+        let o = &p.frontage.as_ref().unwrap().outcomes[0];
+        assert_eq!(
+            o.unfilled, 2,
+            "a parcel whose rectangle claims protected land must not be realized: {o:?}"
+        );
+        assert_eq!(p.roadside_sites.len(), 0);
+        // Every attempt in this fixture is refused under the same key: the preserve cuts
+        // the corridor's frontage, and no station may buy it back.
+        assert_eq!(
+            o.rejected.get("wrong_purpose_or_protected").copied(),
+            Some(o.attempted),
+            "the refusal must be reported under the purpose/protection key: {o:?}"
+        );
     }
     #[test]
     fn explicit_rural_to_urban_conversion_is_off_by_default_and_never_takes_protected_land() {
