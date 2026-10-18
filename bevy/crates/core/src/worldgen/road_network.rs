@@ -7774,12 +7774,38 @@ struct PadWindowBreach {
     worst_m: f64,
     at: (i32, i32),
     natural_m: f64,
-    /// The deepest excavation anywhere in the window, metres (a pad is fill-only,
-    /// so a cut is a contract failure even when its own cells are level).
+    /// The deepest excavation anywhere in the window, metres. A fill-only pad
+    /// declares no excavation at all, so this is a contract failure even when its
+    /// own cells are level; a cap-carrying pad declares one, and only the part of
+    /// it that its own cap does not permit can be a failure.
     cut_m: f64,
+    /// For a cap-carrying pad whose refusal is an excavation BELOW the deepest
+    /// surface its own cap permits: that surface and the cap bounding it.
+    /// `None` for the historical fill-only pad, whose record declares no cut.
+    floor: Option<(f64, i32)>,
 }
 
 /// The audit's own verdict on one pad, computed before the payload exists.
+///
+/// Two earthwork contracts meet here and the pad's own record decides which one it
+/// is judged under:
+///
+///  * a pad that carries no `boundedCutMm` is FILL-ONLY, exactly as before: every
+///    cell of its +-2 m window must publish its declared millimetre level, the fill
+///    is bounded by the plan's roadbed contract, and any excavation at all is a
+///    contract failure;
+///  * a pad that carries a cap DECLARES an excavation. Its `CutFootprint` is the
+///    footprint the generator's per-cell guard, the published ledger and
+///    `bounded_cut::verify` all read, and `cut_surface_m` is the one surface
+///    function they all evaluate - so this gate asks the same question they ask
+///    instead of charging the bench as if it were a fill that never happened. The
+///    PLATFORM (`frontage::bounds(entity, 0)`, the building itself) still has to
+///    hold the declared level exactly, which is the obligation the road audit and
+///    `bounded_cut::verify` step 5 re-derive from the published bytes; the graded
+///    shoulder outside it may be benched (a bank the one cap cannot reach the level
+///    is a designed face, not a flatness defect) and may be cut as deep as the pad's
+///    own cap permits - a frontage pad's shoulder reaches the road pavement, where
+///    the road's own graded surface legitimately stands below the pad's bench.
 fn pad_window_breach(
     site: &RoadsideSite,
     entity: &EntityInstance,
@@ -7788,10 +7814,17 @@ fn pad_window_breach(
     max_roadbed_fill_m: f32,
     waterfront: bool,
 ) -> Option<PadWindowBreach> {
-    let (hw, hd) =
-        super::spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
-    let (hw, hd) = (hw as i32, hd as i32);
+    // The two windows, both rounded by the one function the placement preflight
+    // uses for a pad footprint: `platform` is the building itself (the cells the
+    // declared top is an audited obligation over) and `window` the historical
+    // +-2 m audit window the fill contract is measured over.
+    let platform = super::frontage::bounds(entity, 0);
+    let window = super::frontage::bounds(entity, 2);
     let declared = f64::from(entity.ground_height_m());
+    // The bench this pad's own record declares, or `None` for a fill-only pad.
+    let declared_cut = site
+        .bounded_cut_mm
+        .map(|cap| super::bounded_cut::CutFootprint::of(entity, cap));
     // The same cap the audit applies to a waterfront pad's own contribution: its
     // carve is fill-only and its target is the declared top, so it can never be
     // charged with earthwork it did not place.
@@ -7801,18 +7834,29 @@ fn pad_window_breach(
     } else {
         0.26
     };
+    // A published sample is a whole number of millimetres, so the bench is compared
+    // at the audit's own `CUT_MM_TOLERANCE` and not at the metre precision.
+    let bench_tolerance = super::bounded_cut::CUT_MM_TOLERANCE as f64 / 1000.;
     let mut error = 0_f64;
     let mut fill = f64::NEG_INFINITY;
     let mut cut = f64::NEG_INFINITY;
+    // The deepest cell standing BELOW the deepest surface its own record permits:
+    // an excavation the record does not declare, and the only excavation rule 3
+    // still refuses for a pad that carries a cap.
+    let mut below_floor = 0_f64;
     // The cell that explains each way the window can fail, kept apart so a refusal
     // quotes one coherent cell instead of mixing a deviation from one place with a
     // fill height from another.
     let mut footprint_worst: Option<((i32, i32), f64, f64)> = None;
     let mut fill_worst: Option<((i32, i32), f64, f64)> = None;
     let mut cut_worst: Option<((i32, i32), f64, f64)> = None;
+    // cell, published surface there, natural surface there, deepest surface the cap permits there
+    let mut floor_worst: Option<((i32, i32), f64, f64, f64)> = None;
     let mut sample_mm = None;
-    for z in entity.world_z - hd - 2..=entity.world_z + hd + 2 {
-        for x in entity.world_x - hw - 2..=entity.world_x + hw + 2 {
+    for z in window[1]..=window[3] {
+        for x in window[0]..=window[2] {
+            // `bounds` rounds the footprint once, in i64; the samples are i32 cells.
+            let (x, z) = (x as i32, z as i32);
             let natural = surface.natural(x, z)?;
             let final_m = surface.height(x, z, carves)?;
             let (natural, final_m) = (f64::from(natural), f64::from(final_m));
@@ -7822,7 +7866,11 @@ fn pad_window_breach(
             } else {
                 rise
             };
-            if (x - entity.world_x).abs() <= hw && (z - entity.world_z).abs() <= hd {
+            let on_platform = i64::from(x) >= platform[0]
+                && i64::from(x) <= platform[2]
+                && i64::from(z) >= platform[1]
+                && i64::from(z) <= platform[3];
+            if on_platform {
                 let deviation = (final_m - declared).abs();
                 error = error.max(deviation);
                 if footprint_worst
@@ -7830,6 +7878,45 @@ fn pad_window_breach(
                     .is_none_or(|(_, known, _)| deviation > *known)
                 {
                     footprint_worst = Some(((x, z), final_m, natural));
+                }
+            } else if let Some(footprint) = &declared_cut {
+                // The graded shoulder. `cut_surface_m` is the ONE formula the
+                // encoder, the ledger and the audit read, so the shoulder is
+                // compared against the deepest surface this pad's own record can
+                // produce there: the same function evaluated at the lowest target
+                // its cap permits. Every target in `[natural - cap, declared]` is a
+                // surface the record allows, and the cap - not the declared top -
+                // is the number the project contracts on, so a shoulder may stand
+                // below the bench (a frontage pad's shoulder reaches the road
+                // pavement, where the road's own graded surface legitimately does)
+                // and still be the pad's own earthwork. A cell ABOVE the floor is a
+                // fill or a legal bench, and rule 2 bounds the fill; a cell BELOW it
+                // is an excavation no target of this pad could have produced.
+                let cap_m = f64::from(footprint.cap_mm) / 1000.;
+                let floor = super::bounded_cut::cut_surface_m(
+                    natural,
+                    natural - cap_m,
+                    footprint.outside_m(x, z),
+                    footprint.cap_mm,
+                );
+                let shortfall = floor - final_m;
+                if shortfall > below_floor {
+                    below_floor = shortfall;
+                    floor_worst = Some(((x, z), final_m, natural, floor));
+                }
+            }
+            // Which cells the declared millimetre level is an obligation over: the
+            // whole +-2 m window for a fill-only pad (its ring is an apron, not a
+            // bench), the building footprint for a pad whose graded shoulder is a
+            // designed face.
+            if declared_cut.is_none() || on_platform {
+                if sample_mm.is_none() {
+                    if let Some(level) = site.support_level_mm {
+                        let actual = (final_m * 1000.).round() as i32;
+                        if actual != level {
+                            sample_mm = Some((x, z, level, Some(actual)));
+                        }
+                    }
                 }
             }
             fill = fill.max(own_rise);
@@ -7847,16 +7934,13 @@ fn pad_window_breach(
             {
                 cut_worst = Some(((x, z), final_m, natural));
             }
-            if sample_mm.is_none() {
-                if let Some(level) = site.support_level_mm {
-                    let actual = (final_m * 1000.).round() as i32;
-                    if actual != level {
-                        sample_mm = Some((x, z, level, Some(actual)));
-                    }
-                }
-            }
         }
     }
+    // The legal cut footprint this pad's record declares, held by the plan's
+    // earthwork: `None` when the pad declares no cut at all, or when some cell of
+    // its audit window stands BELOW the deepest surface its own cap permits, which
+    // is an excavation the record does not declare.
+    let cut_footprint = declared_cut.filter(|_| below_floor <= bench_tolerance);
     // The audit's verdict, cell for cell: a precise pad must publish its exact
     // millimetre level, a design error above the precision fails, and the fill and
     // cut contracts are the plan's own published numbers.
@@ -7866,30 +7950,40 @@ fn pad_window_breach(
         1
     } else if fill > f64::from(max_roadbed_fill_m) + precision {
         2
-    } else if cut > precision {
+    } else if cut_footprint.is_none() && cut > precision {
         3
     } else {
         return None;
     };
-    let (at, worst_m, natural_m) = match failing_rule {
+    let (at, worst_m, natural_m, floor) = match failing_rule {
         0 => {
             let (x, z, _, actual) = sample_mm?;
             let final_m = f64::from(actual?) / 1000.;
             let natural = surface.natural(x, z)?;
-            ((x, z), final_m, f64::from(natural))
+            ((x, z), final_m, f64::from(natural), None)
         }
         1 => {
             let ((x, z), final_m, natural) = footprint_worst?;
-            ((x, z), final_m, natural)
+            ((x, z), final_m, natural, None)
         }
         2 => {
             let ((x, z), final_m, natural) = fill_worst?;
-            ((x, z), final_m, natural)
+            ((x, z), final_m, natural, None)
         }
-        _ => {
-            let ((x, z), final_m, natural) = cut_worst?;
-            ((x, z), final_m, natural)
-        }
+        _ => match floor_worst {
+            // The refusal is an excavation below what the pad's own cap permits:
+            // quote that cell and the floor, not the deepest legal cut elsewhere.
+            Some(((x, z), final_m, natural, floor)) => (
+                (x, z),
+                final_m,
+                natural,
+                Some((floor, declared_cut.map_or(0, |f| f.cap_mm))),
+            ),
+            None => {
+                let ((x, z), final_m, natural) = cut_worst?;
+                ((x, z), final_m, natural, None)
+            }
+        },
     };
     Some(PadWindowBreach {
         declared_m: declared,
@@ -7897,6 +7991,7 @@ fn pad_window_breach(
         at,
         natural_m,
         cut_m: cut,
+        floor,
     })
 }
 
@@ -8037,6 +8132,19 @@ pub(super) fn refuse_unrealizable_pads(
         let pad = &pads[index];
         let attributed = fill_attribution(&world, pad, found.declared_m, &surface);
         let units = format!("{}x{}", site.width_m, site.depth_m);
+        // A cap-carrying pad's refusal can be an excavation BELOW the deepest
+        // surface its own cap permits; that cell and the cap are quoted by name. The
+        // note is empty for a fill-only pad, so its refusal keeps the exact wording -
+        // and therefore the exact bytes - it always had.
+        let floor_note = found.floor.map_or_else(String::new, |(floor_m, cap)| {
+            format!(
+                ", of which {:.3} m stands below the deepest surface the pad's own {cap} mm cap \
+                 permits at ({}, {}) - {floor_m:.3} m",
+                floor_m - found.worst_m,
+                found.at.0,
+                found.at.1
+            )
+        });
         let (category, reason) = match &attributed {
             Some((neighbour, neighbour_m, neighbour_natural, at)) => (
                 PAD_FILL_CONFLICT_CATEGORY,
@@ -8061,8 +8169,8 @@ pub(super) fn refuse_unrealizable_pads(
                     "pad {} ({units}, declared top {:.3} m on road {}) cannot hold its flat top: \
                      the plan's own earthwork leaves {:.3} m at ({}, {}) in its audit window \
                      ({:.3} m of fill above the natural {:.3} m there, {:.3} m off the declaration, \
-                     cut {:.3} m, against the {} m fill contract) and no neighbour's fill accounts \
-                     for it",
+                     cut {:.3} m, against the {} m fill contract{floor_note}) and no neighbour's \
+                     fill accounts for it",
                     site.id,
                     found.declared_m,
                     site.road_id,
@@ -8401,6 +8509,283 @@ mod pad_refusal_tests {
             rejections[0].reason
         );
         assert!(plan.roadside_sites.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // The gate made cut-aware: a pad that DECLARES a bounded cut is judged on the
+    // surface its own record permits. Everything below is arithmetic on rasters the
+    // test authors, so every number is exact to the millimetre.
+    // ---------------------------------------------------------------------------
+
+    /// The same gate on a raster the caller authors.
+    fn refuse_on(
+        plan: &mut RoadNetworkPlan,
+        terrain: &BakedTerrain,
+        water: WaterGeometry,
+    ) -> Vec<BaseProfileRejection> {
+        let scene = scene();
+        refuse_unrealizable_pads(
+            plan,
+            &scene,
+            terrain,
+            water,
+            None,
+            NaturalSource::SuppliedRaster,
+        )
+        .unwrap()
+    }
+
+    /// A raster whose every sample is `height_mm`: the ground on which a bounded
+    /// cut has exact arithmetic.
+    fn level_terrain(height_mm: i32) -> BakedTerrain {
+        let scene = scene();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        let values = vec![f64::from(height_mm) / 1000.; 512 * 512];
+        terrain
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &crate::height_payload::encode_millimetres(512, 512, values).unwrap(),
+            )
+            .unwrap();
+        terrain
+    }
+
+    /// A FRONTAGE pad exactly as `frontage::append` publishes one: a precise
+    /// `supportLevelMm`, the entrance point every frontage pad carries (which is
+    /// what makes the support carve's +-2 m margin the margin the gate window uses)
+    /// and, when the pad legally excavates, the `boundedCutMm` the placement
+    /// decision recorded.
+    fn frontage_pad(
+        id: &str,
+        x: i32,
+        z: i32,
+        level_mm: i32,
+        cap: Option<i32>,
+    ) -> serde_json::Value {
+        let mut value = site(id, x, z, level_mm.div_euclid(1000), false);
+        value["supportLevelMm"] = serde_json::json!(level_mm);
+        value["frontageRoadPoint"] = serde_json::json!([x, z - 20]);
+        if let Some(cap) = cap {
+            value["boundedCutMm"] = serde_json::json!(cap);
+        }
+        value
+    }
+
+    /// The surface the bake will publish at one cell, composed from the plan's own
+    /// earthwork exactly as the encoder composes it.
+    fn planned_mm(plan: &RoadNetworkPlan, natural_m: f64, x: i32, z: i32) -> i32 {
+        let mut world = plan.entities();
+        world.extend(plan.site_entities());
+        for entity in &mut world {
+            entity.normalize_spatial_semantics();
+        }
+        let carves = super::super::plan_terrain_carves(&world);
+        let surface = super::super::apply_terrain_carves(natural_m, x, z, &carves);
+        (surface * 1000.).round() as i32
+    }
+
+    /// Requirement 2: a pad that declares a cut survives the very gate that used to
+    /// strip it, and the PLATFORM it stands on is the declared level cell for cell -
+    /// the obligation the road audit and `bounded_cut::verify` re-derive from the
+    /// published bytes, not a claim about the +-2 m ring.
+    #[test]
+    fn a_declared_cut_holds_its_platform_and_is_not_refused() {
+        // One metre of bank, a two metre cap: the flat top comes down to the declared
+        // level everywhere, so the pad is realizable and the gate has to say so.
+        let terrain = level_terrain(1000);
+        let water = dry_water(&scene());
+        let mut plan = plan(vec![frontage_pad("pad.bench", 200, 200, 0, Some(2000))], 0);
+        let rejections = refuse_on(&mut plan, &terrain, water);
+        assert!(
+            rejections.is_empty(),
+            "a legal bench is not a breach: {rejections:?}"
+        );
+        assert_eq!(plan.roadside_sites.len(), 1, "the pad is still planned");
+        assert_eq!(plan.roadside_sites[0].bounded_cut_mm, Some(2000));
+        // The platform - the building footprint - is the declared level, cell by cell.
+        let entity = plan.roadside_sites[0].entity();
+        let platform = super::super::frontage::bounds(&entity, 0);
+        let mut cells = 0;
+        for z in platform[1]..=platform[3] {
+            for x in platform[0]..=platform[2] {
+                assert_eq!(
+                    planned_mm(&plan, 1.0, x as i32, z as i32),
+                    0,
+                    "platform cell ({x},{z}) is not the declared 0 mm top"
+                );
+                cells += 1;
+            }
+        }
+        assert_eq!(cells, 625, "a 24x24 pad stands on a 25x25 cell platform");
+        // The bench is REAL: one metre down over the 29x29 flat top (the footprint
+        // plus the support carve's own 2 m margin), then a 25 % ring that meets the
+        // natural surface four metres out - the same numbers the ledger measures.
+        assert_eq!(planned_mm(&plan, 1.0, 200, 200), 0);
+        assert_eq!(planned_mm(&plan, 1.0, 214, 200), 0, "the flat top holds out to +-14");
+        assert_eq!(planned_mm(&plan, 1.0, 215, 200), 250);
+        assert_eq!(planned_mm(&plan, 1.0, 216, 200), 500);
+        assert_eq!(planned_mm(&plan, 1.0, 217, 200), 750);
+        assert_eq!(
+            planned_mm(&plan, 1.0, 218, 200),
+            1000,
+            "the ring meets the natural surface at the walkable grade"
+        );
+        // The excavation is inside the one cap: 1.000 m, never the 2.000 m the record
+        // allows and never a millimetre more than the bank it removes.
+        assert_eq!(
+            1000 - planned_mm(&plan, 1.0, 200, 200),
+            1000,
+            "the deepest cell removes exactly the bank, not the cap"
+        );
+    }
+
+    /// Requirement 3: the door is cut-AWARE, not cut-blind. A bench whose one cap
+    /// cannot reach the declared level is refused - the platform is the obligation,
+    /// and 2 m of cap cannot take a 5 m bank down to 0.
+    #[test]
+    fn a_cut_that_cannot_reach_its_declared_top_is_still_refused() {
+        let terrain = level_terrain(5000);
+        let water = dry_water(&scene());
+        let mut unreachable = plan(vec![frontage_pad("pad.deep", 200, 200, 0, Some(2000))], 0);
+        let rejections = refuse_on(&mut unreachable, &terrain, water);
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        assert_eq!(rejections[0].edge_id, "pad.deep");
+        assert_eq!(rejections[0].category, PAD_UNREALIZABLE_CATEGORY);
+        assert!(
+            rejections[0].reason.contains("leaves 3.000 m"),
+            "the refusal names the surface the one cap actually reaches: {}",
+            rejections[0].reason
+        );
+        assert!(unreachable.roadside_sites.is_empty());
+        // The very same ground with a declared top the cap CAN reach is accepted: the
+        // refusal is about the number, not about cutting as such.
+        let mut reachable = plan(vec![frontage_pad("pad.ledge", 200, 200, 3000, Some(2000))], 0);
+        let rejections = refuse_on(&mut reachable, &terrain, water);
+        assert!(rejections.is_empty(), "{rejections:?}");
+        assert_eq!(planned_mm(&reachable, 5.0, 200, 200), 3000);
+    }
+
+    /// Requirement 4: the OFF branch is the historical one. The SAME ground and the
+    /// SAME declaration are refused when the pad carries no cap - a fill-only pad may
+    /// not excavate - and a pad that needs no earthwork keeps its plan byte for byte.
+    #[test]
+    fn a_pad_without_a_cap_keeps_the_historical_fill_only_contract() {
+        let water = dry_water(&scene());
+        // No cap: the plan cannot lower the ground, so the platform stays 1.000 m
+        // above its declared top and the pad is refused, with the same wording and
+        // the same one number every fill-only world has always reported.
+        let mut filling = plan(vec![frontage_pad("pad.fills", 200, 200, 0, None)], 0);
+        let rejections = refuse_on(&mut filling, &level_terrain(1000), water);
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        assert_eq!(rejections[0].category, PAD_UNREALIZABLE_CATEGORY);
+        assert!(
+            rejections[0].reason.contains("leaves 1.000 m"),
+            "{}",
+            rejections[0].reason
+        );
+        assert!(
+            !rejections[0].reason.contains("cap"),
+            "the fill-only refusal gains no clause: {}",
+            rejections[0].reason
+        );
+        assert!(filling.roadside_sites.is_empty());
+        // The positive arm: a pad that already stands on its own ground needs no
+        // earthwork at all, and the gate leaves the plan exactly as it found it.
+        let mut level = plan(vec![frontage_pad("pad.level", 200, 200, 0, None)], 0);
+        let before = serde_json::to_vec(&level).unwrap();
+        let rejections = refuse_on(&mut level, &level_terrain(0), water);
+        assert!(rejections.is_empty(), "{rejections:?}");
+        assert_eq!(serde_json::to_vec(&level).unwrap(), before);
+        assert!(level.roadside_sites[0].bounded_cut_mm.is_none());
+    }
+
+    /// Requirement 1 (frontage arm): with no pad carrying a cap the gate is
+    /// BYTE-FROZEN. The fixture is frontage-shaped - precise levels, entrance points,
+    /// one pad refused for the fill contract - so the digest covers both arms; any
+    /// movement of an off-state decision breaks it.
+    #[test]
+    fn the_refusal_gate_is_byte_frozen_for_a_frontage_world_with_no_cap() {
+        let mut tall = site("frontage.tall", 300, 300, 7, false);
+        tall["supportLevelMm"] = serde_json::json!(7000);
+        tall["frontageRoadPoint"] = serde_json::json!([300, 280]);
+        // 240 m apart: a fill's blend runs at 3 m per metre of height plus 32, so
+        // nothing here reaches a neighbour's window and the fixture is about the gate
+        // alone.
+        let build = || {
+            plan(
+                vec![
+                    frontage_pad("frontage.a", 60, 60, 0, None),
+                    frontage_pad("frontage.b", 300, 60, 2000, None),
+                    frontage_pad("frontage.c", 60, 300, 0, None),
+                    tall.clone(),
+                ],
+                0,
+            )
+        };
+        let water = dry_water(&scene());
+        let terrain = level_terrain(0);
+        let mut first = build();
+        let rejections = refuse_on(&mut first, &terrain, water);
+        let mut second = build();
+        let again = refuse_on(&mut second, &terrain, water);
+        assert_eq!(rejections, again, "the gate is a function of its input");
+        assert_eq!(
+            first.roadside_sites.len(),
+            3,
+            "only the 7 m pad is refused: {rejections:?}"
+        );
+        assert!(
+            first
+                .roadside_sites
+                .iter()
+                .all(|site| site.bounded_cut_mm.is_none())
+        );
+        let digest = blake3::hash(&serde_json::to_vec(&first).unwrap())
+            .to_hex()
+            .to_string();
+        assert_eq!(
+            digest, "5551ae519ac2617ca258c85086805cf1d04cdcc250e38c6356f20ba2ac8668ef",
+            "the frozen blake3 of the frontage refusal gate with the bounded cut off"
+        );
+    }
+
+    /// Requirement 1 (waterfront arm): the same freeze for a world that crosses
+    /// structured water, where the gate measures a pad's own contribution against
+    /// the declared top instead of the fill it caused.
+    #[test]
+    fn the_refusal_gate_is_byte_frozen_for_a_waterfront_world_with_no_cap() {
+        let scene = scene();
+        let style = serde_json::json!({
+            "automaticRoadExtensions": {
+                "allowStructuredWater": super::STRUCTURED_WATER_OPT_IN
+            }
+        });
+        let water = water_geometry(WaterKind::River, &[], &scene, &style);
+        assert!(water.road_water_crossings(), "the fixture opts into the crossing");
+        let mut plan = plan(
+            vec![
+                frontage_pad("frontage.quay.a", 120, 200, 0, None),
+                frontage_pad("frontage.quay.b", 400, 300, 1000, None),
+            ],
+            0,
+        );
+        let rejections = refuse_on(&mut plan, &level_terrain(0), water);
+        assert!(rejections.is_empty(), "{rejections:?}");
+        assert!(
+            plan.roadside_sites
+                .iter()
+                .all(|site| site.bounded_cut_mm.is_none())
+        );
+        let digest = blake3::hash(&serde_json::to_vec(&plan).unwrap())
+            .to_hex()
+            .to_string();
+        assert_eq!(
+            digest, "e89b70a63b9adadb281953bcf4b4665c364653061eeb7482b53eb6b61b49e797",
+            "the frozen blake3 of the waterfront refusal gate with the bounded cut off"
+        );
     }
 }
 

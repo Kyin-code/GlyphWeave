@@ -176,10 +176,19 @@ pub fn clamp_cap(cap_mm: i32) -> i32 {
 ///
 /// * inside the flat top the surface is the design level itself, clamped so the
 ///   cut never removes more than `cap_mm` below the natural ground;
-/// * outside it a ring rises from the pad at [`MAX_CUT_RING_GRADE`] until it
-///   meets the natural surface, which is at most `cap / 0.25` metres wide;
+/// * outside it a ring rises from THAT flat-top surface - not from the design
+///   level - at [`MAX_CUT_RING_GRADE`] until it meets the natural surface. Rising
+///   from the design level instead leaves the difference between the flat top and
+///   the cap standing as a wall at the ring's outer edge whenever the ground is
+///   benched deeper than one whole cap, which is exactly the step the audit
+///   refuses. The ring is therefore at most `cap / 0.25` metres wide, which is what
+///   [`ring_width_m`] and [`CutFootprint`] already assume;
 /// * the result is never below the natural surface minus the cap, and never
 ///   above the natural surface.
+///
+/// Where the bench is no deeper than the cap the two readings agree to the last
+/// bit, so only the deep-bench case - a slope benched by more than the whole cap,
+/// which the fill-only formula could never have expressed at all - moves.
 pub fn cut_surface_m(base_m: f64, target_m: f64, outside_m: f64, cap_mm: i32) -> f64 {
     let cap_mm = clamp_cap(cap_mm);
     if cap_mm == 0 {
@@ -187,18 +196,17 @@ pub fn cut_surface_m(base_m: f64, target_m: f64, outside_m: f64, cap_mm: i32) ->
     }
     let cap_m = f64::from(cap_mm) / 1000.;
     let loft = base_m - cap_m;
+    // The flat top's own surface: the design level, but never deeper than the cap.
+    let top = target_m.max(loft).min(base_m);
     if outside_m <= 0. {
-        return target_m.max(loft).min(base_m);
+        return top;
     }
-    let ring = cap_m / MAX_CUT_RING_GRADE;
+    let depth = (base_m - top).max(0.);
+    let ring = depth / MAX_CUT_RING_GRADE;
     if outside_m >= ring {
         return base_m;
     }
-    (target_m + MAX_CUT_RING_GRADE * outside_m)
-        .min(base_m)
-        .max(loft)
-        .max(target_m)
-        .min(base_m)
+    (top + MAX_CUT_RING_GRADE * outside_m).min(base_m).max(loft)
 }
 
 /// The depth, in whole millimetres, that the cut removes at one cell.
@@ -646,22 +654,44 @@ pub fn verify(
         let (dx, dz) = (x - scene.origin_x, z - scene.origin_z);
         (dx >= 0 && dz >= 0 && dx < width && dz < depth).then(|| (dz * width + dx) as usize)
     };
-    // One owner per cell: the pad whose footprint contains it.
+    // One owner per cell: the pad whose DECLARED BENCH is deepest there.
+    //
+    // Two rules meet here, and both were wrong before:
+    //
+    //  * `owner` holds the index of the FOOTPRINT, not the index of the site. The two
+    //    lists have different lengths whenever the plan carries a pad without a cap
+    //    (which is every plan: settlement pads never cut), and mixing them reported
+    //    every cell of a cap-carrying pad past the first few sites as owned by nobody
+    //    - `bounded_cut_outside_pad` for legitimate, declared excavations.
+    //  * A cell two footprints cover is OWNED BY THE DEEPER ONE, because that is the
+    //    surface the encoder publishes: `apply_terrain_carves` resolves overlapping
+    //    caps by the minimum cut surface, so the shallower pad's formula is not the
+    //    one the world holds. Taking the last writer instead made two legal,
+    //    overlapping rings - two lots on the same road, a few millimetres apart in
+    //    level - look like a forged record.
     let mut owner: Vec<i32> = vec![-1; (width * depth) as usize];
+    let mut owner_depth_mm: Vec<i64> = vec![0; (width * depth) as usize];
     let mut footprints: Vec<CutFootprint> = Vec::with_capacity(sites.len());
-    for (slot, site) in sites.iter().enumerate() {
+    for site in sites {
         let Some(cap) = site.bounded_cut_mm else {
             continue;
         };
         let footprint = CutFootprint::of(&site.entity(), cap);
+        let slot = footprints.len() as i32;
         footprints.push(footprint);
         for z in footprint.top..=footprint.bottom {
             for x in footprint.left..=footprint.right {
                 if !footprint.contains(x, z) {
                     continue;
                 }
-                if let Some(at) = index(x, z) {
-                    owner[at] = slot as i32;
+                let Some(at) = index(x, z) else { continue };
+                let Some(base) = natural.height_millimetres(x, z) else {
+                    continue;
+                };
+                let expected = footprint.depth_mm(f64::from(base) / 1000., x, z);
+                if expected > owner_depth_mm[at] {
+                    owner_depth_mm[at] = expected;
+                    owner[at] = slot;
                 }
             }
         }

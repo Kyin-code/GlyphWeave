@@ -28,7 +28,10 @@ impl TerrainContext<'_> {
 /// the carve on top of the raster sample here, with exactly the composition
 /// [`TerrainContext::height`] performs - protected cells and water keep their
 /// natural surface, fill is clamped to the (lesser) of the zoning fill capacity
-/// and the carve's own limit, and a carve can never excavate.
+/// and the carve's own limit, and the only carve that may stand BELOW the natural
+/// surface is an OPT-IN bounded cut, whose depth `cut_surface_m` has already
+/// clamped to the pad's own cap. Before the opt-in no carve could excavate, so
+/// that case was unreachable; a fill-only carve still returns the natural sample.
 pub(super) struct RasterSurface<'a> {
     pub natural: &'a super::BakedTerrain,
     pub water: WaterGeometry,
@@ -46,12 +49,17 @@ impl RasterSurface<'_> {
         {
             return Some(natural);
         }
-        let engineered = super::apply_terrain_carves(f64::from(natural), x, z, carves);
-        if engineered <= f64::from(natural) {
-            return Some(natural);
+        let natural_m = f64::from(natural);
+        let engineered = super::apply_terrain_carves(natural_m, x, z, carves);
+        if engineered <= natural_m {
+            return Some(if engineered < natural_m {
+                engineered as f32
+            } else {
+                natural
+            });
         }
         Some(match self.zoning {
-            Some(mask) => engineered.min(f64::from(natural) + mask.fill_capacity_at(x, z)) as f32,
+            Some(mask) => engineered.min(natural_m + mask.fill_capacity_at(x, z)) as f32,
             None => engineered as f32,
         })
     }

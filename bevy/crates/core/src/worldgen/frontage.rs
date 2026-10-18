@@ -453,7 +453,14 @@ pub fn validate_entity(e: &EntityInstance) -> Result<(), TerrainError> {
     }
     Ok(())
 }
-fn bounds(e: &EntityInstance, margin: i64) -> [i64; 4] {
+/// The world-cell rectangle of one entity's footprint, grown by `margin` cells.
+///
+/// THE one rounding of a pad footprint in the planning path: the placement
+/// preflight, the support comparison and the pad refusal gate all read it, so
+/// "the cells this pad stands on" cannot mean two different rectangles in two
+/// gates. `margin = 0` is the building itself (the platform a declared top is an
+/// obligation over), `margin = 2` the historical audit window.
+pub(super) fn bounds(e: &EntityInstance, margin: i64) -> [i64; 4] {
     let (w, d) = super::spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
     [
         i64::from(e.world_x) - w as i64 - margin,
