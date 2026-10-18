@@ -108,8 +108,16 @@ const PLANNED_PADS: usize = 17;
 /// published 4 m shore clearance), and the waterfront digest moves because its river
 /// is now CHECKED by `river.object.toml` instead of being disclosed as unruled - a
 /// report-only change, the 432 published entities are byte-identical.
+///
+/// Round 41 moves the HILLSIDE digest only, and for a reason that is the round's
+/// point: the committed hillside sample opts into `bounded-cut`, so its two graded
+/// auto roads now publish their own transport band (3.389 m / 5.788 m of fill instead
+/// of 6.705 m / 7.150 m), the road audit passes, and the cut ledger books the twelve
+/// graded roads by id. The pad ledger, the 22 pads, the 15 homes and the 6 shops are
+/// unchanged. The WATERFRONT fixture never opted into the policy and is byte-frozen:
+/// its constant does not move.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "8c27761a249d87865477c1875cc5b56a4f97fceadfabb552138125c98845e94c";
+    "3db90edbd5a8fc2fc8aa8937dfc2318a1c5f246022783b5a70acbf3ffe797c2b";
 const FROZEN_WATERFRONT_DIGEST: &str =
     "5a43f6a08567a764c42b8cb82767a2de722ce276475d3a284c92133a428793b2";
 /// The ring every planned pad of the grown hillside town derives, by kind:

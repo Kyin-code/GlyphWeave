@@ -552,6 +552,7 @@ mod tests {
 
     fn minimal_plan(natural_hash: &str) -> super::super::road_network::RoadNetworkPlan {
         super::super::road_network::RoadNetworkPlan {
+            road_cut_mm: None,
             automatic_extensions: None,
             frontage: None,
             base_profile_rejections: Vec::new(),

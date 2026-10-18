@@ -32,6 +32,18 @@ pub struct RoadNetworkPlan {
     pub nodes: Vec<RoadNode>,
     pub edges: Vec<RoadEdge>,
     pub roadside_sites: Vec<RoadsideSite>,
+    /// OPT-IN bounded cut: the cap every GRADED road's support band may excavate
+    /// under, in whole millimetres, stamped onto each road entity's own
+    /// `grounding.boundedCutMm` by [`Self::entities`].
+    ///
+    /// Absent (and therefore not serialized) for every plan whose style did not
+    /// enable `style.frontageProgram.terrainPolicy = "bounded-cut"` with a legal
+    /// `maxCutMm`, so no road entity gains a cap and no road carve can lower the
+    /// ground. A road without a longitudinal profile never receives it either: a
+    /// flat road has no authored surface to cut to and keeps the historical
+    /// fill-only contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_cut_mm: Option<i32>,
     #[serde(default)]
     pub zoning_hash: Option<String>,
     #[serde(default)]
@@ -334,6 +346,12 @@ impl RoadNetworkPlan {
                     .as_ref()
                     .and_then(|p| p.height_at(f64::from(e.world_x), f64::from(e.world_z)))
                     .unwrap_or(f64::from(level));
+                // OPT-IN bounded cut, only for a road that carries the graded
+                // longitudinal profile its cut must honour. The plan carries ONE
+                // cap; a flat road (no profile) has no authored surface to cut to
+                // and stays fill-only, so the entity publishes no cap and
+                // `plan_terrain_carves` grants it no carve cap either.
+                let bounded_cut_mm = profile.as_ref().and(self.road_cut_mm);
                 EntityInstance {
                     entity_id: e.id.clone(),
                     asset_id: "prop.road".into(),
@@ -359,6 +377,13 @@ impl RoadNetworkPlan {
                             .water_crossings
                             .iter()
                             .any(|crossing| crossing.road_id == e.id),
+                        // OPT-IN bounded cut, only for a road that carries the
+                        // graded longitudinal profile its cut must honour. The
+                        // plan carries ONE cap; a flat road (no profile) has no
+                        // authored surface to cut to and stays fill-only, so the
+                        // entity publishes no cap and `plan_terrain_carves` grants
+                        // it no carve cap either.
+                        bounded_cut_mm,
                         ..Default::default()
                     },
                     anchors: Vec::new(),
@@ -911,6 +936,7 @@ pub(super) fn plan_with_zones_demand(
     let step = 64;
     let max_fill = 6.;
     let mut result = RoadNetworkPlan {
+        road_cut_mm: None,
         automatic_extensions: None,
         frontage: None,
         // B01-T2 C2: filled once base-edge profiles are attempted and their refusals are known
@@ -2351,7 +2377,24 @@ pub(super) fn plan_with_style_declared(
             source,
         )?;
     }
+    // The graded road's own fill contract, now that every ROAD of the plan exists
+    // and before any frontage pad is placed on one. A road whose bounded cut still
+    // cannot hold the 6 m roadbed contract is refused BY NAME here and withdrawn
+    // (plan + entity list), so no pad is ever attached to a road the world will
+    // not publish. The probe carries the cap internally; the plan publishes
+    // `road_cut_mm` only after the pad list is whole, because the frontage
+    // programme's acceptance gates keep reading the historical fill-only
+    // envelopes they were calibrated on.
+    let (road_cut_policy, _) = super::bounded_cut::CutPolicy::from_style(style);
+    if road_cut_policy.enabled() {
+        super::road_support::refuse_overfilled_roads(
+            &mut result, scene, terrain, water, zones, style,
+        )?;
+    }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
+    if road_cut_policy.enabled() {
+        result.road_cut_mm = Some(road_cut_policy.cap_mm());
+    }
     // The pad list is whole: every generator that plans pads has run (the roadside
     // programme of `plan_with_zones_demand`, the service programme or the joint
     // layout of `plan_with_program`, the road extensions, the automatic roads and
@@ -7623,9 +7666,19 @@ fn verify_impl(
             .map_or(expected.max_roadbed_fill_m, |p| {
                 p.max_fill_mm as f32 / 1000.
             });
+        // OPT-IN bounded cut: a graded road that publishes a cap may excavate its
+        // own transport band, at most that cap per cell. The cap is the ENTITY's
+        // own (stamped from the plan's `road_cut_mm`), so a road without one keeps
+        // the historical no-excavation contract; the per-cell depth proof is
+        // `bounded_cut::verify`, which owns the ledger and the exact formula. This
+        // audit keeps the fill contract above it unchanged.
+        let cut_allowance_m = planned
+            .grounding
+            .bounded_cut_mm
+            .map_or(0_f32, |cap| cap as f32 / 1000.);
         if error > tolerance
             || fill > max_fill + tolerance
-            || cut > tolerance
+            || cut > cut_allowance_m + tolerance
             || e.world_y != planned.world_y
         {
             audit.failures.push(format!(

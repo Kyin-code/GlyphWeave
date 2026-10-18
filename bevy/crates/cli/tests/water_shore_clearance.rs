@@ -53,12 +53,16 @@ const HILLSIDE_TREES: usize = 76;
 /// The gate's verdict on the hillside town AFTER both accounts are closed. These
 /// five failures were already true of the HEAD world (the same `quality-report`
 /// audits, unchanged), but the gate is fail-fast: it aborted at `scale-audit`, so
-/// they were never printed. The two road ones are the off arm's known 6.705 m /
-/// 7.150 m roadbed overfill; the derived arm reports the first four only.
-const HILLSIDE_OFF_GATE_FAILURES: [&str; 5] = [
+/// they were never printed.
+///
+/// Round 41 removed the last road failure from this list (`final road network
+/// failed independent design audit`, the off arm's 6.705 m / 7.150 m roadbed
+/// overfill). A graded road now owns its transport band's fill, so the two auto
+/// roads stay inside the 6 m contract and the road audit passes; the four land-use
+/// failures that remain are outside this round.
+const HILLSIDE_OFF_GATE_FAILURES: [&str; 4] = [
     "\"scene-0\" local-height frontage demand or realization remains incomplete",
     "\"scene-0\" automatic road targets remain out of reach after \"no_feasible_progress_candidate\"",
-    "\"scene-0\" final road network failed independent design audit",
     "\"scene-0\" purpose-area allocation or realization remains incomplete",
     "\"scene-0\" landcover remains unrealized",
 ];

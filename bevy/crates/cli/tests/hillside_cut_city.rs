@@ -30,21 +30,30 @@
 //!    on the shoreline passage band;
 //! 6. every planned pad is realized, the deepest cell is inside the 2 m cap, and every
 //!    pad's platform is its declared millimetre top;
-//! 7. two bakes of the same manifest publish byte-identical world files, and the
+//! 7. the two roads that Round 38 measured at 6.705 m / 7.150 m of fill now publish
+//!    3.389 m / 5.788 m against their own transport bands, the road audit passes, and
+//!    the graded roads appear in the SAME ledger by road id (12 records, no
+//!    excavation needed here: this world's road excess was a neighbour's fill);
+//! 8. two bakes of the same manifest publish byte-identical world files, and the
 //!    policy-OFF bake is frozen to one tree digest.
 //!
-//! What it still pins as a GAP is what this round did not touch: the two auto roads of
-//! this manifest overfill the 6 m roadbed contract (6.705 m and 7.150 m at their own
-//! take-offs). Those two failures are the identical pair the world published before
-//! the cut work, so they are asserted exactly rather than deleted from the report.
+//! The two auto roads this test used to pin as a GAP are now part of the contract.
+//! Round 41 gave a GRADED road the same bounded-cut capability a frontage pad has
+//! (the same one cap, the same per-cell formula, the same ledger): the road's own
+//! transport band is its authored support surface, so a neighbouring pad's
+//! transition ring can no longer bury the roadbed above its 6 m fill contract, and
+//! the road may excavate its uphill grading ring within the cap. The two roads now
+//! publish 3.389 m and 5.788 m of fill, the audit passes, and the pad ledger is
+//! unchanged (7 pads / 1,572 cells / 753,367 mm) - the excavation this manifest
+//! needs is exactly the pads' own.
 use glyphweave_core::baked_terrain::BakedTerrain;
 use glyphweave_core::worldgen::bounded_cut::{
     self, CutLedger, CutPolicy, footprint_intersection,
 };
 use glyphweave_core::worldgen::road_network::{RoadNetworkPlan, RoadsideSite};
 use glyphweave_core::worldgen::{
-    LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world, water_geometry,
-    water_kind,
+    LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world,
+    graded_transport_half_extents, water_geometry, water_kind,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -395,16 +404,90 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     let services = read_json(scene_dir(&dir).join("service-program-audit.json"));
     assert_eq!(services["status"], json!("pass"), "{services}");
     assert_eq!(services["realizedWithAccess"], services["requested"]);
-    // The GAP this round leaves alone: the two auto roads of this manifest overfill
-    // the roadbed contract at their own take-offs. Identical at the commit before the
-    // cut work, so the excavation is not the cause - and it is asserted, not hidden.
-    assert_eq!(
-        road_audit["failures"],
-        json!([
-            "road generated.road-auto.scene-0.0 changed after planning: design error 0m at (112,224), fill 6.705m, cut 0m",
-            "road generated.road-auto.scene-0.1 changed after planning: design error 0m at (112,288), fill 7.1499996m, cut 0m"
-        ])
+
+    // 6. The two roads that used to overfill the 6 m roadbed contract now hold it,
+    //    measured cell for cell from the two published rasters over each road's own
+    //    transport band (`graded_transport_half_extents`, the audit's own window).
+    assert_eq!(road_audit["status"], json!("pass"), "{road_audit}");
+    assert_eq!(road_audit["plannedEdges"], json!(33));
+    assert_eq!(road_audit["realizedEdges"], road_audit["plannedEdges"], "{road_audit}");
+    assert!(
+        road_audit["maxFinalRoadbedFillM"].as_f64().unwrap() <= 6.,
+        "the roadbed fill contract holds: {road_audit}"
     );
+    assert_eq!(road_audit["failures"], json!([]));
+    // The ledger books the graded roads in the SAME ledger, by road id. Twelve of
+    // this plan's 33 roads carry a graded profile; a flat road has no authored
+    // surface to cut to and keeps the historical fill-only contract, so it
+    // publishes no record at all.
+    assert_eq!(ledger.roads.len(), 12, "the graded roads publish one record each");
+    assert!(
+        plan.entities()
+            .iter()
+            .filter(|entity| entity.kind == "road" && entity.grounding.bounded_cut_mm.is_some())
+            .count()
+            == 12,
+        "only a road with a longitudinal profile may carry the cap"
+    );
+    for record in &ledger.roads {
+        assert_eq!(record.max_cut_mm, MAX_CUT_MM);
+        assert_eq!(record.entity_id, record.road_id);
+        assert!(record.cut_cells <= 1, "a fill-only road books no excavation: {record:?}");
+    }
+    assert_eq!(
+        ledger.road("generated.road-auto.scene-0.0").map(|r| (r.design_level_mm, r.cut_cells)),
+        Some((8_357, 0))
+    );
+    assert_eq!(
+        ledger.road("generated.road-auto.scene-0.1").map(|r| (r.design_level_mm, r.cut_cells)),
+        Some((6_336, 0))
+    );
+    // The two roads Round 38 measured at 6.705 m / 7.150 m: now 3.389 m / 5.788 m,
+    // with no excavation needed - their overfill was a neighbouring pad's
+    // transition ring standing inside their support band, and a graded road's own
+    // band is now its authored surface. The pad ledger above is unchanged.
+    assert_eq!(
+        road_band_fill_cut(&plan, "generated.road-auto.scene-0.0", &natural, &final_terrain),
+        (3_389, 0)
+    );
+    assert_eq!(
+        road_band_fill_cut(&plan, "generated.road-auto.scene-0.1", &natural, &final_terrain),
+        (5_788, 0)
+    );
+    assert_eq!(
+        road_band_fill_cut(&plan, "generated.road-auto.scene-0.2", &natural, &final_terrain),
+        (4_566, 0)
+    );
+}
+
+/// The worst fill and the worst cut over one graded road's transport band, in
+/// whole millimetres, from the two published rasters.
+fn road_band_fill_cut(
+    plan: &RoadNetworkPlan,
+    road_id: &str,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+) -> (i32, i32) {
+    let entity = plan
+        .entities()
+        .into_iter()
+        .find(|entity| entity.entity_id == road_id)
+        .expect("the plan publishes the road");
+    let (half_w, half_d) = graded_transport_half_extents(&entity);
+    let (mut fill, mut cut) = (0_i32, 0_i32);
+    for z in entity.world_z - half_d..=entity.world_z + half_d {
+        for x in entity.world_x - half_w..=entity.world_x + half_w {
+            let n = natural
+                .height_millimetres(x, z)
+                .expect("the natural raster covers the band");
+            let f = final_terrain
+                .height_millimetres(x, z)
+                .expect("the final raster covers the band");
+            fill = fill.max(f - n);
+            cut = cut.max(n - f);
+        }
+    }
+    (fill, cut)
 }
 
 #[test]
@@ -493,6 +576,24 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
             .iter()
             .all(|site| site.bounded_cut_mm.is_none()),
         "the policy is off, so no pad may carry a cut record"
+    );
+    // A graded road is not stamped either: no road may carry a cap, and the
+    // historical fill-contract failure is still the off world's own answer.
+    assert_eq!(plan.road_cut_mm, None, "the off plan publishes no road cap");
+    assert!(
+        plan.entities()
+            .iter()
+            .all(|entity| entity.grounding.bounded_cut_mm.is_none()),
+        "the policy is off, so no road entity may carry a cut cap"
+    );
+    let off_audit = read_json(scene_dir(&first).join("road-network-audit.json"));
+    assert_eq!(off_audit["status"], json!("fail"), "{off_audit}");
+    assert_eq!(
+        off_audit["failures"],
+        json!([
+            "road generated.road-auto.scene-0.0 changed after planning: design error 0m at (112,224), fill 6.705m, cut 0m",
+            "road generated.road-auto.scene-0.1 changed after planning: design error 0m at (112,288), fill 7.1499996m, cut 0m"
+        ])
     );
     let engineered = read_json(scene_dir(&first).join("engineered-terrain.json"));
     assert_eq!(

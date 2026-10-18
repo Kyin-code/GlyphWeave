@@ -1130,6 +1130,7 @@ mod tests {
             source: "test".into(),
         }];
         let road = RoadNetworkPlan {
+            road_cut_mm: None,
             automatic_extensions: None,
             frontage: None,
             base_profile_rejections: Vec::new(),
@@ -1331,6 +1332,7 @@ mod tests {
             source: "test".into(),
         };
         let roads = RoadNetworkPlan {
+            road_cut_mm: None,
             automatic_extensions: None,
             frontage: None,
             base_profile_rejections: Vec::new(),

@@ -16,6 +16,10 @@ use crate::settlement::{
 };
 mod access;
 pub mod bounded_cut;
+/// The graded road's bounded-cut support contract: the plan-stage probe that
+/// refuses a road BY NAME when its own cut still cannot bring the roadbed inside
+/// the 6 m fill contract (see the module docs).
+pub mod road_support;
 /// OPT-IN `style.terrainPolicy.earthworkBlend`: derive each structure's
 /// fill-transition ring from its own footprint instead of the fixed envelope
 /// (see the module docs for the constants and their derivation).
@@ -2306,6 +2310,8 @@ fn bounded_cut_ledger_for(
         not_enabled: None,
         max_cut_mm: Some(policy.cap_mm()),
         pads,
+        roads: bounded_cut::measure_road_cuts(scene, plan, natural, final_terrain, policy)
+            .map_err(WorldgenError::InvalidRules)?,
         cut_cells: 0,
         cut_depth_sum_mm: 0,
         cut_volume_m3: 0.,
@@ -2331,9 +2337,9 @@ fn bounded_cut_ledger_for(
                 audit.failures.join("; ")
             )));
         }
-    } else if !ledger.pads.is_empty() {
+    } else if !ledger.pads.is_empty() || !ledger.roads.is_empty() {
         return Err(WorldgenError::InvalidRules(
-            "bounded cut requires the scene's zoning to verify its pads".into(),
+            "bounded cut requires the scene's zoning to verify its pads and roads".into(),
         ));
     }
     Ok(Some(ledger))
@@ -2960,6 +2966,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     not_enabled: None,
                     max_cut_mm: Some(policy.cap_mm()),
                     pads: vec![],
+                    roads: vec![],
                     cut_cells: 0,
                     cut_depth_sum_mm: 0,
                     cut_volume_m3: 0.,
@@ -4850,7 +4857,11 @@ pub(crate) fn graded_band_shortfall_m(pavement_half: i32, band_half: i32) -> u32
 /// pavement plus the corridor contract's fixed 3m shoulder, plus the end
 /// platforms. This is the earthwork envelope the audit bounds with the fill
 /// cap and the no-excavation rule.
-pub(crate) fn graded_transport_half_extents(entity: &EntityInstance) -> (i32, i32) {
+///
+/// Public because it is the ONE definition an independent reader (and the
+/// hillside acceptance test) uses to measure a graded road's support band; the
+/// carve, the road audit and the road cut footprint all read it.
+pub fn graded_transport_half_extents(entity: &EntityInstance) -> (i32, i32) {
     let along = entity.width_m as i32 / 2 + 4;
     let transverse = entity.depth_m as i32 / 2 + 3;
     if entity.rotation_y_deg == 90. {
@@ -4989,12 +5000,26 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             let (half_w, half_d, blend) = frontage_pad_carve_geometry(entity);
             (half_w, half_d, blend)
         };
-        // OPT-IN bounded cut: only a FRONTAGE pad may excavate, and only when its
-        // own entity carries a cap (`frontage::append` sets it after the policy
-        // and the per-cell guards held). The pad's flat top, its entrance apron
-        // and its frontage-point apron belong to the same support surface, so
-        // all three carry the cap; nothing else in this function ever does.
-        let cut_cap_mm = if is_building {
+        // OPT-IN bounded cut: two engineered supports may excavate, each only
+        // when its OWN published entity carries a cap:
+        //
+        //  * a FRONTAGE pad (`frontage::append` sets the cap after the policy and
+        //    the per-cell guards held). The pad's flat top, its entrance apron and
+        //    its frontage-point apron belong to the same support surface, so all
+        //    three carry the cap;
+        //  * a GRADED ROAD: the road plan stamps the cap on every road that
+        //    carries a longitudinal profile (`RoadNetworkPlan::road_cut_mm`), and
+        //    the road's support band is cut on its uphill side and filled on its
+        //    downhill side - the real hillside road. A flat road without a
+        //    profile has no authored surface to cut to and keeps the historical
+        //    fill-only contract, so it carries no cap.
+        let cut_cap_mm = if is_road {
+            entity
+                .grounding
+                .road_profile
+                .as_ref()
+                .and(entity.grounding.bounded_cut_mm)
+        } else if is_building {
             entity.grounding.bounded_cut_mm
         } else {
             None
@@ -5178,6 +5203,13 @@ fn terrain_height_zoned_with(
         return natural;
     }
     let engineered = apply_terrain_carves_with(natural, x, z, carves, platform);
+    // The same two prohibitions `terrain_height_metres_with` states: a cut never
+    // enters the structured water body or the shoreline public passage band.
+    if engineered < natural
+        && (water.contains_point(f64::from(x), f64::from(z)) || water.shore_band_cell(x, z))
+    {
+        return natural;
+    }
     if engineered <= natural {
         // Below the natural surface is a bounded cut - the only earthwork that
         // can lower ground, and only from an OPT-IN frontage pad's own carve. The
@@ -5188,6 +5220,50 @@ fn terrain_height_zoned_with(
         return engineered;
     }
     engineered.min(natural + mask.fill_capacity_at(x, z))
+}
+
+/// The surface the PUBLISHED raster holds at one cell, composed from a natural
+/// raster and the final carve list exactly as `terrain_height_zoned_with` composes
+/// it (bounded-cut platform rule active, protected land and the waterfront
+/// exclusion intact, the zoning fill taper applied).
+///
+/// The bake's chunk encoder reads the same function through
+/// `published_terrain_height_zoned`; this raster-backed form exists so a PLANNING
+/// stage that only holds the natural raster - the graded road's fill-contract
+/// probe, `worldgen::road_support` - judges the same surface the world will
+/// publish instead of a second approximation of it.
+pub(super) fn published_surface_from_raster(
+    natural: &BakedTerrain,
+    mask: Option<&zoning::ZoningMask>,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    x: i32,
+    z: i32,
+) -> Option<f64> {
+    let base = f64::from(natural.height_millimetres(x, z)?) / 1000.;
+    let forbidden = water.contains_point(f64::from(x), f64::from(z)) || water.shore_band_cell(x, z);
+    let Some(mask) = mask else {
+        let engineered = apply_terrain_carves_with(base, x, z, carves, PadPlatform::Active);
+        return Some(if engineered < base && forbidden {
+            base
+        } else {
+            engineered
+        });
+    };
+    if carves.is_empty()
+        || mask.protected_at(x, z)
+        || water.forbids_earthwork(f64::from(x), f64::from(z))
+    {
+        return Some(base);
+    }
+    let engineered = apply_terrain_carves_with(base, x, z, carves, PadPlatform::Active);
+    if engineered < base && forbidden {
+        return Some(base);
+    }
+    if engineered <= base {
+        return Some(engineered);
+    }
+    Some(engineered.min(base + mask.fill_capacity_at(x, z)))
 }
 
 fn terrain_height_metres(
@@ -5301,7 +5377,19 @@ fn terrain_height_metres_with(
     if water.forbids_earthwork(xf, zf) {
         return terrain.clamp(-32., 256.);
     }
-    apply_terrain_carves_with(terrain, x, z, carves, platform)
+    let composed = apply_terrain_carves_with(terrain, x, z, carves, platform);
+    // The bounded-cut contract's two natural prohibitions, re-derived here for
+    // EVERY carve that can excavate (a frontage pad's placement guards already
+    // refuse them, a graded road has no placement step): no cut ever enters the
+    // structured water body or the shoreline public passage band. A fill is not
+    // this clause's business - the historical world fills banks - so only a cell
+    // that actually stands BELOW its natural datum is reset.
+    if composed < terrain
+        && (water.contains_point(xf, zf) || water.shore_band_cell(x, z))
+    {
+        return terrain.clamp(-32., 256.);
+    }
+    composed
 }
 fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -> f64 {
     apply_terrain_carves_with(terrain, x, z, carves, PadPlatform::Dormant)
@@ -5339,7 +5427,59 @@ fn apply_terrain_carves_with(
     // "declared top is the surface, cell for cell" obligation; every other carve
     // stays fill-first.
     let mut pad_platform: Option<f64> = None;
+    // The support surface of a GRADED ROAD whose transport band (graded flat top +
+    // the corridor's shoulder) holds this cell, and which no other entity's
+    // support window claims. Inside that band the road's own surface - its
+    // authored profile, filled downhill and cut uphill within the one cap - is
+    // what the world publishes, so a neighbouring pad's transition ring can no
+    // longer bury the roadbed above its 6 m fill contract. `None` everywhere else,
+    // which keeps every fill-only input byte-identical.
+    let mut road_support: Option<f64> = None;
+    // The deepest unblocked ROAD excavation at this cell. Unlike a frontage pad's
+    // cut - which the historical fill-first resolution keeps under any fill - a
+    // graded road's cut is the road's own support surface, so it is authoritative
+    // over a neighbour's transition fill exactly as the band's fill is. It is
+    // still never inside another entity's support window.
+    let mut road_cut_floor: Option<f64> = None;
     let mut road_owns_cell = false;
+    // Another entity's own support window. TWO questions are asked per cell,
+    // because the road answers two different things there:
+    //
+    //  * a road CUT may not enter a cell another entity's own earthwork claims -
+    //    a pad's carve rectangle plus its cut footprint (or its 2 m audit margin)
+    //    and another road's graded band. Those are the cells whose surface that
+    //    entity's ledger and audit answer for, so a road excavation there would be
+    //    booked against the wrong owner;
+    //  * the road's FILL authority - its authored surface is the answer inside its
+    //    transport band - is blocked only by another entity's SUPPORT RECTANGLE
+    //    (the cells its own platform/fill actually stands on). A pad's graded ring
+    //    is fill the road may legitimately replace with its own lower band; the
+    //    pad's own platform, its audit margin and another road's band are not.
+    //
+    // Both counts include the asking road's own window; it subtracts that one when
+    // it asks, so a road is never blocked by itself. The pre-pass exists because a
+    // blocking entity may sort after the road it blocks.
+    let has_road_cut = carves
+        .iter()
+        .any(|carve| carve.priority == 10 && carve.cut_cap_mm.is_some() && carve.profile.is_some());
+    let mut cut_windows = 0_i32;
+    let mut support_windows = 0_i32;
+    if has_road_cut {
+        for other in carves {
+            let out = ((xf - other.cx).abs() - other.half_w)
+                .max((zf - other.cz).abs() - other.half_d);
+            let margin = match (other.priority == 10, other.cut_cap_mm) {
+                (false, Some(cap)) => bounded_cut::ring_width_m(cap),
+                _ => 2.0,
+            };
+            if out < margin {
+                cut_windows += 1;
+            }
+            if out <= 0.0 {
+                support_windows += 1;
+            }
+        }
+    }
     for carve in carves {
         let dx = (xf - carve.cx).abs();
         let dz = (zf - carve.cz).abs();
@@ -5373,7 +5513,45 @@ fn apply_terrain_carves_with(
         // ground stands. `bounded_cut::cut_surface_m` is the one formula the
         // ledger and the audit also read, so the published depth is provable
         // from the plan and the natural raster alone.
-        if let Some(cap) = carve.cut_cap_mm {
+        //
+        // A cap-carrying GRADED ROAD is the other reader of that formula, and its
+        // cut is clipped by every other entity's support window (`support_windows`
+        // minus its own). It also owns its transport band's FILL: the road's
+        // authored surface is the answer there, not a neighbour's blend.
+        if carve.priority == 10 && carve.cut_cap_mm.is_some() {
+            if let (Some(cap), Some(profile)) = (carve.cut_cap_mm, carve.profile.as_deref()) {
+                let own_cut_window = outside < 2.0;
+                if cut_windows - i32::from(own_cut_window) <= 0 {
+                    let cut =
+                        bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
+                    if cut < base_terrain {
+                        road_cut_floor =
+                            Some(road_cut_floor.map_or(cut, |known: f64| known.min(cut)));
+                    }
+                }
+                let own_support = outside <= 0.0;
+                if support_windows - i32::from(own_support) <= 0 {
+                    let cut =
+                        bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
+                    let margin_m = road_transport_margin_m(profile);
+                    let along_x = profile.start[1] == profile.end[1];
+                    let support_outside = if along_x {
+                        outside_x.max(dz - (carve.half_d + margin_m))
+                    } else {
+                        (dx - (carve.half_w + margin_m)).max(outside_z)
+                    };
+                    if support_outside <= 0.0 {
+                        let fill = target.min(limit);
+                        if fill > base_terrain || cut < base_terrain {
+                            let surface = fill.max(cut);
+                            road_support = Some(
+                                road_support.map_or(surface, |known: f64| known.min(surface)),
+                            );
+                        }
+                    }
+                }
+            }
+        } else if let Some(cap) = carve.cut_cap_mm {
             let surface = bounded_cut::cut_surface_m(base_terrain, target.min(limit), outside, cap);
             if surface < base_terrain {
                 cut_floor = Some(cut_floor.map_or(surface, |known: f64| known.min(surface)));
@@ -5397,14 +5575,26 @@ fn apply_terrain_carves_with(
     // surface. New graded worlds resolve overlaps by road/building priority;
     // legacy worlds without a graded influence retain their old envelopes.
     if graded_influence && full_priority!=i32::MIN { terrain=full_target.max(base_terrain); }
-    // Fill always wins: a cell that any carve raises above the natural surface is
-    // a fill cell and is never excavated. A road's own graded band is never cut,
-    // because the road's flat top is its pavement contract, not a building pad.
-    // The one exception is a bounded-cut pad's own declared flat top: its
-    // platform IS the audited surface there (`bounded_cut::verify` step 5), so a
-    // neighbour's fill may not stand over it - and a road band still wins, which
-    // keeps the pavement contract above every bench.
-    let resolved = if road_owns_cell {
+    // Fill always wins over an implicit excavation: a cell that any carve raises
+    // above the natural surface is a fill cell and no pad's cut may trench it. The
+    // exceptions are audited surfaces, each blocked by every other entity's support
+    // window:
+    //
+    //  * a GRADED ROAD's transport band publishes its authored profile. The road's
+    //    own fill is the answer there (a neighbour's transition ring may not bury
+    //    the roadbed above its 6 m contract) and its own unblocked excavation is
+    //    the answer outside it (the uphill grading ring);
+    //  * a bounded-cut pad's own declared flat top publishes its platform
+    //    (`bounded_cut::verify` step 5).
+    //
+    // Everything else keeps the historical resolution: a road's flat top wins over
+    // a neighbour's fill, a fill wins over a pad's cut, and a pad's cut is the
+    // answer only when nothing raised the cell.
+    let resolved = if let Some(support) = road_support {
+        support
+    } else if let Some(cut) = road_cut_floor {
+        cut
+    } else if road_owns_cell {
         terrain
     } else if let Some(platform) = pad_platform {
         platform
@@ -5414,6 +5604,16 @@ fn apply_terrain_carves_with(
         cut_floor.unwrap_or(terrain)
     };
     resolved.clamp(-32., 256.)
+}
+
+/// The transverse margin from a graded road's flat top to its transport band:
+/// the corridor's fixed 3 m shoulder beyond the pavement, minus the graded
+/// margin the flat top already adds. Derived from the profile width, so the
+/// composition, the carve and the audit's `graded_transport_half_extents` read
+/// one number (`0` for an 8 m road, `2` for 12/16 m).
+fn road_transport_margin_m(profile: &road_profile::RoadProfile) -> f64 {
+    let pavement_half = f64::from(profile.road_width_m) * 0.5;
+    (pavement_half + 3.0) - (pavement_half + 1.0).max(7.0)
 }
 
 /// Climate moisture field in world space (0 = arid, 1 = humid).

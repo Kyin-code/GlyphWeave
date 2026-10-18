@@ -1290,8 +1290,14 @@ fn support_check(
     let occupied = super::bounded_cut::entity_occupies(existing);
     // The benches already accepted: read back out of their own published entities, so the
     // footprint this candidate is measured against is the same one the ledger books.
+    // Only a BUILDING support owns a bench in this exclusion. A graded road also
+    // carries a cap, but its cut footprint is a corridor, not a pad: the road's
+    // own ring is clipped by the pad windows instead (see
+    // `worldgen::apply_terrain_carves`), and refusing every road-overlapping pad
+    // here would withdraw the very lots the frontage programme exists to place.
     let cut_footprints: Vec<super::bounded_cut::AcceptedFootprint<'_>> = existing
         .iter()
+        .filter(|entity| super::carves_as_building(&entity.kind))
         .filter_map(|entity| {
             entity
                 .grounding

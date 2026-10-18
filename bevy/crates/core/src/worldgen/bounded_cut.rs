@@ -11,23 +11,39 @@
 //!
 //! What may be cut
 //! ---------------
-//! Exactly the FRONTAGE PAD: the entity `frontage::append` accepted for a
-//! `style.frontageProgram` request, its entrance apron and its frontage-point
-//! apron (`worldgen::plan_terrain_carves` marks those three carves with the
-//! entity's own cap). Roads, their graded bands, roadside pads of the settlement
-//! / service / joint programmes, the shoreline quay row, landmarks and every
-//! authored entity never carry a cap and therefore never cut.
+//! Two engineered supports, and nothing else:
+//!
+//! * the FRONTAGE PAD: the entity `frontage::append` accepted for a
+//!   `style.frontageProgram` request, its entrance apron and its frontage-point
+//!   apron (`worldgen::plan_terrain_carves` marks those three carves with the
+//!   entity's own cap);
+//! * the GRADED ROAD: a road that carries a longitudinal [`RoadProfile`], whose
+//!   support band is the graded flat top plus the corridor's shoulder. A real
+//!   hillside road is cut on its uphill side and filled on its downhill side, so
+//!   the same cap lets the road's own band excavate where the natural ground
+//!   stands above the authored profile ([`RoadCutFootprint`]). An unprofiled
+//!   (flat) road has no authored longitudinal surface to cut to and keeps the
+//!   historical fill-only contract.
+//!
+//! Roadside pads of the settlement / service / joint programmes, the shoreline
+//! quay row, landmarks and every authored entity never carry a cap and therefore
+//! never cut.
 //!
 //! What may never be cut, per cell
 //! -------------------------------
 //! * protected land (`zoning::ZoningMask::protected_at`),
 //! * the structured water body (`WaterGeometry::contains_point`),
 //! * the shoreline public passage band (`WaterGeometry::shore_band_cell`),
-//! * a cell any already accepted entity occupies,
-//! * a cell a road's own graded band fully covers (`priority == 10`),
+//! * a cell inside another entity's own support window: a road's excavation
+//!   stops at the edge of every pad's carve rectangle, every pad's cut
+//!   footprint and every other road's graded band, so no road cut can be booked
+//!   against an entity that owns that cell. The pads already state the same rule
+//!   from their side ([`CellGuards`]), and
 //! * a cell inside another accepted pad's [`CutFootprint`]: two benches may not
 //!   share a footprint, because the ledger books every pad's excavation from the
-//!   same cells and an overlap would count one cell twice.
+//!   same cells and an overlap would count one cell twice. A road's ring is
+//!   clipped by the same windows, so the road and the pad records are disjoint
+//!   too.
 //!
 //! The generator guards those cells one by one before a pad is accepted
 //! ([`CellGuards`]) and the audit re-derives them from the published bytes
@@ -37,9 +53,10 @@
 //! -----------
 //! [`MAX_CUT_MM`] is read by the style parser, by `frontage::support_check`, by
 //! `worldgen::apply_terrain_carves` (through [`clamp_cap`]) and by this module's
-//! audit. There is no second number.
+//! audit. There is no second number - and a road reads the very same constant.
 
 use super::road_network::RoadsideSite;
+use super::road_profile::RoadProfile;
 use super::zoning::ZoningMask;
 use super::{EntityInstance, WaterGeometry, spatial_half_extents, support_pad_half_extents};
 use crate::baked_terrain::BakedTerrain;
@@ -466,6 +483,18 @@ pub const PAD_NOT_IN_LEDGER: &str = "bounded_cut_pad_missing_from_ledger";
 /// pad's excavation from those cells, so an overlap counts the shared cells twice
 /// and the total stops being the scene's own excavation.
 pub const FOOTPRINT_OVERLAP: &str = "bounded_cut_footprint_overlaps_another_pad";
+/// A graded road whose own support band still stands more than its roadbed fill
+/// contract above the natural ground after its bounded cut. The road is refused
+/// BY NAME by `worldgen::road_support` and taken back out of the plan, with its
+/// entity (and any roadside pad that named it), instead of publishing a roadbed
+/// the 6 m contract cannot hold.
+pub const ROAD_FILL_EXCEEDS_AFTER_CUT: &str = "road_fill_exceeds_contract_after_cut";
+/// A published road cut record names a road the plan does not carry, or a road
+/// without the graded profile the record's per-cell target needs.
+pub const UNKNOWN_ROAD: &str = "bounded_cut_road_not_in_plan";
+/// A graded road of the plan carries a cut cap but the ledger publishes no record
+/// for it.
+pub const ROAD_NOT_IN_LEDGER: &str = "bounded_cut_road_missing_from_ledger";
 
 /// Everything one cell's refusal depends on.
 pub struct CellGuards<'a> {
@@ -549,7 +578,57 @@ pub struct CutPad {
     pub cut_volume_m3: f64,
 }
 
-/// What the cut did to one world, per pad and in total.
+/// One graded road's published earthwork record.
+///
+/// A road is not a pad: its declared surface is a longitudinal PROFILE, not one
+/// millimetre level, so the record publishes the profile's own centre level
+/// (`designLevelMm`) and the depth is re-derived per cell from the road's own
+/// profile by [`RoadCutFootprint`]. The record is keyed by the road's id, the
+/// same id the road plan, the scene and the road audit use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CutRoad {
+    /// The plan's own road id (`generated.road-auto.scene-0.0`, ...).
+    pub road_id: String,
+    /// The published entity id; always the road id.
+    pub entity_id: String,
+    /// The road's millimetre surface at its own centre station.
+    pub design_level_mm: i32,
+    /// The cap this road was accepted under (`<= MAX_CUT_MM`).
+    pub max_cut_mm: i32,
+    pub cut_cells: u32,
+    pub cut_depth_sum_mm: i64,
+    pub max_cut_depth_mm: i32,
+    /// `cut_depth_sum_mm / 1000`: one cell is one square metre.
+    pub cut_volume_m3: f64,
+}
+
+impl CutRoad {
+    fn empty(footprint: &RoadCutFootprint) -> Self {
+        Self {
+            road_id: footprint.road_id.clone(),
+            entity_id: footprint.entity_id.clone(),
+            design_level_mm: footprint.design_level_mm,
+            max_cut_mm: footprint.cap_mm,
+            cut_cells: 0,
+            cut_depth_sum_mm: 0,
+            max_cut_depth_mm: 0,
+            cut_volume_m3: 0.,
+        }
+    }
+
+    fn add(&mut self, depth_mm: i64) {
+        self.cut_cells += 1;
+        self.cut_depth_sum_mm += depth_mm;
+        self.max_cut_depth_mm = self.max_cut_depth_mm.max(depth_mm as i32);
+    }
+
+    fn seal(&mut self) {
+        self.cut_volume_m3 = self.cut_depth_sum_mm as f64 / 1000.;
+    }
+}
+
+/// What the cut did to one world, per pad, per graded road and in total.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CutLedger {
@@ -564,6 +643,11 @@ pub struct CutLedger {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_cut_mm: Option<i32>,
     pub pads: Vec<CutPad>,
+    /// The graded roads' own excavation, one record per cap-carrying road, keyed
+    /// by road id. Empty (and therefore absent) for every world whose roads keep
+    /// the historical fill-only support, so those bytes do not move.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roads: Vec<CutRoad>,
     pub cut_cells: u64,
     pub cut_depth_sum_mm: i64,
     pub cut_volume_m3: f64,
@@ -587,6 +671,7 @@ impl CutLedger {
             not_enabled: Some(reason.as_str().into()),
             max_cut_mm: None,
             pads: vec![],
+            roads: vec![],
             cut_cells: 0,
             cut_depth_sum_mm: 0,
             cut_volume_m3: 0.,
@@ -595,14 +680,26 @@ impl CutLedger {
     }
 
     pub fn totals(&mut self) {
-        self.cut_cells = self.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum();
-        self.cut_depth_sum_mm = self.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum();
+        self.cut_cells = self.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>()
+            + self.roads.iter().map(|road| u64::from(road.cut_cells)).sum::<u64>();
+        self.cut_depth_sum_mm = self.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>()
+            + self.roads.iter().map(|road| road.cut_depth_sum_mm).sum::<i64>();
         self.cut_volume_m3 = self.cut_depth_sum_mm as f64 / 1000.;
-        self.max_cut_depth_mm = self.pads.iter().map(|pad| pad.max_cut_depth_mm).max().unwrap_or(0);
+        self.max_cut_depth_mm = self
+            .pads
+            .iter()
+            .map(|pad| pad.max_cut_depth_mm)
+            .chain(self.roads.iter().map(|road| road.max_cut_depth_mm))
+            .max()
+            .unwrap_or(0);
     }
 
     pub fn pad(&self, pad_id: &str) -> Option<&CutPad> {
         self.pads.iter().find(|pad| pad.pad_id == pad_id)
+    }
+
+    pub fn road(&self, road_id: &str) -> Option<&CutRoad> {
+        self.roads.iter().find(|road| road.road_id == road_id)
     }
 }
 
@@ -718,13 +815,329 @@ pub fn measure_from_rasters(
     Ok(pads)
 }
 
-/// The audit of one world's bounded cut, recomputed from published bytes.
+/// One graded road's bounded-cut footprint: the graded flat top it may cut, the
+/// transport band (flat top + the corridor's fixed shoulder) whose fill it owns,
+/// and the ring that grades the excavation back to the natural surface.
+///
+/// One derivation, read by `worldgen::apply_terrain_carves` (through the carve
+/// list `plan_terrain_carves` builds from the same entity), by the ledger and by
+/// [`verify`], so "the cells the raster carves", "the cells the ledger books" and
+/// "the cells the audit re-derives" cannot drift.
+#[derive(Debug, Clone)]
+pub struct RoadCutFootprint {
+    pub road_id: String,
+    pub entity_id: String,
+    pub cap_mm: i32,
+    /// The road's own millimetre surface at its centre station.
+    pub design_level_mm: i32,
+    /// The authored longitudinal contract the per-cell target comes from.
+    pub profile: RoadProfile,
+    pub center_x: f64,
+    pub center_z: f64,
+    /// The graded flat top (the band the earthwork flattens to the profile).
+    pub flat_half_w: f64,
+    pub flat_half_d: f64,
+    /// The transport band: flat top plus the corridor's shoulder.
+    pub transport_half_w: f64,
+    pub transport_half_d: f64,
+    /// Bounding box of the flat top plus the cut ring.
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+impl RoadCutFootprint {
+    /// The footprint of ONE graded road entity. `None` when the road carries no
+    /// profile: a flat road has no authored longitudinal surface to cut to, so it
+    /// keeps the historical fill-only contract.
+    pub fn of(entity: &EntityInstance, cap_mm: i32) -> Option<Self> {
+        let profile = entity.grounding.road_profile.clone()?;
+        let (flat_half_w, flat_half_d) = super::graded_flat_top_half_extents(entity);
+        let (transport_half_w, transport_half_d) = super::graded_transport_half_extents(entity);
+        let cap_mm = clamp_cap(cap_mm);
+        let ring = ring_width_m(cap_mm);
+        let cx = f64::from(entity.world_x);
+        let cz = f64::from(entity.world_z);
+        let flat_half_w = f64::from(flat_half_w);
+        let flat_half_d = f64::from(flat_half_d);
+        Some(Self {
+            road_id: entity.entity_id.clone(),
+            entity_id: entity.entity_id.clone(),
+            cap_mm,
+            design_level_mm: (f64::from(entity.ground_height_m()) * 1000.).round() as i32,
+            profile,
+            center_x: cx,
+            center_z: cz,
+            flat_half_w,
+            flat_half_d,
+            transport_half_w: f64::from(transport_half_w),
+            transport_half_d: f64::from(transport_half_d),
+            left: (cx - flat_half_w - ring).floor() as i32,
+            top: (cz - flat_half_d - ring).floor() as i32,
+            right: (cx + flat_half_w + ring).ceil() as i32,
+            bottom: (cz + flat_half_d + ring).ceil() as i32,
+        })
+    }
+
+    /// The authored surface at one cell, in metres.
+    pub fn target_m(&self, x: i32, z: i32) -> f64 {
+        self.profile
+            .height_at(f64::from(x), f64::from(z))
+            .unwrap_or(self.design_level_mm as f64 / 1000.)
+    }
+
+    /// The cell's distance outside the graded flat top, in metres (<= 0 inside).
+    pub fn outside_m(&self, x: i32, z: i32) -> f64 {
+        let dx = (f64::from(x) - self.center_x).abs() - self.flat_half_w;
+        let dz = (f64::from(z) - self.center_z).abs() - self.flat_half_d;
+        dx.max(dz)
+    }
+
+    /// The cell's distance outside the transport band, in metres (<= 0 inside).
+    pub fn transport_outside_m(&self, x: i32, z: i32) -> f64 {
+        let dx = (f64::from(x) - self.center_x).abs() - self.transport_half_w;
+        let dz = (f64::from(z) - self.center_z).abs() - self.transport_half_d;
+        dx.max(dz)
+    }
+
+    /// The depth this footprint cuts at one cell, in whole millimetres.
+    pub fn depth_mm(&self, base_m: f64, x: i32, z: i32) -> i64 {
+        cut_depth_mm(base_m, self.target_m(x, z), self.outside_m(x, z), self.cap_mm)
+    }
+
+    /// True when the cell belongs to the footprint at all (inside or in the ring).
+    pub fn contains(&self, x: i32, z: i32) -> bool {
+        let outside = self.outside_m(x, z);
+        outside <= 0. || outside < ring_width_m(self.cap_mm)
+    }
+}
+
+/// Another entity's own support window, in world cells. A road's excavation and
+/// its fill authority stop at the edge of every such window, so no road cut is
+/// ever booked against an entity that owns the cell differently.
+///
+/// The window is the carve rectangle plus the margin that entity's own
+/// earthwork/audit claims:
+///
+/// * a cap-carrying pad's whole [`CutFootprint`] (`margin = ring_width_m`),
+/// * any other carve's support rectangle plus its 2 m audit margin
+///   (`margin = 2 m`), which also covers a road's transport band (flat top + at
+///   most 2 m of shoulder).
+#[derive(Debug, Clone, Copy)]
+pub struct SupportWindow {
+    pub center_x: f64,
+    pub center_z: f64,
+    pub half_w: f64,
+    pub half_d: f64,
+    pub margin_m: f64,
+    /// The road slot this window belongs to, when it belongs to a road: a road is
+    /// never blocked by its own window. `None` for pads.
+    pub road_slot: Option<usize>,
+}
+
+impl SupportWindow {
+    pub fn pad(site: &RoadsideSite) -> Self {
+        let entity = site.entity();
+        let cap = site.bounded_cut_mm.map(clamp_cap);
+        let (half_w, half_d) = support_pad_half_extents(
+            entity.width_m,
+            entity.depth_m,
+            entity.rotation_y_deg,
+            entity.grounding.frontage_road_point.is_some(),
+        );
+        Self {
+            center_x: f64::from(entity.world_x),
+            center_z: f64::from(entity.world_z),
+            half_w,
+            half_d,
+            margin_m: cap.map_or(2.0, ring_width_m),
+            road_slot: None,
+        }
+    }
+
+    pub fn road(footprint: &RoadCutFootprint, slot: usize) -> Self {
+        Self {
+            center_x: footprint.center_x,
+            center_z: footprint.center_z,
+            half_w: footprint.flat_half_w,
+            half_d: footprint.flat_half_d,
+            margin_m: 2.0,
+            road_slot: Some(slot),
+        }
+    }
+
+    /// Does this window claim the cell? Strictly inside its margin, matching the
+    /// per-cell test in `worldgen::apply_terrain_carves`.
+    pub fn blocks(&self, x: i32, z: i32) -> bool {
+        let dx = (f64::from(x) - self.center_x).abs() - self.half_w;
+        let dz = (f64::from(z) - self.center_z).abs() - self.half_d;
+        dx.max(dz) < self.margin_m
+    }
+}
+
+/// The plan's cap-carrying graded roads, their footprints and the per-cell owner
+/// of every road excavation cell. One derivation shared by the ledger and the
+/// audit: a cell is owned by the road whose declared cut is deepest there, and
+/// every road's ring is clipped by the other entities' [`SupportWindow`]s, so no
+/// cell is booked twice.
+#[derive(Debug, Clone)]
+pub struct RoadCutPlan {
+    pub footprints: Vec<RoadCutFootprint>,
+    pub windows: Vec<SupportWindow>,
+    /// Scene cell -> footprint slot, or `-1` for "no road owns a cut here".
+    pub owner: Vec<i32>,
+}
+
+impl RoadCutPlan {
+    pub fn owner_at(&self, scene: &super::SceneSpec, x: i32, z: i32) -> Option<usize> {
+        let dx = x - scene.origin_x;
+        let dz = z - scene.origin_z;
+        if dx < 0 || dz < 0 || dx >= scene.width_m as i32 || dz >= scene.depth_m as i32 {
+            return None;
+        }
+        let slot = self.owner[(dz * scene.width_m as i32 + dx) as usize];
+        (slot >= 0).then_some(slot as usize)
+    }
+
+    /// True when the cell is claimed by another entity's support window and may
+    /// therefore not be cut by `slot` (the road's own window never blocks it).
+    pub fn blocked_for(&self, slot: usize, x: i32, z: i32) -> Option<&'static str> {
+        if self.windows.iter().any(|window| {
+            window.road_slot != Some(slot) && window.blocks(x, z)
+        }) {
+            return Some(ON_OCCUPIED);
+        }
+        None
+    }
+}
+
+/// The road cut owners the plan and the natural raster alone predict.
+///
+/// `policy` supplies the one cap; a road without a profile is not a cut road and
+/// contributes no footprint. The returned owner map is the ledger's and the
+/// audit's common ground truth.
+pub fn road_cut_plan(
+    scene: &super::SceneSpec,
+    plan: &super::road_network::RoadNetworkPlan,
+    natural: &BakedTerrain,
+    policy: CutPolicy,
+) -> Result<RoadCutPlan, String> {
+    let mut footprints = Vec::new();
+    if policy.enabled() {
+        let cap = policy.cap_mm();
+        for entity in plan.entities() {
+            if entity.grounding.bounded_cut_mm != Some(cap) {
+                continue;
+            }
+            if let Some(footprint) = RoadCutFootprint::of(&entity, cap) {
+                footprints.push(footprint);
+            }
+        }
+    }
+    // Every published pad owns its support rectangle plus its own cut footprint
+    // (a cap pad's ring) or its 2 m audit margin (a fill-only pad).
+    let mut windows: Vec<SupportWindow> = plan
+        .roadside_sites
+        .iter()
+        .map(SupportWindow::pad)
+        .collect();
+    for (slot, footprint) in footprints.iter().enumerate() {
+        windows.push(SupportWindow::road(footprint, slot));
+    }
+    let width = scene.width_m as i32;
+    let depth = scene.depth_m as i32;
+    let mut owner = vec![-1_i32; (width * depth) as usize];
+    let mut owner_depth = vec![0_i64; (width * depth) as usize];
+    for (slot, footprint) in footprints.iter().enumerate() {
+        for z in footprint.top..=footprint.bottom {
+            for x in footprint.left..=footprint.right {
+                if !footprint.contains(x, z) {
+                    continue;
+                }
+                let dx = x - scene.origin_x;
+                let dz = z - scene.origin_z;
+                if dx < 0 || dz < 0 || dx >= width || dz >= depth {
+                    continue;
+                }
+                if windows.iter().any(|window| {
+                    window.road_slot != Some(slot) && window.blocks(x, z)
+                }) {
+                    continue;
+                }
+                let Some(base) = natural.height_millimetres(x, z) else {
+                    continue;
+                };
+                let expected = footprint.depth_mm(f64::from(base) / 1000., x, z);
+                if expected <= 0 {
+                    continue;
+                }
+                let at = (dz * width + dx) as usize;
+                if expected > owner_depth[at] {
+                    owner_depth[at] = expected;
+                    owner[at] = slot as i32;
+                }
+            }
+        }
+    }
+    Ok(RoadCutPlan {
+        footprints,
+        windows,
+        owner,
+    })
+}
+
+/// The road records the two PUBLISHED rasters alone measure.
+///
+/// Each road's cells are the cells it OWNS in [`RoadCutPlan`] - the deepest
+/// declared cut wins, so two overlapping rings book one cell once - and every
+/// cell the rasters lowered there is counted with the published difference.
+pub fn measure_road_cuts(
+    scene: &super::SceneSpec,
+    plan: &super::road_network::RoadNetworkPlan,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    policy: CutPolicy,
+) -> Result<Vec<CutRoad>, String> {
+    let road_plan = road_cut_plan(scene, plan, natural, policy)?;
+    let mut roads: Vec<CutRoad> = road_plan
+        .footprints
+        .iter()
+        .map(CutRoad::empty)
+        .collect();
+    for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
+        for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
+            let Some(slot) = road_plan.owner_at(scene, x, z) else {
+                continue;
+            };
+            let (Some(base), Some(final_mm)) = (
+                natural.height_millimetres(x, z),
+                final_terrain.height_millimetres(x, z),
+            ) else {
+                continue;
+            };
+            let depth = i64::from(base) - i64::from(final_mm);
+            if depth <= 0 {
+                continue;
+            }
+            roads[slot].add(depth);
+        }
+    }
+    for road in &mut roads {
+        road.seal();
+    }
+    Ok(roads)
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CutAudit {
     pub status: String,
     pub enabled: bool,
     pub pads: usize,
+    /// The graded roads that publish a cut record.
+    pub roads: usize,
     pub cut_cells: u64,
     pub cut_depth_sum_mm: i64,
     pub cut_volume_m3: f64,
@@ -741,6 +1154,7 @@ impl CutAudit {
             status: "pass".into(),
             enabled,
             pads: 0,
+            roads: 0,
             cut_cells: 0,
             cut_depth_sum_mm: 0,
             cut_volume_m3: 0.,
@@ -779,7 +1193,11 @@ pub fn verify(
                 "{LEDGER_MISSING}: the policy is enabled but no bounded-cut ledger was published"
             ));
         }
-        (false, Some(published)) if published.enabled || !published.pads.is_empty() => {
+        (false, Some(published))
+            if published.enabled
+                || !published.pads.is_empty()
+                || !published.roads.is_empty() =>
+        {
             audit.failures.push(format!(
                 "{LEDGER_WITHOUT_POLICY}: a bounded-cut ledger was published by a world whose \
                  policy is off"
@@ -823,6 +1241,59 @@ pub fn verify(
             audit.failures.push(format!(
                 "{PAD_NOT_IN_LEDGER}: pad {} carries a bounded-cut cap but no published record",
                 site.id
+            ));
+        }
+    }
+    // 3b. A graded road is a cut support too: its record names the road, and the
+    //     per-cell target is the road's own published profile.
+    let published_roads: &[CutRoad] = ledger.map_or(&[], |ledger| ledger.roads.as_slice());
+    let plan_entities: Vec<EntityInstance> = plan.map_or_else(Vec::new, |plan| {
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        entities
+    });
+    let plan_roads: Vec<&EntityInstance> = plan_entities
+        .iter()
+        .filter(|entity| entity.kind == "road" && entity.grounding.bounded_cut_mm.is_some())
+        .collect();
+    for road in published_roads {
+        if road.max_cut_mm > MAX_CUT_MM || road.max_cut_mm <= 0 {
+            audit.failures.push(format!(
+                "{CAP_ABOVE_MAXIMUM}: road {} claims a {} mm cap; the maximum is {MAX_CUT_MM} mm",
+                road.road_id, road.max_cut_mm
+            ));
+        }
+        match plan_roads.iter().find(|entity| entity.entity_id == road.road_id) {
+            None => audit.failures.push(format!(
+                "{UNKNOWN_ROAD}: {} is not a cap-carrying graded road of this plan",
+                road.road_id
+            )),
+            Some(entity) => {
+                let level = (f64::from(entity.ground_height_m()) * 1000.).round() as i32;
+                if road.design_level_mm != level {
+                    audit.failures.push(format!(
+                        "{LEDGER_MISMATCH}: road {} publishes design level {} mm but its profile \
+                         stands at {level} mm at the centre station",
+                        road.road_id, road.design_level_mm
+                    ));
+                }
+                if entity.grounding.bounded_cut_mm != Some(road.max_cut_mm) {
+                    audit.failures.push(format!(
+                        "{LEDGER_MISMATCH}: road {} publishes a {} mm cap but the plan declares {:?}",
+                        road.road_id, road.max_cut_mm, entity.grounding.bounded_cut_mm
+                    ));
+                }
+            }
+        }
+    }
+    for entity in &plan_roads {
+        if !published_roads
+            .iter()
+            .any(|road| road.road_id == entity.entity_id)
+        {
+            audit.failures.push(format!(
+                "{ROAD_NOT_IN_LEDGER}: road {} carries a bounded-cut cap but no published record",
+                entity.entity_id
             ));
         }
     }
@@ -904,6 +1375,69 @@ pub fn verify(
     }
     // The measured per-pad record, straight from the two rasters.
     let measured = measure_from_rasters(sites, natural, final_terrain)?;
+    // The road cut owners and the measured road records, from the plan and the
+    // two rasters. A road's ring is clipped by every pad window and every other
+    // road's graded band, and a shared road cell is owned by the deeper cut, so
+    // no cell is booked twice.
+    let road_plan = plan
+        .map(|plan| road_cut_plan(scene, plan, natural, policy))
+        .transpose()?
+        .unwrap_or(RoadCutPlan {
+            footprints: vec![],
+            windows: vec![],
+            owner: vec![-1; (width * depth) as usize],
+        });
+    let measured_roads = match plan {
+        Some(plan) => measure_road_cuts(scene, plan, natural, final_terrain, policy)?,
+        None => vec![],
+    };
+    // 4a-road. The published road record IS the measurement (a forged number
+    //     fails here, exactly as it does for a pad).
+    for road in published_roads {
+        let Some(truth) = measured_roads
+            .iter()
+            .find(|record| record.road_id == road.road_id)
+        else {
+            continue;
+        };
+        let fields: [(&str, bool); 5] = [
+            ("cutCells", road.cut_cells == truth.cut_cells),
+            (
+                "cutDepthSumMm",
+                road.cut_depth_sum_mm == truth.cut_depth_sum_mm,
+            ),
+            (
+                "maxCutDepthMm",
+                road.max_cut_depth_mm == truth.max_cut_depth_mm,
+            ),
+            ("designLevelMm", road.design_level_mm == truth.design_level_mm),
+            (
+                "cutVolumeM3",
+                (road.cut_volume_m3 - truth.cut_volume_m3).abs() < 1e-9,
+            ),
+        ];
+        for (field, ok) in fields {
+            if !ok {
+                audit.failures.push(format!(
+                    "{LEDGER_MISMATCH}: road {} publishes {field} {:?} but the published rasters \
+                     hold {:?}",
+                    road.road_id, field, truth
+                ));
+                break;
+            }
+        }
+        if road.cut_cells > truth.cut_cells {
+            audit.failures.push(format!(
+                "{LEDGER_OVER_APPLIED}: road {} claims {} cut cells, the rasters show {}",
+                road.road_id, road.cut_cells, truth.cut_cells
+            ));
+        } else if road.cut_cells < truth.cut_cells {
+            audit.failures.push(format!(
+                "{LEDGER_NOT_APPLIED}: road {} reports {} cut cells, the rasters show {}",
+                road.road_id, road.cut_cells, truth.cut_cells
+            ));
+        }
+    }
     // 4a. The published record IS the measurement (a forged number fails here).
     for pad in published_pads {
         let Some(truth) = measured.iter().find(|record| record.pad_id == pad.pad_id) else {
@@ -995,10 +1529,39 @@ pub fn verify(
             }
             let slot = owner[at];
             if slot < 0 || footprints.get(slot as usize).is_none() {
-                audit.failures.push(format!(
-                    "{OUTSIDE_PAD}: cell ({x},{z}) was lowered by {cut_mm} mm but no \
-                     bounded-cut pad owns it"
-                ));
+                // Not a pad cell. A graded road may own it: the road's own record
+                // and the same per-cell formula are checked here, never by a
+                // second audit.
+                let Some(road_slot) = road_plan.owner_at(scene, x, z) else {
+                    audit.failures.push(format!(
+                        "{OUTSIDE_PAD}: cell ({x},{z}) was lowered by {cut_mm} mm but no \
+                         bounded-cut pad or graded road owns it"
+                    ));
+                    continue;
+                };
+                let footprint = &road_plan.footprints[road_slot];
+                if let Some(blocked) = road_plan.blocked_for(road_slot, x, z) {
+                    audit.failures.push(format!(
+                        "{blocked}: cell ({x},{z}) was cut by {cut_mm} mm inside another \
+                         entity's support window, which road {} may not excavate",
+                        footprint.road_id
+                    ));
+                }
+                if cut_mm > i64::from(footprint.cap_mm) {
+                    audit.failures.push(format!(
+                        "{EXCEEDS_CAP}: cell ({x},{z}) was cut by {cut_mm} mm, above road {}'s \
+                         {} mm cap",
+                        footprint.road_id, footprint.cap_mm
+                    ));
+                }
+                let expected = footprint.depth_mm(f64::from(base) / 1000., x, z);
+                if (expected - cut_mm).abs() > CUT_MM_TOLERANCE {
+                    audit.failures.push(format!(
+                        "{LEDGER_MISMATCH}: cell ({x},{z}) was cut by {cut_mm} mm but road {}'s \
+                         own profile requires {expected} mm",
+                        footprint.road_id
+                    ));
+                }
                 continue;
             }
             let footprint = footprints[slot as usize];
@@ -1080,10 +1643,24 @@ pub fn verify(
         }
     }
     audit.pads = measured.len();
-    audit.cut_cells = measured.iter().map(|pad| u64::from(pad.cut_cells)).sum();
-    audit.cut_depth_sum_mm = measured.iter().map(|pad| pad.cut_depth_sum_mm).sum();
+    audit.roads = measured_roads.len();
+    audit.cut_cells = measured.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>()
+        + measured_roads
+            .iter()
+            .map(|road| u64::from(road.cut_cells))
+            .sum::<u64>();
+    audit.cut_depth_sum_mm = measured.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>()
+        + measured_roads
+            .iter()
+            .map(|road| road.cut_depth_sum_mm)
+            .sum::<i64>();
     audit.cut_volume_m3 = audit.cut_depth_sum_mm as f64 / 1000.;
-    audit.max_cut_depth_mm = measured.iter().map(|pad| pad.max_cut_depth_mm).max().unwrap_or(0);
+    audit.max_cut_depth_mm = measured
+        .iter()
+        .map(|pad| pad.max_cut_depth_mm)
+        .chain(measured_roads.iter().map(|road| road.max_cut_depth_mm))
+        .max()
+        .unwrap_or(0);
     if !audit.failures.is_empty() {
         audit.status = "fail".into();
     }
@@ -1347,6 +1924,7 @@ mod tests {
             not_enabled: None,
             max_cut_mm: Some(MAX_CUT_MM),
             pads,
+            roads: vec![],
             cut_cells: 0,
             cut_depth_sum_mm: 0,
             cut_volume_m3: 0.,
@@ -1390,6 +1968,7 @@ mod tests {
         let audit = verify(
             &scene,
             Some(&super::super::road_network::RoadNetworkPlan {
+                road_cut_mm: None,
                 roadside_sites: vec![site.clone()],
                 ..serde_json::from_value(serde_json::json!({
                     "model": "cut", "naturalHeightfieldHash": natural.content_hash().unwrap(),
@@ -1436,6 +2015,7 @@ mod tests {
     fn a_forged_ledger_is_refused_by_name_and_protected_and_water_cells_never_cut() {
         let (scene, zones, site, natural, final_terrain, ledger, water) = cut_world();
         let plan = super::super::road_network::RoadNetworkPlan {
+            road_cut_mm: None,
             roadside_sites: vec![site.clone()],
             ..serde_json::from_value(serde_json::json!({
                 "model": "cut", "naturalHeightfieldHash": natural.content_hash().unwrap(),
@@ -1489,6 +2069,7 @@ mod tests {
         // The pad carries a cap but publishes no record.
         let empty = CutLedger {
             pads: vec![],
+            roads: vec![],
             cut_cells: 0,
             cut_depth_sum_mm: 0,
             cut_volume_m3: 0.,
@@ -1594,6 +2175,7 @@ mod tests {
             .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
             .unwrap();
         let plan = super::super::road_network::RoadNetworkPlan {
+            road_cut_mm: None,
             roadside_sites: vec![site.clone(), second.clone()],
             ..serde_json::from_value(serde_json::json!({
                 "model": "cut", "naturalHeightfieldHash": natural.content_hash().unwrap(),
@@ -1611,6 +2193,7 @@ mod tests {
             not_enabled: None,
             max_cut_mm: Some(MAX_CUT_MM),
             pads,
+            roads: vec![],
             cut_cells: 0,
             cut_depth_sum_mm: 0,
             cut_volume_m3: 0.,
@@ -1639,6 +2222,434 @@ mod tests {
                     && failure.contains(&format!("({},{})", shared.0, shared.1))),
             "the overlap must be named with both pads and the shared cell: {:?}",
             audit.failures
+        );
+    }
+
+    // ==================== Round 41: the graded road's own bounded cut =========
+
+    /// One graded road across a synthetic raster, plus the structure whose fill
+    /// transition ring used to bury it.
+    ///
+    /// * the road is a flat 10 m profile east-west at z = 40 (56 m long, 12 m
+    ///   wide), so its graded flat top is `x 12..=76, z 33..=47` and its transport
+    ///   band `z 31..=49`;
+    /// * the natural ground under the band is 9 m, so the road's own design fill is
+    ///   1 m - the road does NOT overfill by itself;
+    /// * the ground rises to 12 m on the uphill strip `z 30..=34`, which the road's
+    ///   grading ring must excavate;
+    /// * a 26x24 building at (44,70) at 18 m pushes a transition ring of ~17.93 m
+    ///   over the road's downhill edge - the exact shape that buried the hillside
+    ///   roads at 6.705 m / 7.150 m.
+    fn road_cut_world() -> (
+        super::super::SceneSpec,
+        Vec<super::super::LandUseZone>,
+        super::super::road_network::RoadNetworkPlan,
+        EntityInstance,
+        BakedTerrain,
+        WaterGeometry,
+    ) {
+        let scene = super::super::SceneSpec {
+            scene_id: "road-cut".into(),
+            origin_x: 0,
+            origin_z: 0,
+            width_m: 96,
+            depth_m: 96,
+            seed_offset: 0,
+        };
+        let zones = vec![super::super::LandUseZone {
+            id: "urban".into(),
+            kind: "urban".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 96,
+            depth_m: 96,
+            source: "test".into(),
+        }];
+        let plan: super::super::road_network::RoadNetworkPlan =
+            serde_json::from_value(serde_json::json!({
+                "model": "fixture",
+                "naturalHeightfieldHash": "source",
+                "sceneId": "road-cut",
+                "status": "planned",
+                "gridSpacingM": 96,
+                "maxRoadbedFillM": 6,
+                "levelM": 10,
+                "candidates": 1,
+                "rejectedWater": 0,
+                "rejectedRelief": 0,
+                "unselectedCandidates": 0,
+                "nodes": [
+                    {"id": 0, "worldX": 16, "worldZ": 40},
+                    {"id": 1, "worldX": 72, "worldZ": 40}
+                ],
+                "edges": [{
+                    "id": "road.0",
+                    "from": 0,
+                    "to": 1,
+                    "worldX": 44,
+                    "worldZ": 40,
+                    "lengthM": 56,
+                    "rotationYDeg": 0.0,
+                    "naturalMinM": 9.0,
+                    "naturalMaxM": 12.0,
+                    "profile": {
+                        "version": 1,
+                        "roadWidthM": 12,
+                        "start": [16, 40],
+                        "end": [72, 40],
+                        "elevationsMm": vec![10_000_i64; 57],
+                        "maxFillMm": 6000
+                    }
+                }],
+                "roadsideSites": [],
+                "roadCutMm": MAX_CUT_MM
+            }))
+            .expect("the road plan fixture parses");
+        let building = fill_building("building.0", 44, 70, 18.0, 26.0, 24.0);
+        let mut values = vec![9.0_f64; 96 * 96];
+        for z in 30..=34 {
+            for x in 0..96 {
+                values[z * 96 + x] = 12.0;
+            }
+        }
+        let mut natural = BakedTerrain::new(&scene).unwrap();
+        natural
+            .insert_chunk(
+                0,
+                0,
+                96,
+                96,
+                &crate::height_payload::encode_millimetres(96, 96, values).unwrap(),
+            )
+            .unwrap();
+        let water = super::super::water_geometry(
+            super::super::WaterKind::None,
+            &[],
+            &scene,
+            &serde_json::Value::Null,
+        );
+        (scene, zones, plan, building, natural, water)
+    }
+
+    fn fill_building(
+        id: &str,
+        x: i32,
+        z: i32,
+        level_m: f32,
+        width_m: f32,
+        depth_m: f32,
+    ) -> EntityInstance {
+        EntityInstance {
+            entity_id: id.into(),
+            asset_id: format!("prop.{id}"),
+            kind: "urban_building".into(),
+            world_x: x,
+            world_z: z,
+            world_y: level_m.floor() as i32,
+            scale: 1.,
+            width_m,
+            depth_m,
+            height_m: 10.,
+            rotation_y_deg: 0.,
+            grounding: super::super::GroundingSpec {
+                bottom_offset_m: level_m - level_m.floor(),
+                ..Default::default()
+            },
+            anchors: vec![],
+            bounds: None,
+        }
+    }
+
+    /// The raster the bake publishes for this plan and these extra structures:
+    /// one cell at a time through the production composition
+    /// (`published_surface_from_raster`), never a second model of it.
+    fn publish_road_scene(
+        scene: &super::super::SceneSpec,
+        zones: &[super::super::LandUseZone],
+        plan: &super::super::road_network::RoadNetworkPlan,
+        extra: &[EntityInstance],
+        natural: &BakedTerrain,
+        water: WaterGeometry,
+    ) -> BakedTerrain {
+        let mask = ZoningMask::new(scene, zones).unwrap();
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        entities.extend(extra.iter().cloned());
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mut values = Vec::with_capacity((scene.width_m * scene.depth_m) as usize);
+        for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
+            for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
+                values.push(
+                    super::super::published_surface_from_raster(
+                        natural,
+                        Some(&mask),
+                        water,
+                        &carves,
+                        x,
+                        z,
+                    )
+                    .expect("the natural raster covers the scene"),
+                );
+            }
+        }
+        let mut final_terrain = BakedTerrain::new(scene).unwrap();
+        final_terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &crate::height_payload::encode_millimetres(scene.width_m, scene.depth_m, values)
+                    .unwrap(),
+            )
+            .unwrap();
+        final_terrain
+    }
+
+    fn road_ledger(
+        scene: &super::super::SceneSpec,
+        plan: &super::super::road_network::RoadNetworkPlan,
+        natural: &BakedTerrain,
+        final_terrain: &BakedTerrain,
+        policy: CutPolicy,
+    ) -> CutLedger {
+        let pads = measure_from_rasters(&plan.roadside_sites, natural, final_terrain).unwrap();
+        let roads = measure_road_cuts(scene, plan, natural, final_terrain, policy).unwrap();
+        let mut ledger = CutLedger {
+            requested: Some(POLICY_VALUE.into()),
+            enabled: true,
+            not_enabled: None,
+            max_cut_mm: Some(MAX_CUT_MM),
+            pads,
+            roads,
+            cut_cells: 0,
+            cut_depth_sum_mm: 0,
+            cut_volume_m3: 0.,
+            max_cut_depth_mm: 0,
+        };
+        ledger.totals();
+        ledger
+    }
+
+    fn mm(terrain: &BakedTerrain, x: i32, z: i32) -> i32 {
+        terrain.height_millimetres(x, z).expect("inside the scene")
+    }
+
+    /// Requirement 1 + 6: a graded road's cut clears the fill that used to stand
+    /// above it, is bounded by the one cap, and is booked in the SAME ledger under
+    /// the road's own id. The off arm is the historical fill-only road.
+    #[test]
+    fn a_graded_road_cut_clears_the_overfill_above_it_and_the_ledger_books_the_depth() {
+        let (scene, zones, plan, building, natural, water) = road_cut_world();
+        let policy = CutPolicy::Bounded {
+            max_cut_mm: MAX_CUT_MM,
+        };
+        let on = publish_road_scene(
+            &scene,
+            &zones,
+            &plan,
+            std::slice::from_ref(&building),
+            &natural,
+            water,
+        );
+        // The road's own band: (44,49) is the transport edge the building's ring
+        // used to bury; (44,33) is the graded flat top's uphill edge.
+        assert_eq!(mm(&natural, 44, 49), 9_000);
+        assert_eq!(mm(&on, 44, 49), 10_000, "the road's authored surface wins");
+        assert_eq!(
+            mm(&on, 44, 49) - mm(&natural, 44, 49),
+            1_000,
+            "1 m of the road's own design fill, inside its 6 m contract"
+        );
+        assert_eq!(mm(&natural, 44, 33), 12_000);
+        assert_eq!(
+            mm(&on, 44, 33),
+            10_000,
+            "the uphill edge is excavated to the profile"
+        );
+        // The off arm is the historical fill-only road: the same building ring
+        // stands ~8.9 m above the natural ground at the transport edge (the
+        // failure Round 38 measured as 6.705 m / 7.150 m on its own world), and no
+        // cut is taken at the natural 12 m strip.
+        let mut off_plan = plan.clone();
+        off_plan.road_cut_mm = None;
+        let off = publish_road_scene(
+            &scene,
+            &zones,
+            &off_plan,
+            std::slice::from_ref(&building),
+            &natural,
+            water,
+        );
+        let off_fill = mm(&off, 44, 49) - mm(&natural, 44, 49);
+        assert!(
+            off_fill > 6_000,
+            "without the cap the neighbour's fill is the surface: {off_fill} mm"
+        );
+        assert_eq!(off_fill, 8_926, "the measured fill this road is rescued from");
+        assert_eq!(
+            mm(&off, 44, 33),
+            12_000,
+            "no excavation at all when off; the natural strip stands"
+        );
+        assert!(
+            measure_road_cuts(&scene, &off_plan, &natural, &off, policy)
+                .unwrap()
+                .is_empty()
+        );
+
+        let ledger = road_ledger(&scene, &plan, &natural, &on, policy);
+        assert_eq!(ledger.pads.len(), 0, "this fixture has no frontage pad");
+        assert_eq!(ledger.roads.len(), 1, "one record, keyed by the road id");
+        let record = ledger.road("road.0").expect("the road is booked");
+        assert_eq!(record.entity_id, "road.0");
+        assert_eq!(record.max_cut_mm, MAX_CUT_MM);
+        assert_eq!(record.design_level_mm, 10_000);
+        assert_eq!(record.max_cut_depth_mm, MAX_CUT_MM);
+        assert!(record.cut_cells > 0);
+        assert!(record.cut_depth_sum_mm >= i64::from(record.max_cut_depth_mm));
+        assert_eq!(record.cut_volume_m3, record.cut_depth_sum_mm as f64 / 1000.);
+        assert_eq!(ledger.cut_cells, u64::from(record.cut_cells));
+        assert_eq!(ledger.cut_depth_sum_mm, record.cut_depth_sum_mm);
+
+        let audit = verify(
+            &scene,
+            Some(&plan),
+            &zones,
+            water,
+            &natural,
+            &on,
+            Some(&ledger),
+            policy,
+        )
+        .expect("the audit runs");
+        assert_eq!(audit.status, "pass", "{:?}", audit.failures);
+        assert_eq!(audit.roads, 1);
+        assert_eq!(audit.cut_cells, ledger.cut_cells);
+        assert_eq!(audit.max_cut_depth_mm, MAX_CUT_MM);
+        // The ledger total is the scene's own lowered cells, once.
+        let mut scene_cells = 0_u64;
+        for z in 0..96 {
+            for x in 0..96 {
+                if mm(&on, x, z) < mm(&natural, x, z) {
+                    scene_cells += 1;
+                }
+            }
+        }
+        assert_eq!(ledger.cut_cells, scene_cells);
+        assert_eq!(audit.protected_cells_changed, 0);
+        assert_eq!(audit.water_cells_changed, 0);
+        assert_eq!(audit.shore_band_cells_cut, 0);
+    }
+
+    /// Requirement 1: the per-cell prohibitions hold for a ROAD too - protected
+    /// land, the water body, the shoreline band and another entity's support all
+    /// keep their own surface, cell by cell, while the clean cells are excavated.
+    #[test]
+    fn a_graded_road_cut_never_enters_protected_water_shore_or_an_occupied_cell() {
+        let (scene, _, plan, building, natural, _) = road_cut_world();
+        let zones = vec![
+            super::super::LandUseZone {
+                id: "urban".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 80,
+                depth_m: 96,
+                source: "test".into(),
+            },
+            super::super::LandUseZone {
+                id: "nature".into(),
+                kind: "nature".into(),
+                world_x: 80,
+                world_z: 0,
+                width_m: 16,
+                depth_m: 96,
+                source: "test".into(),
+            },
+        ];
+        // A river through the middle of the scene (the 96 m fallback body: centre
+        // x = 48, half width ~13.4 m) and a fill-only structure east of it whose
+        // own support rectangle claims the middle of the uphill ring.
+        let water = super::super::water_geometry(
+            super::super::WaterKind::River,
+            &[],
+            &scene,
+            &serde_json::json!({"waterType": "river"}),
+        );
+        assert!(water.contains_point(44., 33.), "the fixture's river covers x=44");
+        assert!(!water.contains_point(20., 33.), "and not x=20");
+        let occupied = fill_building("occupied.0", 70, 24, 17.0, 12.0, 12.0);
+        let on = publish_road_scene(
+            &scene,
+            &zones,
+            &plan,
+            &[building.clone(), occupied.clone()],
+            &natural,
+            water,
+        );
+        let policy = CutPolicy::Bounded {
+            max_cut_mm: MAX_CUT_MM,
+        };
+        // A clean cell of the same uphill strip is excavated at the full cap.
+        assert_eq!(mm(&natural, 20, 33), 12_000);
+        assert_eq!(mm(&on, 20, 33), 10_000);
+        assert_eq!(mm(&natural, 20, 33) - mm(&on, 20, 33), 2_000);
+        // Protected (zoning) and water keep their natural surfaces.
+        assert_eq!(mm(&on, 82, 33), mm(&natural, 82, 33));
+        assert_eq!(mm(&on, 44, 33), mm(&natural, 44, 33));
+        // The occupied support rectangle is not excavated either: the structure's
+        // own fill stands (17 m), which is a fill, not a cut.
+        assert_eq!(mm(&on, 70, 31), 17_000);
+        assert!(mm(&on, 70, 31) > mm(&natural, 70, 31));
+
+        let ledger = road_ledger(&scene, &plan, &natural, &on, policy);
+        let audit = verify(
+            &scene,
+            Some(&plan),
+            &zones,
+            water,
+            &natural,
+            &on,
+            Some(&ledger),
+            policy,
+        )
+        .expect("the audit runs");
+        assert_eq!(audit.status, "pass", "{:?}", audit.failures);
+        assert_eq!(audit.protected_cells_changed, 0);
+        assert_eq!(audit.water_cells_changed, 0);
+        assert_eq!(audit.shore_band_cells_cut, 0);
+        assert!(audit.cut_cells > 0);
+        // The audit's own road owner map names the clean cells and reports a
+        // cap-carrying pad's support window as the occupied guard.
+        let road_plan = road_cut_plan(&scene, &plan, &natural, policy).unwrap();
+        let slot = road_plan
+            .owner_at(&scene, 20, 33)
+            .expect("the clean cut is road-owned");
+        assert_eq!(road_plan.blocked_for(slot, 20, 33), None);
+        let mut guarded = plan.clone();
+        guarded.roadside_sites.push(serde_json::from_value(serde_json::json!({
+            "id": "occupied.pad",
+            "roadId": "road.0",
+            "worldX": 70,
+            "worldZ": 24,
+            "widthM": 12,
+            "depthM": 12,
+            "supportLevelM": 17,
+            "supportLevelMm": 17000,
+            "boundedCutMm": MAX_CUT_MM,
+            "rotationYDeg": 0.0,
+            "naturalMinM": 9.0,
+            "naturalMaxM": 12.0
+        })).unwrap());
+        let guarded_plan = road_cut_plan(&scene, &guarded, &natural, policy).unwrap();
+        let guarded_slot = guarded_plan
+            .owner_at(&scene, 20, 33)
+            .expect("the clean cut is still road-owned");
+        assert_eq!(
+            guarded_plan.blocked_for(guarded_slot, 70, 31),
+            Some(ON_OCCUPIED),
+            "the occupied support rectangle is a window, not a cut"
         );
     }
 }
