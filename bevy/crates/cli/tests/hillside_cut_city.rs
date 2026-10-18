@@ -1,4 +1,4 @@
-//! Round 28: the benched hillside town is a REAL excavation, not a plan entry.
+//! Round 28/29: the benched hillside town is a REAL excavation, not a plan entry.
 //!
 //! `examples/hillside-town-512.manifest.json` is a 512 m river-gorge world whose
 //! frontage programme opts into `bounded-cut` at the one 2 m cap: contour streets on
@@ -6,32 +6,41 @@
 //! preflight plan a candidate's own cut before judging its platform, which took the
 //! 1 km replay from 43 to 96 planned homes - and then `road_network`'s pad refusal
 //! gate, which still read every pad as fill-only, stripped the benched pads again
-//! before anything was written. This test is the end-to-end proof that they reach
-//! the world.
+//! before anything was written.
 //!
-//! What it asserts, in the order the bake produces it:
+//! Round 29 closed the accounting: two pads may not share a cut footprint (the
+//! ledger books every pad's excavation from the same cells, so an overlap counted
+//! 273 cells twice), and a pad refused after placement withdraws its frontage
+//! conversion with it. What this test asserts, in the order the bake produces it:
 //!
 //! 1. the bake SUCCEEDS, and that is stronger than it sounds: `bounded_cut_ledger_for`
 //!    verifies the published ledger against the plan, the zoning, the water and the
 //!    two published rasters and REFUSES to publish a world that does not verify, so a
 //!    successful bake is a passing cut audit;
-//! 2. the plan carries the excavations: 23 pads, 8 of them with a `boundedCutMm`, and
+//! 2. the plan carries the excavations: 22 pads, 7 of them with a `boundedCutMm`, and
 //!    15 fill-only pads that publish no new field at all;
-//! 3. the published ledger's per-pad records equal an INDEPENDENT recomputation from
-//!    the two published rasters, cell for cell and millimetre for millimetre;
-//! 4. the cut audit recomputed here - from the published bytes, the plan, the zoning
+//! 3. every cut footprint is pairwise disjoint, and the three candidates that would
+//!    have shared one are refused BY NAME and counted in the request's own table;
+//! 4. the published ledger's per-pad records equal an INDEPENDENT recomputation from
+//!    the two published rasters, cell for cell and millimetre for millimetre, and the
+//!    ledger's TOTAL equals the scene-wide excavation summed once (1,572 cells and
+//!    753,367 mm of depth) - the number the double count used to inflate;
+//! 5. the cut audit recomputed here - from the published bytes, the plan, the zoning
 //!    and the water - passes with ZERO cut cells on protected land, in the water and
 //!    on the shoreline passage band;
-//! 5. every planned pad is realized, the deepest cell is inside the 2 m cap, and every
+//! 6. every planned pad is realized, the deepest cell is inside the 2 m cap, and every
 //!    pad's platform is its declared millimetre top;
-//! 6. two bakes of the same manifest publish byte-identical world files.
+//! 7. two bakes of the same manifest publish byte-identical world files, and the
+//!    policy-OFF bake is frozen to one tree digest.
 //!
 //! What it still pins as a GAP is what this round did not touch: the two auto roads of
 //! this manifest overfill the 6 m roadbed contract (6.705 m and 7.150 m at their own
 //! take-offs). Those two failures are the identical pair the world published before
 //! the cut work, so they are asserted exactly rather than deleted from the report.
 use glyphweave_core::baked_terrain::BakedTerrain;
-use glyphweave_core::worldgen::bounded_cut::{self, CutLedger, CutPolicy};
+use glyphweave_core::worldgen::bounded_cut::{
+    self, CutLedger, CutPolicy, footprint_intersection,
+};
 use glyphweave_core::worldgen::road_network::{RoadNetworkPlan, RoadsideSite};
 use glyphweave_core::worldgen::{
     LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world, water_geometry,
@@ -45,10 +54,20 @@ use std::{fs, path::PathBuf};
 const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manifest.json");
 /// The one cap this world authors, in whole millimetres.
 const MAX_CUT_MM: i32 = 2000;
-/// Pads the benched plan publishes: 16 homes, 6 storefronts and 1 school, of which
-/// eight carry a real excavation (five benched homes and three shops).
-const PLANNED_PADS: usize = 23;
-const CUT_PADS: usize = 8;
+/// Pads the benched plan publishes: 15 homes, 6 storefronts and 1 school, of which
+/// seven carry a real excavation (four benched homes, two shops and the school).
+const PLANNED_PADS: usize = 22;
+const CUT_PADS: usize = 7;
+/// The excavation the scene actually holds, summed ONCE from the two published
+/// rasters: the number the ledger must equal (Round 28 booked 2,160 cells /
+/// 1,099 m3 because 273 cells stood in two footprints at once).
+const SCENE_CUT_CELLS: u64 = 1572;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 753_367;
+const SCENE_CUT_VOLUME_M3: f64 = 753.367;
+const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
+/// Candidates refused because their cut footprint intersected an accepted pad's:
+/// two homes and one storefront (the three overlapping pairs Round 28 measured).
+const FOOTPRINT_REFUSALS: u32 = 3;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -222,6 +241,43 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         PLANNED_PADS - CUT_PADS,
         "a fill-only pad gains no key"
     );
+    // 2b. No two benches share a cut footprint, and the candidates that would have
+    //     are refused BY NAME and counted in the request's own rejection table.
+    for (index, site) in cut.iter().enumerate() {
+        let footprint = site.cut_footprint().expect("a cut pad publishes its footprint");
+        for other in cut.iter().skip(index + 1) {
+            let other_footprint =
+                other.cut_footprint().expect("a cut pad publishes its footprint");
+            assert_eq!(
+                footprint_intersection(&footprint, &other_footprint),
+                None,
+                "pads {} and {} were both accepted with intersecting cut footprints",
+                site.id,
+                other.id
+            );
+        }
+    }
+    let report = plan.frontage.as_ref().expect("the world publishes its frontage report");
+    let refused: u32 = report
+        .outcomes
+        .iter()
+        .map(|outcome| {
+            outcome
+                .rejected
+                .get(bounded_cut::FOOTPRINT_OVERLAP)
+                .copied()
+                .unwrap_or(0)
+        })
+        .sum();
+    assert_eq!(
+        refused, FOOTPRINT_REFUSALS,
+        "the overlapping candidates are named and counted: {:?}",
+        report
+            .outcomes
+            .iter()
+            .map(|outcome| (&outcome.request.id, &outcome.rejected))
+            .collect::<Vec<_>>()
+    );
 
     // 3. The published ledger IS the measurement: recompute it from the two rasters.
     let engineered = read_json(scene_dir(&dir).join("engineered-terrain.json"));
@@ -230,7 +286,10 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     assert!(ledger.enabled);
     assert_eq!(ledger.max_cut_mm, Some(MAX_CUT_MM));
     assert_eq!(ledger.pads.len(), CUT_PADS);
-    assert!(ledger.cut_cells > 0 && ledger.cut_volume_m3 > 0.);
+    assert_eq!(ledger.cut_cells, SCENE_CUT_CELLS);
+    assert_eq!(ledger.cut_depth_sum_mm, SCENE_CUT_DEPTH_SUM_MM);
+    assert_eq!(ledger.cut_volume_m3, SCENE_CUT_VOLUME_M3);
+    assert_eq!(ledger.max_cut_depth_mm, SCENE_CUT_MAX_DEPTH_MM);
     assert!(ledger.max_cut_depth_mm <= MAX_CUT_MM);
     let scene = scene_index(&dir);
     let natural = raster(&dir, &scene, false);
@@ -242,6 +301,36 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         ledger.pads, measured,
         "every published pad record equals the rasters' own measurement"
     );
+    // 3b. The ledger TOTAL is the scene's own excavation, summed ONCE over every
+    //     cell of the two published rasters - not the sum of overlapping footprints.
+    let (mut cells, mut depth_sum, mut deepest) = (0_u64, 0_i64, 0_i32);
+    for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
+        for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
+            let (Some(base), Some(built)) = (
+                natural.height_millimetres(x, z),
+                final_terrain.height_millimetres(x, z),
+            ) else {
+                continue;
+            };
+            let depth = i64::from(base) - i64::from(built);
+            if depth <= 0 {
+                continue;
+            }
+            cells += 1;
+            depth_sum += depth;
+            deepest = deepest.max(depth as i32);
+        }
+    }
+    assert_eq!(cells, SCENE_CUT_CELLS, "scene-wide lowered cells");
+    assert_eq!(depth_sum, SCENE_CUT_DEPTH_SUM_MM, "scene-wide cut depth");
+    assert_eq!(deepest, SCENE_CUT_MAX_DEPTH_MM, "scene-wide deepest cut");
+    assert_eq!(ledger.cut_cells, cells, "the ledger total is the scene total");
+    assert_eq!(
+        ledger.cut_depth_sum_mm, depth_sum,
+        "the ledger's millimetres are the scene's millimetres, once"
+    );
+    assert_eq!(ledger.cut_volume_m3, depth_sum as f64 / 1000.);
+    assert_eq!(ledger.max_cut_depth_mm, deepest);
 
     // 4. The whole cut audit, recomputed from the published bytes.
     let zones: Vec<LandUseZone> = serde_json::from_value(read_json(
@@ -335,5 +424,80 @@ fn two_bakes_of_the_benched_hillside_town_are_byte_identical() {
     assert!(
         moved.is_empty(),
         "two bakes of the same manifest published different bytes: {moved:?}"
+    );
+}
+
+/// One digest over the published scene CONTENT files.
+///
+/// The manifest-derived reports echo the absolute `rulesDir` of this machine, and
+/// the world index, the preview scene and the render-chunk manifests echo the
+/// world revision (which is computed from that manifest); none of them is scene
+/// content, so the digest is taken over `scenes/scene-0` minus those `revision`
+/// carriers and is portable across checkouts. Everything the excavation is judged
+/// on - the rasters, the plans, the audits, the zones and the ledgers - is in it.
+fn published_digest(dir: &TestDir) -> String {
+    let files = published_files(&dir.0);
+    let mut hasher = blake3::Hasher::new();
+    let mut counted = 0_usize;
+    for (path, digest) in files.iter().filter(|(path, _)| {
+        path.starts_with("scenes/")
+            && !path.ends_with("preview-scene.json")
+            && !path.contains("/render-chunks/")
+    }) {
+        counted += 1;
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(digest.as_bytes());
+        hasher.update(b"\n");
+    }
+    assert!(counted > 20, "the scene publishes its files: {counted}");
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Requirement 4: with the switch OFF the whole world is the historical one, byte
+/// for byte. The digest is frozen over the scene's own published files; a regression
+/// that lets either new rule move an off-state decision cannot pass by both sides
+/// drifting together, and two bakes of the same off input agree file for file.
+#[test]
+fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
+    let mut manifest = sample();
+    {
+        let program = manifest.style["frontageProgram"]
+            .as_object_mut()
+            .expect("the sample authors a frontage program");
+        program.remove("terrainPolicy");
+        program.remove("maxCutMm");
+    }
+    assert_eq!(CutPolicy::from_style(&manifest.style).0, CutPolicy::Disabled);
+    let first = TestDir::new("hillside-off-frozen-first");
+    let second = TestDir::new("hillside-off-frozen-second");
+    bake_world(&manifest, &first.0).expect("the off arm bakes");
+    bake_world(&manifest, &second.0).expect("the off arm bakes twice");
+    // Off is byte-identical: no pad gains a cap, no bounded-cut section is published.
+    let plan: RoadNetworkPlan = serde_json::from_value(read_json(
+        scene_dir(&first).join("road-network-plan.json"),
+    ))
+    .expect("the off plan round-trips");
+    assert!(
+        plan.roadside_sites
+            .iter()
+            .all(|site| site.bounded_cut_mm.is_none()),
+        "the policy is off, so no pad may carry a cut record"
+    );
+    let engineered = read_json(scene_dir(&first).join("engineered-terrain.json"));
+    assert_eq!(
+        engineered.get("boundedCut"),
+        None,
+        "a world that never asked for a cut publishes no bounded-cut ledger"
+    );
+    let first_digest = published_digest(&first);
+    assert_eq!(
+        first_digest,
+        published_digest(&second),
+        "two off-state bakes must publish the same bytes"
+    );
+    assert_eq!(
+        first_digest, "4d7d1304e4ee6dad6fd62782311c4d2a3e61780adcf3f55639071b8e47f82855",
+        "the frozen blake3 tree digest of the policy-off world"
     );
 }

@@ -211,6 +211,16 @@ impl RoadsideSite {
             (self.width_m / 2, self.depth_m / 2)
         }
     }
+    /// The cut footprint this pad's own published record describes, or `None` when
+    /// the pad carries no cap (a fill-only pad publishes no footprint at all).
+    ///
+    /// This is the unit the placement exclusion, the ledger and the audit all
+    /// compare, so an auditor holding only the published plan can re-derive it from
+    /// the same fields the generator used.
+    pub fn cut_footprint(&self) -> Option<super::bounded_cut::CutFootprint> {
+        self.bounded_cut_mm
+            .map(|cap| super::bounded_cut::CutFootprint::of(&self.entity(), cap))
+    }
     pub(super) fn front_anchor(&self) -> SpatialAnchor {
         // Cardinal frontage is calculated in integer metres. Do not round a
         // large world coordinate through f32 to place an entrance.
@@ -8063,8 +8073,9 @@ fn fill_attribution(
 ///    top) or `PAD_UNREALIZABLE_CATEGORY` (the plan's own earthwork does), with
 ///    the fill height, the neighbour it names and the cell it lands on;
 ///  * the pad leaves `roadside_sites`, and `forget_refused_pad` takes it out of
-///    the service outcomes and the joint receipt as well, so no record reports a
-///    facility that cannot exist;
+///    the service outcomes, the joint receipt AND the frontage report - both the
+///    outcome that accepted it and the rural-to-urban conversion it earned - so no
+///    record reports a facility or a converted parcel that cannot exist;
 ///  * because this runs BEFORE `frontage::pad_conversions` (which derives its
 ///    records from the final pad list) and before the development plan, a refused
 ///    pad never becomes a conversion, a parcel, a building or an entity. Nothing
@@ -8201,11 +8212,18 @@ pub(super) fn refuse_unrealizable_pads(
 ///
 /// A refusal is only honest if the plan stops claiming the pad EVERYWHERE: a
 /// service outcome that still lists it would report the facility as planned but
-/// unrealized (a phantom), and the joint receipt would keep a residential slot
-/// for a lot that no longer exists. Both counts are recomputed from the sites
-/// that remain, never decremented by hand.
+/// unrealized (a phantom), the joint receipt would keep a residential slot for a
+/// lot that no longer exists, and the along-road frontage report would keep both
+/// its accepted-slot record and the rural-to-urban conversion that record earned -
+/// which is precisely how a refused pad used to reach the ledger as a parcel the
+/// plan does not plan. All of those counts are recomputed from the sites that
+/// remain, never decremented by hand, and the frontage report's own tables are
+/// withdrawn through the report's single `withdraw_site` operation.
 fn forget_refused_pad(plan: &mut RoadNetworkPlan, pad_id: &str) {
     plan.roadside_sites.retain(|site| site.id != pad_id);
+    if let Some(report) = plan.frontage.as_mut() {
+        report.withdraw_site(pad_id);
+    }
     for outcome in &mut plan.service_outcomes {
         outcome.planned_site_ids.retain(|id| id != pad_id);
         outcome.unfilled_count = outcome
@@ -8446,6 +8464,89 @@ mod pad_refusal_tests {
         assert!(
             conversions.iter().all(|record| record.parcel_id != "pad.low"),
             "a refused pad may not be booked"
+        );
+    }
+
+    #[test]
+    fn a_refused_frontage_pad_takes_its_conversion_and_its_outcome_with_it() {
+        // Round 28: the refused pad left its rural-to-urban conversion in the
+        // frontage report, so the ledger's union named a parcel the plan no longer
+        // carried and the whole bake was refused. The pad is withdrawn from the
+        // report's OWN tables by identity, in one operation.
+        let mut plan = conflicting_plan();
+        let report: super::super::frontage::Report = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "model": "local-road-station-frontage-v1",
+            "outcomes": [{
+                "request": {
+                    "id": "homes", "sceneId": "pads", "purpose": "urban",
+                    "kind": "residential_home", "count": 2, "widthM": 24, "depthM": 24,
+                    "heightM": 8, "stationSpacingM": 16, "setbackM": 8,
+                    "maxCandidateAttempts": 16
+                },
+                "siteIds": ["pad.high", "pad.low"],
+                "attempted": 2, "unfilled": 0, "rejected": {},
+                "stopReason": "demand_satisfied"
+            }],
+            "conversions": [
+                {"parcelId": "pad.high", "from": "rural", "to": "urban", "areaM2": 484},
+                {"parcelId": "pad.low", "from": "rural", "to": "urban", "areaM2": 484}
+            ]
+        }))
+        .unwrap();
+        plan.frontage = Some(report.clone());
+        let rejections = refuse(&mut plan);
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        assert_eq!(rejections[0].edge_id, "pad.low");
+        let report = plan.frontage.as_ref().expect("the report survives the refusal");
+        assert_eq!(report.outcomes[0].site_ids, vec!["pad.high"]);
+        assert_eq!(
+            report.outcomes[0].unfilled, 1,
+            "demand is recomputed from the sites that remain"
+        );
+        assert_eq!(
+            report.outcomes[0].stop_reason,
+            "no_feasible_frontage",
+            "the request can no longer claim its demand was satisfied"
+        );
+        assert_eq!(
+            report.conversions,
+            vec![super::super::frontage::Conversion::rural_to_urban(
+                "pad.high", 484
+            )],
+            "the refused pad's conversion is withdrawn with it - and only that one"
+        );
+        // The audit primitive resolves the kept record and names the withdrawn one.
+        let scene = scene();
+        let zones = rural_zones();
+        assert_eq!(
+            super::super::frontage::verify_conversion(
+                &plan,
+                &zones,
+                None,
+                &super::super::frontage::Conversion::rural_to_urban("pad.low", 484)
+            )
+            .unwrap_err(),
+            "conversion parcel pad.low is not a planned frontage parcel"
+        );
+        assert_eq!(
+            super::super::frontage::verify_conversion(
+                &plan,
+                &zones,
+                None,
+                &report.conversions[0]
+            )
+            .unwrap(),
+            484
+        );
+        // Two runs of the gate and the withdrawal produce identical bytes.
+        let mut again = conflicting_plan();
+        again.frontage = Some(report.clone());
+        let second_rejections = refuse(&mut again);
+        assert_eq!(second_rejections, rejections);
+        assert_eq!(
+            serde_json::to_vec(&again).unwrap(),
+            serde_json::to_vec(&plan).unwrap()
         );
     }
 

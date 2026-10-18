@@ -24,7 +24,10 @@
 //! * the structured water body (`WaterGeometry::contains_point`),
 //! * the shoreline public passage band (`WaterGeometry::shore_band_cell`),
 //! * a cell any already accepted entity occupies,
-//! * a cell a road's own graded band fully covers (`priority == 10`).
+//! * a cell a road's own graded band fully covers (`priority == 10`),
+//! * a cell inside another accepted pad's [`CutFootprint`]: two benches may not
+//!   share a footprint, because the ledger books every pad's excavation from the
+//!   same cells and an overlap would count one cell twice.
 //!
 //! The generator guards those cells one by one before a pad is accepted
 //! ([`CellGuards`]) and the audit re-derives them from the published bytes
@@ -284,6 +287,39 @@ impl CutFootprint {
     }
 }
 
+/// The first cell two cut footprints SHARE, or `None` when the two sets are
+/// disjoint.
+///
+/// This is the one predicate behind both the placement refusal and the audit:
+/// "two benches share a footprint" means the same thing to the generator and to a
+/// reader of the published plan. The bounding boxes are compared first and the
+/// membership test is the footprint's own [`CutFootprint::contains`], so a ring
+/// that merely touches a neighbour's bounding box is not a conflict.
+pub fn footprint_intersection(a: &CutFootprint, b: &CutFootprint) -> Option<(i32, i32)> {
+    let left = a.left.max(b.left);
+    let right = a.right.min(b.right);
+    let top = a.top.max(b.top);
+    let bottom = a.bottom.min(b.bottom);
+    if left > right || top > bottom {
+        return None;
+    }
+    for z in top..=bottom {
+        for x in left..=right {
+            if a.contains(x, z) && b.contains(x, z) {
+                return Some((x, z));
+            }
+        }
+    }
+    None
+}
+
+/// One accepted pad's cut footprint, with the id a refusal must name.
+#[derive(Debug, Clone, Copy)]
+pub struct AcceptedFootprint<'a> {
+    pub pad_id: &'a str,
+    pub footprint: CutFootprint,
+}
+
 /// The per-cell prohibitions. Returned reason is the audit's own spelling, so a
 /// placement refusal and a published failure name the same defect.
 pub const ON_PROTECTED: &str = "bounded_cut_on_protected_ground";
@@ -302,6 +338,10 @@ pub const LEDGER_MISSING: &str = "bounded_cut_ledger_missing";
 pub const LEDGER_WITHOUT_POLICY: &str = "bounded_cut_ledger_without_policy";
 pub const UNKNOWN_PAD: &str = "bounded_cut_pad_not_in_plan";
 pub const PAD_NOT_IN_LEDGER: &str = "bounded_cut_pad_missing_from_ledger";
+/// Two pads' cut footprints share a cell (or may share one). The ledger books each
+/// pad's excavation from those cells, so an overlap counts the shared cells twice
+/// and the total stops being the scene's own excavation.
+pub const FOOTPRINT_OVERLAP: &str = "bounded_cut_footprint_overlaps_another_pad";
 
 /// Everything one cell's refusal depends on.
 pub struct CellGuards<'a> {
@@ -309,6 +349,9 @@ pub struct CellGuards<'a> {
     pub water: WaterGeometry,
     /// Footprint predicate of the already accepted entities.
     pub occupied: &'a dyn Fn(i32, i32) -> bool,
+    /// Footprints of the already accepted CUT pads. A candidate that would cut may
+    /// not share a single cell with any of them.
+    pub cut_footprints: &'a [AcceptedFootprint<'a>],
 }
 
 impl CellGuards<'_> {
@@ -327,6 +370,19 @@ impl CellGuards<'_> {
             return Some(ON_OCCUPIED);
         }
         None
+    }
+
+    /// The accepted cut footprint this candidate's own footprint intersects, with
+    /// the accepted pad's id and the first shared cell.
+    ///
+    /// A footprint is the unit the ledger books and the audit re-derives, so the
+    /// conflict is asked footprint to footprint: a candidate whose ring is clear of
+    /// every accepted bench is legal even when its parcel stands next door.
+    pub fn overlaps(&self, candidate: &CutFootprint) -> Option<(&str, i32, i32)> {
+        self.cut_footprints.iter().find_map(|accepted| {
+            footprint_intersection(candidate, &accepted.footprint)
+                .map(|(x, z)| (accepted.pad_id, x, z))
+        })
     }
 }
 
@@ -648,6 +704,27 @@ pub fn verify(
     }
     // 4. Per cell: the cut is exactly the declared one, inside a pad, legal.
     let mask = ZoningMask::new(scene, zones).map_err(|e| e.0)?;
+    // 4a-pre. No two pads may share a cut footprint. The per-pad measurement below
+    //     is what the ledger TOTAL is made of, so a shared cell would be booked once
+    //     per pad and the total would exceed the excavation the published rasters
+    //     actually hold. The placement preflight refuses such a pair by name; this
+    //     re-derives the same rule from the plan a reader holds, so neither side can
+    //     pass alone.
+    let mut cut_footprints: Vec<(&str, CutFootprint)> = Vec::new();
+    for site in sites.iter().filter(|site| site.bounded_cut_mm.is_some()) {
+        let cap = site.bounded_cut_mm.unwrap_or(0);
+        cut_footprints.push((site.id.as_str(), CutFootprint::of(&site.entity(), cap)));
+    }
+    for (index, (pad_id, footprint)) in cut_footprints.iter().enumerate() {
+        for (other_id, other) in cut_footprints.iter().skip(index + 1) {
+            if let Some((x, z)) = footprint_intersection(footprint, other) {
+                audit.failures.push(format!(
+                    "{FOOTPRINT_OVERLAP}: pads {pad_id} and {other_id} share the cut footprint \
+                     cell ({x},{z}); the ledger would count that cell once per pad"
+                ));
+            }
+        }
+    }
     let width = scene.width_m as i32;
     let depth = scene.depth_m as i32;
     let index = |x: i32, z: i32| -> Option<usize> {
@@ -656,19 +733,16 @@ pub fn verify(
     };
     // One owner per cell: the pad whose DECLARED BENCH is deepest there.
     //
-    // Two rules meet here, and both were wrong before:
-    //
     //  * `owner` holds the index of the FOOTPRINT, not the index of the site. The two
     //    lists have different lengths whenever the plan carries a pad without a cap
     //    (which is every plan: settlement pads never cut), and mixing them reported
     //    every cell of a cap-carrying pad past the first few sites as owned by nobody
     //    - `bounded_cut_outside_pad` for legitimate, declared excavations.
-    //  * A cell two footprints cover is OWNED BY THE DEEPER ONE, because that is the
-    //    surface the encoder publishes: `apply_terrain_carves` resolves overlapping
-    //    caps by the minimum cut surface, so the shallower pad's formula is not the
-    //    one the world holds. Taking the last writer instead made two legal,
-    //    overlapping rings - two lots on the same road, a few millimetres apart in
-    //    level - look like a forged record.
+    //  * A shared cell is owned by the DEEPER footprint. Placement no longer accepts
+    //    a pair whose footprints intersect (4a-pre above refuses it by name), so this
+    //    is the defensive resolution for a plan that bypassed placement: the owner is
+    //    the surface `apply_terrain_carves` publishes there (the minimum cut), and the
+    //    overlap itself has already been reported.
     let mut owner: Vec<i32> = vec![-1; (width * depth) as usize];
     let mut owner_depth_mm: Vec<i64> = vec![0; (width * depth) as usize];
     let mut footprints: Vec<CutFootprint> = Vec::with_capacity(sites.len());
@@ -1021,6 +1095,7 @@ mod tests {
             mask: &mask,
             water,
             occupied: &occupied,
+            cut_footprints: &[],
         };
         assert_eq!(guards.blocks(0, 0), None);
         assert_eq!(guards.blocks(40, 10), Some(ON_PROTECTED));
@@ -1353,6 +1428,91 @@ mod tests {
         assert!(
             audit.failures.iter().any(|f| f.starts_with(ON_PROTECTED)),
             "{:?}",
+            audit.failures
+        );
+    }
+
+    /// Two benches may not share a cut footprint: the ledger's total is the sum of
+    /// the per-pad records, so a shared cell would be booked once per pad. The
+    /// audit refuses the pair BY NAME from the plan alone, and the same predicate
+    /// is what the placement preflight asks before it accepts a candidate.
+    #[test]
+    fn two_pads_that_share_a_cut_footprint_fail_the_audit_by_name() {
+        let (scene, zones, site, natural, _final, _ledger, water) = cut_world();
+        // The first pad's footprint reaches x = 32; the second one, 12 m away, starts
+        // at x = 12, so the two footprints share 21 columns of flat top and ring.
+        let mut second = site.clone();
+        second.id = "generated.frontage.cut-raster.homes.1.negative".into();
+        second.world_x = 28;
+        second.frontage_road_point = Some([28, 28]);
+        let first_footprint = CutFootprint::of(&site.entity(), MAX_CUT_MM);
+        let second_footprint = CutFootprint::of(&second.entity(), MAX_CUT_MM);
+        let shared = footprint_intersection(&first_footprint, &second_footprint)
+            .expect("the fixture's two benches overlap");
+        assert_eq!(
+            Some(shared),
+            footprint_intersection(&second_footprint, &first_footprint),
+            "the predicate is symmetric"
+        );
+        // Compose the final raster the way the bake does: both pads' carves.
+        let entities = vec![site.entity(), second.entity()];
+        let carves = super::super::plan_terrain_carves(&entities);
+        let mut final_terrain = BakedTerrain::new(&scene).unwrap();
+        let mut values = Vec::with_capacity(64 * 64);
+        for z in 0..64 {
+            for x in 0..64 {
+                let base = f64::from(natural.height_millimetres(x, z).unwrap()) / 1000.;
+                values.push((super::super::apply_terrain_carves(base, x, z, &carves) * 1000.).round() / 1000.);
+            }
+        }
+        final_terrain
+            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
+            .unwrap();
+        let plan = super::super::road_network::RoadNetworkPlan {
+            roadside_sites: vec![site.clone(), second.clone()],
+            ..serde_json::from_value(serde_json::json!({
+                "model": "cut", "naturalHeightfieldHash": natural.content_hash().unwrap(),
+                "sceneId": "cut-raster", "status": "planned_connected_network",
+                "gridSpacingM": 64, "maxRoadbedFillM": 6, "levelM": 0, "candidates": 1,
+                "rejectedWater": 0, "rejectedRelief": 0, "unselectedCandidates": 0,
+                "nodes": [], "edges": [], "roadsideSites": []
+            }))
+            .unwrap()
+        };
+        let pads = measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain).unwrap();
+        let mut ledger = CutLedger {
+            requested: Some(POLICY_VALUE.into()),
+            enabled: true,
+            not_enabled: None,
+            max_cut_mm: Some(MAX_CUT_MM),
+            pads,
+            cut_cells: 0,
+            cut_depth_sum_mm: 0,
+            cut_volume_m3: 0.,
+            max_cut_depth_mm: 0,
+        };
+        ledger.totals();
+        let audit = verify(
+            &scene,
+            Some(&plan),
+            &zones,
+            water,
+            &natural,
+            &final_terrain,
+            Some(&ledger),
+            CutPolicy::Bounded { max_cut_mm: MAX_CUT_MM },
+        )
+        .unwrap();
+        assert_eq!(audit.status, "fail");
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|failure| failure.starts_with(FOOTPRINT_OVERLAP)
+                    && failure.contains(&site.id)
+                    && failure.contains(&second.id)
+                    && failure.contains(&format!("({},{})", shared.0, shared.1))),
+            "the overlap must be named with both pads and the shared cell: {:?}",
             audit.failures
         );
     }

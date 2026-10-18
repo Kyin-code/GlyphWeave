@@ -304,6 +304,50 @@ fn refused_categories() -> String {
     crate::worldgen::road_network::PAD_REFUSED_CATEGORIES.join(" or ")
 }
 
+/// Every record the plan PUBLISHES must name a pad the plan still carries.
+///
+/// This is the structural half of "a refused pad may not leave a record behind": a
+/// record is joined to the plan's own pad list by identity, never to the text of a
+/// refusal, so a record left in the frontage report (or in the pad table) by any
+/// future removal path fails by name here. `forget_refused_pad` withdraws the pad
+/// from both tables in one place; this is the audit that the withdrawal was whole.
+fn unplanned_record_failures(plan: &RoadNetworkPlan, failures: &mut Vec<String>) {
+    let planned: BTreeSet<&str> = plan
+        .roadside_sites
+        .iter()
+        .map(|site| site.id.as_str())
+        .collect();
+    if let Some(report) = &plan.frontage {
+        for record in &report.conversions {
+            if !planned.contains(record.parcel_id.as_str()) {
+                failures.push(format!(
+                    "frontage conversion parcel {} is not a planned pad; the frontage report still \
+                     books {} m2",
+                    record.parcel_id, record.area_m2
+                ));
+            }
+        }
+        for outcome in &report.outcomes {
+            for id in &outcome.site_ids {
+                if !planned.contains(id.as_str()) {
+                    failures.push(format!(
+                        "frontage outcome {} names pad {} which the plan does not carry",
+                        outcome.request.id, id
+                    ));
+                }
+            }
+        }
+    }
+    for record in &plan.pad_conversions {
+        if !planned.contains(record.parcel_id.as_str()) {
+            failures.push(format!(
+                "pad conversion parcel {} is not a planned pad; the plan still books {} m2",
+                record.parcel_id, record.area_m2
+            ));
+        }
+    }
+}
+
 /// The plan/pad/ledger triangle: a refused pad may not be re-planned, a record may not survive for a
 /// pad the plan does not plan, and the ledger may not apply a record the plan does not carry.
 ///
@@ -317,6 +361,7 @@ fn triangle_failures(
     ledger: Option<&LandUseLedger>,
     failures: &mut Vec<String>,
 ) {
+    unplanned_record_failures(plan, failures);
     for site in &plan.roadside_sites {
         if refused.contains(site.id.as_str()) {
             failures.push(format!(
@@ -1174,6 +1219,136 @@ mod tests {
         assert!(stray_audit.failures.iter().any(|failure| failure
             == &format!("ledger books conversion parcel home which the plan refused ({categories}); the pad has no entity")),
             "{stray_audit:?}");
+    }
+
+    /// A pad the road plan takes back out AFTER placement leaves no record in the
+    /// frontage report behind, and the ledger cannot keep one.
+    ///
+    /// Round 28 measured the defect: a refused pad kept its rural-to-urban
+    /// conversion in `plan.frontage.conversions`, so the ledger's union of plan
+    /// records named a parcel the plan no longer carried and `analyze` refused the
+    /// whole world with "conversion parcel ... is not a planned frontage parcel".
+    /// `Report::withdraw_site` moves the outcome and the conversion with the pad;
+    /// this test pins both the withdrawal and the audit that names a record left
+    /// behind - the frontage table included.
+    #[test]
+    fn a_refused_frontage_pad_withdraws_its_conversion_and_the_ledger_cannot_keep_it() {
+        let (mut scene, profile) = fixture();
+        let spec = SceneSpec {
+            scene_id: "ledger".into(),
+            width_m: 384,
+            depth_m: 256,
+            origin_x: -128,
+            origin_z: 40,
+            seed_offset: 0,
+        };
+        // The fixture's home is served by the along-road programme: one accepted
+        // parcel and the 484 m2 conversion its buildable core earned.
+        let report: frontage::Report = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "model": "local-road-station-frontage-v1",
+            "outcomes": [{
+                "request": {
+                    "id": "homes", "sceneId": "ledger", "purpose": "urban",
+                    "kind": "residential_home", "count": 1, "widthM": 24, "depthM": 24,
+                    "heightM": 8, "stationSpacingM": 16, "setbackM": 8,
+                    "maxCandidateAttempts": 16
+                },
+                "siteIds": ["home"], "attempted": 1, "unfilled": 0,
+                "rejected": {}, "stopReason": "demand_satisfied"
+            }],
+            "conversions": [{"parcelId": "home", "from": "rural", "to": "urban", "areaM2": 484}]
+        }))
+        .unwrap();
+        scene.road_network_plan.as_mut().unwrap().frontage = Some(report);
+        let zones = scene.land_use_zones.clone();
+        let zones = zones.as_slice();
+        let dry = crate::worldgen::water_geometry(
+            crate::worldgen::WaterKind::None,
+            &[],
+            &spec,
+            &serde_json::Value::Null,
+        );
+        // Before the refusal the plan is honest: one record, one applied conversion.
+        let honest = analyze(&scene, &profile).unwrap();
+        assert_eq!(honest.conversions.len(), 1);
+        assert_eq!(
+            audit_conversions(
+                scene.road_network_plan.as_ref().unwrap(),
+                zones,
+                dry,
+                Some(&honest)
+            )
+            .status,
+            "pass"
+        );
+        // The refusal: exactly the three moves `refuse_unrealizable_pads` makes.
+        let refusal = crate::worldgen::road_network::BaseProfileRejection {
+            edge_id: "home".into(),
+            category: crate::worldgen::road_network::PAD_FILL_CONFLICT_CATEGORY.into(),
+            reason: "pad home cannot hold its flat top".into(),
+        };
+        {
+            let plan = scene.road_network_plan.as_mut().unwrap();
+            plan.roadside_sites.retain(|site| site.id != "home");
+            plan.roadside_site_rejections = vec![refusal];
+            let report = plan.frontage.as_mut().expect("frontage report");
+            assert!(
+                report.withdraw_site("home"),
+                "the report must have accepted the pad, or the fixture proves nothing"
+            );
+            assert!(report.conversions.is_empty());
+            assert!(report.outcomes[0].site_ids.is_empty());
+            assert_eq!(report.outcomes[0].unfilled, 1);
+            assert_eq!(report.outcomes[0].stop_reason, "no_feasible_frontage");
+        }
+        // The ledger no longer moves a square metre for the withdrawn parcel, and the
+        // audit closes with the refusal recorded.
+        let withdrawn = analyze(&scene, &profile).unwrap();
+        assert!(withdrawn.conversions.is_empty());
+        let audit = audit_conversions(
+            scene.road_network_plan.as_ref().unwrap(),
+            zones,
+            dry,
+            Some(&withdrawn),
+        );
+        assert_eq!(audit.status, "pass", "{audit:?}");
+        assert_eq!((audit.planned, audit.applied, audit.converted_m2), (0, 0, 0));
+        assert_eq!(audit.refused_pads, 1);
+        // A record left in the FRONTAGE table - the Round 28 defect exactly - makes
+        // the ledger fail by name, and the audit names the table that kept it.
+        let mut stray = scene.clone();
+        let plan = stray.road_network_plan.as_mut().unwrap();
+        let report = plan.frontage.as_mut().unwrap();
+        report.conversions = vec![Conversion::rural_to_urban("home", 484)];
+        report.outcomes[0].site_ids = vec!["home".into()];
+        assert_eq!(
+            analyze(&stray, &profile).unwrap_err(),
+            "conversion parcel home is not a planned frontage parcel"
+        );
+        let stray_audit = audit_conversions(
+            stray.road_network_plan.as_ref().unwrap(),
+            zones,
+            dry,
+            Some(&withdrawn),
+        );
+        assert_eq!(stray_audit.status, "fail");
+        assert!(
+            stray_audit.failures.contains(
+                &"frontage conversion parcel home is not a planned pad; the frontage report \
+                  still books 484 m2"
+                    .to_string()
+            ),
+            "{:?}",
+            stray_audit.failures
+        );
+        assert!(
+            stray_audit.failures.contains(
+                &"frontage outcome homes names pad home which the plan does not carry".to_string()
+            ),
+            "{:?}",
+            stray_audit.failures
+        );
     }
 
     #[test]

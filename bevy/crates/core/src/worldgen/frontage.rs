@@ -304,6 +304,45 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversions: Vec<Conversion>,
 }
+
+impl Report {
+    /// Take one accepted parcel back out of the report, as ONE operation.
+    ///
+    /// `worldgen::road_network::refuse_unrealizable_pads` removes a pad AFTER placement when the
+    /// plan's own earthwork cannot hold its declared flat top. Every record the report derives from
+    /// that pad has to move with it or the plan books a parcel it no longer carries: the conversion
+    /// would move rural-to-urban area for a lot with no entity, and the outcome would report a
+    /// building that cannot exist. Both tables are therefore updated here, by the parcel's own
+    /// identity, and the demand is recomputed from the sites that remain - never decremented by
+    /// hand, and never matched against the text of a refusal.
+    ///
+    /// Returns whether the report named the parcel at all, so a caller can tell "the pad was never
+    /// accepted" from "the pad was accepted and is now withdrawn".
+    pub(crate) fn withdraw_site(&mut self, site_id: &str) -> bool {
+        let mut withdrew = false;
+        for outcome in &mut self.outcomes {
+            if !outcome.site_ids.iter().any(|id| id == site_id) {
+                continue;
+            }
+            outcome.site_ids.retain(|id| id != site_id);
+            outcome.unfilled = outcome
+                .request
+                .count
+                .saturating_sub(outcome.site_ids.len() as u32);
+            outcome.stop_reason = if outcome.unfilled == 0 {
+                "demand_satisfied".into()
+            } else if outcome.attempted >= outcome.request.max_candidate_attempts {
+                "candidate_budget_exhausted".into()
+            } else {
+                "no_feasible_frontage".into()
+            };
+            withdrew = true;
+        }
+        self.conversions
+            .retain(|conversion| conversion.parcel_id != site_id);
+        withdrew
+    }
+}
 fn err(s: impl Into<String>) -> TerrainError {
     TerrainError(s.into())
 }
@@ -1129,6 +1168,7 @@ fn support_check(
     existing: &[EntityInstance],
     policy: super::bounded_cut::CutPolicy,
     max_fill_mm: i32,
+    prospective_cut_cap: Option<i32>,
     detail: &mut Option<RejectDetail>,
 ) -> Result<Option<&'static str>, TerrainError> {
     let e = site.entity();
@@ -1136,10 +1176,25 @@ fn support_check(
     let level = site.support_level_mm.expect("new sites are precise");
     let cap_mm = policy.cap_mm();
     let occupied = super::bounded_cut::entity_occupies(existing);
+    // The benches already accepted: read back out of their own published entities, so the
+    // footprint this candidate is measured against is the same one the ledger books.
+    let cut_footprints: Vec<super::bounded_cut::AcceptedFootprint<'_>> = existing
+        .iter()
+        .filter_map(|entity| {
+            entity
+                .grounding
+                .bounded_cut_mm
+                .map(|cap| super::bounded_cut::AcceptedFootprint {
+                    pad_id: entity.entity_id.as_str(),
+                    footprint: super::bounded_cut::CutFootprint::of(entity, cap),
+                })
+        })
+        .collect();
     let guards = super::bounded_cut::CellGuards {
         mask,
         water,
         occupied: &occupied,
+        cut_footprints: &cut_footprints,
     };
     for z in b[1]..=b[3] {
         for x in b[0]..=b[2] {
@@ -1213,6 +1268,28 @@ fn support_check(
                     return Ok(Some(blocked));
                 }
             }
+        }
+    }
+    // Two benches may not share a footprint. The ledger books each pad's excavation
+    // from the same cells, so a shared cell would be counted once per pad and the
+    // total would stop being the scene's own excavation (measured: 2,160 cells /
+    // 1,099 m3 booked against 1,887 cells / 876 m3 in the rasters). The check is
+    // therefore footprint-level and is asked LAST - every historical reason keeps
+    // its priority - and only for a candidate that would really cut: a fill-only
+    // pad publishes no footprint and may stand as close as its parcel allows.
+    if prospective_cut_cap.is_some() {
+        let footprint = super::bounded_cut::CutFootprint::of(&e, cap_mm);
+        if let Some((other, x, z)) = guards.overlaps(&footprint) {
+            let reason = super::bounded_cut::FOOTPRINT_OVERLAP;
+            *detail = Some(RejectDetail {
+                conflicting_site: Some(other.into()),
+                at: Some([x, z]),
+                natural_mm: Some(raw_mm(n, x, z)?),
+                design_mm: Some(level),
+                note: Some(reason.into()),
+                ..RejectDetail::of(reason)
+            });
+            return Ok(Some(reason));
         }
     }
     Ok(None)
@@ -1392,6 +1469,7 @@ fn preflight(
         existing,
         policy,
         (plan.max_roadbed_fill_m * 1000.).round() as i32,
+        prospective_cut_cap,
         detail,
     )? {
         return Ok(Some(reason));
@@ -2352,8 +2430,20 @@ mod tests {
         let cap_1499 = super::super::bounded_cut::CutPolicy::Bounded { max_cut_mm: 1499 };
         let check = |terrain: &BakedTerrain, policy| {
             let mut detail = None;
-            let reason = support_check(&site, terrain, &mask, w, &[], policy, 6000, &mut detail)
-                .unwrap();
+            // The candidate's own cap decision, exactly as `preflight` reads it.
+            let prospective = cut_cap_for_site(&site, terrain, policy);
+            let reason = support_check(
+                &site,
+                terrain,
+                &mask,
+                w,
+                &[],
+                policy,
+                6000,
+                prospective,
+                &mut detail,
+            )
+            .unwrap();
             (reason, detail.and_then(|d| d.note))
         };
         // Off: the historical refusal, unchanged in key and in note.
@@ -2372,6 +2462,135 @@ mod tests {
         assert_eq!(cut_cap_for_site(&site, &bank_fits, cap_2000), Some(2000));
         assert_eq!(cut_cap_for_site(&site, &make(-500), cap_2000), None);
         assert_eq!(cut_cap_for_site(&site, &bank_fits, off), None);
+    }
+
+    /// Two benches may not share a cut footprint: the ledger books each pad's
+    /// excavation from the same cells, so a shared cell would be counted once per
+    /// pad and the total would stop being the scene's own excavation. The refusal
+    /// is BY NAME, carries the accepted pad and the first shared cell, and is asked
+    /// only of a candidate that would really cut.
+    #[test]
+    fn a_cut_footprint_that_overlaps_an_accepted_pad_is_refused_by_name() {
+        use super::super::bounded_cut::{CutFootprint, CutPolicy, footprint_intersection};
+        let (s, _n, w, z, _p, _style) = fixture(0);
+        let mask = ZoningMask::new(&s, &z).unwrap();
+        // Flat ground 1.5 m above the datum: a pad declared at 1.0 m really removes
+        // 0.5 m, so every pad below carries a real bounded cut.
+        let values = vec![1.5_f64; 512 * 512];
+        let mut n = BakedTerrain::new(&s).unwrap();
+        n.insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
+            .unwrap();
+        let pad = |id: &str, x: i32, cap: Option<i32>| RoadsideSite {
+            program: None,
+            purpose: None,
+            id: id.into(),
+            road_id: "base".into(),
+            world_x: x,
+            world_z: 120,
+            width_m: 12,
+            depth_m: 10,
+            support_level_m: 1,
+            parcel_insets: None,
+            support_level_mm: Some(1000),
+            frontage_road_point: Some([x, 112]),
+            bounded_cut_mm: cap,
+            rotation_y_deg: 0.,
+            natural_min_m: 1.5,
+            natural_max_m: 1.5,
+        };
+        let policy = CutPolicy::Bounded { max_cut_mm: 2000 };
+        // The accepted pad is a REAL bench: its published record carries the cap, and
+        // that is what the candidate is measured against.
+        let accepted = pad("accepted", 200, Some(2000));
+        let near = pad("near", 216, None);
+        let far = pad("far", 260, None);
+        let accepted_entity = accepted.entity();
+        let existing = [accepted_entity];
+        // The two footprints overlap, and `footprint_intersection` names the same
+        // shared cell in both argument orders.
+        let near_cut = CutFootprint::of(&near.entity(), 2000);
+        let accepted_cut = CutFootprint::of(&existing[0], 2000);
+        let shared = footprint_intersection(&near_cut, &accepted_cut).expect("they overlap");
+        assert_eq!(Some(shared), footprint_intersection(&accepted_cut, &near_cut));
+        assert!(near_cut.contains(shared.0, shared.1) && accepted_cut.contains(shared.0, shared.1));
+        // The candidate alone is legal: the conflict is the accepted footprint, not
+        // the ground it is declared on.
+        let mut detail = None;
+        assert_eq!(
+            support_check(
+                &near,
+                &n,
+                &mask,
+                w,
+                &[],
+                policy,
+                6000,
+                cut_cap_for_site(&near, &n, policy),
+                &mut detail,
+            )
+            .unwrap(),
+            None
+        );
+        // With the accepted pad standing, the same candidate is refused BY NAME and
+        // the refusal names the pad and the shared cell.
+        let mut detail = None;
+        let reason = support_check(
+            &near,
+            &n,
+            &mask,
+            w,
+            &existing,
+            policy,
+            6000,
+            cut_cap_for_site(&near, &n, policy),
+            &mut detail,
+        )
+        .unwrap();
+        assert_eq!(
+            reason,
+            Some(super::super::bounded_cut::FOOTPRINT_OVERLAP)
+        );
+        let detail = detail.expect("a refusal carries its evidence");
+        assert_eq!(detail.conflicting_site.as_deref(), Some("accepted"));
+        assert_eq!(detail.note.as_deref(), Some(super::super::bounded_cut::FOOTPRINT_OVERLAP));
+        assert_eq!(detail.at, Some([shared.0, shared.1]));
+        // A pad far enough away keeps its own footprint and is accepted.
+        let mut detail = None;
+        assert_eq!(
+            support_check(
+                &far,
+                &n,
+                &mask,
+                w,
+                &existing,
+                policy,
+                6000,
+                cut_cap_for_site(&far, &n, policy),
+                &mut detail,
+            )
+            .unwrap(),
+            None,
+            "{detail:?}"
+        );
+        // With the policy OFF the candidate is judged by the historical contract,
+        // which never looks at another pad's footprint: the off state cannot move.
+        let mut detail = None;
+        assert_eq!(
+            support_check(
+                &near,
+                &n,
+                &mask,
+                w,
+                &existing,
+                CutPolicy::Disabled,
+                6000,
+                None,
+                &mut detail,
+            )
+            .unwrap(),
+            Some("natural_support_or_fill_limit"),
+            "the off arm keeps its historical refusal"
+        );
     }
 
     /// Requirement: `existing_support_changed` fires only when the earthwork
@@ -2564,7 +2783,19 @@ mod tests {
             natural_max_m: 3.5,
         };
         let mut detail = None;
-        let reason = support_check(&site, &flat, &mask, w, &[], forged, 6000, &mut detail).unwrap();
+        let prospective = cut_cap_for_site(&site, &flat, forged);
+        let reason = support_check(
+            &site,
+            &flat,
+            &mask,
+            w,
+            &[],
+            forged,
+            6000,
+            prospective,
+            &mut detail,
+        )
+        .unwrap();
         assert_eq!(reason, Some("bounded_cut_exceeds_cap"));
         assert_eq!(detail.and_then(|d| d.note).as_deref(), Some("bounded_cut_exceeds_cap"));
 
