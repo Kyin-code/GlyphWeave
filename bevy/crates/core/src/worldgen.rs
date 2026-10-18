@@ -16,6 +16,10 @@ use crate::settlement::{
 };
 mod access;
 pub mod bounded_cut;
+/// The entity-stage completion of a planned pad's declared platform: the loop
+/// between "the plan accepted a pad" and "the rule-engine earthwork stands on top
+/// of it" (see the module docs).
+pub mod pad_completion;
 #[path = "worldgen/entity_identity.rs"]
 mod entity_identity;
 pub use entity_identity::{ENTITY_ID_SCHEME, EntityCandidateKey, EntityChangeKind, EntityChangeApproval, EntityInventoryMode, EntityInventoryChange, EntityInventoryAudit, audit_entity_inventory};
@@ -2371,6 +2375,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     let mut scene_paths = Vec::new();
     let mut baked_rules_report = crate::rules::ValidationReport::default();
     let mut placement_reports = Vec::<serde_json::Value>::new();
+    let mut pad_completion_reports = Vec::<serde_json::Value>::new();
     let mut engineering_reports = Vec::new();
     for scene in &manifest.scenes {
         let scene_dir = output.join("scenes").join(&scene.scene_id);
@@ -2467,7 +2472,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             ),
             None => None,
         };
-        let road_plan = if road_network::enabled(&manifest.style, water) {
+        let mut road_plan = if road_network::enabled(&manifest.style, water) {
             Some(road_network::plan_with_style_declared(
                 scene,
                 &natural_samples,
@@ -2492,7 +2497,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         }
         drop(natural_samples);
         trace.stage(&scene.scene_id,"development-partition");
-        let development_plan = if let Some(roads) = &road_plan {
+        let mut development_plan = if let Some(roads) = &road_plan {
             let zones = planned_zones.as_deref().ok_or_else(|| {
                 WorldgenError::InvalidRules("road development requires land-use profile".into())
             })?;
@@ -2573,6 +2578,44 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 &carves,
             );
             carves = plan_terrain_carves(&entities);
+        }
+        // The plan accepted its pads from its OWN earthwork, because the rule-engine
+        // entities did not exist yet. They do now: a building platform standing over
+        // a planned pad's declared top is the coupling this closes. Bounded, and by
+        // name - a pad that cannot be completed is taken out of the plan, never left
+        // to blow the whole scene's cut ledger up (see `pad_completion`).
+        if let (Some(plan), Some(zones), Some(mask)) = (
+            road_plan.as_mut(),
+            planned_zones.as_deref(),
+            zoning_mask.as_ref(),
+        ) {
+            let done = complete_pad_tops(
+                manifest.world.seed ^ scene.seed_offset,
+                scene,
+                plan,
+                &mut entities,
+                &mut carves,
+                zones,
+                mask,
+                water,
+                &mut development_plan,
+            )?;
+            if !done.records.is_empty() {
+                // The plan's own record is what an auditor reads; the early write
+                // above predates the refusals, so republish it.
+                fs::write(
+                    scene_dir.join("road-network-plan.json"),
+                    serde_json::to_vec_pretty(&*plan)?,
+                )?;
+                pad_completion_reports.push(serde_json::json!({
+                    "sceneId": scene.scene_id,
+                    "rounds": done.rounds,
+                    "padsChecked": done.checked,
+                    "padsRefused": done.refused,
+                    "padsDeepened": done.deepened,
+                    "pads": done.records,
+                }));
+            }
         }
         if let Some(dir) = &rules_dir {
             let (repaired, final_carves, mut report) = engineered_placement::reconcile(
@@ -3096,6 +3139,22 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }))?,
         )?;
     }
+    // The entity-stage pad completion, published only when it had something to
+    // settle: a world whose planned pads all hold their platforms publishes no new
+    // file at all, so every world that never hit the coupling keeps its exact bytes.
+    if !pad_completion_reports.is_empty() {
+        fs::write(
+            output.join("pad-completion.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "format": "glyphweave.pad-completion",
+                "version": 1,
+                "policy": "pad-top-conflicts-with-entity-platform",
+                "maxRounds": pad_completion::MAX_COMPLETION_ROUNDS,
+                "maxLiftMm": pad_completion::MAX_LIFT_MM,
+                "scenes": pad_completion_reports,
+            }))?,
+        )?;
+    }
     trace.stage("","world-publication");
     write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex {
@@ -3142,6 +3201,152 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     )?;
     write_adapter_templates(output)?;
     Ok(index)
+}
+
+/// What one scene's entity-stage pad completion did.
+struct PadCompletion {
+    records: Vec<serde_json::Value>,
+    rounds: usize,
+    checked: usize,
+    refused: usize,
+    deepened: usize,
+}
+
+/// Hold every planned pad's declared flat top against the surface the whole
+/// earthwork produces - the plan's carves AND the rule-engine entities' platforms -
+/// and settle what cannot hold.
+///
+/// The loop is `pad_completion::MAX_COMPLETION_ROUNDS` long, never unbounded: a pad
+/// may be deepened once (a second breach is a refusal) and a refused pad leaves the
+/// checked set, so every round that changes anything removes a conflict for good. A
+/// round that must refuse pads re-derives everything the pad list feeds - the
+/// development plan's parcels and buildings, the carves, and the grounded entities'
+/// rebase - so nothing downstream reads a plan the world no longer carries.
+#[allow(clippy::too_many_arguments)]
+fn complete_pad_tops(
+    seed: u64,
+    scene: &SceneSpec,
+    plan: &mut road_network::RoadNetworkPlan,
+    entities: &mut Vec<EntityInstance>,
+    carves: &mut Vec<TerrainCarve>,
+    zones: &[LandUseZone],
+    mask: &zoning::ZoningMask,
+    water: WaterGeometry,
+    development_plan: &mut Option<DevelopmentPlan>,
+) -> WorldgenResult<PadCompletion> {
+    let mut out = PadCompletion {
+        records: Vec::new(),
+        rounds: 0,
+        checked: 0,
+        refused: 0,
+        deepened: 0,
+    };
+    let mut deepened: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for round in 0..pad_completion::MAX_COMPLETION_ROUNDS {
+        out.rounds = round + 1;
+        // THE probe: the surface the FILL-FIRST composition publishes over each
+        // pad's declared flat top, at the audit's own window and precision.
+        let conflicts = {
+            let published = |x: i32, z: i32| {
+                Some(
+                    (terrain_height_zoned(seed, x, z, water, carves, Some(mask)) * 1000.).round()
+                        as i32,
+                )
+            };
+            let natural = |x: i32, z: i32| {
+                Some((terrain_height_metres(seed, x, z, water, &[]) * 1000.).round() as i32)
+            };
+            pad_completion::probe(plan, entities, &published, &natural)
+        };
+        out.checked = plan
+            .roadside_sites
+            .iter()
+            .filter(|site| site.bounded_cut_mm.is_some())
+            .count();
+        if conflicts.is_empty() {
+            break;
+        }
+        // The accepted benches, as the per-cell guard and the footprint exclusion
+        // read them: Round 28's one predicate, not a second one. Owned ids, because a
+        // refusal below takes the pad back out of the plan.
+        let benches: Vec<(String, bounded_cut::CutFootprint)> = plan
+            .roadside_sites
+            .iter()
+            .filter_map(|site| {
+                site.cut_footprint()
+                    .map(|footprint| (site.id.clone(), footprint))
+            })
+            .collect();
+        let mut changed = false;
+        for conflict in conflicts {
+            let Some(site) = plan
+                .roadside_sites
+                .iter()
+                .find(|site| site.id == conflict.pad_id)
+                .cloned()
+            else {
+                continue;
+            };
+            let accepted: Vec<bounded_cut::AcceptedFootprint<'_>> = benches
+                .iter()
+                .map(|(pad_id, footprint)| bounded_cut::AcceptedFootprint {
+                    pad_id: pad_id.as_str(),
+                    footprint: *footprint,
+                })
+                .collect();
+            let occupied = |x: i32, z: i32| {
+                entities.iter().any(|entity| {
+                    entity.entity_id != site.id && bounded_cut::entity_covers(entity, x, z)
+                })
+            };
+            let guards = bounded_cut::CellGuards {
+                mask,
+                water,
+                occupied: &occupied,
+                cut_footprints: &accepted,
+            };
+            let deepened_once = deepened.contains(&conflict.pad_id);
+            let decision = pad_completion::decide(&conflict, &site, &guards, deepened_once);
+            match &decision {
+                pad_completion::Decision::Deepen { .. } => {
+                    // The platform rule in `apply_terrain_carves` is what deepens:
+                    // inside the pad's declared flat top its own bench stands, and
+                    // the next round's probe confirms it from the composition.
+                    deepened.insert(conflict.pad_id.clone());
+                    out.deepened += 1;
+                }
+                pad_completion::Decision::Refuse { cause } => {
+                    let reason = pad_completion::refusal_reason(&conflict, cause);
+                    road_network::refuse_pad_top_conflict(plan, &conflict.pad_id, reason);
+                    // The pad's own entity leaves the world with it: the plan and
+                    // the entity list may not disagree about which pads exist.
+                    entities.retain(|entity| entity.entity_id != conflict.pad_id);
+                    out.refused += 1;
+                    changed = true;
+                }
+            }
+            out.records
+                .push(pad_completion::record(&conflict, &decision));
+        }
+        if !changed {
+            // A repair-only round changes no plan record; the next round's probe is
+            // what confirms it, and past the last round `bounded_cut::verify` step 5
+            // refuses any ledger that is wrong.
+            continue;
+        }
+        // Everything the pad list feeds is re-derived, never patched by hand.
+        if let Some(record) = development_plan.as_mut() {
+            if let Ok(rebuilt) = development::plan(scene, zones, plan) {
+                *record = rebuilt;
+            }
+        }
+        *carves = plan_terrain_carves(entities);
+        for _ in 0..2 {
+            rebase_grounded_entities_to_carved_surface(seed, water, entities, carves);
+            *carves = plan_terrain_carves(entities);
+        }
+    }
+    Ok(out)
 }
 
 fn merge_validation_report(
@@ -3891,7 +4096,7 @@ fn generate_chunk_encoded(
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let source = terrain_height_zoned(seed, world_x, world_z, water, carves, zoning);
+            let source = published_terrain_height_zoned(seed, world_x, world_z, water, carves, zoning);
             let quarter_meters = (source * 4.).clamp(-128., 1024.) as i16;
             let index = (z * width + x) as usize;
             samples[index] = if precise {
@@ -3971,7 +4176,7 @@ fn terrain_semantics_at(
         if sx >= 0 && sx < width as i32 && sz >= 0 && sz < depth as i32 {
             samples[(sz as u32 * width + sx as u32) as usize]
         } else {
-            let h = terrain_height_zoned(seed, base_x + sx, base_z + sz, water, carves, zoning);
+            let h = published_terrain_height_zoned(seed, base_x + sx, base_z + sz, water, carves, zoning);
             if precise {
                 (h * 1000.).round() / 1000.
             } else {
@@ -4752,6 +4957,37 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
 /// building pads that cover this cell. Natural (uncarved) calls use the plain
 /// function; chunk baking passes the carve list so baked heightfields carry
 /// the flat pads that entities then sit on.
+/// The surface the BAKE publishes at one cell, composed from the natural ground and
+/// the entity carves with the bounded-cut PLATFORM rule active.
+///
+/// The encoder, the terrain-semantics halo and the rebase all call this, so "the
+/// surface the world publishes" has one definition. Every planning probe keeps
+/// reading [`terrain_height_zoned`], which is fill-first: a candidate's own bench
+/// must be judged by whether its cap can REACH its top, not by a surface that
+/// assumes it already did.
+fn published_terrain_height_metres(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+) -> f64 {
+    terrain_height_metres_with(seed, x, z, water, carves, PadPlatform::Active)
+}
+
+/// Same as [`terrain_height_zoned`] with the platform rule active: the one
+/// composition the published raster is made of.
+fn published_terrain_height_zoned(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    zoning: Option<&zoning::ZoningMask>,
+) -> f64 {
+    terrain_height_zoned_with(seed, x, z, water, carves, zoning, PadPlatform::Active)
+}
+
 fn terrain_height_with_geometry_carved(
     seed: u64,
     x: i32,
@@ -4759,7 +4995,7 @@ fn terrain_height_with_geometry_carved(
     water: WaterGeometry,
     carves: &[TerrainCarve],
 ) -> i16 {
-    (terrain_height_metres(seed, x, z, water, carves) * 4.).clamp(-128., 1024.) as i16
+    (published_terrain_height_metres(seed, x, z, water, carves) * 4.).clamp(-128., 1024.) as i16
 }
 
 /// Unquantized metre evaluator. Quantization belongs at the storage boundary,
@@ -4772,8 +5008,45 @@ fn terrain_height_zoned(
     carves: &[TerrainCarve],
     zoning: Option<&zoning::ZoningMask>,
 ) -> f64 {
+    terrain_height_zoned_with(seed, x, z, water, carves, zoning, PadPlatform::Dormant)
+}
+
+/// Whether a bounded-cut pad's declared flat top is an authoritative PLATFORM in
+/// this composition.
+///
+/// * [`PadPlatform::Dormant`] is the historical composition, fill first: a cell
+///   any carve raises is never excavated, so a pad's declared top is whatever the
+///   whole earthwork happens to leave there. Every planning probe uses it, because
+///   a candidate must be judged on whether its own cap can reach its top.
+/// * [`PadPlatform::Active`] is what the bake PUBLISHES: inside a cap-carrying
+///   pad's declared flat top the pad's own platform
+///   (`bounded_cut::platform_surface_m`) is the answer, both above a neighbour's
+///   blended fill and above its own bench. It is inert wherever the fill-first
+///   composition already stands on the declared top, which is every world whose
+///   cut audit passes, so it moves no byte that was already correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PadPlatform {
+    Dormant,
+    Active,
+}
+
+impl PadPlatform {
+    fn active(self) -> bool {
+        self == Self::Active
+    }
+}
+
+fn terrain_height_zoned_with(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    zoning: Option<&zoning::ZoningMask>,
+    platform: PadPlatform,
+) -> f64 {
     let Some(mask) = zoning else {
-        return terrain_height_metres(seed, x, z, water, carves);
+        return terrain_height_metres_with(seed, x, z, water, carves, platform);
     };
     let natural = terrain_height_metres(seed, x, z, water, &[]);
     // The zoning path composes the carve itself, so the waterfront exclusion has
@@ -4785,7 +5058,7 @@ fn terrain_height_zoned(
     {
         return natural;
     }
-    let engineered = apply_terrain_carves(natural, x, z, carves);
+    let engineered = apply_terrain_carves_with(natural, x, z, carves, platform);
     if engineered <= natural {
         // Below the natural surface is a bounded cut - the only earthwork that
         // can lower ground, and only from an OPT-IN frontage pad's own carve. The
@@ -4804,6 +5077,17 @@ fn terrain_height_metres(
     z: i32,
     water: WaterGeometry,
     carves: &[TerrainCarve],
+) -> f64 {
+    terrain_height_metres_with(seed, x, z, water, carves, PadPlatform::Dormant)
+}
+
+fn terrain_height_metres_with(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    platform: PadPlatform,
 ) -> f64 {
     let xf = f64::from(x);
     let zf = f64::from(z);
@@ -4898,9 +5182,18 @@ fn terrain_height_metres(
     if water.forbids_earthwork(xf, zf) {
         return terrain.clamp(-32., 256.);
     }
-    apply_terrain_carves(terrain, x, z, carves)
+    apply_terrain_carves_with(terrain, x, z, carves, platform)
 }
 fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -> f64 {
+    apply_terrain_carves_with(terrain, x, z, carves, PadPlatform::Dormant)
+}
+fn apply_terrain_carves_with(
+    terrain: f64,
+    x: i32,
+    z: i32,
+    carves: &[TerrainCarve],
+    platform: PadPlatform,
+) -> f64 {
     let xf = f64::from(x);
     let zf = f64::from(z);
     let base_terrain = terrain.clamp(-32.0, 256.0);
@@ -4922,6 +5215,11 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
     // or one of its aprons reaches here, so every fill-only input leaves it
     // untouched and the answer is the historical one.
     let mut cut_floor: Option<f64> = None;
+    // The platform of the cap-carrying pad whose DECLARED FLAT TOP holds this
+    // cell, when the platform rule is active. Only such a pad has an audited
+    // "declared top is the surface, cell for cell" obligation; every other carve
+    // stays fill-first.
+    let mut pad_platform: Option<f64> = None;
     let mut road_owns_cell = false;
     for carve in carves {
         let dx = (xf - carve.cx).abs();
@@ -4961,6 +5259,19 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
             if surface < base_terrain {
                 cut_floor = Some(cut_floor.map_or(surface, |known: f64| known.min(surface)));
             }
+            // The PLATFORM rule: inside the pad's own declared flat top the pad's
+            // own platform stands, so the declared millimetre top is what the
+            // world publishes there - not whatever a neighbour's blended fill
+            // happens to leave. `bounded_cut::platform_surface_m` is
+            // `max(target, cut_surface_m(base, target, 0, cap))`: the same two
+            // numbers the ledger and the audit already hold, so no new formula.
+            // It is inert wherever the fill-first answer is already the declared
+            // top, and it never survives a bench its cap cannot reach.
+            if platform.active() && outside <= 0.0 {
+                let surface =
+                    bounded_cut::platform_surface_m(base_terrain, target.min(limit), cap);
+                pad_platform = Some(pad_platform.map_or(surface, |known: f64| known.max(surface)));
+            }
         }
     }
     // A neighbouring blended fill cannot overwrite a validated hard support
@@ -4970,7 +5281,15 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
     // Fill always wins: a cell that any carve raises above the natural surface is
     // a fill cell and is never excavated. A road's own graded band is never cut,
     // because the road's flat top is its pavement contract, not a building pad.
-    let resolved = if terrain > base_terrain || road_owns_cell {
+    // The one exception is a bounded-cut pad's own declared flat top: its
+    // platform IS the audited surface there (`bounded_cut::verify` step 5), so a
+    // neighbour's fill may not stand over it - and a road band still wins, which
+    // keeps the pavement contract above every bench.
+    let resolved = if road_owns_cell {
+        terrain
+    } else if let Some(platform) = pad_platform {
+        platform
+    } else if terrain > base_terrain {
         terrain
     } else {
         cut_floor.unwrap_or(terrain)

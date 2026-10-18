@@ -7343,6 +7343,46 @@ fn verify_impl(
             None,
         )?
     };
+    let mut expected = expected;
+    if !trusted_record {
+        // The entity-stage refusals the record carries are the one decision the
+        // natural-source rebuild cannot make (see `apply_entity_pad_refusals`).
+        // They are applied to the rebuild - never skipped - and then JUSTIFIED
+        // from the published raster: a refused pad must be a pad whose declared
+        // top the world does not hold, which is what keeps a written refusal from
+        // hiding a pad the world realises.
+        let refused = entity_refused_pad_ids(record);
+        if !refused.is_empty() {
+            let mut held_by_world = Vec::new();
+            for pad_id in &refused {
+                let Some(site) = expected
+                    .roadside_sites
+                    .iter()
+                    .find(|site| site.id == *pad_id)
+                else {
+                    continue;
+                };
+                let Some(verdict) =
+                    super::bounded_cut::pad_top_holds(site, |x, z| {
+                        final_terrain.height_millimetres(x, z)
+                    })
+                else {
+                    continue;
+                };
+                if verdict.holds() {
+                    held_by_world.push((*pad_id).to_string());
+                }
+            }
+            apply_entity_pad_refusals(&mut expected, record)?;
+            if let Some(pad_id) = held_by_world.first() {
+                return Err(TerrainError(format!(
+                    "pad {pad_id} is refused under {PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM} but \
+                     the published raster holds its declared flat top, so the refusal withdraws a \
+                     pad the world realises"
+                )));
+            }
+        }
+    }
 
     if !trusted_record
         && serde_json::to_value(&expected).map_err(|e| TerrainError(e.to_string()))?
@@ -7839,17 +7879,30 @@ pub const PAD_FILL_CONFLICT_CATEGORY: &str = "pad_fill_conflicts_with_neighbour"
 /// earthwork cannot hold the pad's declared top either.
 pub const PAD_UNREALIZABLE_CATEGORY: &str = "pad_flat_top_unrealizable";
 
+/// A pad the ENTITY stage took back out of the plan because a rule-engine
+/// building's platform stands over its declared top.
+///
+/// The fourth way a pad that WAS planned may leave the world, and the only one
+/// that cannot be decided at planning time: the plan's own earthwork is fine and
+/// the entity that buries the pad does not exist yet when the pad list is
+/// accepted (`worldgen::pad_completion`). The category is stable and machine
+/// readable, and the reason carries the entity id, the cell count and the lift, so
+/// an audit can tell this refusal from a planning one.
+pub const PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM: &str = "pad_top_conflicts_with_entity_platform";
+
 /// Every category a pad that was IN the plan can be taken back out under.
 ///
 /// The third entry is the urban purpose allocation
 /// (`worldgen::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION`): the pad
 /// declared an urban purpose on wholly-rural land and the converted land does not
 /// fit what the world planned as urban, so the pad may not stay planned for land
-/// the plan never allocated.
-pub const PAD_REFUSED_CATEGORIES: [&str; 3] = [
+/// the plan never allocated. The fourth is the entity-stage platform refusal
+/// above.
+pub const PAD_REFUSED_CATEGORIES: [&str; 4] = [
     PAD_FILL_CONFLICT_CATEGORY,
     PAD_UNREALIZABLE_CATEGORY,
     super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION,
+    PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM,
 ];
 
 /// The pad ids the plan refused by name out of an already planned pad list.
@@ -8335,6 +8388,97 @@ pub(super) fn refuse_unrealizable_pads(
     Ok(rejections)
 }
 
+/// Refuse, BY NAME, one planned pad whose declared flat top the ENTITY earthwork
+/// does not hold, and take it out of every record derived from the pad list.
+///
+/// This is the entity-stage half of [`refuse_unrealizable_pads`]: the pad list is
+/// already whole and the plan's own earthwork already verified, but a rule-engine
+/// building platform stands over the pad (`worldgen::pad_completion` decided it
+/// cannot be deepened within the one cap). The refusal is published under
+/// [`PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM`] - a category of
+/// [`PAD_REFUSED_CATEGORIES`], so every existing reader of "a pad that was planned
+/// and is not planned any more" picks it up without a new rule - and the pad
+/// leaves `roadside_sites`, the frontage report, the service outcomes, the joint
+/// receipt, the conversion records and (through the caller) the entity list.
+///
+/// Returns whether the pad was still planned; refusing a pad twice is a no-op, so
+/// the bounded completion loop cannot count one pad as two refusals.
+pub(crate) fn refuse_pad_top_conflict(
+    plan: &mut RoadNetworkPlan,
+    pad_id: &str,
+    reason: String,
+) -> bool {
+    if !plan.roadside_sites.iter().any(|site| site.id == pad_id) {
+        return false;
+    }
+    plan.roadside_site_rejections.push(BaseProfileRejection {
+        edge_id: pad_id.to_string(),
+        category: PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM.into(),
+        reason,
+    });
+    forget_refused_pad(plan, pad_id);
+    true
+}
+
+/// Apply the ENTITY-stage pad refusals a PUBLISHED plan carries to a plan that was
+/// rebuilt from the manifest alone, and name every way that can be wrong.
+///
+/// The road audit rebuilds the plan from the natural source and compares it with
+/// the record byte for byte, which is what makes a hand-edited plan impossible.
+/// A pad refused at the entity stage is the one decision that rebuild cannot
+/// reproduce - the rebuild has no entities, so no platform stands over the pad -
+/// so the same refusal is applied to the rebuild before the comparison, using the
+/// record's own published category and reason. Two things keep that from hiding a
+/// pad:
+///
+///  * the refused pad must be a pad the REBUILD plans (a refusal that names a pad
+///    no plan produces is refused by name here), so a refusal cannot invent a
+///    pad; and
+///  * the caller re-derives the refusal's own justification from the published
+///    bytes (the pad's declared top must NOT be held by the published raster -
+///    see `verify_impl`), so a refusal cannot be written over a pad the world
+///    actually realises.
+fn apply_entity_pad_refusals(
+    expected: &mut RoadNetworkPlan,
+    record: &RoadNetworkPlan,
+) -> Result<(), TerrainError> {
+    let refusals: Vec<BaseProfileRejection> = record
+        .roadside_site_rejections
+        .iter()
+        .filter(|rejection| rejection.category == PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM)
+        .cloned()
+        .collect();
+    for rejection in refusals {
+        let planned = expected
+            .roadside_sites
+            .iter()
+            .any(|site| site.id == rejection.edge_id);
+        if !planned {
+            return Err(TerrainError(format!(
+                "pad {} is refused under {} but the natural-source rebuild does not plan it, so \
+                 the refusal names a pad no plan produces",
+                rejection.edge_id, rejection.category
+            )));
+        }
+        if !refuse_pad_top_conflict(expected, &rejection.edge_id, rejection.reason) {
+            return Err(TerrainError(format!(
+                "pad {} is refused under {} but could not be withdrawn from the rebuild",
+                rejection.edge_id, rejection.category
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The pads one plan refused under [`PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM`].
+pub(crate) fn entity_refused_pad_ids(plan: &RoadNetworkPlan) -> Vec<&str> {
+    plan.roadside_site_rejections
+        .iter()
+        .filter(|rejection| rejection.category == PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM)
+        .map(|rejection| rejection.edge_id.as_str())
+        .collect()
+}
+
 /// Take one refused pad out of every record the plan derives from its pad list.
 ///
 /// A refusal is only honest if the plan stops claiming the pad EVERYWHERE: a
@@ -8346,8 +8490,20 @@ pub(super) fn refuse_unrealizable_pads(
 /// plan does not plan. All of those counts are recomputed from the sites that
 /// remain, never decremented by hand, and the frontage report's own tables are
 /// withdrawn through the report's single `withdraw_site` operation.
+///
+/// The roadside pad programme's own conversion records (`plan.pad_conversions`,
+/// derived by `frontage::pad_conversions` from the FINAL pad list) move with it:
+/// a pad refused by `refuse_unrealizable_pads` was removed BEFORE they were
+/// derived and never earned one, but a pad refused at the ENTITY stage
+/// (`worldgen::pad_completion`) was already granted its record, and keeping it
+/// would book rural-to-urban area for a lot with no entity. The urban allocation
+/// is left as the plan spent it - the budget is a ceiling, not an identity, and
+/// re-granting a withdrawn pad's area would silently reorder every other pad's
+/// decision.
 fn forget_refused_pad(plan: &mut RoadNetworkPlan, pad_id: &str) {
     plan.roadside_sites.retain(|site| site.id != pad_id);
+    plan.pad_conversions
+        .retain(|record| record.parcel_id != pad_id);
     if let Some(report) = plan.frontage.as_mut() {
         report.withdraw_site(pad_id);
     }

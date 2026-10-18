@@ -223,6 +223,130 @@ pub fn ring_width_m(cap_mm: i32) -> f64 {
     f64::from(clamp_cap(cap_mm)) / 1000. / MAX_CUT_RING_GRADE
 }
 
+/// The surface a cap-carrying pad's own PLATFORM stands on, in metres.
+///
+/// This is the pad's declared flat top as the cut path already derives it: the
+/// design level, EXCEPT where one whole cap cannot reach it, in which case the
+/// bench stops at the deepest surface the cap permits
+/// ([`cut_surface_m`] at `outside <= 0`). It is not a second formula - it is
+/// `max(target, cut_surface_m(base, target, 0, cap))`, the same two numbers the
+/// ledger, the encoder and the audit already hold - and it is the one answer the
+/// platform rule in `worldgen::apply_terrain_carves` writes inside a pad's flat
+/// top.
+///
+/// The value is always `>= cut_surface_m(base, target, 0, cap)` and always
+/// `>= target` when the ground stands below the design level, so a platform is
+/// never lower than either the bench or the fill the pad asks for.
+pub fn platform_surface_m(base_m: f64, target_m: f64, cap_mm: i32) -> f64 {
+    target_m.max(cut_surface_m(base_m, target_m, 0., cap_mm))
+}
+
+/// The cells of one pad's DECLARED FLAT TOP: the window the declared millimetre
+/// level is an obligation over, cell for cell.
+///
+/// One derivation, read by the encoder-side platform rule, by the completion
+/// judgement and by [`verify`]'s step 5, so "the cells the pad promises" cannot
+/// mean two different rectangles. It is the rounded
+/// [`worldgen::spatial_half_extents`] window `frontage::bounds(entity, 0)` uses,
+/// in whole cells, which is what the published raster is sampled on.
+pub fn flat_top_bounds(site: &RoadsideSite) -> [i32; 4] {
+    let (half_w, half_d) =
+        spatial_half_extents(site.width_m as f32, site.depth_m as f32, site.rotation_y_deg);
+    let (half_w, half_d) = (half_w.floor() as i32, half_d.floor() as i32);
+    [
+        site.world_x - half_w,
+        site.world_z - half_d,
+        site.world_x + half_w,
+        site.world_z + half_d,
+    ]
+}
+
+/// Does the published raster still hold this pad's declared top, cell for cell?
+///
+/// The audit's own verdict, in the audit's own window ([`flat_top_bounds`]): every
+/// cell must publish exactly `site.support_level_mm`. A pad with no millimetre
+/// declaration has no such obligation and answers `None`.
+pub fn pad_top_holds(
+    site: &RoadsideSite,
+    height_millimetres: impl Fn(i32, i32) -> Option<i32>,
+) -> Option<TopVerdict> {
+    let level = site.support_level_mm?;
+    let window = flat_top_bounds(site);
+    let mut verdict = TopVerdict {
+        level_mm: level,
+        cells: 0,
+        mismatched: 0,
+        worst_cell: None,
+        highest_mm: i32::MIN,
+        lowest_mm: i32::MAX,
+    };
+    for z in window[1]..=window[3] {
+        for x in window[0]..=window[2] {
+            verdict.cells += 1;
+            let actual = height_millimetres(x, z);
+            let Some(actual) = actual else {
+                verdict.mismatched += 1;
+                verdict.worst_cell.get_or_insert((x, z, actual));
+                continue;
+            };
+            verdict.highest_mm = verdict.highest_mm.max(actual);
+            verdict.lowest_mm = verdict.lowest_mm.min(actual);
+            if actual != level {
+                verdict.mismatched += 1;
+                let distance = actual.abs_diff(level);
+                if verdict
+                    .worst_cell
+                    .is_none_or(|(_, _, known)| distance > known.unwrap_or(level).abs_diff(level))
+                {
+                    verdict.worst_cell = Some((x, z, Some(actual)));
+                }
+            }
+        }
+    }
+    if verdict.highest_mm == i32::MIN {
+        verdict.highest_mm = level;
+    }
+    if verdict.lowest_mm == i32::MAX {
+        verdict.lowest_mm = level;
+    }
+    Some(verdict)
+}
+
+/// What one pad's declared flat top currently publishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TopVerdict {
+    pub level_mm: i32,
+    pub cells: u32,
+    /// Cells that do not publish the declared level.
+    pub mismatched: u32,
+    /// The cell that deviates most, with the height it publishes.
+    pub worst_cell: Option<(i32, i32, Option<i32>)>,
+    /// The highest and lowest sample anywhere in the window, so a refusal can
+    /// quote the lift it has to remove instead of a single cell.
+    pub highest_mm: i32,
+    pub lowest_mm: i32,
+}
+
+impl TopVerdict {
+    pub fn holds(&self) -> bool {
+        self.mismatched == 0
+    }
+
+    /// How far the highest cell of the window stands ABOVE the declared top, in
+    /// whole millimetres (`0` when nothing does). This is the fill a declard
+    /// platform would have to excavate away, and the number the one cap bounds.
+    pub fn lift_mm(&self) -> i32 {
+        (self.highest_mm - self.level_mm).max(0)
+    }
+
+    /// How far the lowest cell stands BELOW the declared top, in whole
+    /// millimetres (`0` when nothing does). A fill cannot be rescued by a cut, so
+    /// this is always a refusal when it is positive.
+    pub fn shortfall_mm(&self) -> i32 {
+        (self.level_mm - self.lowest_mm).max(0)
+    }
+}
+
 /// One pad's bounded-cut footprint in world cells: the flat top it may cut plus
 /// the graded ring around it. Both the generator's per-cell guard and the audit
 /// walk exactly these cells.
@@ -386,17 +510,25 @@ impl CellGuards<'_> {
     }
 }
 
+/// Does one entity's published footprint cover this cell?
+///
+/// Rounded the way `frontage::bounds` rounds and `entity_occupies` rounds, so the
+/// per-cell prohibition, the placement preflight and the audit agree on the window.
+pub fn entity_covers(entity: &EntityInstance, x: i32, z: i32) -> bool {
+    let (hw, hd) = spatial_half_extents(
+        entity.width_m * entity.scale,
+        entity.depth_m * entity.scale,
+        entity.rotation_y_deg,
+    );
+    (f64::from(x) - f64::from(entity.world_x)).abs() <= hw
+        && (f64::from(z) - f64::from(entity.world_z)).abs() <= hd
+}
+
 /// A cell-footprint predicate over a list of entities, in their published
 /// geometry. Rounded the way `frontage::bounds` rounds, so the occupancy test is
 /// the same window the placement preflight already refuses.
 pub fn entity_occupies(entities: &[EntityInstance]) -> impl Fn(i32, i32) -> bool + '_ {
-    move |x: i32, z: i32| {
-        entities.iter().any(|e| {
-            let (hw, hd) = spatial_half_extents(e.width_m * e.scale, e.depth_m * e.scale, e.rotation_y_deg);
-            (f64::from(x) - f64::from(e.world_x)).abs() <= hw
-                && (f64::from(z) - f64::from(e.world_z)).abs() <= hd
-        })
-    }
+    move |x: i32, z: i32| entities.iter().any(|entity| entity_covers(entity, x, z))
 }
 
 /// One pad's published earthwork record.
@@ -892,29 +1024,21 @@ pub fn verify(
         }
     }
     // 5. Every cut pad's flat top is exactly its declared level (grade 0), which
-    //    is what keeps the 8 % / 12 % footprint contracts satisfied.
+    //    is what keeps the 8 % / 12 % footprint contracts satisfied. The window is
+    //    `bounded_cut::flat_top_bounds` - the SAME one the encoder's platform rule
+    //    and the bake's completion judgement read, so the obligation, the surface
+    //    and the verdict cannot describe three different rectangles.
     for site in sites.iter().filter(|site| site.bounded_cut_mm.is_some()) {
-        let Some(level) = site.support_level_mm else {
+        let Some(verdict) =
+            pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
+        else {
             continue;
         };
-        let footprint = CutFootprint::of(&site.entity(), site.bounded_cut_mm.unwrap_or(0));
-        let (hw, hd) = spatial_half_extents(site.width_m as f32, site.depth_m as f32, site.rotation_y_deg);
-        let (hw, hd) = (hw.floor() as i32, hd.floor() as i32);
-        let mut bad = 0_u32;
-        for z in site.world_z - hd..=site.world_z + hd {
-            for x in site.world_x - hw..=site.world_x + hw {
-                let _ = &footprint;
-                match final_terrain.height_millimetres(x, z) {
-                    Some(actual) if actual == level => {}
-                    _ => bad += 1,
-                }
-            }
-        }
-        if bad > 0 {
+        if !verdict.holds() {
             audit.failures.push(format!(
-                "{PAD_TOP_NOT_FLAT}: pad {} holds {bad} footprint cells away from its declared \
+                "{PAD_TOP_NOT_FLAT}: pad {} holds {} footprint cells away from its declared \
                  {} mm top",
-                site.id, level
+                site.id, verdict.mismatched, verdict.level_mm
             ));
         }
     }
