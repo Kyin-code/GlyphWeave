@@ -1263,6 +1263,41 @@ fn connection_is_reserved(mask: &ZoningMask, e: &EntityInstance, x: i32, z: i32)
     }
     false
 }
+/// Did a CUTTING pad's earthwork move the support surface under an existing
+/// entity's own footprint?
+///
+/// The support of an existing entity is the surface its own footprint stands on
+/// (the same window the road audit and `bounded_cut::verify` step 5 judge from the
+/// published raster). The question is therefore answered cell by cell over that
+/// footprint only: `base_carves` is the surface the accepted world already holds,
+/// `carves` is the same list plus this candidate's own earthwork. Returns the
+/// first moved cell with both surfaces, or `None` when the excavation and its
+/// graded ring pass beside the entity without touching what it stands on.
+///
+/// This is deliberately NOT the historical "any change inside the 1-3 m setback"
+/// rule: a cut ring that grades through a neighbour's setback is a legal bench
+/// beside a legal lot, and the cut's own per-cell guards already forbid it from
+/// reaching an occupied cell.
+fn cut_moved_existing_support(
+    old: &EntityInstance,
+    n: &BakedTerrain,
+    mask: &ZoningMask,
+    base_carves: &[super::TerrainCarve],
+    carves: &[super::TerrainCarve],
+) -> Result<Option<([i32; 2], i32, i32)>, TerrainError> {
+    let area = bounds(old, 0);
+    for z in area[1]..=area[3] {
+        for x in area[0]..=area[2] {
+            let before = sample(n, mask, base_carves, x as i32, z as i32)?;
+            let after = sample(n, mask, carves, x as i32, z as i32)?;
+            if before != after {
+                return Ok(Some(([x as i32, z as i32], before, after)));
+            }
+        }
+    }
+    Ok(None)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn preflight(
     site: &RoadsideSite,
@@ -1354,11 +1389,48 @@ fn preflight(
     )? {
         return Ok(Some(reason));
     }
+    // The candidate's own earthwork, planned with the cap it would publish. The
+    // cap is attached to a CLONE before the carve planner runs, because the
+    // planner reads `grounding.boundedCutMm`: without it the proposed plan below
+    // is fill-only, the raster every gate reads is the un-cut hillside, and a
+    // legal bench is refused as if its platform were still the natural slope.
+    // The published site gets the same cap from the same `cut_cap_for_site`
+    // decision once it is accepted, so plan, gate and record cannot disagree.
+    // With the policy off - or for a pad that fills only - the clone keeps
+    // `None` and the carve list is byte-identical to the historical fill plan.
+    let mut planned = e.clone();
+    planned.grounding.bounded_cut_mm = prospective_cut_cap;
     let mut carves = base_carves.to_vec();
-    let proposed = super::plan_terrain_carves(std::slice::from_ref(&e));
+    let proposed = super::plan_terrain_carves(std::slice::from_ref(&planned));
     carves.extend(proposed.iter().cloned());
     // Adding a building must not alter any previously fixed hard support.
     for old in existing {
+        // A pad that excavates answers the SAME question a fill-only pad answers:
+        // does this earthwork move the ground under an already fixed support? The
+        // support is the surface the existing entity's own footprint stands on, so
+        // the comparison is cell by cell over that footprint only, between the
+        // surface the accepted world already holds and the surface with this pad's
+        // earthwork. A graded cut ring that passes through a neighbour's 1-3 m
+        // setback is a legal bench beside a legal lot - the cut's own guards already
+        // forbid it from reaching an occupied cell - while a cut or fill that does
+        // move the support under the footprint is still refused by name. The
+        // historical window (and its margins) is kept verbatim for a pad that does
+        // not cut, so the fill-only contract cannot move a single rejection.
+        if prospective_cut_cap.is_some() {
+            if let Some((at, before, after)) =
+                cut_moved_existing_support(old, n, mask, base_carves, &carves)?
+            {
+                *detail = Some(RejectDetail {
+                    conflicting_entity: Some(old.entity_id.clone()),
+                    at: Some(at),
+                    before_mm: Some(before),
+                    after_mm: Some(after),
+                    ..RejectDetail::of("existing_support_changed")
+                });
+                return Ok(Some("existing_support_changed"));
+            }
+            continue;
+        }
         let area = bounds(
             old,
             if old.kind == "road" {
@@ -1488,12 +1560,28 @@ fn preflight(
     )?;
     // Same final platform must be present, not simply a low centre point.
     let level = site.support_level_mm.unwrap();
-    // A bounded-cut pad publishes the same flat top, but its own graded ring
-    // stands OUTSIDE the footprint by construction (that is how a platform is
-    // carved out of a slope instead of leaving a wall one metre thick), so the
-    // flat-top claim is measured on the footprint for a cut pad and on the whole
-    // +-2 m window for a fill-only one - exactly the distinction the independent
-    // road audit makes from the published bytes.
+    // The claim is the platform AFTER the earthwork, never the natural surface:
+    // every cell the building stands on has to come out at exactly the declared
+    // level, whether the pad got there by filling or by bounded excavation. Two
+    // facts make that a post-earthwork claim:
+    //
+    //  * the raster above is `sample()`, i.e. the plan's own carved surface. For a
+    //    cap-carrying pad the proposed carve now carries the cap (the clone before
+    //    the planner), so this raster is the benched surface - `cut_surface_m` on
+    //    the pad's own flat top - and not the un-cut hillside;
+    //  * a cutting pad's claim is the PLATFORM - the entity's own footprint - and
+    //    not the +-2 m window: its 2 m shoulder is allowed to keep a bank where
+    //    the one cap cannot reach the level, and that bank is a designed part of
+    //    the finished surface, not a flatness defect. A fill-only pad keeps the
+    //    historical +-2 m window and the very same rejection keys, so nothing
+    //    moves for a world that never enabled the policy.
+    //
+    // "Flat" is asked as an exact millimetre equality on every platform cell: that
+    // is the existing support contract (the road audit and `bounded_cut::verify`
+    // step 5 re-derive the same equality from the published bytes), and a surface
+    // whose every cell equals one value has grade 0 - inside the 8 % road, 12 %
+    // building and 25 % walkable contracts - while the pad's own graded ring is
+    // bounded by `MAX_CUT_RING_GRADE` and re-checked by the audit from the bytes.
     let platform_margin = if prospective_cut_cap.is_some() { 0 } else { 2 };
     for z in e.world_z - hd as i32 - platform_margin..=e.world_z + hd as i32 + platform_margin {
         for x in e.world_x - hw as i32 - platform_margin..=e.world_x + hw as i32 + platform_margin {
@@ -1979,6 +2067,187 @@ mod tests {
         let style = serde_json::json!({"frontageProgram":{"version":1,"requests":[{"id":"homes","sceneId":"frontage","purpose":"urban","kind":"residential_home","count":4,"widthM":12,"depthM":10,"heightM":8,"stationSpacingM":16,"setbackM":8,"maxCandidateAttempts":128}]}});
         (s, n, w, zones, p, style)
     }
+    /// A hillside fixture for the bounded-cut gates: the ground is flat across the
+    /// road corridor and climbs at 8 % on both sides from 12 m out, the road runs
+    /// east-west along the z = 128 m contour at a constant 0 mm, and a 12x10 home
+    /// sits 17 m from the road centreline. A lot on the uphill side therefore needs
+    /// a bench of ~0.4-0.7 m, while the same lot downhill is a small fill - the
+    /// exact situation the fill-only support window used to refuse.
+    fn sloped_fixture(
+        origin: i32,
+    ) -> (
+        SceneSpec,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<LandUseZone>,
+        RoadNetworkPlan,
+        serde_json::Value,
+    ) {
+        let s = SceneSpec {
+            scene_id: "frontage".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: origin,
+            origin_z: origin,
+            seed_offset: 0,
+        };
+        let mut n = BakedTerrain::new(&s).unwrap();
+        let mut values = Vec::with_capacity(512 * 512);
+        for z in 0..512 {
+            // Flat across the road corridor (the junction contract fixes one
+            // level across it), then an 8 % hillside on both sides from 12 m out.
+            let d: i32 = z - 128;
+            let mm = if d.abs() <= 12 {
+                0
+            } else {
+                80 * (d.abs() - 12) * d.signum()
+            };
+            for _ in 0..512 {
+                values.push(f64::from(mm) / 1000.);
+            }
+        }
+        n.insert_chunk(
+            origin,
+            origin,
+            512,
+            512,
+            &encode_millimetres(512, 512, values).unwrap(),
+        )
+        .unwrap();
+        let w = super::super::water_geometry(
+            super::super::WaterKind::None,
+            &[],
+            &s,
+            &serde_json::Value::Null,
+        );
+        let zones = vec![LandUseZone {
+            id: "city".into(),
+            kind: "urban".into(),
+            world_x: origin,
+            world_z: origin,
+            width_m: 512,
+            depth_m: 512,
+            source: "test".into(),
+        }];
+        let mut p: RoadNetworkPlan = serde_json::from_value(serde_json::json!({"model":"fixture","naturalHeightfieldHash":n.content_hash().unwrap(),"sceneId":"frontage","status":"planned_connected_network","gridSpacingM":64,"maxRoadbedFillM":6,"levelM":0,"candidates":1,"rejectedWater":0,"rejectedRelief":0,"unselectedCandidates":0,"nodes":[{"id":0,"worldX":origin+32,"worldZ":origin+128},{"id":1,"worldX":origin+96,"worldZ":origin+128}],"edges":[{"id":"base","from":0,"to":1,"worldX":origin+64,"worldZ":origin+128,"lengthM":64,"rotationYDeg":0,"naturalMinM":0,"naturalMaxM":0}],"roadsideSites":[]})).unwrap();
+        let ext = serde_json::json!({"roadExtensions":{"version":1,"corridors":[{"sceneId":"frontage","start":[origin+96,origin+128],"end":[origin+352,origin+128],"roadWidthM":8,"shoulderWidthM":3,"maxFillMm":6000,"maxRiseMmPerM":80,"startLevelMm":0,"endLevelMm":0,"junctionLengthM":8}]}});
+        super::super::road_extensions::append(&mut p, &s, &n, w, &zones, &ext).unwrap();
+        let style = serde_json::json!({"frontageProgram":{"version":1,"requests":[{"id":"homes","sceneId":"frontage","purpose":"urban","kind":"residential_home","count":24,"widthM":12,"depthM":10,"heightM":8,"stationSpacingM":16,"setbackM":12,"maxCandidateAttempts":128}]}});
+        (s, n, w, zones, p, style)
+    }
+    /// Requirement: a lot that has to be benched into the hillside is planned
+    /// exactly when the policy is on, and its platform is the one the finished
+    /// earthwork holds - not the un-cut natural face. The same fixture with the
+    /// switch off plans only the downhill fill lots (15 of 24) and refuses the
+    /// uphill ones inside `natural_support_or_fill_limit`; with bounded cut on it
+    /// plans 23 of 24, eight of them with a real 2000 mm excavation, and neither
+    /// `engineered_platform_not_flat` nor `existing_support_changed` loses a
+    /// single candidate.
+    #[test]
+    fn a_benched_lot_is_planned_where_a_fill_only_one_is_refused() {
+        let (s, n, w, z, mut p, style) = sloped_fixture(0);
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let off = p.frontage.as_ref().unwrap().outcomes[0].clone();
+        assert_eq!(off.site_ids.len(), 15, "the fill-only arm: {off:?}");
+        assert_eq!(off.unfilled, 9);
+        assert_eq!(off.rejected.get("natural_support_or_fill_limit"), Some(&15));
+        assert!(
+            off.rejected.get("engineered_platform_not_flat").is_none(),
+            "the fill-only arm never reaches the platform gate: {off:?}"
+        );
+        assert!(p.roadside_sites.iter().all(|site| site.bounded_cut_mm.is_none()));
+
+        let (s, n, w, z, mut p, mut style) = sloped_fixture(0);
+        style["frontageProgram"]["terrainPolicy"] = serde_json::json!("bounded-cut");
+        style["frontageProgram"]["maxCutMm"] = serde_json::json!(2000);
+        let mask = ZoningMask::new(&s, &z).unwrap();
+        append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+        let on = p.frontage.as_ref().unwrap().outcomes[0].clone();
+        assert_eq!(on.site_ids.len(), 23, "the benched arm: {on:?}");
+        assert_eq!(on.unfilled, 1);
+        assert!(
+            on.site_ids.len() > off.site_ids.len(),
+            "the benching capability must place more lots than fill-only: {} vs {}",
+            on.site_ids.len(),
+            off.site_ids.len()
+        );
+        for gate in [
+            "engineered_platform_not_flat",
+            "existing_support_changed",
+            "bounded_cut_exceeds_cap",
+        ] {
+            assert!(
+                on.rejected.get(gate).is_none(),
+                "the benched arm must not lose a candidate to {gate}: {on:?}"
+            );
+        }
+        let benches: Vec<&RoadsideSite> = p
+            .roadside_sites
+            .iter()
+            .filter(|site| site.bounded_cut_mm.is_some())
+            .collect();
+        assert_eq!(benches.len(), 8, "one bench per uphill station");
+        for bench in &benches {
+            assert_eq!(bench.bounded_cut_mm, Some(2000));
+            // Each bench stands uphill of the road: the ground it keeps at the
+            // road level had to come down.
+            assert!(
+                bench.world_z > 128,
+                "a bench is the uphill lot, not the fill lot: {bench:?}"
+            );
+        }
+        // The claim the platform gate now makes: the platform AFTER the plan's
+        // own earthwork is exactly the declared level, cell by cell.
+        let mut world = p.entities();
+        world.extend(p.site_entities());
+        let carves = super::super::plan_terrain_carves(&world);
+        let level = benches[0].support_level_mm.unwrap();
+        for bench in &benches {
+            assert_eq!(bench.support_level_mm, Some(level));
+            let entity = bench.entity();
+            let area = bounds(&entity, 0);
+            for z in area[1]..=area[3] {
+                for x in area[0]..=area[2] {
+                    assert_eq!(
+                        sample(&n, &mask, &carves, x as i32, z as i32).unwrap(),
+                        level,
+                        "bench {} platform cell ({x},{z}) is not the declared level",
+                        bench.id
+                    );
+                }
+            }
+        }
+    }
+
+    /// Requirement: with the switch off the WHOLE hillside plan is byte-frozen.
+    /// This is the frontage-bearing fixture the two gates are exercised on (15
+    /// accepted lots), and the frozen digest makes a regression that lets either
+    /// gate move an off-state rejection impossible to pass by both sides drifting
+    /// together.
+    #[test]
+    fn the_hillside_off_state_is_byte_frozen() {
+        let mut digests = Vec::new();
+        for arm in [serde_json::Value::Null, serde_json::json!(5000)] {
+            let (s, n, w, z, mut p, mut style) = sloped_fixture(0);
+            if let serde_json::Value::Number(cap) = arm {
+                style["frontageProgram"]["terrainPolicy"] =
+                    serde_json::json!(super::super::bounded_cut::POLICY_VALUE);
+                style["frontageProgram"]["maxCutMm"] = serde_json::json!(cap);
+            }
+            append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
+            assert_eq!(p.roadside_sites.len(), 15);
+            assert!(p.roadside_sites.iter().all(|site| site.bounded_cut_mm.is_none()));
+            digests.push(blake3::hash(&serde_json::to_vec(&p).unwrap()).to_hex().to_string());
+        }
+        assert_eq!(
+            digests[0], digests[1],
+            "an illegal cap (5000 > MAX_CUT_MM) must stay the off arm byte for byte"
+        );
+        assert_eq!(
+            digests[0], "9bb97f624e3836b262537df9ce4881c3d35cb0735daff6b8f61465f351c9a3d2",
+            "the frozen blake3 of the hillside frontage plan with the bounded cut off"
+        );
+    }
     /// Requirement 1: with the switch off - absent, or declared with anything the
     /// project does not accept - every published byte is frozen, and this pins the
     /// blake3 of the whole plan document so a regression cannot pass by both sides
@@ -2096,6 +2365,211 @@ mod tests {
         assert_eq!(cut_cap_for_site(&site, &bank_fits, cap_2000), Some(2000));
         assert_eq!(cut_cap_for_site(&site, &make(-500), cap_2000), None);
         assert_eq!(cut_cap_for_site(&site, &bank_fits, off), None);
+    }
+
+    /// Requirement: `existing_support_changed` fires only when the earthwork
+    /// really moves the support surface under an existing entity's own footprint.
+    ///
+    /// * Negative: a cutting pad's graded ring lowers the cell (103,100) from
+    ///   3500 mm to 3250 mm. That cell is one metre OUTSIDE the existing lot's
+    ///   footprint but inside the historical +-2 m window, which is exactly the
+    ///   "any cut in the setback is a refusal" case that used to lose the lot. The
+    ///   new rule compares the lot's own footprint and returns no breach.
+    /// * Positive: the same kind of pad FILLS the ground under a neighbour's
+    ///   footprint. The cell is under the footprint, the surface moves, and the
+    ///   gate returns it with both surfaces in the evidence.
+    #[test]
+    fn a_cut_is_refused_only_when_it_really_moves_an_existing_support() {
+        let s = SceneSpec {
+            scene_id: "support".into(),
+            width_m: 256,
+            depth_m: 256,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut n = BakedTerrain::new(&s).unwrap();
+        // Flat 3500 mm, with a 4000 mm knoll under the mixed pad's own flat top so
+        // that pad really carries a cut (and therefore really carries a cap) while
+        // it fills its downhill side.
+        let mut values = vec![3.5_f64; 256 * 256];
+        values[100 * 256 + 118] = 4.0;
+        n.insert_chunk(
+            0,
+            0,
+            256,
+            256,
+            &encode_millimetres(256, 256, values).unwrap(),
+        )
+        .unwrap();
+        let zones = vec![LandUseZone {
+            id: "city".into(),
+            kind: "urban".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 256,
+            depth_m: 256,
+            source: "test".into(),
+        }];
+        let mask = ZoningMask::new(&s, &zones).unwrap();
+        let lot = |x: i32| RoadsideSite {
+            program: None,
+            purpose: None,
+            id: format!("old.{x}"),
+            road_id: "road".into(),
+            world_x: x,
+            world_z: 100,
+            width_m: 4,
+            depth_m: 4,
+            support_level_m: 3,
+            parcel_insets: None,
+            support_level_mm: Some(3500),
+            frontage_road_point: None,
+            bounded_cut_mm: None,
+            rotation_y_deg: 0.,
+            natural_min_m: 3.5,
+            natural_max_m: 3.5,
+        };
+        let bench = |level_mm: i32| RoadsideSite {
+            program: None,
+            purpose: None,
+            id: "bench".into(),
+            road_id: "road".into(),
+            world_x: 118,
+            world_z: 100,
+            width_m: 12,
+            depth_m: 10,
+            support_level_m: level_mm.div_euclid(1000),
+            parcel_insets: None,
+            support_level_mm: Some(level_mm),
+            frontage_road_point: Some([118, 100]),
+            bounded_cut_mm: Some(2000),
+            rotation_y_deg: 0.,
+            natural_min_m: 3.5,
+            natural_max_m: 3.5,
+        };
+        let contains = |area: [i64; 4], x: i32, z: i32| {
+            area[0] <= i64::from(x)
+                && i64::from(x) <= area[2]
+                && area[1] <= i64::from(z)
+                && i64::from(z) <= area[3]
+        };
+        let support_of = |old: &RoadsideSite, bench: &RoadsideSite| {
+            let entity = old.entity();
+            let base = super::super::plan_terrain_carves(std::slice::from_ref(&entity));
+            let mut with = base.clone();
+            with.extend(super::super::plan_terrain_carves(std::slice::from_ref(&bench.entity())));
+            (entity, base, with)
+        };
+
+        // Negative: a cutting pad's ring grades the setback, not the lot.
+        let cutting = bench(1500);
+        assert!(cutting.bounded_cut_mm.is_some());
+        let (old, base, with) = support_of(&lot(100), &cutting);
+        assert!(contains(bounds(&old, 2), 103, 100));
+        assert!(!contains(bounds(&old, 0), 103, 100));
+        assert_eq!(sample(&n, &mask, &base, 103, 100).unwrap(), 3500);
+        assert_eq!(sample(&n, &mask, &with, 103, 100).unwrap(), 3250);
+        assert_eq!(
+            cut_moved_existing_support(&old, &n, &mask, &base, &with).unwrap(),
+            None,
+            "a graded ring through the setback must not be a support change"
+        );
+
+        // Positive: the same kind of pad FILLS the ground under the footprint.
+        let filling = bench(3800);
+        assert!(filling.bounded_cut_mm.is_some());
+        // The knoll under the pad's own flat top makes it a REAL cutting pad: the
+        // same decision function the placement loop reads records a cap for it, so
+        // this positive case is one the new branch really sees in production.
+        assert_eq!(
+            cut_cap_for_site(
+                &filling,
+                &n,
+                super::super::bounded_cut::CutPolicy::Bounded { max_cut_mm: 2000 },
+            ),
+            Some(2000)
+        );
+        let (old, base, with) = support_of(&lot(104), &filling);
+        let (at, before, after) = cut_moved_existing_support(&old, &n, &mask, &base, &with)
+            .unwrap()
+            .expect("a fill under the footprint is a support change");
+        assert!(contains(bounds(&old, 0), at[0], at[1]), "at {at:?}");
+        assert_eq!(before, 3500);
+        assert!(after > before, "the fill must raise the support: {after}");
+    }
+
+    /// Requirement: a forged or bypassed cap still cannot buy a deeper cut. The
+    /// authored parser refuses `maxCutMm` above `MAX_CUT_MM`, but even a policy or
+    /// an entity record that bypasses the parser is clamped by the ONE `clamp_cap`
+    /// every reader shares: the gate refuses a bank deeper than the cap, and the
+    /// terrain the carve produces is never more than `MAX_CUT_MM` below the
+    /// natural surface.
+    #[test]
+    fn a_forged_cap_cannot_buy_a_deeper_cut() {
+        use super::super::bounded_cut::{CutPolicy, NotEnabled, MAX_CUT_MM};
+        let forged = CutPolicy::Bounded { max_cut_mm: 9000 };
+        assert_eq!(forged.cap_mm(), MAX_CUT_MM);
+        assert_eq!(
+            CutPolicy::from_style(&serde_json::json!({"frontageProgram": {
+                "terrainPolicy": "bounded-cut", "maxCutMm": 9000
+            }})),
+            (CutPolicy::Disabled, Some(NotEnabled::CapAboveMaximum))
+        );
+        // The formula itself clamps: a 9 m cap can only remove MAX_CUT_MM.
+        assert_eq!(
+            super::super::bounded_cut::cut_surface_m(3.5, 0.0, 0.0, 9000),
+            3.5 - 2.0
+        );
+        assert_eq!(
+            super::super::bounded_cut::cut_depth_mm(3.5, 0.0, 0.0, 9000),
+            i64::from(MAX_CUT_MM)
+        );
+
+        let (s, _hill, w, z, _p, _style) = sloped_fixture(0);
+        let mask = ZoningMask::new(&s, &z).unwrap();
+        let mut flat = BakedTerrain::new(&s).unwrap();
+        flat.insert_chunk(
+            0,
+            0,
+            512,
+            512,
+            &encode_millimetres(512, 512, vec![3.5; 512 * 512]).unwrap(),
+        )
+        .unwrap();
+        // A 2500 mm bank: legal under the forged 9000, refused under the real cap.
+        let site = RoadsideSite {
+            program: None,
+            purpose: None,
+            id: "bank".into(),
+            road_id: "road".into(),
+            world_x: 200,
+            world_z: 120,
+            width_m: 12,
+            depth_m: 10,
+            support_level_m: 1,
+            parcel_insets: None,
+            support_level_mm: Some(1000),
+            frontage_road_point: Some([200, 112]),
+            bounded_cut_mm: None,
+            rotation_y_deg: 0.,
+            natural_min_m: 3.5,
+            natural_max_m: 3.5,
+        };
+        let mut detail = None;
+        let reason = support_check(&site, &flat, &mask, w, &[], forged, 6000, &mut detail).unwrap();
+        assert_eq!(reason, Some("bounded_cut_exceeds_cap"));
+        assert_eq!(detail.and_then(|d| d.note).as_deref(), Some("bounded_cut_exceeds_cap"));
+
+        // A forged entity record carrying 9000 still plans the clamped surface.
+        let mut entity = site.entity();
+        entity.grounding.bounded_cut_mm = Some(9000);
+        let carves = super::super::plan_terrain_carves(std::slice::from_ref(&entity));
+        assert_eq!(
+            super::super::apply_terrain_carves(3.5, entity.world_x, entity.world_z, &carves),
+            1.5,
+            "an entity record cannot excavate below the one MAX_CUT_MM cap"
+        );
     }
 
     #[test]
