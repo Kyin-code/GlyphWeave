@@ -1300,6 +1300,7 @@ mod tests {
             support_level_mm: Some(0),
             frontage_road_point: Some([16, 28]),
             bounded_cut_mm: Some(MAX_CUT_MM),
+            earthwork_blend_m: None,
             rotation_y_deg: 0.,
             natural_min_m: 2.,
             natural_max_m: 2.,

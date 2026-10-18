@@ -23752,6 +23752,7 @@ mod tests {
             support_level_mm: Some(2390),
             frontage_road_point: Some([site_entity.world_x, 180]),
             bounded_cut_mm: None,
+            earthwork_blend_m: None,
             rotation_y_deg: site_entity.rotation_y_deg,
             natural_min_m: f32::INFINITY,
             natural_max_m: f32::NEG_INFINITY,

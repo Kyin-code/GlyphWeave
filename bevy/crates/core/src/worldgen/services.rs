@@ -591,6 +591,7 @@ fn append_with(
                                 support_level_mm: None,
                                 frontage_road_point: None,
                                 bounded_cut_mm: None,
+                                earthwork_blend_m: None,
                                 rotation_y_deg: yaw,
                                 natural_min_m: min,
                                 natural_max_m: max,

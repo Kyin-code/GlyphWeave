@@ -570,6 +570,7 @@ fn pad(id: &str, x: i32, z: i32, level_mm: i32, cap: Option<i32>) -> RoadsideSit
         support_level_mm: Some(level_mm),
         frontage_road_point: None,
         bounded_cut_mm: cap,
+        earthwork_blend_m: None,
         rotation_y_deg: 0.,
         natural_min_m: 5.,
         natural_max_m: 5.4,

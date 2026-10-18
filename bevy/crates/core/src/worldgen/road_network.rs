@@ -182,6 +182,27 @@ pub struct RoadsideSite {
     /// byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounded_cut_mm: Option<i32>,
+    /// OPT-IN `style.terrainPolicy.earthworkBlend = "derived-from-footprint"`: the
+    /// width of the fill-transition ring this pad's OWN footprint derives, in
+    /// metres - the same number its realized entity carries in
+    /// `grounding.earthworkBlendM`.
+    ///
+    /// The PLAN RECORD has to carry it, not just the entity. A planned pad is
+    /// rebuilt from this record by `settlement::development::plan` (three
+    /// independent readers compare that rebuild with the published entity, byte
+    /// for byte), and a rebuild that derives entities from the road plan alone
+    /// knows no earthwork policy. A ring only one side carried was a plan/entity
+    /// split rather than an earthwork decision, so a planned pad used to keep the
+    /// historical `3 x (ground + 32)` ring - the 114 m envelope on the hillside
+    /// town's 6 m plate. Writing the derived ring into the record is what lets
+    /// the plan and the entity share ONE ring.
+    ///
+    /// Only [`super::earthwork_blend::stamp_plan`] ever sets it, only for a pad
+    /// whose kind `plan_terrain_carves` actually carves as a building, and only
+    /// under that policy. Every other pad of every input publishes no such key,
+    /// which is what keeps the default output byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earthwork_blend_m: Option<f32>,
     pub rotation_y_deg: f32,
     pub natural_min_m: f32,
     pub natural_max_m: f32,
@@ -193,6 +214,15 @@ impl RoadsideSite {
         self.program
             .as_ref()
             .map_or("residential_home", |p| p.kind.as_str())
+    }
+    /// The vertical size the pad's realized entity carries: its declared
+    /// programme height, or the settlement default when it carries no programme.
+    ///
+    /// One accessor, two readers - [`Self::entity`] and
+    /// [`super::earthwork_blend::site_ring_m`] - so the derived ring is computed
+    /// from exactly the height the entity publishes.
+    pub fn height_m(&self) -> f32 {
+        self.program.as_ref().map_or(8., |p| p.height_m as f32)
     }
     pub(crate) fn entity(&self) -> EntityInstance {
         let s = self;
@@ -207,7 +237,7 @@ impl RoadsideSite {
                 .map_or(s.support_level_m, |mm| mm.div_euclid(1000)),
             width_m: s.width_m as f32,
             depth_m: s.depth_m as f32,
-            height_m: s.program.as_ref().map_or(8., |p| p.height_m as f32),
+            height_m: s.height_m(),
             scale: 1.,
             rotation_y_deg: s.rotation_y_deg,
             grounding: GroundingSpec {
@@ -219,6 +249,12 @@ impl RoadsideSite {
                 // entity carries the cap its own pad was accepted under, so the
                 // audit can recompute the excavation from the world itself.
                 bounded_cut_mm: s.bounded_cut_mm,
+                // The same one-for-one hand-off for the OPT-IN fill-transition
+                // ring: the record carries it, the entity publishes it, and the
+                // plan rebuild (`settlement::development::plan`) reads it back out
+                // of the record, so "the plan's pad" and "the world's entity"
+                // cannot carry two different rings.
+                earthwork_blend_m: s.earthwork_blend_m,
                 ..Default::default()
             },
             anchors: vec![s.front_anchor()],
@@ -1737,6 +1773,10 @@ pub(super) fn plan_with_zones_demand(
                         // A roadside pad of the settlement programme is NOT a
                         // frontageProgram parcel and never excavates: the opt-in
                         // bounded cut is scoped to `frontage::append`'s pads.
+                        // The OPT-IN derived earthwork ring is written by
+                        // `earthwork_blend::stamp_plan`, once the pad list is whole
+                        // and every generator has run.
+                        earthwork_blend_m: None,
                         rotation_y_deg: if e.rotation_y_deg == 0. {
                             if side < 0 { 180. } else { 0. }
                         } else if side < 0 {
@@ -1852,7 +1892,10 @@ pub(super) fn plan_with_zones_demand(
                     support_level_mm: support_mm,
                     frontage_road_point: support_mm.map(|_| frontage_point),
                     bounded_cut_mm: None,
-                    // Settlement-programme pad: never excavates (see above).
+                    // Settlement-programme pad: never excavates (see above). The
+                    // OPT-IN derived earthwork ring is written by
+                    // `earthwork_blend::stamp_plan` once the pad list is whole.
+                    earthwork_blend_m: None,
                     rotation_y_deg: if e.rotation_y_deg == 0. {
                         if side < 0 { 180. } else { 0. }
                     } else if side < 0 {
@@ -2309,6 +2352,23 @@ pub(super) fn plan_with_style_declared(
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
+    // The pad list is whole: every generator that plans pads has run (the roadside
+    // programme of `plan_with_zones_demand`, the service programme or the joint
+    // layout of `plan_with_program`, the road extensions, the automatic roads and
+    // the frontage programme), and nothing below adds a pad. ONE pass now writes
+    // the OPT-IN derived fill-transition ring into the record of every pad that
+    // `plan_terrain_carves` carves as a building, so the three pad paths cannot
+    // publish three different answers - and so the ring travels with the record
+    // into `settlement::development::plan`'s rebuild, which is what makes the
+    // plan's pad and the world's pad the same bytes.
+    //
+    // It runs BEFORE `refuse_unrealizable_pads` on purpose: the plan's own
+    // earthwork check is what decides whether a pad's declared flat top is held,
+    // so it has to see the ring the bake will actually compose. It runs AFTER
+    // `frontage::append` for the same reason in reverse: the acceptance gates of
+    // the frontage programme keep reading the historical envelopes they were
+    // calibrated on, so the pad list itself cannot move under this switch.
+    super::earthwork_blend::stamp_plan(&mut result, style);
     // The pad list is whole. A pad whose declared flat top the plan's own earthwork
     // cannot hold is refused BY NAME here and taken out of the plan, where it can
     // still be seen: publishing it and deleting it from the generated world later

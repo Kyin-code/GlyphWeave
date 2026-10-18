@@ -186,9 +186,13 @@ pub struct GroundingSpec {
     /// the width of this structure's own fill-transition ring, in metres, derived
     /// from its footprint by [`earthwork_blend::derived_blend_m`].
     ///
-    /// Only [`earthwork_blend::stamp`] ever sets it, once, for every structure of a
-    /// world that opted in. It is the ring `plan_terrain_carves` publishes, so the
-    /// carve, the raster, the completion pass and every audit read one number.
+    /// Only [`earthwork_blend::stamp`] ever sets it on a rule-engine structure,
+    /// once, for every structure of a world that opted in; a PLANNED pad's ring
+    /// arrives through its own plan record instead
+    /// ([`earthwork_blend::stamp_plan`] -> `RoadsideSite::earthwork_blend_m`), so
+    /// the rebuild of that entity from the plan carries the same number. It is the
+    /// ring `plan_terrain_carves` publishes, so the carve, the raster, the
+    /// completion pass and every audit read one number.
     /// Absent (and therefore not serialized) for every other entity, so a world
     /// that never asked - and every road of a world that did - keeps its
     /// historical bytes.

@@ -53,6 +53,17 @@
 //!   legacy ring of the very entity it replaces, so the opt-in can only ever make
 //!   an envelope NARROWER, never wider.
 //!
+//! # Planned pads: the ring travels in the plan record
+//!
+//! A pad the development plan owns is not stamped on its entity alone. Its
+//! record carries the ring ([`stamp_plan`] -> [`RoadsideSite::earthwork_blend_m`])
+//! and the entity reads it back out ([`RoadsideSite::entity`]), because three
+//! independent readers rebuild that entity from the road plan alone and compare
+//! it with the published one byte for byte
+//! (`settlement::development::verify`, the plan re-derivation inside the
+//! completion pass, and the rules-mode ownership audit). One ring, written once,
+//! in the one place both sides read.
+//!
 //! Nothing else changes: the pad's flat top, the 6 m fill cap, the 8 %/25 % grades,
 //! the 2,000 mm cut cap, the setbacks, the shore band and the protected land and
 //! water are all untouched, and every carve that does not carry a derived ring
@@ -120,15 +131,14 @@ pub fn derived_blend_m(width_m: f32, height_m: f32) -> f64 {
 /// no carve at all.
 ///
 /// `planned` is the set of entity ids the DEVELOPMENT PLAN owns. Those are
-/// deliberately NOT stamped: a planned building's record is compared, byte for
-/// byte and by three independent readers (the rules-mode ownership audit, the
-/// plan re-derivation inside the completion pass, and
-/// `settlement::development`'s final-entity audit), against a rebuild that derives
-/// the entity from the road plan alone and knows no earthwork policy. A ring that
-/// only one side carries is a plan/entity split, not an earthwork decision, so a
-/// planned pad keeps the historical ring until the plan record itself can carry
-/// one. Every other structure - the rule engine's `urban_building`,
-/// `resort_lodge`, and the rest of `carves_as_building` - is stamped.
+/// stamped by [`stamp_plan`] instead, before the plan record is published: their
+/// record carries the ring, so the rebuild that derives the entity from the road
+/// plan alone (`settlement::development::plan`) reads the same number and the
+/// plan/entity byte comparison stays exact. A planned pad that the world carries
+/// WITHOUT a record ring (a world that did not opt in) gets none here either,
+/// because `stamp` never touches a planned id. Every other structure - the rule
+/// engine's `urban_building`, `resort_lodge`, and the rest of
+/// `carves_as_building` - is stamped here.
 pub fn stamp(
     entities: &mut [super::EntityInstance],
     style: &serde_json::Value,
@@ -168,6 +178,53 @@ pub fn stamp_entity(entity: &mut super::EntityInstance, enabled: bool) -> bool {
     entity.grounding.earthwork_blend_m =
         Some(derived_blend_m(entity.width_m, entity.height_m) as f32);
     true
+}
+
+/// The derived fill-transition ring of ONE PUBLISHED PAD, in metres.
+///
+/// The same formula, read off the two numbers the pad's realized entity carries
+/// (`RoadsideSite::entity`: `width_m` and `height_m`), so a pad's record and its
+/// entity can never publish two different rings.
+pub fn site_ring_m(site: &super::road_network::RoadsideSite) -> f32 {
+    derived_blend_m(site.width_m as f32, site.height_m()) as f32
+}
+
+/// Stamp every pad of one plan with the ring its own footprint derives, and
+/// answer how many were stamped.
+///
+/// This is the PLAN-RECORD half of [`stamp_entity`], and the reason the opt-in
+/// can cover a planned pad at all. `stamp` above deliberately skips the pads the
+/// development plan owns, because a planned pad's entity is rebuilt from the road
+/// plan (`settlement::development::plan` -> `RoadsideSite::entity`) by three
+/// independent readers that compare the rebuild with the published entity byte
+/// for byte. A ring that lived only on the entity was therefore a plan/entity
+/// split, and the hillside town's planned pads kept 114 m rings
+/// (`3 x (6 m + 32 m)`) while every rule-engine structure was already derived.
+///
+/// Writing the ring into the RECORD closes that: the record carries it, the
+/// entity reads it out of the record, and the rebuild reads it out of the record
+/// too. Inert - and byte-inert - unless the style opted in: `None` serialises
+/// nothing, so a world that never asked keeps its history exactly.
+///
+/// The predicate is `stamp_entity`'s, applied to the pad's own kind: a pad whose
+/// kind `plan_terrain_carves` does not carve as a building would never read the
+/// number, so it does not gain one.
+pub fn stamp_plan(
+    plan: &mut super::road_network::RoadNetworkPlan,
+    style: &serde_json::Value,
+) -> usize {
+    if !enabled(style) {
+        return 0;
+    }
+    let mut stamped = 0;
+    for site in plan.roadside_sites.iter_mut() {
+        if !super::carves_as_building(site.kind()) {
+            continue;
+        }
+        site.earthwork_blend_m = Some(site_ring_m(site));
+        stamped += 1;
+    }
+    stamped
 }
 
 #[cfg(test)]
