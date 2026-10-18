@@ -17,6 +17,32 @@ const HEADLAND: i64 = 4;
 const FIELD_GRADE: f64 = 0.12;
 const TRACK_GRADE: f64 = 0.08;
 const MAX_ACCESS_LENGTH: i64 = 160;
+/// How many metres of NEW lane a shared-track join must save before it may
+/// replace a road route that the bounded search already proved. Round 15
+/// measured the older trigger ("only when the road search is impossible") as a
+/// no-op on real terrain, because road-first planning reaches a road inside the
+/// 160 m budget everywhere, so the trigger is now a cost comparison - and a
+/// cost comparison needs a floor, or two routes of the same length would trade
+/// places on a rounding difference and the published network would churn
+/// without laying one metre less surface.
+///
+/// 40 m is derived from the constants this module already enforces rather than
+/// picked freely: it is exactly a quarter of the unchanged 160 m access budget
+/// (`MAX_ACCESS_LENGTH / 4`), ten times the 4 m lane width (`HEADLAND` is the
+/// same 4 m module) so a join must avoid laying at least 160 m2 of new track,
+/// and twenty steps of the farm-lane search's 2 m centre lattice. A saving
+/// below that cannot pay for replacing a self-contained lane with a chain: the
+/// field would spend another field's metres to save an arm no longer than the
+/// headland it already has to keep clear.
+const JOIN_MIN_SAVING_M: u64 = 40;
+/// The two published reasons a lane may end on an already realized farm track.
+/// `CHEAPER` is the round-16 cost rule: a road route exists and the join lays at
+/// least `JOIN_MIN_SAVING_M` fewer metres of new lane. `NO_ROAD` is the round-11
+/// rule: the bounded road search proved no route inside the 160 m budget, so the
+/// join is the field's only access. The basis is published because an auditor
+/// can only recompute a saving when the generator states that it beat something.
+const JOIN_BASIS_CHEAPER: &str = "cheaper_than_road";
+const JOIN_BASIS_NO_ROAD: &str = "no_road_route_within_budget";
 /// Distance kept between a field and the border of its own source cell. This is
 /// the authored 2 m margin; the contour strategy may reshape a field but never
 /// trims this, which is why it is a shared constant instead of a literal.
@@ -105,6 +131,18 @@ pub struct SharedTrackJoin {
     /// How many realized lanes stand between this field and that road. The
     /// metre budget above is what actually bounds the chain.
     pub chain_lanes: u32,
+    /// Which trigger accepted this join: `JOIN_BASIS_CHEAPER` or
+    /// `JOIN_BASIS_NO_ROAD`. Publishing it is what makes "this join is cheaper"
+    /// a claim an audit can re-check instead of a private decision of the
+    /// generator.
+    pub basis: String,
+    /// Metres of new lane the road-only rule would have laid for this field,
+    /// i.e. the route this join replaced. `0` means there was no bounded road
+    /// route at all (`JOIN_BASIS_NO_ROAD`). The audit re-derives the saving from
+    /// this number and the published lane length, and refuses a join that does
+    /// not reach the unchanged threshold - a chain may never be published as
+    /// "cheaper" on the generator's word alone.
+    pub road_path_length_m: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -473,9 +511,14 @@ fn shared_track_terminals(
 /// the way to a road, which is what a real field road network does: one lane
 /// serves several fields. The whole path back to the nearest real road stays on
 /// the clock, so the chain is bounded in metres, never in hops.
+///
+/// `road_path_length_m` is the length of the road-only route this field also
+/// has, or `None` when the bounded road search proved no such route; the join
+/// record publishes it so the cost comparison is auditable rather than implied.
 fn join_realized_track(
     claimed_tracks: &BTreeMap<(i64, i64), TrackClaim>,
     starts: &[[i64; 2]],
+    road_path_length_m: Option<u64>,
     max_expanded: usize,
     failures: &mut BTreeSet<&'static str>,
     check_cell: &mut impl FnMut(i64, i64) -> Result<(), &'static str>,
@@ -561,6 +604,16 @@ fn join_realized_track(
                 cell: join,
                 road_distance_m: claim.road_distance_m,
                 chain_lanes: claim.chain_lanes + 1,
+                // Provisional: the caller only publishes this record when the
+                // comparison below accepts it, and the flags say which side of
+                // the cost rule it came from.
+                basis: if road_path_length_m.is_some() {
+                    JOIN_BASIS_CHEAPER
+                } else {
+                    JOIN_BASIS_NO_ROAD
+                }
+                .into(),
+                road_path_length_m: road_path_length_m.unwrap_or(0),
             },
             spur.expanded,
         )));
@@ -618,11 +671,25 @@ pub fn realize(
     access: &[AccessSurface],
 ) -> Result<(AgricultureRealization, Vec<SurfacePatch>), String> {
     let pedestrian = super::pedestrian_index::PedestrianIndex::new(access)?;
-    realize_with_query(scene,plan,t,water,entities,|x,z|pedestrian.overlaps_cell(x,z))
+    realize_with_query(
+        scene,
+        plan,
+        t,
+        water,
+        entities,
+        JOIN_MIN_SAVING_M,
+        |x, z| pedestrian.overlaps_cell(x, z),
+    )
 }
+/// `min_saving_m` is the cost rule's threshold. Production always passes
+/// `JOIN_MIN_SAVING_M`; it is a parameter only so the tests can prove what a
+/// zero (or, under saturation, "negative") threshold is allowed to change and
+/// what it still may not: no geometry, grade, ownership or budget contract
+/// depends on it.
 fn realize_with_query(
     scene:&SceneSpec,plan:&LandcoverPlan,t:&BakedTerrain,water:WaterGeometry,
-    entities:&[EntityInstance],mut pedestrian_contains:impl FnMut(i64,i64)->bool,
+    entities:&[EntityInstance],min_saving_m:u64,
+    mut pedestrian_contains:impl FnMut(i64,i64)->bool,
 ) -> Result<(AgricultureRealization, Vec<SurfacePatch>), String> {
     if !t.matches_scene(scene) {
         return Err("agriculture terrain scene mismatch".into());
@@ -1031,6 +1098,9 @@ fn realize_with_query(
                 },
             );
             access_search_expanded = search.expanded;
+            // The bounded road route, when the A* proves one. It stays the
+            // default access: a shared track may only replace it on cost.
+            let mut road_route = None;
             if let Some(road_id) = search.road_id {
                 let track = path_cells(&search.path);
                 // Recheck the swept corridor, not just the search centres.
@@ -1038,29 +1108,77 @@ fn realize_with_query(
                     check_cell(xx, zz)
                         .map_err(|r| format!("detour swept footprint mismatch: {r}"))?;
                 }
-                accepted = Some((road_id, search.path, track, None));
+                road_route = Some((road_id, search.path, track));
             } else {
                 route_failures.insert(search.reason);
-                // A road route must be proven impossible first, so every field
-                // this rule already accepted keeps its exact lane geometry and
-                // shared tracks can only add fields, never rewrite one.
-                if track_network.is_some() {
-                    match join_realized_track(
+            }
+            if track_network.is_some() {
+                // Round 11 gated this branch on the road route being proven
+                // impossible, and Round 15 measured that gate as a no-op on
+                // real terrain: road-first planning reaches a road inside the
+                // 160 m budget almost everywhere, so the branch never ran and
+                // three seeds produced zero shared-track joins. The trigger is
+                // now the COST rule this policy was always meant to express,
+                // and it is still opt-in: with the switch off this block does
+                // not execute and the published bytes cannot move.
+                //
+                // Both conditions must hold, exactly as for every other lane:
+                //  * `road_len - shared_len >= min_saving_m`, i.e. the join
+                //    lays at least that many metres FEWER of new lane. The
+                //    saving is measured on new lane, which is what joining an
+                //    existing track actually buys; the field's whole way back
+                //    to a real road is a separate, unchanged limit.
+                //  * `shared_len + join.road_distance_m <= 160`, enforced
+                //    inside `join_realized_track` for every chain, so a cheap
+                //    spur can never buy its way past the access budget.
+                let road_len = road_route
+                    .as_ref()
+                    .map(|(_, path, _)| farm_access::length(path));
+                // A join can never lay fewer than zero metres, so a road route
+                // already shorter than the threshold cannot be beaten and the
+                // spur search is skipped. This is a strict prune: it never
+                // changes which field wins, only how often the search runs.
+                let join = if road_len.is_none_or(|len| len >= min_saving_m) {
+                    join_realized_track(
                         &claimed_tracks,
                         &starts,
+                        road_len,
                         4096,
                         &mut route_failures,
                         &mut check_cell,
-                    )? {
-                        Some((road_id, path, corridor, join, expanded)) => {
-                            accepted = Some((road_id, path, corridor, Some(join)));
-                            // The accepted lane's own search is the evidence the
-                            // expansion budget bounds, as for every other lane.
-                            access_search_expanded = expanded;
-                        }
-                        None => {}
+                    )?
+                } else {
+                    None
+                };
+                let join_wins = match &join {
+                    // No road route: the round-11 trigger, the join is the only
+                    // access this field can have.
+                    Some(_) if road_len.is_none() => true,
+                    // Both exist: only a saving of at least the threshold may
+                    // displace the lane the search already proved. The saving is
+                    // the roadway this field does not build, which is exactly
+                    // what the published join record calls
+                    // `road_path_length_m - access_length_m`.
+                    Some((_, shared_path, _, _, _)) => {
+                        let saving = road_len
+                            .unwrap_or(0)
+                            .saturating_sub(farm_access::length(shared_path));
+                        saving >= min_saving_m
                     }
-                }
+                    None => false,
+                };
+                accepted = if join_wins {
+                    join.map(|(road_id, path, corridor, join, expanded)| {
+                        // The accepted lane's own search is the evidence the
+                        // expansion budget bounds, as for every other lane.
+                        access_search_expanded = expanded;
+                        (road_id, path, corridor, Some(join))
+                    })
+                } else {
+                    road_route.map(|(road_id, path, track)| (road_id, path, track, None))
+                };
+            } else {
+                accepted = road_route.map(|(road_id, path, track)| (road_id, path, track, None));
             }
         }
         let Some((road_id, path, track, join)) = accepted else {
@@ -1265,6 +1383,45 @@ pub fn verify_access_network(
                         return Err(
                             "shared farm track lane joins a track that is not older".into(),
                         )
+                    }
+                }
+                // The round-16 trigger is a cost comparison, so the audit
+                // re-derives it from the published record instead of trusting
+                // the generator's decision. `road_path_length_m` is the length
+                // of the road-only lane this join replaced; the road search is
+                // itself bounded by the unchanged 160 m, so a longer claim is
+                // impossible, and the saving must reach the unchanged
+                // threshold. A join that only exists because no road route was
+                // found publishes 0 and is the round-11 trigger, which this
+                // branch can only record - the road it lacked is, by
+                // construction, not in the published network.
+                match join.basis.as_str() {
+                    JOIN_BASIS_NO_ROAD => {
+                        if join.road_path_length_m != 0 {
+                            return Err(
+                                "shared farm track join without a road route claims a road lane"
+                                    .into(),
+                            );
+                        }
+                    }
+                    JOIN_BASIS_CHEAPER => {
+                        if join.road_path_length_m > MAX_ACCESS_LENGTH as u64 {
+                            return Err(
+                                "shared farm track road alternative exceeds the unchanged 160m budget"
+                                    .into(),
+                            );
+                        }
+                        if join.road_path_length_m
+                            < field.access_length_m + JOIN_MIN_SAVING_M
+                        {
+                            return Err(
+                                "shared farm track join does not save the required lane metres"
+                                    .into(),
+                            );
+                        }
+                    }
+                    _ => {
+                        return Err("shared farm track join has an unknown cost basis".into());
                     }
                 }
             }
@@ -2002,6 +2159,11 @@ mod tests {
                     cell: [60, 180],
                     road_distance_m: 139,
                     chain_lanes: 1,
+                    // The cost rule's evidence. This lane replaces a 160 m road
+                    // route, so it saves 160 - 21 = 139 m and is legal while the
+                    // whole path back to the road stays inside the budget.
+                    basis: JOIN_BASIS_CHEAPER.into(),
+                    road_path_length_m: 160,
                 }),
                 contour_shape: None,
             });
@@ -3044,6 +3206,761 @@ mod tests {
         assert!(verify_field_shapes(&legal(), &wide, &gentle, big_water, &big_entities).is_ok());
     }
 
+    /// A 160 m corridor whose only road is a reachable 8 m x 64 m edge strip on
+    /// its east side, with one authored agricultural source covering the whole
+    /// corridor. Every candidate can reach that road by itself, so nothing here
+    /// can be justified by "no road route exists": the only reason a lane may
+    /// end on an already realized track is the round-16 cost rule. The fields
+    /// nearest the road lay their lanes first; the fields behind them sit a few
+    /// metres from those lanes and tens of metres from the road, which is the
+    /// configuration a real field-track network exists for.
+    fn lane_corridor_fixture() -> (
+        SceneSpec,
+        LandcoverPlan,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<EntityInstance>,
+    ) {
+        let scene = SceneSpec {
+            scene_id: "corridor".into(),
+            width_m: 160,
+            depth_m: 160,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let zones = vec![LandUseZone {
+            id: "rural".into(),
+            kind: "rural".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 160,
+            depth_m: 160,
+            source: "fixture".into(),
+        }];
+        let roads = RoadNetworkPlan {
+            automatic_extensions: None,
+            frontage: None,
+            base_profile_rejections: Vec::new(),
+            roadside_site_rejections: Vec::new(),
+            extensions: vec![],
+            model: "test".into(),
+            natural_heightfield_hash: "test".into(),
+            scene_id: scene.scene_id.clone(),
+            status: "planned".into(),
+            grid_spacing_m: 64,
+            max_roadbed_fill_m: 6.,
+            level_m: Some(0),
+            candidates: 1,
+            rejected_water: 0,
+            rejected_relief: 0,
+            unselected_candidates: 0,
+            zoning_hash: None,
+            zoning_rejections: vec![],
+            service_outcomes: Vec::new(),
+            joint_layout: None,
+            nodes: vec![],
+            edges: vec![RoadEdge {
+                id: "road".into(),
+                from: 0,
+                to: 1,
+                world_x: 156,
+                world_z: 80,
+                length_m: 64,
+                rotation_y_deg: 90.,
+                natural_min_m: 0.,
+                natural_max_m: 0.,
+                profile: None,
+            }],
+            roadside_sites: vec![],
+        };
+        let development_plan = development::plan(&scene, &zones, &roads).unwrap();
+        let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
+        let template = plan.cells[0].clone();
+        plan.cells = [Rect {
+            x: 0,
+            z: 0,
+            width_m: 160,
+            depth_m: 160,
+        }]
+        .into_iter()
+        .enumerate()
+        .map(|(index, boundary)| {
+            let mut cell = template.clone();
+            cell.id = format!("corridor.cell.{index}");
+            cell.boundary = boundary;
+            cell.role = LandcoverRole::AgricultureCandidate;
+            cell
+        })
+        .collect();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        let chunk = crate::worldgen::STREAM_CHUNK_METERS;
+        let mut z = 0_u32;
+        while z < scene.depth_m {
+            let tall = (scene.depth_m - z).min(chunk);
+            terrain
+                .insert_chunk(
+                    0,
+                    z as i32,
+                    160,
+                    tall,
+                    &0_i16.to_le_bytes().repeat((160 * tall) as usize),
+                )
+                .unwrap();
+            z += chunk;
+        }
+        let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::Value::Null);
+        (scene, plan, terrain, water, roads.entities())
+    }
+
+    /// Locked bytes of the road-only agriculture surface on the corridor
+    /// fixture. Measured on the tree that still had the round-11 trigger, so
+    /// this constant is the pre-round-16 output itself, not a snapshot taken
+    /// after the change: the opt-in rule may only add keys inside
+    /// `sharedTrack`, never move a byte of a world that did not enable it.
+    const LEGACY_CORRIDOR_HASH: &str =
+        "5c190930018a7e431c6517cefddfadce3139bc4bfe14c738bfcb055ec20c65a3";
+    /// The same freeze on the barrier fixture, also measured before the cost
+    /// rule existed: 6 fields, all on direct axis routes.
+    const LEGACY_BARRIER_HASH: &str =
+        "8640b13d32c179799db63f5ff21fef8bd3e30fdb4ecdd8db0ba902beb0dc38dc";
+
+    fn joins(realization: &AgricultureRealization) -> Vec<(u64, u64, u64, String, u64)> {
+        realization
+            .fields
+            .iter()
+            .filter_map(|field| {
+                field.shared_track.as_ref().map(|join| {
+                    (
+                        field.access_length_m,
+                        join.road_path_length_m,
+                        join.road_path_length_m
+                            .saturating_sub(field.access_length_m),
+                        join.basis.clone(),
+                        field.access_length_m + join.road_distance_m,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// Requirement 1: with the switch off the published bytes are the
+    /// pre-round-16 bytes, on both fixtures, and the new cost rule cannot even
+    /// run: the corridor hands every field a real road route, so a trigger that
+    /// only fires on cost has nothing to compare and the output stays exactly as
+    /// it was.
+    #[test]
+    fn the_shared_track_switch_off_keeps_the_published_bytes_frozen() {
+        let (scene, plan, terrain, water, entities) = lane_corridor_fixture();
+        let off = with_track_network(&plan, false);
+        let (realization, patches) =
+            realize(&scene, &off, &terrain, water, &entities, &[]).unwrap();
+        assert_eq!(realization.model, "explicit-rectangular-field-access-v3");
+        assert_eq!(realization.fields.len(), 24);
+        assert!(joins(&realization).is_empty());
+        // 2120 m of new lane and 16832 m2 of field/track surface: the road-only
+        // cost of this corridor, frozen.
+        assert_eq!(
+            realization
+                .fields
+                .iter()
+                .map(|field| field.access_length_m)
+                .sum::<u64>(),
+            2120
+        );
+        assert_eq!(
+            patches
+                .iter()
+                .map(|patch| patch.vertices.len() / 4)
+                .sum::<usize>(),
+            16832
+        );
+        let bytes = serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap();
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("sharedTrack"),
+            "the off switch must not publish a shared-track field"
+        );
+        assert_eq!(blake3::hash(&bytes).to_hex().to_string(), LEGACY_CORRIDOR_HASH);
+        // A second fixture, frozen independently: proving the off path is
+        // untouched is only meaningful on more than one input.
+        let (scene, _, plan, terrain, water, entities) = barrier_fixture();
+        let (barrier, barrier_patches) = realize(
+            &scene,
+            &with_track_network(&plan, false),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(barrier.fields.len(), 6);
+        assert!(barrier
+            .fields
+            .iter()
+            .all(|field| field.access_method == "direct_axis_route"));
+        assert_eq!(
+            blake3::hash(&serde_json::to_vec(&(barrier, barrier_patches)).unwrap())
+                .to_hex()
+                .to_string(),
+            LEGACY_BARRIER_HASH
+        );
+    }
+
+    /// Requirement 2: with the switch on, the cost rule fires on a fixture where
+    /// every field already has a road route, and every join it accepts publishes
+    /// the comparison it won on: at least `JOIN_MIN_SAVING_M` metres of new lane
+    /// fewer than the road route, and a whole path back to a real road inside
+    /// the unchanged 160 m. On the barrier fixture the same switch still adds
+    /// fields, so the two effects are measured side by side.
+    #[test]
+    fn a_cheaper_join_lays_fewer_new_lane_metres_than_the_road_route() {
+        let (scene, plan, terrain, water, entities) = lane_corridor_fixture();
+        let (off, _) = realize(
+            &scene,
+            &with_track_network(&plan, false),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        let (on, on_patches) = realize(
+            &scene,
+            &with_track_network(&plan, true),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(on.model, "explicit-rectangular-field-access-v4-shared-tracks");
+        // Same fields, different access: this fixture cannot justify a join by
+        // "no road route", so all nine are cost decisions.
+        assert_eq!(on.fields.len(), off.fields.len());
+        assert_eq!(on.fields.len(), 24);
+        let mut savings = vec![];
+        let mut totals = vec![];
+        for (len, road, saving, basis, total) in joins(&on) {
+            assert_eq!(basis, JOIN_BASIS_CHEAPER);
+            // The first condition of the new rule, on published numbers.
+            assert!(saving >= JOIN_MIN_SAVING_M, "join saved only {saving} m");
+            assert_eq!(road, len + saving);
+            // The second condition, unchanged: the whole way back to a road.
+            assert!(total <= MAX_ACCESS_LENGTH as u64);
+            savings.push(saving);
+            totals.push(total);
+        }
+        savings.sort_unstable();
+        totals.sort_unstable();
+        assert_eq!(savings, vec![44, 46, 80, 86, 86, 108, 114, 114, 142]);
+        assert_eq!(totals, vec![60, 88, 88, 110, 116, 116, 138, 144, 144]);
+        // What the rule buys, measured over the whole fixture: 2120 -> 1300 m of
+        // new lane and 16832 -> 16632 m2 of laid surface, with the same fields.
+        assert_eq!(
+            on.fields
+                .iter()
+                .map(|field| field.access_length_m)
+                .sum::<u64>(),
+            1300
+        );
+        assert_eq!(
+            on_patches
+                .iter()
+                .map(|patch| patch.vertices.len() / 4)
+                .sum::<usize>(),
+            16632
+        );
+        // The switch still only ever ADDS on a source where the road search
+        // cannot finish: 6 -> 15 fields, all nine joins declared as having no
+        // road alternative rather than as a saving.
+        let (scene, _, plan, terrain, water, entities) = barrier_fixture();
+        let (plain, _) = realize(
+            &scene,
+            &with_track_network(&plan, false),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        let (shared, _) = realize(
+            &scene,
+            &with_track_network(&plan, true),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(plain.fields.len(), 6);
+        assert_eq!(shared.fields.len(), 15);
+        assert!(shared.fields.len() > plain.fields.len());
+        let barrier_joins = joins(&shared);
+        assert_eq!(barrier_joins.len(), 9);
+        for (_, road, _, basis, total) in barrier_joins {
+            assert_eq!(basis, JOIN_BASIS_NO_ROAD);
+            assert_eq!(road, 0, "a join with no road route claims none");
+            assert!(total <= MAX_ACCESS_LENGTH as u64);
+        }
+    }
+
+    /// Requirement 3: an access whose whole path back to a real road overruns
+    /// the unchanged 160 m is refused by name, and the refusal is recomputable:
+    /// the corridor publishes exactly one such field, and a forged join that
+    /// hides the overrun inside `road_distance_m` fails the same named check.
+    #[test]
+    fn a_join_over_the_unchanged_budget_is_refused_by_name() {
+        let (scene, plan, terrain, water, entities) = lane_corridor_fixture();
+        let (on, _) = realize(
+            &scene,
+            &with_track_network(&plan, true),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        let over: Vec<_> = on
+            .rejected_fields
+            .iter()
+            .filter(|rejection| {
+                rejection
+                    .reason
+                    .contains("access_via_existing_track_exceeds_budget")
+            })
+            .collect();
+        assert_eq!(over.len(), 1);
+        assert_eq!(
+            over[0].reason,
+            "no_verified_access:access_via_existing_track_exceeds_budget|no_target_road"
+        );
+        // No published access, joined or not, may spend more than 160 m.
+        for field in &on.fields {
+            let spent = field
+                .shared_track
+                .as_ref()
+                .map_or(0, |join| join.road_distance_m);
+            assert!(field.access_length_m + spent <= MAX_ACCESS_LENGTH as u64);
+        }
+        // Forge the overrun on a real published join: the lane is still 14 m and
+        // its join is still the owner's, but the claim now totals 161 m.
+        let victim = on
+            .fields
+            .iter()
+            .find(|field| field.access_length_m == 14 && field.shared_track.is_some())
+            .expect("the corridor publishes a 14 m joined lane");
+        let mut forged = on.clone();
+        let field = forged
+            .fields
+            .iter_mut()
+            .find(|other| other.id == victim.id)
+            .unwrap();
+        assert_eq!(
+            field.access_length_m
+                + field.shared_track.as_ref().unwrap().road_distance_m,
+            60
+        );
+        field.shared_track.as_mut().unwrap().road_distance_m = 161 - field.access_length_m;
+        assert_eq!(
+            verify_access_network(&forged, &entities).unwrap_err(),
+            "agricultural access exceeds the unchanged 160m budget"
+        );
+        // And the same for a chain that only overruns once the inherited metres
+        // are counted: the budget is cumulative metres, never hops.
+        let mut chain = on.clone();
+        let field = chain
+            .fields
+            .iter_mut()
+            .find(|other| other.id == victim.id)
+            .unwrap();
+        field.shared_track.as_mut().unwrap().road_distance_m = 160;
+        assert_eq!(
+            verify_access_network(&chain, &entities).unwrap_err(),
+            "agricultural access exceeds the unchanged 160m budget"
+        );
+    }
+
+    /// Requirement 4: the threshold is a cost rule, never a licence. With it
+    /// driven to zero (a "negative" threshold saturates to the same thing: a
+    /// lane can never save fewer than zero metres) the generator does admit
+    /// joins it would otherwise refuse, and every hard limit still holds - same
+    /// fields, same geometry, and every published path still inside the 160 m
+    /// budget. The audit then refuses those records by name, so the threshold is
+    /// enforced independently of whoever ran the generator.
+    #[test]
+    fn a_zero_saving_threshold_changes_no_hard_limit() {
+        let (scene, plan, terrain, water, entities) = lane_corridor_fixture();
+        let on = with_track_network(&plan, true);
+        let (strict, _) = realize_with_query(
+            &scene,
+            &on,
+            &terrain,
+            water,
+            &entities,
+            JOIN_MIN_SAVING_M,
+            |_, _| false,
+        )
+        .unwrap();
+        let (loose, loose_patches) =
+            realize_with_query(&scene, &on, &terrain, water, &entities, 0, |_, _| false).unwrap();
+        assert!(verify_access_network(&strict, &entities).is_ok());
+        // The lowered threshold admits two more joins, and they are cheaper by
+        // 24 m and 6 m: exactly the records the threshold exists to refuse.
+        assert_eq!(joins(&strict).len(), 9);
+        assert_eq!(joins(&loose).len(), 10);
+        assert_eq!(
+            joins(&loose)
+                .iter()
+                .map(|(_, _, saving, _, _)| *saving)
+                .min(),
+            Some(6)
+        );
+        // No hard limit moved: the fields are identical, every join is still a
+        // real reuse of an older lane, and every whole path stays inside 160 m.
+        assert_eq!(loose.fields.len(), strict.fields.len());
+        assert_eq!(loose.rejected_fields, strict.rejected_fields);
+        for (left, right) in loose.fields.iter().zip(&strict.fields) {
+            assert_eq!(left.boundary, right.boundary);
+            assert_eq!(left.cultivated, right.cultivated);
+        }
+        for (_, _, _, basis, total) in joins(&loose) {
+            assert_eq!(basis, JOIN_BASIS_CHEAPER);
+            assert!(total <= MAX_ACCESS_LENGTH as u64, "a lane over budget");
+        }
+        // Measured: the loosest threshold still publishes totals in 62..=144 m.
+        let mut loose_totals: Vec<u64> = joins(&loose).iter().map(|row| row.4).collect();
+        loose_totals.sort_unstable();
+        assert_eq!(
+            loose_totals,
+            vec![62, 66, 82, 88, 110, 116, 116, 138, 144, 144]
+        );
+        let loose_cells = loose_patches
+            .iter()
+            .map(|patch| patch.vertices.len() / 4)
+            .sum::<usize>();
+        assert_eq!(loose_cells, 16572);
+        // The audit refuses the same realization by name: a threshold of zero is
+        // not allowed to publish a join that saves less than the contract.
+        assert_eq!(
+            verify_access_network(&loose, &entities).unwrap_err(),
+            "shared farm track join does not save the required lane metres"
+        );
+    }
+
+    /// Requirement 5: every published number a join rests on is re-derived, and
+    /// a forged one fails by name: the join square, the metres the chain spends
+    /// back to a road, the chain length, the road alternative it claims to beat
+    /// and the basis that says which trigger accepted it.
+    #[test]
+    fn the_access_audit_detects_a_forged_join_record() {
+        let (scene, plan, terrain, water, entities) = lane_corridor_fixture();
+        let (on, _) = realize(
+            &scene,
+            &with_track_network(&plan, true),
+            &terrain,
+            water,
+            &entities,
+            &[],
+        )
+        .unwrap();
+        assert!(verify_access_network(&on, &entities).is_ok());
+        let id = on
+            .fields
+            .iter()
+            .find(|field| field.shared_track.is_some())
+            .unwrap()
+            .id
+            .clone();
+        let forged = |edit: &dyn Fn(&mut FarmField)| {
+            let mut copy = on.clone();
+            edit(copy.fields.iter_mut().find(|field| field.id == id).unwrap());
+            verify_access_network(&copy, &entities)
+        };
+        // The square the lane claims to join must be the square it ends on.
+        assert_eq!(
+            forged(&|field| field.shared_track.as_mut().unwrap().cell = [0, 0]).unwrap_err(),
+            "shared farm track lane does not end on its join"
+        );
+        // The metres the joined square already spends are recomputed from the
+        // older lane, never read from the record.
+        assert_eq!(
+            forged(&|field| field.shared_track.as_mut().unwrap().road_distance_m += 2)
+                .unwrap_err(),
+            "shared farm track join differs from the realized network"
+        );
+        assert_eq!(
+            forged(&|field| field.shared_track.as_mut().unwrap().chain_lanes = 7).unwrap_err(),
+            "shared farm track join differs from the realized network"
+        );
+        // A saving that is smaller than the threshold is a forged cost claim.
+        assert_eq!(
+            forged(&|field| {
+                let join = field.shared_track.as_mut().unwrap();
+                join.road_path_length_m = field.access_length_m + JOIN_MIN_SAVING_M - 1;
+            })
+            .unwrap_err(),
+            "shared farm track join does not save the required lane metres"
+        );
+        // A road route longer than the road search's own budget is impossible.
+        assert_eq!(
+            forged(&|field| {
+                field.shared_track.as_mut().unwrap().road_path_length_m = 161;
+            })
+            .unwrap_err(),
+            "shared farm track road alternative exceeds the unchanged 160m budget"
+        );
+        // A join that says it had no road route may not claim one.
+        assert_eq!(
+            forged(&|field| {
+                field.shared_track.as_mut().unwrap().basis = JOIN_BASIS_NO_ROAD.into();
+            })
+            .unwrap_err(),
+            "shared farm track join without a road route claims a road lane"
+        );
+        // An unknown basis is not a third trigger.
+        assert_eq!(
+            forged(&|field| {
+                field.shared_track.as_mut().unwrap().basis = "cheapest".into();
+            })
+            .unwrap_err(),
+            "shared farm track join has an unknown cost basis"
+        );
+        // The published lane length is the length of the published path.
+        assert_eq!(
+            forged(&|field| field.access_length_m += 2).unwrap_err(),
+            "agricultural lane length differs from its own path"
+        );
+        // Dropping the join leaves a lane that ends on a track, not on a road.
+        assert_eq!(
+            forged(&|field| {
+                field.shared_track = None;
+                field.access_method = "bounded_grid_detour".into();
+            })
+            .unwrap_err(),
+            "agricultural lane does not reach a road footprint"
+        );
+    }
+
+    /// Round-16 measurement, on an already published 1 km world and with no
+    /// world generation at all: replay `agriculture::realize` over the same
+    /// terrain, entities and access surfaces, changing nothing but the opt-in
+    /// policy and the threshold it compares against. `GLYPHWEAVE_AUDIT_WORLD`
+    /// names the published world and `GLYPHWEAVE_AUDIT_REPORT` a fresh report
+    /// path; the first run must reproduce the published agriculture bytes.
+    #[test]
+    #[ignore = "explicit 1 km published-world replay; requires GLYPHWEAVE_AUDIT_WORLD"]
+    fn shared_track_cost_rule_replay_on_a_published_world() {
+        use super::super::landuse_ledger;
+        use crate::worldgen::{
+            LandUseProfile, SceneIndex, WorldManifest, bake_access_surfaces, build_access_graph,
+            water_kind,
+        };
+        let root = std::path::PathBuf::from(
+            std::env::var_os("GLYPHWEAVE_AUDIT_WORLD").expect("set a completed world path"),
+        );
+        let manifest: WorldManifest = serde_json::from_reader(std::io::BufReader::new(
+            std::fs::File::open(root.join("glyphweave.manifest.json")).unwrap(),
+        ))
+        .unwrap();
+        let spec = &manifest.scenes[0];
+        let folder = root.join("scenes").join(&spec.scene_id);
+        let mut scene: SceneIndex = serde_json::from_reader(std::io::BufReader::new(
+            std::fs::File::open(folder.join("scene.json")).unwrap(),
+        ))
+        .unwrap();
+        let mut terrain = BakedTerrain::new(spec).unwrap();
+        for chunk in &scene.chunks {
+            terrain
+                .insert_chunk(
+                    chunk.world_x,
+                    chunk.world_z,
+                    chunk.valid_width_m,
+                    chunk.valid_depth_m,
+                    &std::fs::read(folder.join(&chunk.height_file)).unwrap(),
+                )
+                .unwrap();
+        }
+        terrain.require_complete().unwrap();
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            spec,
+            &manifest.style,
+        );
+        let access = bake_access_surfaces(
+            &build_access_graph(&scene.entities, &terrain, water),
+            &terrain,
+        )
+        .unwrap_or_default();
+        let plan = scene.landcover_plan.as_ref().unwrap().clone();
+        let profile = LandUseProfile::from_style(&manifest.style).expect("land use profile");
+        let published = scene.landcover_surfaces.as_ref().unwrap().clone();
+        let published_agriculture = (
+            published.agriculture.clone(),
+            published
+                .patches
+                .iter()
+                .filter(|patch| {
+                    matches!(
+                        patch.material,
+                        Material::CultivatedSoil | Material::FieldHeadland | Material::FarmTrack
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        let mut runs = vec![];
+        let pedestrian = super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
+        let mut configs = vec![
+            ("published", plan.clone(), JOIN_MIN_SAVING_M),
+            (
+                "trackNetworkOff",
+                with_pattern(&plan, pattern((24, 24), None, false)),
+                JOIN_MIN_SAVING_M,
+            ),
+        ];
+        // The threshold sweep the round-16 report needs: the same policy, the
+        // same inputs, only the number the trigger compares against moves.
+        for min_saving in [0_u64, 20, 30, 40, 60, 80, 120] {
+            configs.push((
+                Box::leak(format!("trackNetworkOn{min_saving}").into_boxed_str()),
+                with_pattern(&plan, pattern((24, 24), None, true)),
+                min_saving,
+            ));
+        }
+        for (name, config, min_saving) in configs {
+            let started = std::time::Instant::now();
+            let (realization, patches) = realize_with_query(
+                spec,
+                &config,
+                &terrain,
+                water,
+                &scene.entities,
+                min_saving,
+                |x, z| pedestrian.overlaps_cell(x, z),
+            )
+            .unwrap();
+            let seconds = started.elapsed().as_secs_f64();
+            let audit = verify_access_network(&realization, &scene.entities);
+            if name == "published" {
+                // The control: the replay must reproduce the published bytes.
+                assert_eq!(
+                    blake3::hash(&serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap())
+                        .to_hex()
+                        .to_string(),
+                    blake3::hash(&serde_json::to_vec(&published_agriculture).unwrap())
+                        .to_hex()
+                        .to_string(),
+                    "the published world no longer reproduces its own agriculture"
+                );
+            }
+            {
+                let surfaces = scene.landcover_surfaces.as_mut().unwrap();
+                surfaces.agriculture = realization.clone();
+                surfaces.patches.retain(|patch| {
+                    !matches!(
+                        patch.material,
+                        Material::CultivatedSoil | Material::FieldHeadland | Material::FarmTrack
+                    )
+                });
+                surfaces.patches.extend(patches.iter().cloned());
+            }
+            let ledger = landuse_ledger::analyze(&scene, &profile).expect("ledger");
+            let rural = &ledger.by_purpose["rural"];
+            let mut reasons = BTreeMap::<String, usize>::new();
+            for rejection in &realization.rejected_fields {
+                let token = rejection
+                    .reason
+                    .split('|')
+                    .map(|part| part.trim_start_matches("no_verified_access:"))
+                    .collect::<BTreeSet<_>>();
+                for part in token {
+                    *reasons.entry(part.to_string()).or_default() += 1;
+                }
+            }
+            let joined: Vec<_> = realization
+                .fields
+                .iter()
+                .filter_map(|field| {
+                    field.shared_track.as_ref().map(|join| {
+                        (
+                            field.access_length_m,
+                            join.road_path_length_m,
+                            join.road_path_length_m
+                                .saturating_sub(field.access_length_m),
+                            join.basis.clone(),
+                            field.access_length_m + join.road_distance_m,
+                        )
+                    })
+                })
+                .collect();
+            let by_basis = |basis: &str| joined.iter().filter(|row| row.3 == basis).count();
+            let saving = |text: &str| {
+                reasons
+                    .iter()
+                    .filter(|(reason, _)| reason.contains(text))
+                    .map(|(_, count)| *count)
+                    .sum::<usize>()
+            };
+            runs.push(serde_json::json!({
+                "config": name,
+                "model": realization.model,
+                "fields": realization.fields.len(),
+                "joins": joined.len(),
+                "joinsCheaper": by_basis(JOIN_BASIS_CHEAPER),
+                "joinsNoRoad": by_basis(JOIN_BASIS_NO_ROAD),
+                "savings": joined.iter().map(|row| row.2).collect::<Vec<_>>(),
+                "totals": joined.iter().map(|row| row.4).collect::<Vec<_>>(),
+                "newLaneMetres": realization.fields.iter().map(|f| f.access_length_m).sum::<u64>(),
+                "farmTrackM2": patches
+                    .iter()
+                    .filter(|patch| patch.material == Material::FarmTrack)
+                    .map(|patch| patch.vertices.len() / 4)
+                    .sum::<usize>(),
+                "rejections": realization.rejected_fields.len(),
+                "reasons": reasons,
+                "accessViaExistingTrackExceedsBudget": saving(
+                    "access_via_existing_track_exceeds_budget"
+                ),
+                "noSharedTrackWithinBudget": saving("no_shared_track_within_budget"),
+                "noVerifiedDetour": saving("no_verified_detour"),
+                "noRoadWithinDirectAccessBudget": saving("no_road_within_direct_access_budget"),
+                "accessAudit": audit.as_ref().err().cloned(),
+                "ruralRealizedM2": rural.realized_m2,
+                "ruralPlannedM2": rural.planned_m2,
+                "ruralUnresolvedM2": rural.unresolved_m2,
+                "seconds": seconds,
+            }));
+        }
+        // Turning the policy on must not cost a field the road-only rule could
+        // realize, and every join it does publish must be inside the budget.
+        for run in &runs {
+            for total in run["totals"].as_array().into_iter().flatten() {
+                assert!(total.as_u64().unwrap() <= MAX_ACCESS_LENGTH as u64);
+            }
+        }
+        let report = serde_json::json!({
+            "format": "glyphweave.shared-farm-track-cost-replay",
+            "world": root,
+            "sceneId": spec.scene_id,
+            "sizeM": [spec.width_m, spec.depth_m],
+            "entities": scene.entities.len(),
+            "runs": runs,
+        });
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_AUDIT_REPORT") {
+            std::io::Write::write_all(
+                &mut std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(std::path::PathBuf::from(path))
+                    .expect("the audit report path must not already exist"),
+                &serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
+        }
+        eprintln!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
     #[test]
     #[ignore = "explicit 1 km published-world measurement; requires GLYPHWEAVE_AUDIT_WORLD"]
     fn contour_shape_audit_of_a_published_world() {
@@ -3252,7 +4169,7 @@ mod tests {
         let access=vec![AccessSurface{version:1,entity_id:"pedestrian".into(),anchor_id:"front".into(),road_id:"road".into(),width_m:1.5,
             vertices:vec![[0.,0.,44.],[159.,0.,44.75],[0.,0.,45.5],[32.,0.,0.],[33.,0.,159.],[34.,0.,0.]],triangles:vec![[0,1,2],[3,5,4]]}];
         let index=super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
-        let reference=realize_with_query(&s,&p,&t,w,&e,|x,z|index.linear_reference(x,z)).unwrap();
+        let reference=realize_with_query(&s,&p,&t,w,&e,JOIN_MIN_SAVING_M,|x,z|index.linear_reference(x,z)).unwrap();
         let optimized=realize(&s,&p,&t,w,&e,&access).unwrap();
         assert!(serde_json::to_vec(&reference).unwrap()==serde_json::to_vec(&optimized).unwrap());
         assert!(!optimized.0.fields.is_empty());assert!(!optimized.0.rejected_fields.is_empty());
@@ -3280,7 +4197,7 @@ mod tests {
         let setup_seconds=setup.elapsed().as_secs_f64();
         eprintln!("reference benchmark inputs loaded in {setup_seconds}s; starting linear agriculture");
         let start=std::time::Instant::now();
-        let old=realize_with_query(spec,plan,&terrain,water,&scene.entities,|x,z|index.linear_reference(x,z)).unwrap();
+        let old=realize_with_query(spec,plan,&terrain,water,&scene.entities,JOIN_MIN_SAVING_M,|x,z|index.linear_reference(x,z)).unwrap();
         let reference_seconds=start.elapsed().as_secs_f64();
         eprintln!("linear agriculture complete in {reference_seconds}s; starting indexed agriculture");
         let start=std::time::Instant::now();let new=realize(spec,plan,&terrain,water,&scene.entities,&access).unwrap();let indexed_seconds=start.elapsed().as_secs_f64();

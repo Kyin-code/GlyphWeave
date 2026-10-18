@@ -45,10 +45,18 @@ const BUDGET_MS: u128 = 90_000;
 /// the default test only tolerates *exactly* this set, so a fix (or a new
 /// regression) can never be silent. See the `findings` array of
 /// `bevy/work/rk-x/b05-multiseed.json` for the diagnosis.
-const EXPECTED_FINDINGS: [&str; 2] = [
-    "at least one seed realises more fields through shared farm tracks",
-    "shared farm tracks are recorded when enabled and never when disabled",
-];
+///
+/// Round 16 removed "shared farm tracks are recorded when enabled and never when
+/// disabled": the detour pass now takes a join whenever it lays at least 40 m
+/// fewer new lane metres than the road route, so the enabled seeds publish joins
+/// (seed 7: 3 fields on an older lane, seed 2026 at the shifted origin: 7; seed
+/// 42 and seed 2026 keep 0) while the road-endpoints-only control still
+/// publishes none. The field-count finding stays: at 512 m every rural cell
+/// already reaches a road inside the 160 m budget, so no cell needs a join to
+/// become a field, and the growth Round 16 measured is on the 1 km world
+/// (100 -> 103 fields, 29 joins) where such cells exist.
+const EXPECTED_FINDINGS: [&str; 1] =
+    ["at least one seed realises more fields through shared farm tracks"];
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1151,11 +1159,10 @@ fn b05_multiseed_acceptance_record() {
             {
                 "id": "shared-farm-track-never-added-a-field-at-512m",
                 "checks": [
-                    "at least one seed realises more fields through shared farm tracks",
-                    "shared farm tracks are recorded when enabled and never when disabled"
+                    "at least one seed realises more fields through shared farm tracks"
                 ],
                 "class": "product-behaviour-limit",
-                "detail": "With the shared farm-track model on, every seed publishes exactly the same field set as the road-endpoints-only control (seed 7: 12 = 12, seed 42: 22 = 22, seed 2026: 4 = 4 in the 32x24/24x24 matrix) and zero `sharedTrack` joins. agriculture::realize only attempts a join in the detour pass, after the direct road search is proven impossible, and it requires a legal 1 m spur onto an already-realised lane within the same 160 m budget. At 512 m every rural cell touches a road-first road within that budget, so the precondition never becomes true; the feature is therefore exercised but dormant at this fixture size. The unit fixture that does trigger it (agriculture::barrier_fixture) needs a 4 m road no 2 m centre lattice can stand on, i.e. a barrier production road-first planning does not create."
+                "detail": "With the shared farm-track model on, no seed publishes one more field than the road-endpoints-only control at 512 m (seed 7: 12 = 12, seed 42: 22 = 22, seed 2026: 4 = 4, seed 2026 at the shifted origin: 17 = 17 in the 32x24/24x24 matrix), because every rural cell there already reaches a road-first road inside the 160 m access budget. Round 16 removed the dormancy that used to hide this: the detour pass no longer waits for the direct road search to be proven impossible before it considers an already realised lane, it takes the join whenever the join lays at least 40 m fewer new lane metres than the road route while the whole way back to a road stays inside the same 160 m, so the enabled side now really does publish joins (seed 7: 3 fields, seed 2026 at the shifted origin: 7, seed 42 and seed 2026: 0) and the road-endpoints-only control still publishes none. What is left is the field COUNT, which at 512 m is bounded by the candidate set rather than by the rule: no cell is far enough from every road and close enough to a realised lane for a join to be the difference between a field and a rejection. On the published 1 km world the same rule realises 100 -> 103 fields with 29 joins (26 cost-based, 3 with no road route at all) and publishes 1778 m fewer new lane, which is where the growth and the saving show up."
             },
             {
                 "id": "converted-shop-rear-yards-claimed-480m2-of-protected-land",
