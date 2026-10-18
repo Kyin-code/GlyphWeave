@@ -748,6 +748,13 @@ fn realize_with_query(
             if water.intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5) {
                 return Err("water_intersection");
             }
+            // The shoreline public passage band is reserved public ground with
+            // its own realized surface (opt-in waterfront only), so a field may
+            // never claim it: two surfaces on one square metre would be credited
+            // twice in the ledger.
+            if water.shore_band_cell(x as i32, z as i32) {
+                return Err("shore_public_band_reserved");
+            }
             if water_features
                 .iter()
                 .any(|e| landcover::obstacle_intersects(e, x, z))

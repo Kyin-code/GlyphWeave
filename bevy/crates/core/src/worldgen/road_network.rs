@@ -367,6 +367,38 @@ pub(super) fn road_rect_distance(entity: &EntityInstance, x: i32, z: i32) -> f64
 /// the caller must keep the legacy 2/2/2 parcel ring)`.
 type RoadsidePlacement = (i32, i32, Option<i64>, [i32; 2], bool);
 
+/// The half extents of a roadside pad's published AUDIT window, in world axes:
+/// the pad plus the 2 m apron its carve, its flat-top audit and its descriptor
+/// clearance all work on. Derived from the same function the planner and the
+/// audit use, so the three cannot disagree about what ground a pad owns.
+pub(super) fn pad_audit_half_extents(
+    width_m: f32,
+    depth_m: f32,
+    rotation_y_deg: f32,
+) -> (f64, f64) {
+    super::support_pad_half_extents(width_m, depth_m, rotation_y_deg, true)
+}
+
+/// The elevation of a road's OWN graded surface at a world point, millimetres.
+///
+/// A profiled road publishes a `RoadProfile` and the surface is read from it at
+/// the footprint's own along-axis station - the same `height_at` the frontage
+/// path, the carve and the audit use. An unprofiled road is flat on its own
+/// published `world_y` / `bottom_offset_m`, which is that road's surface and
+/// nothing else.
+///
+/// This exists because a waterfront pad may no longer be declared on the
+/// network's single `level_m`: on a shore the bank, the quay and the crossing
+/// deck sit at different heights, so the pad has to stand on the surface of the
+/// road it fronts, at the station it fronts it.
+fn road_surface_mm_at(road: &EntityInstance, x: f64, z: f64) -> Option<i64> {
+    match &road.grounding.road_profile {
+        Some(profile) => profile.height_at(x, z).map(|h| (h * 1000.).round() as i64),
+        None => Some((f64::from(road.ground_height_m()) * 1000.).round() as i64),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn roadside_placement_candidates(
     e: &RoadEdge,
     side: i32,
@@ -376,6 +408,7 @@ fn roadside_placement_candidates(
     road_carves: &[super::TerrainCarve],
     pad_win: i32,
     scene: &SceneSpec,
+    waterfront: bool,
 ) -> Vec<RoadsidePlacement> {
     let centre = if e.rotation_y_deg == 0. {
         (
@@ -395,8 +428,34 @@ fn roadside_placement_candidates(
         [e.world_x, e.world_z],
         true,
     );
+    // Opt-in waterfront: a pad may only be declared on a level derived from its
+    // OWN road, so the centre placement carries that road's surface elevation (and
+    // its frontage point) instead of the legacy flat network level. The legacy
+    // 2 m parcel ring is kept: the pad clears the shore band by the clearance
+    // constant, so the ring (2 m wider) cannot reach it either.
+    let centre_surface_mm = |fallback: Option<i64>| -> Option<i64> {
+        if !waterfront {
+            return fallback;
+        }
+        road_entities
+            .iter()
+            .find(|entity| entity.entity_id == e.id)
+            .and_then(|road| {
+                road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z))
+            })
+            .or(fallback)
+    };
+    let waterfront_centre = centre_surface_mm(None).map(|mm| {
+        (
+            centre.0 as i32,
+            centre.1 as i32,
+            Some(mm),
+            [e.world_x, e.world_z],
+            true,
+        )
+    });
     let Some(profile) = e.profile.as_ref() else {
-        return vec![legacy];
+        return vec![waterfront_centre.unwrap_or(legacy)];
     };
     // A profiled edge the station scan cannot serve (short edge, or a station list
     // the frontage rule refuses) keeps the pre-R11 centre placement and its flat
@@ -404,7 +463,13 @@ fn roadside_placement_candidates(
     // of the road being profiled (D5's scope is the unprofiled neighbour), and
     // handing it back here re-opened the G1 yard shortfall in the frozen W1
     // fixture (51.0 -> 4419.0 m2) when measured.
-    let profiled_centre = (centre.0 as i32, centre.1 as i32, None, [e.world_x, e.world_z], false);
+    let profiled_centre = (
+        centre.0 as i32,
+        centre.1 as i32,
+        centre_surface_mm(None),
+        [e.world_x, e.world_z],
+        false,
+    );
     let Some(road_entity) = road_entities.iter().find(|entity| entity.entity_id == e.id) else {
         return vec![profiled_centre];
     };
@@ -468,7 +533,7 @@ fn roadside_placement_candidates(
             true,
             cx,
             cz,
-            None,
+            centre_surface_mm(None),
             [e.world_x, e.world_z],
             false,
         ));
@@ -1178,6 +1243,9 @@ pub(super) fn plan_with_zones_demand(
         // road's protected band (pavement + shoulder + graded band).
         let road_entities = result.entities();
         let road_carves = super::plan_terrain_carves(&road_entities);
+        // Opt-in waterfront: set once here so every gate below reads the SAME
+        // authorization the pads, the shore band and the audit all hang from.
+        let waterfront = water.road_water_crossings();
         let road_bands: Vec<(i64, i64, i64, i64)> = road_entities
             .iter()
             .map(|entity| {
@@ -1246,6 +1314,7 @@ pub(super) fn plan_with_zones_demand(
                     // `entrance_step_requires_engineering` refusal.
                     audit_win,
                     scene,
+                    waterfront,
                 );
                 for (x, z, station_own_mm, frontage_point, legacy_parcel) in candidates {
                 let (x, z) = (i64::from(x), i64::from(z));
@@ -1270,7 +1339,36 @@ pub(super) fn plan_with_zones_demand(
                     result.zoning_rejections.push(reject);
                     continue;
                 }
-                if water.intersects_axis_aligned(f64::from(x), f64::from(z), 14., 14.) {
+                if water.road_water_crossings() {
+                    // Opt-in waterfront: a pad stands on DRY land and keeps the
+                    // shore clearance the published scale audit already measures
+                    // (`water_query::WATER_SHORE_CLEARANCE_M`, one constant for
+                    // both). The footprint is dilated by that clearance, which
+                    // proves the distance rather than sampling it, and also proves
+                    // the lot owns no cell of the reserved shore band. The refusal
+                    // is NAMED: a silent skip is how a city ends up with no lots
+                    // and no explanation.
+                    if !water.clears_shore(
+                        f64::from(x),
+                        f64::from(z),
+                        f64::from(pad_win),
+                        f64::from(pad_win),
+                    ) {
+                        site_rejections.push(BaseProfileRejection {
+                            edge_id: format!(
+                                "generated.roadside.{}.{}.{side}",
+                                scene.scene_id, e.id
+                            ),
+                            category: "pad_touches_water_or_shore_band".into(),
+                            reason: format!(
+                                "site at ({x},{z}) on road {}: a 24x24 pad there would put water or the reserved shore clearance strip of {} m inside its own footprint",
+                                e.id,
+                                super::water_query::WATER_SHORE_CLEARANCE_M
+                            ),
+                        });
+                        continue;
+                    }
+                } else if water.intersects_axis_aligned(f64::from(x), f64::from(z), 14., 14.) {
                     continue;
                 }
                 if result.edges.iter().any(|r| {
@@ -1317,8 +1415,30 @@ pub(super) fn plan_with_zones_demand(
                 // and left unresolved.
                 // The pad's own level is the road's surface AT ITS STATION (the
                 // scanned frontage point), not at the edge's centre.
+                //
+                // Opt-in waterfront: the base of rule A' is the road's OWN graded
+                // surface (its profile at that station, or that road's published
+                // flat level when it carries no profile) instead of the network's
+                // single `level_m`. A shore is a multi-level surface - bank, quay
+                // and crossing deck stand at different heights - so a pad declared
+                // on the scene datum would either bury a lower neighbour or be
+                // buried by a higher one.
                 let gate_own_mm = station_own_mm;
-                let mut gate_declared_mm = gate_own_mm.unwrap_or(i64::from(level) * 1000);
+                let gate_base_mm = match gate_own_mm {
+                    Some(mm) => mm,
+                    // A placement without a station is the edge's centre one, whose
+                    // frontage point is the edge midpoint; its surface is the own
+                    // road's surface there.
+                    None if waterfront => road_entities
+                        .iter()
+                        .find(|entity| entity.entity_id == e.id)
+                        .and_then(|road| {
+                            road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z))
+                        })
+                        .unwrap_or(i64::from(level) * 1000),
+                    None => i64::from(level) * 1000,
+                };
+                let mut gate_declared_mm = gate_base_mm;
                 for zz in z - pad_win..=z + pad_win {
                     for xx in x - pad_win..=x + pad_win {
                         if let Some(h) = terrain.height(xx, zz) {
@@ -1371,15 +1491,18 @@ pub(super) fn plan_with_zones_demand(
                     });
                     continue;
                 }
-                if water.road_water_crossings() {
-                    // Opt-in waterfront: a pad is declared FLAT and its carve is
-                    // fill-only, so the ground inside the pad's audited window has
-                    // to be realizable within the roadbed fill contract. On a bank
-                    // or a shore shelf the natural ground drops several metres
-                    // inside that window, the pad would need far more fill than the
-                    // contract allows, and the final audit would refuse the site
-                    // after it had been placed. Refuse it HERE, by name.
-                    let declared_f = f64::from(level);
+                // Opt-in waterfront: the pad's flat top (rule A') is declared over
+                // the AUDIT window, because the published site audit requires every
+                // cell of the pad's 2 m apron to equal the declared level exactly.
+                // Its base is the pad's OWN road surface - the profile elevation at
+                // that station, or that road's published flat level when it carries
+                // no profile - raised to whatever a crossing road's fill-only ramp
+                // already demands inside that apron. A shore is a multi-level
+                // surface, so this base is per site and never the scene datum; the
+                // pad still needs no cut (the natural ground may never stand above
+                // it) and no more than the roadbed fill contract.
+                let waterfront_declared_mm: Option<i64> = if water.road_water_crossings() {
+                    let mut declared = gate_base_mm;
                     let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
                     for zz in z - audit_win..=z + audit_win {
                         for xx in x - audit_win..=x + audit_win {
@@ -1388,33 +1511,77 @@ pub(super) fn plan_with_zones_demand(
                             })?);
                             low = low.min(natural_m);
                             high = high.max(natural_m);
+                            let required = super::apply_terrain_carves(
+                                natural_m,
+                                xx,
+                                zz,
+                                &road_carves,
+                            );
+                            declared = declared.max((required * 1000.).round() as i64);
                         }
                     }
-                    if high - low > f64::from(max_fill)
+                    let declared_f = declared as f64 / 1000.;
+                    let own_road_f = gate_base_mm as f64 / 1000.;
+                    let entrance_limit = 24.0 * 0.080; // the road's own 80 mm/m grade over the 24 m offset
+                    // The apron is what an entrance can climb in one walkable cell.
+                    // A pad raised further above its OWN road than that cannot be
+                    // entered from the road it fronts: the checked route detours to a
+                    // different road and the development audit refuses the lot as
+                    // "no_verified_assigned_road_access". The same capacity already
+                    // decides `grading_leaves_no_enterable_pad`, so the two gates
+                    // cannot disagree about what "enterable" means.
+                    let apron_capacity = super::access::WALKABLE_GRADE
+                        * super::ENTRANCE_APRON_RUN_M
+                        * 1000.;
+                    let (category, reason) = if high > declared_f + 1e-9
                         || declared_f - low > f64::from(max_fill) + 1e-9
-                        // Every waterfront pad is flat on the NETWORK level. A pad
-                        // that would have to be declared above it (because the
-                        // ground inside its window already stands higher) would sit
-                        // at a different height from its neighbours, and a higher
-                        // pad's fill-only carve buries the lower one; the pad is
-                        // refused instead of being placed at a second level.
-                        || high > declared_f + 1e-9
+                        || high - low > f64::from(max_fill)
                     {
+                        (
+                            "pad_ground_exceeds_roadbed_contract",
+                            format!(
+                                "site at ({x},{z}) on road {}: its flat pad on {declared_f:.3} m would need {:.3} m of fill over natural {low:.3}..{high:.3} m (cap {max_fill} m, no excavation)",
+                                e.id,
+                                declared_f - low
+                            ),
+                        )
+                    } else if (declared - gate_base_mm) as f64 > apron_capacity + 1e-6 {
+                        (
+                            "pad_not_enterable_from_own_road",
+                            format!(
+                                "site at ({x},{z}) on road {}: its own graded surface stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step the {} m apron cannot carry",
+                                e.id,
+                                declared_f - own_road_f,
+                                super::ENTRANCE_APRON_RUN_M
+                            ),
+                        )
+                    } else if declared_f - own_road_f > entrance_limit + 1e-9 {
+                        (
+                            "entrance_grade_exceeds_contract",
+                            format!(
+                                "site at ({x},{z}) on road {}: its own road stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step (limit {entrance_limit:.3} m)",
+                                e.id,
+                                declared_f - own_road_f
+                            ),
+                        )
+                    } else {
+                        ("", String::new())
+                    };
+                    if !category.is_empty() {
                         site_rejections.push(BaseProfileRejection {
                             edge_id: format!(
                                 "generated.roadside.{}.{}.{side}",
                                 scene.scene_id, e.id
                             ),
-                            category: "pad_ground_exceeds_roadbed_contract".into(),
-                            reason: format!(
-                                "site at ({x},{z}) on road {}: its flat pad on {declared_f:.3} m would need {:.3} m of fill over natural {low:.3}..{high:.3} m (cap {max_fill} m, no excavation)",
-                                e.id,
-                                declared_f - low
-                            ),
+                            category: category.into(),
+                            reason,
                         });
                         continue;
                     }
-                }
+                    Some(declared)
+                } else {
+                    None
+                };
                 let own_mm = station_own_mm;
                 let Some(own_mm) = own_mm else {
                     // legacy / unprofiled adjacent road: keep the old flat-level path
@@ -1435,10 +1602,19 @@ pub(super) fn plan_with_zones_demand(
                     // whose station scan found no usable station keeps the legacy
                     // centre placement byte-identically, exactly as the scan's own
                     // contract states.
-                    let support_mm: Option<i32> = i32::try_from(gate_declared_mm)
-                        .ok()
-                        .filter(|_| e.profile.is_none())
-                        .filter(|mm| i64::from(*mm) != i64::from(level) * 1000);
+                    //
+                    // Opt-in waterfront: the pad takes the declaration derived above
+                    // (its own road's surface over the audited apron) and publishes it
+                    // as a precise `support_level_mm` with its frontage point, so it
+                    // is a real frontage lot with a checked entrance rather than a
+                    // flat pad nobody can walk to.
+                    let support_mm: Option<i32> = match waterfront_declared_mm {
+                        Some(declared) => i32::try_from(declared).ok(),
+                        None => i32::try_from(gate_declared_mm)
+                            .ok()
+                            .filter(|_| e.profile.is_none())
+                            .filter(|mm| i64::from(*mm) != i64::from(level) * 1000),
+                    };
                     result.roadside_sites.push(RoadsideSite {
                         program: None,
                         id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
@@ -1480,7 +1656,7 @@ pub(super) fn plan_with_zones_demand(
                     });
                     continue;
                 };
-                let mut declared_mm = own_mm;
+                let mut declared_mm = waterfront_declared_mm.unwrap_or(own_mm);
                 let mut worst_fill = f64::NEG_INFINITY;
                 // Same window as the station scan and the carve/audit: the pad
                 // plus the 2 m apron, so the declaration covers the door cell.
@@ -1937,34 +2113,21 @@ pub(super) fn plan_with_style_declared(
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
-    if water.road_water_crossings() {
-        // Opt-in waterfront: the roadside pad programme is refused as a whole.
-        //
-        // A pad is a FLAT 24x24 surface whose top the baked audit holds exactly,
-        // while everything around it is fill-only: a neighbouring lot that needs a
-        // platform a couple of metres higher raises the raster across the pad's
-        // own window and the pad is then buried - measured here as one
-        // `residential_home` pad at 7 m sitting under an `urban_building` platform
-        // at 9 m in the final raster, refused by the rules audit as
-        // "not grounded". Neither side can be repaired by earthwork, because
-        // excavating the bank is exactly what this contract forbids, and a shore is
-        // a multi-level surface by construction. So the pads are refused BY NAME
-        // (never silently dropped) and the road network - which is what the opt-in
-        // authorizes - is planned unchanged. A refusal keeps the plan honest: an
-        // audit can read, per pad, why the waterfront block carries no lots.
-        let mut refused = Vec::new();
-        for site in std::mem::take(&mut result.roadside_sites) {
-            refused.push(BaseProfileRejection {
-                edge_id: site.id.clone(),
-                category: "waterfront_pad_needs_a_second_level".into(),
-                reason: format!(
-                    "site at ({},{}) on road {} would be declared flat on {} m; a waterfront shore is a multi-level surface, and a neighbouring platform's fill-only carve would bury this pad while excavating the bank to meet it is forbidden",
-                    site.world_x, site.world_z, site.road_id, site.support_level_m
-                ),
-            });
-        }
-        result.roadside_site_rejections.extend(refused);
-    }
+    // Opt-in waterfront: the roadside pad programme is NOT refused as a whole any
+    // more, and the reason it used to be is worth recording because this used to
+    // be the difference between a planned city and an empty quay.
+    //
+    // The old rule read "a waterfront shore is a multi-level surface, so a pad
+    // declared flat on the scene level cannot hold". The premise is right and the
+    // conclusion was wrong: what a shore forbids is a pad declared on the SCENE
+    // level, not a flat pad. Each pad therefore takes the elevation of its own
+    // road's graded surface at its own station (`support_level_mm`, the mechanism
+    // profiled roads already publish), keeps the shore clearance that reserves the
+    // public passage band, and is refused BY NAME per site when its own ground
+    // cannot hold it (`pad_touches_water_or_shore_band`,
+    // `pad_ground_exceeds_roadbed_contract`, `entrance_grade_exceeds_contract`).
+    // The plan no longer swallows the pad programme, so the refusals that remain
+    // are about individual lots and an audit can read them.
     Ok(result)
 }
 #[cfg(test)]
@@ -2305,6 +2468,135 @@ mod waterfront_tests {
             plan.level_m,
             plan.water_crossings.first().map(|c| c.deck_level_mm)
         );
+    }
+
+    /// The waterfront pad rule, asserted from the plan's own numbers.
+    ///
+    /// Three claims, each recomputed rather than trusted:
+    ///
+    ///  * every pad carries a PRECISE elevation and a frontage point: no lot is
+    ///    declared on the scene's single `level_m` any more, which is what the
+    ///    retired `waterfront_pad_needs_a_second_level` refusal was about;
+    ///  * that elevation IS the surface of the road the pad fronts, at the point
+    ///    it fronts it, no more than the entrance apron above it - so the pad can
+    ///    be entered from its own road and the shore's other levels cannot bury it;
+    ///  * no pad cell stands in the water or in the reserved shore band, which is
+    ///    the same statement as "the pad keeps the published shore clearance".
+    #[test]
+    fn waterfront_pads_stand_on_their_own_road_surface_and_keep_the_shore_band() {
+        let seed = 42_u64;
+        let style = style(true);
+        let scene = scene();
+        let water = water(&style, &scene);
+        let zones = plan_landuse_zones(
+            &scene,
+            &LandUseProfile::from_style(&style).unwrap(),
+        );
+        let natural = raster(&scene, seed, water, &[], None);
+        let source = NaturalSource::AuthoredSeed { seed, precise: false };
+        let plan = plan_with_style_declared(
+            &scene,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        assert!(
+            !plan.roadside_sites.is_empty(),
+            "the waterfront fixture has to plan pads to assert the pad rule"
+        );
+        let roads = plan.entities();
+        let apron_mm = 1000. * super::super::access::WALKABLE_GRADE
+            * super::super::ENTRANCE_APRON_RUN_M;
+        for site in &plan.roadside_sites {
+            let level = site.support_level_mm.unwrap_or_else(|| {
+                panic!("site {} has no precise elevation: {site:?}", site.id)
+            });
+            let [fx, fz] = site.frontage_road_point.unwrap_or_else(|| {
+                panic!("site {} has no frontage point: {site:?}", site.id)
+            });
+            let road = roads
+                .iter()
+                .find(|road| road.entity_id == site.road_id)
+                .unwrap_or_else(|| panic!("site {} names no road", site.id));
+            let surface_mm = match &road.grounding.road_profile {
+                Some(profile) => (profile
+                    .height_at(f64::from(fx), f64::from(fz))
+                    .expect("frontage point inside the road's profile")
+                    * 1000.)
+                    .round(),
+                None => (f64::from(road.ground_height_m()) * 1000.).round(),
+            };
+            let rise_mm = f64::from(level) - surface_mm;
+            assert!(
+                rise_mm >= -1e-9,
+                "site {} is below its own road surface: {level} < {surface_mm}",
+                site.id
+            );
+            assert!(
+                rise_mm <= apron_mm,
+                "site {} stands {:.3} m above its own road, more than the {} m apron can climb",
+                site.id,
+                rise_mm / 1000.,
+                super::super::ENTRANCE_APRON_RUN_M
+            );
+            // Dry land, and outside the reserved strip, cell by cell.
+            let (half_w, half_d) = site.world_half_extents();
+            for z in site.world_z - half_d as i32..site.world_z + half_d as i32 {
+                for x in site.world_x - half_w as i32..site.world_x + half_w as i32 {
+                    assert!(
+                        !water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5),
+                        "site {} stands on water at ({x},{z})",
+                        site.id
+                    );
+                    assert!(
+                        !water.shore_band_cell(x, z),
+                        "site {} enters the reserved shore band at ({x},{z})",
+                        site.id
+                    );
+                }
+            }
+            assert!(
+                water.clears_shore(
+                    f64::from(site.world_x),
+                    f64::from(site.world_z),
+                    f64::from(half_w as i32),
+                    f64::from(half_d as i32)
+                ),
+                "site {} does not keep the published shore clearance",
+                site.id
+            );
+        }
+        // The refusal category that used to swallow the whole pad programme is
+        // gone by name, and every refusal that remains is a waterfront one.
+        assert!(
+            !plan
+                .roadside_site_rejections
+                .iter()
+                .any(|rejection| rejection.category == "waterfront_pad_needs_a_second_level"),
+            "the blanket pad refusal must not come back: {:?}",
+            plan.roadside_site_rejections
+        );
+        for rejection in &plan.roadside_site_rejections {
+            assert!(
+                matches!(
+                    rejection.category.as_str(),
+                    "pad_touches_water_or_shore_band"
+                        | "pad_not_enterable_from_own_road"
+                        | "pad_ground_exceeds_roadbed_contract"
+                        | "pad_fill_exceeds_contract"
+                        | "entrance_grade_exceeds_contract"
+                        | "pad_overlaps_road_band"
+                        | "pad_below_natural_ground_or_over_contract"
+                ),
+                "unexpected waterfront pad refusal {}: {}",
+                rejection.category,
+                rejection.reason
+            );
+        }
     }
 
     #[test]
@@ -6668,6 +6960,54 @@ pub(super) fn building_fill_conflicts(
                     .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
                     .unwrap_or(f64::from(road.world_y));
                 if f64::from(h) > target + 0.01 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Does this candidate's fill envelope flood an already declared roadside pad?
+///
+/// The same question [`building_fill_conflicts`] asks of a roadbed, with the two
+/// differences a FLAT precision surface needs. Opt-in waterfront only: the
+/// general function above keeps every other world's placements byte-identically.
+///
+///  * The target is the pad's PUBLISHED SURFACE (`ground_height_m`, which keeps a
+///    precise pad's millimetre offset), never the metre-floored `world_y`: a pad
+///    declared on its own road's profile may stand at 4.2 m, and `world_y` would
+///    read 4 and "conflict" with the pad itself.
+///  * A cell the candidate's own carve did not raise is not a conflict. Ground
+///    that naturally stands higher than a pad 15 m away is a bank the lot sits
+///    beside, not flooding the candidate would place; only its earthwork counts.
+pub(super) fn pad_fill_conflicts(
+    terrain_context: &super::TerrainContext<'_>,
+    pads: &[EntityInstance],
+    candidate: &EntityInstance,
+) -> bool {
+    let carves = super::plan_terrain_carves(std::slice::from_ref(candidate));
+    if carves.is_empty() {
+        return false;
+    }
+    for pad in pads {
+        let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
+        let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
+        if !carves.iter().any(|c| {
+            (c.cx - f64::from(pad.world_x)).abs() <= c.half_w + c.blend_m + f64::from(hw)
+                && (c.cz - f64::from(pad.world_z)).abs() <= c.half_d + c.blend_m + f64::from(hd)
+        }) {
+            continue;
+        }
+        let target = f64::from(pad.ground_height_m());
+        for z in pad.world_z - hd..=pad.world_z + hd {
+            for x in pad.world_x - hw..=pad.world_x + hw {
+                let flooded = terrain_context.height(x, z, &carves);
+                if f64::from(flooded) <= target + 0.01 {
+                    continue;
+                }
+                let natural = terrain_context.height(x, z, &[]);
+                if f64::from(flooded) > f64::from(natural) + 0.01 {
                     return true;
                 }
             }

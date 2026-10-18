@@ -1067,6 +1067,14 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
+            if scene["shoreBandAudit"].is_object()
+                && scene["shoreBandAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} shoreline public passage band failed its independent audit",
+                    scene["sceneId"]
+                ));
+            }
             if scene["jointLayoutAudit"].is_object()
                 && scene["jointLayoutAudit"]["status"] != "pass"
             {
@@ -1944,6 +1952,33 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         } else {
             None
         };
+        // The shoreline public passage band: independently recomputed from the
+        // plan, the zoning, the natural and final rasters, the published surfaces
+        // and the ledger. Only an opted-in waterfront world carries one, so no
+        // other report grows a key or a warning.
+        let shore_band_audit = if water.shore_band() {
+            let audit = glyphweave_core::worldgen::shore_band::audit(
+                spec,
+                water,
+                &natural_terrain,
+                &terrain,
+                scene.road_network_plan.as_ref(),
+                &scene.land_use_zones,
+                &scene.entities,
+                scene.landcover_surfaces.as_ref(),
+                land_use_ledger.as_ref(),
+            )
+            .map_err(|e| format!("scene shore band independent audit: {e}"))?;
+            if audit.status != "pass" {
+                warnings.push(format!(
+                    "{} shoreline public passage band failed its independent audit: {:?}",
+                    scene.scene_id, audit.failures
+                ));
+            }
+            Some(audit)
+        } else {
+            None
+        };
         // An explicit along-road conversion moves purpose realization, so it must be provable from the
         // plan's own geometry and the water authority, and the PUBLISHED ledger's rows must be exactly
         // the plan's records. A hand-edited ledger inflating urban realization therefore fails here by
@@ -2096,6 +2131,11 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         // switch keeps the exact report shape it always had.
         if let Some(audit) = &conversion_audit {
             scene_report["purposeConversionAudit"] = serde_json::json!(audit);
+        }
+        // Same rule for the opt-in shoreline band: absent unless the world
+        // claimed the band by opting into road-first over structured water.
+        if let Some(audit) = &shore_band_audit {
+            scene_report["shoreBandAudit"] = serde_json::json!(audit);
         }
         scene_reports.push(scene_report);
     }
@@ -2465,7 +2505,15 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                     | "fallen_log"
                     | "building_cluster"
             ) {
-                let margin = if entity.kind == "reed" { 0.0 } else { 4.0 };
+                let margin = if entity.kind == "reed" {
+                    0.0
+                } else {
+                    // One constant for the published clearance, the lot rule and the
+                    // shoreline band: it used to be this bare literal while the
+                    // generation side asked for 1.0 m, so a legal bake could produce
+                    // objects this audit then refused.
+                    glyphweave_core::worldgen::WATER_SHORE_CLEARANCE_M
+                };
                 if footprint_intersects_water(entity, water, margin) {
                     failures.push(format!(
                         "{} {} is inside water geometry",

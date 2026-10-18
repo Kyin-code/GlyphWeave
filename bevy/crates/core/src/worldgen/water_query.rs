@@ -2,6 +2,23 @@
 //! absence of an intersection (a whole pond may fit between the samples).
 use super::{EntityInstance, WaterGeometry, WaterKind, lake_radius_at, river_half_width_at};
 
+/// The frozen water-shore clearance band, in metres.
+///
+/// It is ONE number with THREE readers, which is the whole point of naming it:
+///
+///  * the published scale audit refuses any object whose footprint comes closer
+///    than this to the water geometry (`footprint_intersects_water(entity, water,
+///    margin)`); it used to be the bare literal `4.0` in the CLI;
+///  * a waterfront roadside pad has to keep this much dry ground between itself
+///    and the water body (`WaterGeometry::clears_shore`), because the strip is
+///    reserved public passage and a lot may not claim it;
+///  * the shoreline public passage band IS this strip (`WaterGeometry::shore_band_cell`).
+///
+/// The generation side used to ask for 1.0 m while the audit asked for 4.0 m, so
+/// a legal bake could produce objects the audit then refused. A profile may read
+/// this constant; it may never widen it.
+pub const WATER_SHORE_CLEARANCE_M: f64 = 4.0;
+
 #[derive(Clone, Copy)]
 struct Rect {
     x: f64,
@@ -67,6 +84,63 @@ impl WaterGeometry {
                         )
             }
         }
+    }
+
+    /// Does this scene carry the shoreline public passage band at all?
+    ///
+    /// Only the opt-in road-first-over-water authorization (`style.automatic
+    /// RoadExtensions.allowStructuredWater`) opens it, so every world that did
+    /// not state that switch keeps its published surfaces, its ledger and its
+    /// audits byte for byte.
+    pub fn shore_band(self) -> bool {
+        self.road_water_crossings && self.kind != WaterKind::None
+    }
+
+    /// Is the 1 m cell `(x, z)` part of the shoreline public passage band?
+    ///
+    /// The band is the strip of DRY ground that lies within
+    /// [`WATER_SHORE_CLEARANCE_M`] of the water body, measured from the water's
+    /// own published geometry. A cell is in it when its centre is outside the
+    /// water body and the body itself comes within the clearance of that centre.
+    ///
+    /// Two consequences follow from using one constant for the strip and for the
+    /// lots, and both are audited rather than assumed:
+    ///
+    ///  * a pad that keeps the clearance (its footprint dilated by the clearance
+    ///    does not meet the water) contains no band cell, so "no building in the
+    ///    band" and "the lot keeps the shore clearance" are the same geometric
+    ///    fact and cannot disagree;
+    ///  * the band is a continuous strip along every shore by construction - it
+    ///    is an offset of the waterline, not a collected set of patches.
+    pub fn shore_band_cell(self, x: i32, z: i32) -> bool {
+        if !self.shore_band() {
+            return false;
+        }
+        let (cx, cz) = (f64::from(x) + 0.5, f64::from(z) + 0.5);
+        !self.contains_point(cx, cz)
+            && self.intersects_axis_aligned(
+                cx,
+                cz,
+                WATER_SHORE_CLEARANCE_M,
+                WATER_SHORE_CLEARANCE_M,
+            )
+    }
+
+    /// Does an axis-aligned footprint at `(x, z)` keep the shore clearance?
+    ///
+    /// The footprint is dilated by [`WATER_SHORE_CLEARANCE_M`] and tested against
+    /// the water body: `false` means the water comes closer than the clearance
+    /// (and therefore that the footprint also touches the band). The dilation is
+    /// a square, which CONTAINS the Euclidean disc of the same radius, so a
+    /// `true` here proves the clearance in metres, never merely in the other
+    /// direction.
+    pub fn clears_shore(self, x: f64, z: f64, half_w: f64, half_d: f64) -> bool {
+        !self.intersects_axis_aligned(
+            x,
+            z,
+            half_w + WATER_SHORE_CLEARANCE_M,
+            half_d + WATER_SHORE_CLEARANCE_M,
+        )
     }
 
     fn intersects_rect(self, rect: Rect) -> bool {
@@ -265,6 +339,85 @@ mod tests {
             let width = river_half_width_at(f64::from(z) + 5000., 10000, 300.);
             assert!(w.intersects_rect(rect(width - 0.01, f64::from(z), 0.001, 0.001, 23.)));
             assert!(!w.intersects_rect(rect(width + 0.1, f64::from(z), 0.001, 0.001, 23.)));
+        }
+    }
+
+    /// A waterfront scene: a 40 m channel down the middle of a 512 m scene.
+    fn river_scene() -> WaterGeometry {
+        let mut w = water(WaterKind::River);
+        w.center_x = 256.;
+        w.center_z = 256.;
+        w.half_width = 20.;
+        w.half_depth = 256.;
+        w.road_water_crossings = true;
+        w
+    }
+
+    /// The clearance is ONE number for the audit margin, the lot rule and the
+    /// band width. If somebody loosens it here, the published scale audit's
+    /// margin (which reads this constant) loosens with it - so pin the value.
+    #[test]
+    fn the_shore_clearance_is_one_named_constant() {
+        assert_eq!(WATER_SHORE_CLEARANCE_M, 4.0);
+    }
+
+    /// The band is dry, hugs the water, and is absent without the opt-in.
+    #[test]
+    fn the_band_is_dry_hugs_the_water_and_needs_the_opt_in() {
+        let mut w = river_scene();
+        // The waterline at z = 256 is |x - 256| < 20, so the wet cells are
+        // x = 236..=275 and the 4 m band of dry cell centres is
+        // x = 232..=235 (west) and x = 276..=279 (east).
+        for x in 236..276 {
+            assert!(!w.shore_band_cell(x, 256), "x={x} is in the water body");
+        }
+        for x in 276..280 {
+            assert!(w.shore_band_cell(x, 256), "x={x} is in the 4 m band");
+        }
+        assert!(!w.shore_band_cell(280, 256), "x=280 is past the band");
+        for x in 232..236 {
+            assert!(w.shore_band_cell(x, 256), "x={x} is in the west band");
+        }
+        assert!(!w.shore_band_cell(231, 256));
+        // No opt-in, no band and no pad exemption: the switch is the only gate.
+        w.road_water_crossings = false;
+        assert!(!w.shore_band());
+        assert!(!w.shore_band_cell(277, 256));
+    }
+
+    /// The lot rule and the band are the same geometric fact: a pad that keeps
+    /// the clearance owns no band cell, and the band is a continuous strip on
+    /// each bank rather than a collection of lucky cells.
+    #[test]
+    fn a_pad_that_clears_the_shore_owns_no_band_cell_and_the_band_is_continuous() {
+        let w = river_scene();
+        let (mut band_w, mut band_e) = (0_u32, 0_u32);
+        for z in 0..512 {
+            // Each bank's band must be one uninterrupted run along the shore.
+            let west: Vec<i32> = (232..236).filter(|x| w.shore_band_cell(*x, z)).collect();
+            let east: Vec<i32> = (276..280).filter(|x| w.shore_band_cell(*x, z)).collect();
+            assert_eq!(west.len(), 4, "west band broken at z={z}: {west:?}");
+            assert_eq!(east.len(), 4, "east band broken at z={z}: {east:?}");
+            band_w += west.len() as u32;
+            band_e += east.len() as u32;
+        }
+        assert_eq!(band_w, band_e);
+        for z in (16..512).step_by(48) {
+            for x in (16..512).step_by(32) {
+                // A 24x24 lot centred here covers x-12..=x+11 (cell centres
+                // x-11.5..=x+11.5), which is the footprint `clears_shore` dilates.
+                let clears = w.clears_shore(f64::from(x), f64::from(z), 12., 12.);
+                let mut owns_band = false;
+                for zz in z - 12..=z + 11 {
+                    for xx in x - 12..=x + 11 {
+                        owns_band |= w.shore_band_cell(xx, zz);
+                    }
+                }
+                assert_eq!(
+                    clears, !owns_band,
+                    "lot at ({x},{z}): clearing the shore and owning no band cell must agree"
+                );
+            }
         }
     }
 }

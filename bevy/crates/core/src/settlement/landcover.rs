@@ -564,6 +564,86 @@ pub fn realize(
         }
     }
     trace("yard-clipping");
+    // ---- Shoreline public passage band (opt-in waterfront only) -------------
+    //
+    // The band is the strip of DRY ground within `WATER_SHORE_CLEARANCE_M` of the
+    // water body: it is an offset of the waterline, so it is continuous along
+    // every shore by construction rather than by luck (see
+    // `WaterGeometry::shore_band_cell`). It is realized here as ONE surface layer
+    // on the existing `PublicOpenSpace` physical column, so the promenade is real
+    // geometry with a ledger row instead of a comment, and a lot may not claim it:
+    // the roadside pad rule dilates the pad by the same constant, which is why a
+    // pad that keeps the shore clearance owns no band cell at all.
+    //
+    // Natural detail (reeds, trees, benches) does NOT break the band: an object
+    // standing on a public green is not a second surface, so no area is credited
+    // twice. Only two things may keep the band out of this pass, and both are
+    // named: protected land (it keeps its conservation surface) and a building
+    // PARCEL standing in the band, which is a planning defect the audit must see
+    // rather than something this pass may quietly cover with pavement.
+    if water.shore_band() {
+        for cell in &plan.cells {
+            let width = i64::from(cell.boundary.width_m);
+            let depth = i64::from(cell.boundary.depth_m);
+            if width == 0 || depth == 0 {
+                continue;
+            }
+            let protected_cell = !matches!(cell.zone_kind.as_str(), "urban" | "rural");
+            for z in cell.boundary.z..cell.boundary.z + depth {
+                for x in cell.boundary.x..cell.boundary.x + width {
+                    let (xi, zi) = (x as i32, z as i32);
+                    if !water.shore_band_cell(xi, zi) {
+                        continue;
+                    }
+                    let reason = if protected_cell {
+                        Some("shore_band_in_protected_land")
+                    } else if cell.role == LandcoverRole::ManagedYard {
+                        Some("shore_band_inside_building_parcel")
+                    } else {
+                        None
+                    };
+                    if let Some(reason) = reason {
+                        result.rejections.push(SurfaceRejection {
+                            source_cell_id: cell.id.clone(),
+                            x,
+                            z,
+                            area_m2: 1,
+                            reason: reason.into(),
+                        });
+                        continue;
+                    }
+                    let square = [
+                        [x as f64, z as f64],
+                        [x as f64 + 1., z as f64],
+                        [x as f64 + 1., z as f64 + 1.],
+                        [x as f64, z as f64 + 1.],
+                    ];
+                    let mut patch = SurfacePatch {
+                        id: format!(
+                            "{}.shore.{}.{}",
+                            cell.id,
+                            x - cell.boundary.x,
+                            z - cell.boundary.z
+                        ),
+                        source_cell_id: cell.id.clone(),
+                        parcel_id: cell.id.clone(),
+                        zone_kind: cell.zone_kind.clone(),
+                        material: Material::PublicOpenSpace,
+                        area_m2: 0.,
+                        vertices: vec![],
+                        triangles: vec![],
+                    };
+                    append(&mut patch, &square, |p| {
+                        terrain_height(terrain, p).map(|h| h + 0.025)
+                    })?;
+                    if patch.area_m2 > EPS {
+                        result.patches.push(patch);
+                    }
+                }
+            }
+        }
+    }
+    trace("shore-band");
     let (agriculture, patches) =
         super::agriculture::realize(scene, plan, terrain, water, entities, &pavement)?;
     result.patches.extend(patches);

@@ -40,12 +40,13 @@ pub mod road_parcel_feasibility;
 pub mod services;
 mod terrain_context;
 mod water_query;
+pub mod shore_band;
 pub mod zoning;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use terrain_context::TerrainContext;
-pub use water_query::footprint_intersects_water;
+pub use water_query::{WATER_SHORE_CLEARANCE_M, footprint_intersects_water};
 
 use crate::storage::codec::encode_world_with_metadata;
 use crate::voxel::{VoxelCoord, VoxelWorld};
@@ -5228,11 +5229,62 @@ fn apply_rules_mode(
         .collect();
     let mut requests = Vec::new();
     let mut passthrough = Vec::new();
+    // Opt-in waterfront: a planned roadside pad is an OBLIGATION, and a legacy
+    // template filler that stands on one blocks the entrance the pad was designed
+    // around - the rules engine then refuses the PAD, the road-network audit
+    // reports a missing planned site, and a city loses a home to scenery. The
+    // filler is refused BY NAME here (it reaches `rules-placement.json` like every
+    // other named refusal) so the plan's site keeps its ground. Off for every
+    // world that did not opt in, and the pads themselves are exempt.
+    let planned_pads: Vec<EntityInstance> = if water.road_water_crossings() {
+        road_plan
+            .map(|plan| plan.site_entities())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let planned_pad_ids: std::collections::BTreeSet<&str> = planned_pads
+        .iter()
+        .map(|pad| pad.entity_id.as_str())
+        .collect();
+    let mut refused_fillers = Vec::new();
     for e in proposed {
         let is_authored = authored_ids.contains(e.entity_id.as_str());
         if is_authored {
             passthrough.push(e);
             continue;
+        }
+        if !planned_pad_ids.contains(e.entity_id.as_str())
+            && crate::settlement::is_building(&e.kind)
+        {
+            let (filler_hw, filler_hd) =
+                spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
+            if let Some(pad) = planned_pads.iter().find(|pad| {
+                // The pad's PUBLISHED AUDIT WINDOW: the pad plus the 2 m apron the
+                // carve, the flat-top audit and the descriptor clearance all work
+                // on. A filler that merely touches that window already collides
+                // with the pad's apron, so it is inside the pad's ground.
+                let (hw, hd) = road_network::pad_audit_half_extents(
+                    pad.width_m,
+                    pad.depth_m,
+                    pad.rotation_y_deg,
+                );
+                f64::from((pad.world_x - e.world_x).abs()) < hw + filler_hw
+                    && f64::from((pad.world_z - e.world_z).abs()) < hd + filler_hd
+            }) {
+                refused_fillers.push(crate::rules::RejectRecord {
+                    item_id: e.kind.clone(),
+                    candidate_x: e.world_x,
+                    candidate_z: e.world_z,
+                    reason: format!(
+                        "occupied by the planned roadside pad {} the waterfront plan owes",
+                        pad.entity_id
+                    ),
+                    conflict_with: Some(pad.entity_id.clone()),
+                    rule: "plan".into(),
+                });
+                continue;
+            }
         }
         // A structure deck is not a terrain-grounded object: its pavement is a
         // span whose support is the registered bridge, and the rules engine's
@@ -5394,6 +5446,8 @@ fn apply_rules_mode(
         })
     });
     merged.extend(passthrough);
+    let mut outcome = outcome;
+    outcome.rejected.extend(refused_fillers);
     (merged, outcome)
 }
 
@@ -6686,17 +6740,19 @@ fn append_modern_landuse_content(
         // A planned parcel's fill envelope must not flood an already designed
         // roadside pad - the pads are flat surfaces whose top the road audit holds
         // exactly, so a lot that needs a higher platform buries its neighbour and
-        // the pad then fails the baked audit. `building_fill_conflicts` is the
-        // same rule the land-use platform already applies to roads; this adds the
-        // plan's own pads as a protected target. Opt-in only: every existing world
-        // keeps the placements it already publishes.
+        // the pad then fails the baked audit. `pad_fill_conflicts` is the same rule
+        // the land-use platform already applies to roads, restated for a FLAT
+        // precision surface (a pad's target is its declared top, not a metre-floored
+        // roadbed, and ground that naturally stands higher beside it is not
+        // flooding). Opt-in only: every existing world keeps the placements it
+        // already publishes.
         let pads = road_plan.map(|plan| plan.site_entities()).unwrap_or_default();
         if !pads.is_empty() {
             let planned_ids: std::collections::BTreeSet<&str> =
                 planned_sites.iter().map(|e| e.entity_id.as_str()).collect();
             entities.retain(|entity| {
                 !(planned_ids.contains(entity.entity_id.as_str())
-                    && road_network::building_fill_conflicts(&terrain_context, &pads, entity))
+                    && road_network::pad_fill_conflicts(&terrain_context, &pads, entity))
             });
         }
     }
@@ -6908,7 +6964,7 @@ fn append_modern_landuse_content(
                     &planned_sites,
                     &proposed,
                 )
-                || road_network::building_fill_conflicts(
+                || road_network::pad_fill_conflicts(
                     &terrain_context,
                     &planned_roadside,
                     &proposed,

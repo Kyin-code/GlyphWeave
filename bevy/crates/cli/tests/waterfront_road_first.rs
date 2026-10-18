@@ -21,6 +21,14 @@ use std::{fs, path::PathBuf};
 const FROZEN_WATERFRONT_DIGEST: &str =
     "11f9a7179abde1fa480a41479db3ab5afaa446019df2bac39a69a31e8f3e2d7a";
 
+/// The same freeze for a WATERLESS world: the round-21 waterfront pad rule, the
+/// shoreline public passage band and their audits are all gated on
+/// `allowStructuredWater`, so a scene that declares no water at all has to keep
+/// every byte it published before them. Measured on `c9db3e6` (the commit before
+/// the pad rule) and again on the round-21 tree: identical.
+const FROZEN_WATERLESS_DIGEST: &str =
+    "d95e8697be92f38bafa7eacd3b6550c1ece62e4034d6248f13f2b70b7770fb3d";
+
 struct TestDir(PathBuf);
 impl TestDir {
     fn new(label: &str) -> Self {
@@ -81,6 +89,28 @@ fn waterfront_without_opt_in() -> WorldManifest {
     m
 }
 
+/// A 512 m town that declares NO water at all: the fixture that proves the
+/// waterfront work reaches nothing it was not invited into.
+fn waterless_town() -> WorldManifest {
+    let mut m = WorldManifest::default_demo();
+    m.world.seed = 42;
+    m.scenes[0].width_m = 512;
+    m.scenes[0].depth_m = 512;
+    m.scenes[0].origin_x = 0;
+    m.scenes[0].origin_z = 0;
+    m.style["generationProfile"] = serde_json::json!("strict");
+    m.style["rulesMode"] = serde_json::json!("rules");
+    m.style["rulesDir"] = serde_json::json!(rules());
+    m.style["terrainProfile"] = serde_json::json!("plains");
+    m.style["water"] = serde_json::json!({
+        "waterType": "none",
+        "levelPolicy": "horizontal-datum",
+        "levelM": 0
+    });
+    m.landmarks.clear();
+    m
+}
+
 fn published_digest(dir: &TestDir, scene: &Value) -> String {
     let folder = dir.0.join("scenes/scene-0");
     let mut hasher = blake3::Hasher::new();
@@ -89,6 +119,34 @@ fn published_digest(dir: &TestDir, scene: &Value) -> String {
         hasher.update(&fs::read(folder.join(chunk["heightFile"].as_str().unwrap())).unwrap());
     }
     hasher.finalize().to_hex().to_string()
+}
+
+#[test]
+fn a_waterless_world_is_byte_identical_across_the_waterfront_pad_rule() {
+    let dir = TestDir::new("waterless-freeze");
+    let manifest = waterless_town();
+    bake_world(&manifest, &dir.0).unwrap();
+    let scene: Value =
+        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap()).unwrap();
+    assert!(
+        scene["roadNetworkPlan"].is_object(),
+        "a waterless strict world still plans its road network"
+    );
+    // No band, no pad refusal, no pad level: nothing of the opt-in exists here.
+    assert!(
+        scene["roadNetworkPlan"]["roadsideSiteRejections"]
+            .as_array()
+            .is_none_or(|rejections| rejections.iter().all(|rejection| {
+                rejection["category"] != "pad_touches_water_or_shore_band"
+            })),
+        "a waterless world cannot refuse a pad for touching water"
+    );
+    let digest = published_digest(&dir, &scene);
+    assert_eq!(
+        digest, FROZEN_WATERLESS_DIGEST,
+        "the waterless world changed bytes; every waterfront rule is gated on \
+         allowStructuredWater and may not reach a scene without water"
+    );
 }
 
 #[test]
