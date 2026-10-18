@@ -45,7 +45,7 @@ pub mod zoning;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use terrain_context::TerrainContext;
+use terrain_context::{RasterSurface, TerrainContext};
 pub use water_query::{WATER_SHORE_CLEARANCE_M, footprint_intersects_water};
 
 use crate::storage::codec::encode_world_with_metadata;
@@ -2381,7 +2381,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             carves = plan_terrain_carves(&entities);
         }
         if let Some(dir) = &rules_dir {
-            let (repaired, final_carves, report) = engineered_placement::reconcile(
+            let (repaired, final_carves, mut report) = engineered_placement::reconcile(
                 manifest.world.seed ^ scene.seed_offset,
                 scene,
                 &landmarks,
@@ -2392,6 +2392,27 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             entities = repaired;
             carves = final_carves;
+            // A pad the ROAD PLAN planned must be accounted for end to end, and a
+            // pad it REFUSED by name must be nowhere. The reconcile report is the
+            // one artifact that publishes both id lists, so both claims travel with
+            // it and `verify_published_placement` can recompute them from the
+            // published bytes. This is the triangle the defect fell through: a pad
+            // stayed in the plan and in the ledger while its entity was deleted, and
+            // no audit could see all three at once.
+            if let Some(plan) = &road_plan {
+                let planned: Vec<&str> = plan
+                    .roadside_sites
+                    .iter()
+                    .map(|site| site.id.as_str())
+                    .collect();
+                if !planned.is_empty() {
+                    report["plannedPadIds"] = serde_json::json!(planned);
+                }
+                let refused: Vec<&str> = road_network::refused_pad_ids(plan).into_iter().collect();
+                if !refused.is_empty() {
+                    report["refusedEntityIds"] = serde_json::json!(refused);
+                }
+            }
             engineering_reports.push(report);
             fs::write(
                 output.join("engineering-placement.json"),
@@ -6736,26 +6757,16 @@ fn append_modern_landuse_content(
             == HeightEncoding::Millimetre,
         zoning: source_zoning.as_ref(),
     };
-    if source_water.road_water_crossings() {
-        // A planned parcel's fill envelope must not flood an already designed
-        // roadside pad - the pads are flat surfaces whose top the road audit holds
-        // exactly, so a lot that needs a higher platform buries its neighbour and
-        // the pad then fails the baked audit. `pad_fill_conflicts` is the same rule
-        // the land-use platform already applies to roads, restated for a FLAT
-        // precision surface (a pad's target is its declared top, not a metre-floored
-        // roadbed, and ground that naturally stands higher beside it is not
-        // flooding). Opt-in only: every existing world keeps the placements it
-        // already publishes.
-        let pads = road_plan.map(|plan| plan.site_entities()).unwrap_or_default();
-        if !pads.is_empty() {
-            let planned_ids: std::collections::BTreeSet<&str> =
-                planned_sites.iter().map(|e| e.entity_id.as_str()).collect();
-            entities.retain(|entity| {
-                !(planned_ids.contains(entity.entity_id.as_str())
-                    && road_network::pad_fill_conflicts(&terrain_context, &pads, entity))
-            });
-        }
-    }
+    // A planned parcel's fill envelope must not flood an already designed
+    // roadside pad - the pads are flat surfaces whose top the road audit holds
+    // exactly, so a lot that needs a higher platform buries its neighbour and the
+    // pad then fails the baked audit. A PAD that would do exactly this is no
+    // longer removed from the world here: the road plan refuses it by name
+    // (`road_network::PAD_FILL_CONFLICT_CATEGORY`) before any conversion, parcel
+    // or entity is derived from it, so every pair the plan kept is compatible by
+    // the time generation runs and a silent `retain` over the published entities
+    // has nothing left to delete - which is why it is gone. Land-use CANDIDATES
+    // still ask the same question per candidate below (`pad_fill_conflicts`).
     let candidate_identity = std::cell::RefCell::new(None::<String>);
     // Optional planner-name override for fixed singleton placements that must
     // not share a stable-ID slot with a grid proposal of the same kind.

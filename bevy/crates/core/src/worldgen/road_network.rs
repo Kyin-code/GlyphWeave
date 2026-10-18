@@ -2214,6 +2214,14 @@ pub(super) fn plan_with_style_declared(
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
+    // The pad list is whole. A pad whose declared flat top the plan's own earthwork
+    // cannot hold is refused BY NAME here and taken out of the plan, where it can
+    // still be seen: publishing it and deleting it from the generated world later
+    // is what used to leave the plan, the ledger and the world disagreeing about a
+    // pad that no longer existed. Refusing before the next line is what makes the
+    // ordering safe - the conversion records are derived from the FINAL pad list,
+    // so a refused pad can never earn one.
+    refuse_unrealizable_pads(&mut result, scene, terrain, water, zones, source)?;
     // Every pad that declared an URBAN purpose and stands on wholly-rural land converts exactly its
     // own buildable core, once. The records are derived from the FINAL pad list (see
     // `frontage::pad_conversions`), so a pad displaced or renamed by the joint layout cannot leave a
@@ -7478,50 +7486,829 @@ pub(super) fn building_fill_conflicts(
     false
 }
 
+/// One neighbouring pad a candidate's own earthwork would bury, with the numbers
+/// that make a refusal checkable instead of plausible.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PadFillConflict {
+    /// The already declared pad whose flat top the candidate's own fill raises.
+    pub neighbour_id: String,
+    /// That pad's declared surface (`ground_height_m`), in metres.
+    pub neighbour_top_m: f64,
+    /// The highest the candidate's OWN envelope reaches inside that pad's audit
+    /// window, in metres.
+    pub flooded_m: f64,
+    /// The earthwork the candidate places above the natural ground at the worst
+    /// cell, in metres.
+    pub fill_m: f64,
+    /// The cell where the worst of it lands.
+    pub at: (i32, i32),
+}
+
+/// The worst cell of ONE candidate's fill envelope inside ONE pad's audit window,
+/// or `None` when the candidate does not bury that pad.
+///
+/// The two facts a pad's flat top needs, restated for a FLAT precision surface:
+///
+///  * The target is the pad's PUBLISHED SURFACE (`ground_height_m`, which keeps a
+///    precise pad's millimetre offset), never the metre-floored `world_y`.
+///  * Only cells the candidate's own carve raised count. Ground that naturally
+///    stands higher than a pad beside it is a bank the lot stands next to, not
+///    fill the candidate would place.
+#[allow(clippy::too_many_arguments)]
+fn pad_fill_worst_cell(
+    pad: &EntityInstance,
+    carves: &[super::TerrainCarve],
+    natural_at: &dyn Fn(i32, i32) -> Option<f32>,
+    carved_at: &dyn Fn(i32, i32, &[super::TerrainCarve]) -> Option<f32>,
+) -> Option<PadFillConflict> {
+    let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
+    let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
+    let target = f64::from(pad.ground_height_m());
+    let mut worst: Option<PadFillConflict> = None;
+    for z in pad.world_z - hd..=pad.world_z + hd {
+        for x in pad.world_x - hw..=pad.world_x + hw {
+            let flooded = carved_at(x, z, carves)?;
+            if f64::from(flooded) <= target + 0.01 {
+                continue;
+            }
+            let natural = natural_at(x, z)?;
+            if f64::from(flooded) <= f64::from(natural) + 0.01 {
+                continue;
+            }
+            let better = worst
+                .as_ref()
+                .is_none_or(|known| f64::from(flooded) > known.flooded_m);
+            if better {
+                worst = Some(PadFillConflict {
+                    neighbour_id: pad.entity_id.clone(),
+                    neighbour_top_m: target,
+                    flooded_m: f64::from(flooded),
+                    fill_m: f64::from(flooded) - f64::from(natural),
+                    at: (x, z),
+                });
+            }
+        }
+    }
+    worst
+}
+
 /// Does this candidate's fill envelope flood an already declared roadside pad?
 ///
 /// The same question [`building_fill_conflicts`] asks of a roadbed, with the two
-/// differences a FLAT precision surface needs. Opt-in waterfront only: the
-/// general function above keeps every other world's placements byte-identically.
-///
-///  * The target is the pad's PUBLISHED SURFACE (`ground_height_m`, which keeps a
-///    precise pad's millimetre offset), never the metre-floored `world_y`: a pad
-///    declared on its own road's profile may stand at 4.2 m, and `world_y` would
-///    read 4 and "conflict" with the pad itself.
-///  * A cell the candidate's own carve did not raise is not a conflict. Ground
-///    that naturally stands higher than a pad 15 m away is a bank the lot sits
-///    beside, not flooding the candidate would place; only its earthwork counts.
+/// differences a FLAT precision surface needs (see [`pad_fill_worst_cell`]).
+/// Opt-in waterfront only: the general function above keeps every other world's
+/// placements byte-identically.
 pub(super) fn pad_fill_conflicts(
     terrain_context: &super::TerrainContext<'_>,
     pads: &[EntityInstance],
     candidate: &EntityInstance,
 ) -> bool {
+    pad_fill_conflict_of(
+        pads,
+        candidate,
+        &|x, z| Some(terrain_context.height(x, z, &[])),
+        &|x, z, carves| Some(terrain_context.height(x, z, carves)),
+    )
+    .is_some()
+}
+
+/// The first pad in `pads` whose declared top this candidate's own fill buries.
+pub(super) fn pad_fill_conflict_of(
+    pads: &[EntityInstance],
+    candidate: &EntityInstance,
+    natural_at: &dyn Fn(i32, i32) -> Option<f32>,
+    carved_at: &dyn Fn(i32, i32, &[super::TerrainCarve]) -> Option<f32>,
+) -> Option<PadFillConflict> {
     let carves = super::plan_terrain_carves(std::slice::from_ref(candidate));
     if carves.is_empty() {
-        return false;
+        return None;
     }
     for pad in pads {
-        let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
-        let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
-        if !carves.iter().any(|c| {
-            (c.cx - f64::from(pad.world_x)).abs() <= c.half_w + c.blend_m + f64::from(hw)
-                && (c.cz - f64::from(pad.world_z)).abs() <= c.half_d + c.blend_m + f64::from(hd)
-        }) {
+        if pad.entity_id == candidate.entity_id {
             continue;
         }
-        let target = f64::from(pad.ground_height_m());
-        for z in pad.world_z - hd..=pad.world_z + hd {
-            for x in pad.world_x - hw..=pad.world_x + hw {
-                let flooded = terrain_context.height(x, z, &carves);
-                if f64::from(flooded) <= target + 0.01 {
-                    continue;
+        let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
+        let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
+        let reaches = carves.iter().any(|c| {
+            (c.cx - f64::from(pad.world_x)).abs() <= c.half_w + c.blend_m + f64::from(hw)
+                && (c.cz - f64::from(pad.world_z)).abs() <= c.half_d + c.blend_m + f64::from(hd)
+        });
+        if !reaches {
+            continue;
+        }
+        if let Some(conflict) = pad_fill_worst_cell(pad, &carves, natural_at, carved_at) {
+            return Some(conflict);
+        }
+    }
+    None
+}
+
+/// The stable category a pad is refused under when a NEIGHBOUR's fill is what
+/// makes its declared flat top unbuildable.
+///
+/// This and `PAD_UNREALIZABLE_CATEGORY` are the only roadside categories whose
+/// `edgeId` names a pad that WAS in the plan and was taken back out of it again:
+/// every other roadside category names a prospective site that was never planned,
+/// and two candidates on the same road and side share one prospective id. Audits
+/// may therefore assert on these two alone that the pad is absent from the plan,
+/// from the conversions, from the ledger and from the published scene - which is
+/// how "planned, booked, but absent from the world" is refused by name instead of
+/// reappearing as a silent deletion.
+pub const PAD_FILL_CONFLICT_CATEGORY: &str = "pad_fill_conflicts_with_neighbour";
+
+/// The same refusal when no neighbour's fill accounts for it: the plan's own
+/// earthwork cannot hold the pad's declared top either.
+pub const PAD_UNREALIZABLE_CATEGORY: &str = "pad_flat_top_unrealizable";
+
+/// Every category a pad that was IN the plan can be taken back out under.
+pub const PAD_REFUSED_CATEGORIES: [&str; 2] =
+    [PAD_FILL_CONFLICT_CATEGORY, PAD_UNREALIZABLE_CATEGORY];
+
+/// The pad ids the plan refused by name out of an already planned pad list.
+///
+/// A refused pad is not a parcel of this world any more: it may not be converted,
+/// planned, published or booked. Everything downstream reads the set from here so
+/// the four views cannot disagree about which pads exist.
+pub(crate) fn refused_pad_ids(plan: &RoadNetworkPlan) -> BTreeSet<&str> {
+    plan.roadside_site_rejections
+        .iter()
+        .filter(|rejection| PAD_REFUSED_CATEGORIES.contains(&rejection.category.as_str()))
+        .map(|rejection| rejection.edge_id.as_str())
+        .collect()
+}
+
+/// The surface the BAKE will publish, sampled before it exists.
+///
+/// A planning gate may not model the earthwork differently from the encoder, and
+/// that is exactly how a pad used to be deleted: the old rule compared a
+/// candidate's OWN blend ring against a neighbour's pad, which ignores the rule
+/// `apply_terrain_carves` enforces - a neighbouring blended fill cannot overwrite a
+/// validated hard support surface whose road band reaches the cell. Two pads that
+/// rule called mutually exclusive were in fact both realizable, and one of them was
+/// removed from the world anyway. The gate therefore asks the question the BAKE and
+/// the AUDIT ask - "does the surface all of the plan's earthwork produces hold this
+/// pad's declared top?" - and only then looks for a neighbour to name.
+enum PlannedSurface<'a> {
+    /// The authored procedural field re-derived from the declared seed and
+    /// precision: what the production encoder writes.
+    Field(super::TerrainContext<'a>),
+    /// The supplied natural raster, with the same carve composition on top. Used
+    /// when the request did not declare an authored source.
+    Raster(super::RasterSurface<'a>),
+}
+impl PlannedSurface<'_> {
+    fn natural(&self, x: i32, z: i32) -> Option<f32> {
+        match self {
+            Self::Field(context) => Some(context.height(x, z, &[])),
+            Self::Raster(raster) => raster.natural_at(x, z),
+        }
+    }
+    fn height(&self, x: i32, z: i32, carves: &[super::TerrainCarve]) -> Option<f32> {
+        match self {
+            Self::Field(context) => Some(context.height(x, z, carves)),
+            Self::Raster(raster) => raster.height(x, z, carves),
+        }
+    }
+}
+
+/// What the plan's own earthwork does to ONE pad's audited flat top.
+///
+/// The numbers are the audit's, measured the audit's way (its window, its
+/// precision, its fill contract), so a pad refused here is a pad the independent
+/// audit would have refused afterwards - the difference is that a refusal is named
+/// in the plan instead of the pad appearing in it and being deleted from the world.
+struct PadWindowBreach {
+    declared_m: f64,
+    /// The surface at the cell that explains the refusal.
+    worst_m: f64,
+    at: (i32, i32),
+    natural_m: f64,
+    /// The deepest excavation anywhere in the window, metres (a pad is fill-only,
+    /// so a cut is a contract failure even when its own cells are level).
+    cut_m: f64,
+}
+
+/// The audit's own verdict on one pad, computed before the payload exists.
+fn pad_window_breach(
+    site: &RoadsideSite,
+    entity: &EntityInstance,
+    surface: &PlannedSurface<'_>,
+    carves: &[super::TerrainCarve],
+    max_roadbed_fill_m: f32,
+    waterfront: bool,
+) -> Option<PadWindowBreach> {
+    let (hw, hd) =
+        super::spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
+    let (hw, hd) = (hw as i32, hd as i32);
+    let declared = f64::from(entity.ground_height_m());
+    // The same cap the audit applies to a waterfront pad's own contribution: its
+    // carve is fill-only and its target is the declared top, so it can never be
+    // charged with earthwork it did not place.
+    let own_cap = declared + 0.0005;
+    let precision = if site.support_level_mm.is_some() {
+        0.0001
+    } else {
+        0.26
+    };
+    let mut error = 0_f64;
+    let mut fill = f64::NEG_INFINITY;
+    let mut cut = f64::NEG_INFINITY;
+    // The cell that explains each way the window can fail, kept apart so a refusal
+    // quotes one coherent cell instead of mixing a deviation from one place with a
+    // fill height from another.
+    let mut footprint_worst: Option<((i32, i32), f64, f64)> = None;
+    let mut fill_worst: Option<((i32, i32), f64, f64)> = None;
+    let mut cut_worst: Option<((i32, i32), f64, f64)> = None;
+    let mut sample_mm = None;
+    for z in entity.world_z - hd - 2..=entity.world_z + hd + 2 {
+        for x in entity.world_x - hw - 2..=entity.world_x + hw + 2 {
+            let natural = surface.natural(x, z)?;
+            let final_m = surface.height(x, z, carves)?;
+            let (natural, final_m) = (f64::from(natural), f64::from(final_m));
+            let rise = final_m - natural;
+            let own_rise = if waterfront {
+                rise.min(own_cap - natural)
+            } else {
+                rise
+            };
+            if (x - entity.world_x).abs() <= hw && (z - entity.world_z).abs() <= hd {
+                let deviation = (final_m - declared).abs();
+                error = error.max(deviation);
+                if footprint_worst
+                    .as_ref()
+                    .is_none_or(|(_, known, _)| deviation > *known)
+                {
+                    footprint_worst = Some(((x, z), final_m, natural));
                 }
-                let natural = terrain_context.height(x, z, &[]);
-                if f64::from(flooded) > f64::from(natural) + 0.01 {
-                    return true;
+            }
+            fill = fill.max(own_rise);
+            if fill_worst
+                .as_ref()
+                .is_none_or(|(_, known, _)| own_rise > *known)
+            {
+                fill_worst = Some(((x, z), final_m, natural));
+            }
+            let excavation = natural - final_m;
+            cut = cut.max(excavation);
+            if cut_worst
+                .as_ref()
+                .is_none_or(|(_, known, _)| excavation > *known)
+            {
+                cut_worst = Some(((x, z), final_m, natural));
+            }
+            if sample_mm.is_none() {
+                if let Some(level) = site.support_level_mm {
+                    let actual = (final_m * 1000.).round() as i32;
+                    if actual != level {
+                        sample_mm = Some((x, z, level, Some(actual)));
+                    }
                 }
             }
         }
     }
-    false
+    // The audit's verdict, cell for cell: a precise pad must publish its exact
+    // millimetre level, a design error above the precision fails, and the fill and
+    // cut contracts are the plan's own published numbers.
+    let failing_rule = if sample_mm.is_some() {
+        0
+    } else if error > precision {
+        1
+    } else if fill > f64::from(max_roadbed_fill_m) + precision {
+        2
+    } else if cut > precision {
+        3
+    } else {
+        return None;
+    };
+    let (at, worst_m, natural_m) = match failing_rule {
+        0 => {
+            let (x, z, _, actual) = sample_mm?;
+            let final_m = f64::from(actual?) / 1000.;
+            let natural = surface.natural(x, z)?;
+            ((x, z), final_m, f64::from(natural))
+        }
+        1 => {
+            let ((x, z), final_m, natural) = footprint_worst?;
+            ((x, z), final_m, natural)
+        }
+        2 => {
+            let ((x, z), final_m, natural) = fill_worst?;
+            ((x, z), final_m, natural)
+        }
+        _ => {
+            let ((x, z), final_m, natural) = cut_worst?;
+            ((x, z), final_m, natural)
+        }
+    };
+    Some(PadWindowBreach {
+        declared_m: declared,
+        worst_m,
+        at,
+        natural_m,
+        cut_m: cut,
+    })
+}
+
+/// Which planned entity's own fill is standing over a refused pad's declared top.
+///
+/// Attribution only: the DECISION is always made on the surface all of the plan's
+/// earthwork produces. This answers "whose fill is standing there" so the refusal
+/// can name the neighbour and the height it puts on the ground, at ONE cell.
+fn fill_attribution(
+    world: &[EntityInstance],
+    pad: &EntityInstance,
+    declared_m: f64,
+    surface: &PlannedSurface<'_>,
+) -> Option<(String, f64, f64, (i32, i32))> {
+    let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
+    // The pad's OWN cells: the flat top is what cannot be held there. Air beyond
+    // the footprint is the pad's apron, which the fill contract governs instead.
+    let (hw, hd) = (hw as i32, hd as i32);
+    let mut best: Option<(String, f64, f64, (i32, i32))> = None;
+    for entity in world {
+        if entity.entity_id == pad.entity_id {
+            continue;
+        }
+        let carves = super::plan_terrain_carves(std::slice::from_ref(entity));
+        if carves.is_empty() {
+            continue;
+        }
+        let reaches = carves.iter().any(|carve| {
+            (carve.cx - f64::from(pad.world_x)).abs()
+                <= carve.half_w + carve.blend_m + f64::from(hw)
+                && (carve.cz - f64::from(pad.world_z)).abs()
+                    <= carve.half_d + carve.blend_m + f64::from(hd)
+        });
+        if !reaches {
+            continue;
+        }
+        for z in pad.world_z - hd..=pad.world_z + hd {
+            for x in pad.world_x - hw..=pad.world_x + hw {
+                let Some(height) = surface.height(x, z, &carves) else {
+                    continue;
+                };
+                let Some(natural) = surface.natural(x, z) else {
+                    continue;
+                };
+                let (height, natural) = (f64::from(height), f64::from(natural));
+                if height <= declared_m + 0.005 {
+                    continue;
+                }
+                if best.as_ref().is_none_or(|(_, known, ..)| height > *known) {
+                    best = Some((entity.entity_id.clone(), height, natural, (x, z)));
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Refuse, BY NAME, every planned pad whose declared flat top the plan's own
+/// earthwork cannot hold, and take it out of the plan before anything is derived
+/// from the pad list.
+///
+/// A pad's flat top is a published, audited obligation: the road audit measures
+/// every pad cell against its declaration and refuses the scene when it does not
+/// hold. A pad that cannot hold it is therefore not a pad - and the plan says so
+/// here, where the pad list is whole and nothing has been derived from it yet:
+///
+///  * the refusal is retained in `roadside_site_rejections` under
+///    `PAD_FILL_CONFLICT_CATEGORY` (a neighbour's fill stands over the declared
+///    top) or `PAD_UNREALIZABLE_CATEGORY` (the plan's own earthwork does), with
+///    the fill height, the neighbour it names and the cell it lands on;
+///  * the pad leaves `roadside_sites`, and `forget_refused_pad` takes it out of
+///    the service outcomes and the joint receipt as well, so no record reports a
+///    facility that cannot exist;
+///  * because this runs BEFORE `frontage::pad_conversions` (which derives its
+///    records from the final pad list) and before the development plan, a refused
+///    pad never becomes a conversion, a parcel, a building or an entity. Nothing
+///    is deleted from a generated world afterwards, because nothing is generated.
+///
+/// Refusing is monotone - removing an envelope can only lower the surface, so no
+/// new breach can appear - and the loop is bounded by the pad count. The numeric
+/// contracts are not touched: a pad is refused precisely because its declaration
+/// cannot be met under them.
+pub(super) fn refuse_unrealizable_pads(
+    plan: &mut RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    zones: Option<&[LandUseZone]>,
+    source: super::NaturalSource,
+) -> Result<Vec<BaseProfileRejection>, TerrainError> {
+    if plan.roadside_sites.is_empty() {
+        return Ok(Vec::new());
+    }
+    let zoning = zones
+        .map(|zones| ZoningMask::new(scene, zones))
+        .transpose()?;
+    let surface = match source {
+        super::NaturalSource::AuthoredSeed { seed, precise } => {
+            PlannedSurface::Field(super::TerrainContext {
+                seed,
+                water,
+                precise,
+                zoning: zoning.as_ref(),
+            })
+        }
+        _ => PlannedSurface::Raster(super::RasterSurface {
+            natural,
+            water,
+            zoning: zoning.as_ref(),
+        }),
+    };
+    let mut rejections: Vec<BaseProfileRejection> = Vec::new();
+    loop {
+        let mut world: Vec<EntityInstance> = plan.entities();
+        let pads: Vec<EntityInstance> = plan.site_entities();
+        world.extend(pads.iter().cloned());
+        for entity in &mut world {
+            entity.normalize_spatial_semantics();
+        }
+        let carves = super::plan_terrain_carves(&world);
+        let waterfront = water.road_water_crossings();
+        let mut breach: Option<(usize, PadWindowBreach)> = None;
+        for (index, site) in plan.roadside_sites.iter().enumerate() {
+            if let Some(found) = pad_window_breach(
+                site,
+                &pads[index],
+                &surface,
+                &carves,
+                plan.max_roadbed_fill_m,
+                waterfront,
+            ) {
+                breach = Some((index, found));
+                break;
+            }
+        }
+        let Some((index, found)) = breach else { break };
+        let site = &plan.roadside_sites[index];
+        let pad = &pads[index];
+        let attributed = fill_attribution(&world, pad, found.declared_m, &surface);
+        let units = format!("{}x{}", site.width_m, site.depth_m);
+        let (category, reason) = match &attributed {
+            Some((neighbour, neighbour_m, neighbour_natural, at)) => (
+                PAD_FILL_CONFLICT_CATEGORY,
+                format!(
+                    "pad {} ({units}, declared top {:.3} m on road {}) cannot hold its flat top: \
+                     {neighbour} stands {neighbour_m:.3} m at ({}, {}), {:.3} m of fill above the \
+                     natural {neighbour_natural:.3} m there and {:.3} m over that declared top, so \
+                     the pad is refused here by name instead of being deleted from the world after \
+                     planning",
+                    site.id,
+                    found.declared_m,
+                    site.road_id,
+                    at.0,
+                    at.1,
+                    neighbour_m - neighbour_natural,
+                    neighbour_m - found.declared_m,
+                ),
+            ),
+            None => (
+                PAD_UNREALIZABLE_CATEGORY,
+                format!(
+                    "pad {} ({units}, declared top {:.3} m on road {}) cannot hold its flat top: \
+                     the plan's own earthwork leaves {:.3} m at ({}, {}) in its audit window \
+                     ({:.3} m of fill above the natural {:.3} m there, {:.3} m off the declaration, \
+                     cut {:.3} m, against the {} m fill contract) and no neighbour's fill accounts \
+                     for it",
+                    site.id,
+                    found.declared_m,
+                    site.road_id,
+                    found.worst_m,
+                    found.at.0,
+                    found.at.1,
+                    found.worst_m - found.natural_m,
+                    found.natural_m,
+                    found.worst_m - found.declared_m,
+                    found.cut_m,
+                    plan.max_roadbed_fill_m,
+                ),
+            ),
+        };
+        let pad_id = site.id.clone();
+        rejections.push(BaseProfileRejection {
+            edge_id: pad_id.clone(),
+            category: category.into(),
+            reason,
+        });
+        forget_refused_pad(plan, &pad_id);
+    }
+    plan.roadside_site_rejections.extend(rejections.clone());
+    Ok(rejections)
+}
+
+/// Take one refused pad out of every record the plan derives from its pad list.
+///
+/// A refusal is only honest if the plan stops claiming the pad EVERYWHERE: a
+/// service outcome that still lists it would report the facility as planned but
+/// unrealized (a phantom), and the joint receipt would keep a residential slot
+/// for a lot that no longer exists. Both counts are recomputed from the sites
+/// that remain, never decremented by hand.
+fn forget_refused_pad(plan: &mut RoadNetworkPlan, pad_id: &str) {
+    plan.roadside_sites.retain(|site| site.id != pad_id);
+    for outcome in &mut plan.service_outcomes {
+        outcome.planned_site_ids.retain(|id| id != pad_id);
+        outcome.unfilled_count = outcome
+            .request
+            .count
+            .saturating_sub(outcome.planned_site_ids.len() as u32);
+        outcome.status = if outcome.unfilled_count == 0 {
+            "planned"
+        } else {
+            "unfilled"
+        }
+        .into();
+    }
+    let residential = plan
+        .roadside_sites
+        .iter()
+        .filter(|site| site.program.is_none())
+        .count();
+    if let Some(joint) = &mut plan.joint_layout {
+        joint.retained_residential_ids.retain(|id| id != pad_id);
+        joint.displaced_residential_ids.retain(|id| id != pad_id);
+        joint.replacement_residential_ids.retain(|id| id != pad_id);
+        joint.unfilled_residential = joint.residential_minimum.saturating_sub(residential);
+    }
+}
+
+#[cfg(test)]
+mod pad_refusal_tests {
+    //! A pad whose declared flat top the plan's own earthwork cannot hold is
+    //! REFUSED BY NAME and taken out of the plan before anything is derived from
+    //! it - never planned, never converted, never published and then deleted.
+    //!
+    //! Round 23 measured the defect these tests lock: a waterfront pad was planned,
+    //! declared urban, converted 468 m2 - and then its entity was deleted from the
+    //! world by a rule that compared the candidate's own blend ring against a
+    //! neighbour, ignoring the hard-support rule the encoder applies. The plan and
+    //! the ledger kept a pad the world did not carry. The fixture below is a plain
+    //! declaration on flat ground, so the arithmetic is exact and can be asserted
+    //! to the millimetre.
+    use super::*;
+    use crate::worldgen::{NaturalSource, WaterKind, water_geometry};
+
+    fn scene() -> SceneSpec {
+        SceneSpec {
+            scene_id: "pads".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        }
+    }
+
+    /// Flat ground at the datum: every sample is 0 m, so the only height on the
+    /// map is the earthwork the plan itself places.
+    fn flat_terrain(scene: &SceneSpec) -> BakedTerrain {
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        terrain
+            .insert_chunk(0, 0, 512, 512, &vec![0_u8; 512 * 512 * 2])
+            .unwrap();
+        terrain
+    }
+
+    fn dry_water(scene: &SceneSpec) -> WaterGeometry {
+        water_geometry(WaterKind::None, &[], scene, &serde_json::Value::Null)
+    }
+
+    fn rural_zones() -> Vec<LandUseZone> {
+        vec![LandUseZone {
+            id: "rural".into(),
+            kind: "rural".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 512,
+            source: "test".into(),
+        }]
+    }
+
+    /// A 24x24 pad site on the legacy 2/2/2 parcel: its 22x22 = 484 m2 buildable
+    /// core is what a conversion may take.
+    fn site(id: &str, x: i32, z: i32, support_level_m: i32, program: bool) -> serde_json::Value {
+        let program = if program {
+            serde_json::json!({"requestId": "church", "kind": "church", "heightM": 10})
+        } else {
+            serde_json::Value::Null
+        };
+        serde_json::json!({
+            "id": id,
+            "roadId": "road",
+            "worldX": x,
+            "worldZ": z,
+            "widthM": 24,
+            "depthM": 24,
+            "supportLevelM": support_level_m,
+            "rotationYDeg": 0.,
+            "naturalMinM": 0.,
+            "naturalMaxM": 0.,
+            "purpose": "urban",
+            "program": program,
+        })
+    }
+
+    fn plan(sites: Vec<serde_json::Value>, service_sites: u32) -> RoadNetworkPlan {
+        let mut plan: RoadNetworkPlan = serde_json::from_value(serde_json::json!({
+            "sceneId": "pads",
+            "model": "test",
+            "naturalHeightfieldHash": "test",
+            "status": "planned_connected_network",
+            "gridSpacingM": 64,
+            "maxRoadbedFillM": 6.,
+            "levelM": 0,
+            "candidates": 1,
+            "rejectedWater": 0,
+            "rejectedRelief": 0,
+            "unselectedCandidates": 0,
+            "nodes": [],
+            "edges": [],
+            "roadsideSites": sites,
+        }))
+        .unwrap();
+        if service_sites > 0 {
+            let planned: Vec<String> = plan
+                .roadside_sites
+                .iter()
+                .filter(|site| site.program.is_some())
+                .map(|site| site.id.clone())
+                .collect();
+            plan.service_outcomes = vec![
+                serde_json::from_value(serde_json::json!({
+                    "request": {
+                        "id": "church-request", "sceneId": "pads", "kind": "church",
+                        "count": service_sites, "widthM": 20, "depthM": 24, "heightM": 10,
+                    },
+                    "plannedSiteIds": planned,
+                    "unfilledCount": 0,
+                    "rejectedCandidates": {},
+                    "status": "planned",
+                }))
+                .unwrap(),
+            ];
+        }
+        plan
+    }
+
+    /// The two pads of the exact conflict: a 5.000 m platform 30 m from a 4.000 m
+    /// one, on flat ground. Both are legal alone; together the higher one's fill
+    /// ring reaches 4.970 m inside the lower one's own footprint, 0.970 m over its
+    /// declaration, which no pad audit can accept.
+    fn conflicting_plan() -> RoadNetworkPlan {
+        plan(
+            vec![
+                site("pad.high", 400, 100, 5, false),
+                site("pad.low", 430, 100, 4, false),
+            ],
+            0,
+        )
+    }
+
+    fn refuse(plan: &mut RoadNetworkPlan) -> Vec<BaseProfileRejection> {
+        let scene = scene();
+        let terrain = flat_terrain(&scene);
+        // The fixture's raster IS the declared natural surface, so the sweep must
+        // read it instead of re-deriving the procedural field: the arithmetic in
+        // these tests is the plan's own earthwork on flat ground.
+        refuse_unrealizable_pads(
+            plan,
+            &scene,
+            &terrain,
+            dry_water(&scene),
+            None,
+            NaturalSource::SuppliedRaster,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_pad_the_plan_cannot_hold_is_refused_by_name_with_the_neighbour_and_its_numbers() {
+        let mut plan = conflicting_plan();
+        let rejections = refuse(&mut plan);
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        let rejection = &rejections[0];
+        // The LOWER pad is the one that cannot hold its declaration: generated
+        // earthwork is fill-only, so the higher platform's ring stands inside its
+        // footprint. It is named, and it is gone from the plan - not published and
+        // then deleted.
+        assert_eq!(rejection.edge_id, "pad.low");
+        assert_eq!(rejection.category, PAD_FILL_CONFLICT_CATEGORY);
+        let reason = &rejection.reason;
+        for expected in [
+            "pad.low",
+            "(418, 88)",
+            "declared top 4.000 m",
+            "pad.high stands 4.970 m",
+            "0.970 m over that declared top",
+            "4.970 m of fill above the natural 0.000 m",
+        ] {
+            assert!(
+                reason.contains(expected),
+                "the refusal must carry {expected:?}: {reason}"
+            );
+        }
+        // The plan no longer claims the pad anywhere.
+        assert_eq!(
+            plan.roadside_sites
+                .iter()
+                .map(|site| site.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pad.high"]
+        );
+        assert_eq!(plan.site_entities().len(), 1);
+        assert_eq!(plan.roadside_site_rejections, rejections);
+        // The triangle, at the plan level: the pads the planner decided on are
+        // either kept or named. Two pads went in, one is planned, one is refused.
+        assert_eq!(
+            plan.roadside_sites.len() + rejections.len(),
+            2,
+            "pad count = planned pads + named refusals"
+        );
+        // And no conversion is derived for it: the records the ledger applies come
+        // from the FINAL pad list, so a refused pad cannot be booked.
+        let scene = scene();
+        let zones = rural_zones();
+        let conversions = super::super::frontage::pad_conversions(
+            &plan,
+            &scene,
+            &zones,
+            super::super::frontage::RuralConversion::RuralToUrban,
+        )
+        .unwrap();
+        assert_eq!(
+            conversions,
+            vec![super::super::frontage::Conversion::rural_to_urban(
+                "pad.high", 484
+            )],
+            "only the pad the plan keeps earns a conversion"
+        );
+        assert!(
+            conversions.iter().all(|record| record.parcel_id != "pad.low"),
+            "a refused pad may not be booked"
+        );
+    }
+
+    #[test]
+    fn a_refused_service_pad_is_reported_unfilled_instead_of_becoming_a_phantom() {
+        let mut plan = plan(
+            vec![
+                site("pad.high", 400, 100, 5, false),
+                site("pad.service", 430, 100, 4, true),
+            ],
+            1,
+        );
+        assert_eq!(plan.service_outcomes[0].planned_site_ids.len(), 1);
+        let rejections = refuse(&mut plan);
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].edge_id, "pad.service");
+        // The request is not "planned" any more: the outcome says unfilled, so the
+        // service audit reports 0 of 1 instead of a facility that cannot exist.
+        let outcome = &plan.service_outcomes[0];
+        assert!(outcome.planned_site_ids.is_empty(), "{outcome:?}");
+        assert_eq!(outcome.unfilled_count, 1);
+        assert_eq!(outcome.status, "unfilled");
+    }
+
+    #[test]
+    fn pads_that_can_coexist_keep_the_plan_byte_identical() {
+        // Same level, far apart, and a pair whose rings overlap but whose
+        // declarations both hold: nothing may move.
+        let mut plan = plan(
+            vec![
+                site("pad.a", 100, 100, 5, false),
+                site("pad.b", 400, 400, 3, false),
+                site("pad.c", 160, 100, 5, false),
+            ],
+            0,
+        );
+        let before = serde_json::to_value(&plan).unwrap();
+        let rejections = refuse(&mut plan);
+        assert!(rejections.is_empty(), "{rejections:?}");
+        assert_eq!(serde_json::to_value(&plan).unwrap(), before);
+        assert_eq!(plan.site_entities().len(), 3);
+    }
+
+    #[test]
+    fn a_pad_platform_the_contract_forbids_is_refused_without_inventing_a_neighbour() {
+        // A pad declared 7 m above the flat ground is over the 6 m fill contract
+        // even with no neighbour at all: it must still be refused, by the other
+        // name, with its own fill number.
+        let mut plan = plan(vec![site("pad.tall", 200, 200, 4, false)], 0);
+        plan.roadside_sites[0].support_level_m = 7;
+        let rejections = refuse(&mut plan);
+        assert_eq!(rejections.len(), 1, "{rejections:?}");
+        assert_eq!(rejections[0].category, PAD_UNREALIZABLE_CATEGORY);
+        assert_eq!(rejections[0].edge_id, "pad.tall");
+        assert!(
+            rejections[0]
+                .reason
+                .contains("7.000 m of fill above the natural 0.000 m")
+                && rejections[0].reason.contains("against the 6 m fill contract"),
+            "the refusal must carry the fill it would need and the contract it breaks: {}",
+            rejections[0].reason
+        );
+        assert!(plan.roadside_sites.is_empty());
+    }
 }

@@ -393,7 +393,16 @@ fn string_ids(report: &serde_json::Value, field: &str) -> Option<Vec<String>> {
 ///    causeway/sidewalk);
 ///  * a skip whose `reason` names nothing, whose `rule` is not a loaded
 ///    descriptor, whose descriptor does not govern the skipped kind, or whose
-///    descriptor does not declare `fallback = "skip"`.
+///    descriptor does not declare `fallback = "skip"`;
+///  * `plannedPadIds`: a pad the ROAD PLAN planned that is neither in the
+///    reconcile output nor named as a skip, or that is in the output but not
+///    published. This is the triangle Round 23 fell through - plan, ledger and
+///    world must agree about which pads exist, and a pad deleted from the world
+///    before reconciliation left `inputItems == outputItems` and every other
+///    audit agreeing with itself;
+///  * `refusedEntityIds`: a pad the planner REFUSED by name that is still in the
+///    reconcile plan, still in its output, published in the scene or an authored
+///    landmark. A published refusal cannot be quietly ignored downstream.
 ///
 /// A report baked before this shape existed carries no ids; when it also removed
 /// nothing there is nothing to recompute and it stays readable.
@@ -476,6 +485,60 @@ pub fn verify_published_placement(
     let output: BTreeSet<&str> = output_ids.iter().map(String::as_str).collect();
     if output.len() != output_ids.len() {
         return Err(format!("{scene_id}: the output publishes a duplicate item id"));
+    }
+    // A refusal the PLANNER published (`refusedEntityIds`, written only when a pad was refused by
+    // name - see `road_network::PAD_FILL_CONFLICT_CATEGORY`) must be honoured end to end. A refused
+    // item that is still in the reconcile plan, still in its output, or still standing in the
+    // published scene is the exact defect this field exists to catch: planned, booked and absent (or
+    // worse, planned, booked and present while its own contract fails). Refusing it here means a
+    // reported refusal cannot be quietly ignored downstream.
+    for id in string_ids(report, "refusedEntityIds").unwrap_or_default() {
+        if plan.contains(id.as_str()) {
+            return Err(format!(
+                "{scene_id}: item {id} is refused by the planner and is still in the reconcile plan"
+            ));
+        }
+        if output.contains(id.as_str()) {
+            return Err(format!(
+                "{scene_id}: item {id} is refused by the planner and is still in the reconcile output"
+            ));
+        }
+        if published_entity_ids.contains(&id) {
+            return Err(format!(
+                "{scene_id}: item {id} is refused by the planner and is published in the scene"
+            ));
+        }
+        if published_landmark_ids.contains(&id) {
+            return Err(format!(
+                "{scene_id}: item {id} is refused by the planner and is an authored landmark"
+            ));
+        }
+    }
+    // The other half of the same triangle: every pad the road plan PLANNED must be accounted for -
+    // either reconciled into the output (and then standing in the published scene) or named as a
+    // skip. A planned pad that is neither is exactly the Round-23 defect: the plan and the ledger
+    // kept it, the world did not, and every audit agreed with itself because none of them compared
+    // the plan's pad list with the published ids. Refusing it here compares all three.
+    let skip_ids: BTreeSet<&str> = skips
+        .iter()
+        .filter_map(|skip| skip.get("entityId").and_then(serde_json::Value::as_str))
+        .collect();
+    for id in string_ids(report, "plannedPadIds").unwrap_or_default() {
+        if !output.contains(id.as_str()) {
+            if skip_ids.contains(id.as_str()) {
+                continue;
+            }
+            return Err(format!(
+                "{scene_id}: planned pad {id} is neither in the reconcile output nor named as a skip; \
+                 the plan and the ledger claim a pad the world does not carry"
+            ));
+        }
+        if !published_entity_ids.contains(&id) {
+            return Err(format!(
+                "{scene_id}: planned pad {id} is in the reconcile output but is not published; \
+                 the plan and the ledger claim a pad the world does not carry"
+            ));
+        }
     }
     for id in &output {
         if !plan.contains(id) {
@@ -939,5 +1002,98 @@ mod tests {
         let audit = verify_published_placement(&legacy, &published, &BTreeSet::new(), None)
             .expect("a legacy report without removals stays readable");
         assert_eq!(audit, PlacementReportAudit::default());
+    }
+
+    /// The pad triangle: the plan's pad list, the reconcile output and the published
+    /// scene must agree. Round 23's defect fell exactly through the gap this closes -
+    /// the pad stayed in the plan and in the ledger, and its entity was deleted from
+    /// the world before reconciliation, so `inputItems == outputItems` and every
+    /// other audit agreed with itself. The refusal list is honoured from the same
+    /// report, in the other direction.
+    #[test]
+    fn a_planned_pad_must_be_reconciled_and_published_and_a_refusal_must_be_honoured() {
+        let report = serde_json::json!({
+            "sceneId": "pads",
+            "rounds": 0,
+            "moves": [],
+            "inputItems": 2,
+            "outputItems": 2,
+            "removedItems": 0,
+            "inputEntityIds": ["generated.pad.kept", "generated.tree.0"],
+            "outputEntityIds": ["generated.pad.kept", "generated.tree.0"],
+            "skips": [],
+            "checkedItems": 2,
+            "rejectedItems": 0,
+            "plannedPadIds": ["generated.pad.kept"],
+        });
+        let published = |ids: &[&str]| -> BTreeSet<String> {
+            ids.iter().map(|id| (*id).to_owned()).collect()
+        };
+        let both = published(&["generated.pad.kept", "generated.tree.0"]);
+        let audit = verify_published_placement(&report, &both, &BTreeSet::new(), None)
+            .expect("a consistent pad triangle must recompute");
+        assert_eq!((audit.plan_items, audit.output_items), (2, 2));
+        // 1. The defect itself: the plan claims a pad that never reached the
+        //    reconcile output (it was deleted from the world earlier) and was never
+        //    named as a skip. Nothing else in the report moves.
+        let mut lost = report.clone();
+        lost["plannedPadIds"] =
+            serde_json::json!(["generated.pad.kept", "generated.pad.church"]);
+        let error = verify_published_placement(&lost, &both, &BTreeSet::new(), None)
+            .expect_err("a planned pad the world does not carry must be refused by name");
+        assert_eq!(
+            error,
+            "pads: planned pad generated.pad.church is neither in the reconcile output nor named \
+             as a skip; the plan and the ledger claim a pad the world does not carry"
+        );
+        // 2. Reconciled but not published: same defect one stage later.
+        let mut unpublished = report.clone();
+        unpublished["plannedPadIds"] = serde_json::json!(["generated.pad.kept"]);
+        let error = verify_published_placement(
+            &unpublished,
+            &published(&["generated.tree.0"]),
+            &BTreeSet::new(),
+            None,
+        )
+        .expect_err("a planned pad that is not published must be refused by name");
+        assert_eq!(
+            error,
+            "pads: planned pad generated.pad.kept is in the reconcile output but is not \
+             published; the plan and the ledger claim a pad the world does not carry"
+        );
+        // 3. A named skip is the legitimate way for a planned pad to leave: the
+        //    triangle then closes.
+        let mut skipped = report.clone();
+        skipped["outputItems"] = serde_json::json!(1);
+        skipped["removedItems"] = serde_json::json!(1);
+        skipped["outputEntityIds"] = serde_json::json!(["generated.tree.0"]);
+        skipped["skips"] = serde_json::json!([{
+            "entityId": "generated.pad.kept",
+            "kind": "residential_home",
+            "descriptorFallback": "skip",
+            "reason": "geometry collision with Building (pads)",
+            "rule": "residential_home.object.toml",
+            "round": 1,
+            "exit": "search-exhausted",
+        }]);
+        let audit = verify_published_placement(&skipped, &published(&["generated.tree.0"]), &BTreeSet::new(), None)
+            .expect("a planned pad removed by name is accounted for");
+        assert_eq!(audit.skipped_items, 1);
+        // 4. A refusal the planner published must be honoured: the same report that
+        //    is fine above fails the moment the refused id reappears in the plan.
+        let mut refused = report.clone();
+        refused["refusedEntityIds"] = serde_json::json!(["generated.pad.church"]);
+        assert!(
+            verify_published_placement(&refused, &both, &BTreeSet::new(), None).is_ok(),
+            "a refusal that is absent everywhere is fine"
+        );
+        refused["refusedEntityIds"] = serde_json::json!(["generated.pad.kept"]);
+        let error = verify_published_placement(&refused, &both, &BTreeSet::new(), None)
+            .expect_err("a refused item still in the reconcile plan must be refused by name");
+        assert_eq!(
+            error,
+            "pads: item generated.pad.kept is refused by the planner and is still in the \
+             reconcile plan"
+        );
     }
 }

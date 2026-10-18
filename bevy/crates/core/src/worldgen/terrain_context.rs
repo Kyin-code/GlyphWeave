@@ -17,6 +17,45 @@ impl TerrainContext<'_> {
         }
     }
 }
+
+/// The same surface as [`TerrainContext`], sampled from a PUBLISHED natural
+/// raster instead of the procedural field.
+///
+/// The road programme is planned before any payload is materialized, and it is
+/// planned against the natural raster it was handed (`BakedTerrain`) - the very
+/// samples the independent audit re-reads afterwards. A planning gate therefore
+/// has no seed to regenerate a field from, and must not invent one: it composes
+/// the carve on top of the raster sample here, with exactly the composition
+/// [`TerrainContext::height`] performs - protected cells and water keep their
+/// natural surface, fill is clamped to the (lesser) of the zoning fill capacity
+/// and the carve's own limit, and a carve can never excavate.
+pub(super) struct RasterSurface<'a> {
+    pub natural: &'a super::BakedTerrain,
+    pub water: WaterGeometry,
+    pub zoning: Option<&'a ZoningMask>,
+}
+impl RasterSurface<'_> {
+    pub fn natural_at(&self, x: i32, z: i32) -> Option<f32> {
+        self.natural.height(x, z)
+    }
+    pub fn height(&self, x: i32, z: i32, carves: &[TerrainCarve]) -> Option<f32> {
+        let natural = self.natural.height(x, z)?;
+        if carves.is_empty()
+            || self.water.forbids_earthwork(f64::from(x), f64::from(z))
+            || self.zoning.is_some_and(|mask| mask.protected_at(x, z))
+        {
+            return Some(natural);
+        }
+        let engineered = super::apply_terrain_carves(f64::from(natural), x, z, carves);
+        if engineered <= f64::from(natural) {
+            return Some(natural);
+        }
+        Some(match self.zoning {
+            Some(mask) => engineered.min(f64::from(natural) + mask.fill_capacity_at(x, z)) as f32,
+            None => engineered as f32,
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

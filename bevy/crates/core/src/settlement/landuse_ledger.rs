@@ -91,6 +91,12 @@ pub struct LandUseLedger {
 /// Nothing here is taken on trust: every record is re-derived from the plan's own parcel geometry,
 /// the zoning and the water authority, and the ledger's rows must be exactly the plan's records.
 /// A hand-edited ledger therefore fails by name instead of inflating urban realization.
+///
+/// It also closes the triangle a planned pad can fall through. A pad the road plan REFUSED by name
+/// (`worldgen::road_network::PAD_FILL_CONFLICT_CATEGORY`) is no longer a parcel of this world, so
+/// booking its converted land would credit an area to an entity that cannot exist. The plan may not
+/// keep the record, the ledger may not apply it, and the plan may not silently plan the pad again -
+/// each of those is a named failure, not a count that happens to agree.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversionAudit {
@@ -101,6 +107,9 @@ pub struct ConversionAudit {
     pub applied: usize,
     /// Sum of the verified conversion areas; the exact amount the ledger must have moved.
     pub converted_m2: i64,
+    /// Pads the plan refused by name on a fill conflict with a neighbour (see
+    /// `worldgen::road_network::PAD_FILL_CONFLICT_CATEGORY`). None of them may be booked.
+    pub refused_pads: usize,
     pub failures: Vec<String>,
 }
 
@@ -168,6 +177,11 @@ pub fn audit_conversions(
     let mut failures = Vec::new();
     let mut converted_m2 = 0_i64;
     let mut duplicated = BTreeSet::new();
+    // Pads the plan refused BY NAME because their declared flat top cannot be held (see
+    // `worldgen::road_network::PAD_REFUSED_CATEGORIES`: the only roadside categories whose `edgeId`
+    // names a pad that WAS planned and was taken back out again). They are not parcels of this
+    // world any more, so `triangle_failures` refuses any record that still books one.
+    let refused: BTreeSet<&str> = crate::worldgen::road_network::refused_pad_ids(plan);
     for record in records {
         if !duplicated.insert(record.parcel_id.as_str()) {
             failures.push(format!(
@@ -202,6 +216,7 @@ pub fn audit_conversions(
             ));
         }
     }
+    triangle_failures(plan, records, &refused, ledger, &mut failures);
     let Some(ledger) = ledger else {
         failures.push(format!(
             "no published ledger carries the {} conversion(s) the plan claims",
@@ -212,6 +227,7 @@ pub fn audit_conversions(
             planned: records.len(),
             applied: 0,
             converted_m2,
+            refused_pads: refused.len(),
             failures,
         };
     };
@@ -278,7 +294,71 @@ pub fn audit_conversions(
         planned: records.len(),
         applied: ledger.conversions.len(),
         converted_m2,
+        refused_pads: refused.len(),
         failures,
+    }
+}
+
+/// The categories a refused pad can name, for a failure message.
+fn refused_categories() -> String {
+    crate::worldgen::road_network::PAD_REFUSED_CATEGORIES.join(" or ")
+}
+
+/// The plan/pad/ledger triangle: a refused pad may not be re-planned, a record may not survive for a
+/// pad the plan does not plan, and the ledger may not apply a record the plan does not carry.
+///
+/// This is the half of the check that needs no raster and no entity list: everything here is
+/// recomputable from the plan and the published ledger alone, which is exactly what makes it cheap
+/// enough to run on every scene.
+fn triangle_failures(
+    plan: &RoadNetworkPlan,
+    records: &[Conversion],
+    refused: &BTreeSet<&str>,
+    ledger: Option<&LandUseLedger>,
+    failures: &mut Vec<String>,
+) {
+    for site in &plan.roadside_sites {
+        if refused.contains(site.id.as_str()) {
+            failures.push(format!(
+                "pad {} is refused by the plan ({}) and still planned",
+                site.id,
+                refused_categories()
+            ));
+        }
+    }
+    for record in records {
+        if refused.contains(record.parcel_id.as_str()) {
+            failures.push(format!(
+                "conversion parcel {} was refused by the plan ({}) yet the plan still books {} m2",
+                record.parcel_id,
+                refused_categories(),
+                record.area_m2
+            ));
+        }
+    }
+    let Some(ledger) = ledger else {
+        return;
+    };
+    for applied in &ledger.conversions {
+        if refused.contains(applied.parcel_id.as_str()) {
+            failures.push(format!(
+                "ledger books conversion parcel {} which the plan refused ({}); the pad has no entity",
+                applied.parcel_id,
+                refused_categories()
+            ));
+            continue;
+        }
+        if !plan
+            .roadside_sites
+            .iter()
+            .any(|site| site.id == applied.parcel_id)
+        {
+            failures.push(format!(
+                "ledger books conversion parcel {} which the plan does not plan; \
+                 the pad has no plan record and no entity",
+                applied.parcel_id
+            ));
+        }
     }
 }
 
@@ -959,6 +1039,141 @@ mod tests {
             .unwrap_err(),
             "conversion parcel home declares purpose urban but its kind turnip_cart is no settlement purpose"
         );
+    }
+
+
+    /// A pad the road plan REFUSED by name is not a parcel of this world any more. The ledger may not
+    /// book it, the plan may not keep its record, and a plan that claims both a refusal and a pad is
+    /// itself a failure - each named, so "planned, booked, deleted from the world" can never pass as
+    /// an agreement between the plan and the ledger.
+    #[test]
+    fn a_ledger_that_still_books_a_refused_pad_is_refused_by_name() {
+        let (mut scene, profile) = fixture();
+        let spec = SceneSpec {
+            scene_id: "ledger".into(),
+            width_m: 384,
+            depth_m: 256,
+            origin_x: -128,
+            origin_z: 40,
+            seed_offset: 0,
+        };
+        let record = Conversion::rural_to_urban("home", 484);
+        {
+            let plan = scene.road_network_plan.as_mut().unwrap();
+            plan.roadside_sites[0].purpose = Some("urban".into());
+            plan.pad_conversions = vec![record.clone()];
+        }
+        let zones = scene.land_use_zones.clone();
+        let honest_ledger = analyze(&scene, &profile).unwrap();
+        assert_eq!(honest_ledger.conversions, vec![record.clone()]);
+        let dry = crate::worldgen::water_geometry(
+            crate::worldgen::WaterKind::None,
+            &[],
+            &spec,
+            &serde_json::Value::Null,
+        );
+        let categories =
+            crate::worldgen::road_network::PAD_REFUSED_CATEGORIES.join(" or ");
+        let categories = categories.as_str();
+        // The refusal the sweep writes when the pad cannot hold its declared top.
+        let refusal = crate::worldgen::road_network::BaseProfileRejection {
+            edge_id: "home".into(),
+            category: crate::worldgen::road_network::PAD_FILL_CONFLICT_CATEGORY.into(),
+            reason: "pad home (24x24, declared top 0.000 m on road road2) cannot hold its flat top: \
+                     pad.other stands 4.970 m at (64, 188)"
+                .into(),
+        };
+        // 1. The honest ledger PLUS the refusal is a plan/ledger disagreement: the ledger books land
+        //    for a pad the plan refused, and the plan still lists the pad.
+        scene
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .roadside_site_rejections = vec![refusal.clone()];
+        let refused_audit = audit_conversions(
+            scene.road_network_plan.as_ref().unwrap(),
+            &zones,
+            dry,
+            Some(&honest_ledger),
+        );
+        assert_eq!(refused_audit.status, "fail", "{refused_audit:?}");
+        assert_eq!(refused_audit.refused_pads, 1);
+        assert!(refused_audit.failures.iter().any(|failure| failure
+            == &format!("pad home is refused by the plan ({categories}) and still planned")),
+            "{refused_audit:?}");
+        assert!(refused_audit.failures.iter().any(|failure| failure
+            == &format!("conversion parcel home was refused by the plan ({categories}) yet the plan still books 484 m2")),
+            "{refused_audit:?}");
+        assert!(refused_audit.failures.iter().any(|failure| failure
+            == &format!("ledger books conversion parcel home which the plan refused ({categories}); the pad has no entity")),
+            "{refused_audit:?}");
+        // 2. A plan that took the pad out but kept the record is refused by name as well: the record
+        //    would move 484 m2 for a parcel the plan does not plan.
+        let mut dropped_pad = scene.clone();
+        dropped_pad
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .roadside_sites
+            .clear();
+        let dropped_audit = audit_conversions(
+            dropped_pad.road_network_plan.as_ref().unwrap(),
+            &zones,
+            dry,
+            Some(&honest_ledger),
+        );
+        assert_eq!(dropped_audit.status, "fail", "{dropped_audit:?}");
+        assert!(
+            dropped_audit
+                .failures
+                .contains(&"conversion parcel home is not a planned frontage parcel".to_string()),
+            "{dropped_audit:?}"
+        );
+        assert!(dropped_audit.failures.iter().any(|failure| failure
+            == &format!("conversion parcel home was refused by the plan ({categories}) yet the plan still books 484 m2")),
+            "{dropped_audit:?}");
+        assert!(dropped_audit.failures.iter().any(|failure| failure
+            == &format!("ledger books conversion parcel home which the plan refused ({categories}); the pad has no entity")),
+            "{dropped_audit:?}");
+        // 3. The fix's own shape passes: the pad is out, the record is out, its area stays rural.
+        let mut fixed = dropped_pad.clone();
+        fixed
+            .road_network_plan
+            .as_mut()
+            .unwrap()
+            .pad_conversions
+            .clear();
+        let fixed_ledger = analyze(&fixed, &profile).unwrap();
+        assert!(fixed_ledger.conversions.is_empty());
+        let fixed_audit = audit_conversions(
+            fixed.road_network_plan.as_ref().unwrap(),
+            &zones,
+            dry,
+            Some(&fixed_ledger),
+        );
+        assert_eq!(fixed_audit.status, "pass", "{fixed_audit:?}");
+        assert_eq!(
+            (
+                fixed_audit.planned,
+                fixed_audit.applied,
+                fixed_audit.converted_m2
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(fixed_audit.refused_pads, 1);
+        // 4. A published ledger that keeps the record the plan dropped is refused by name too.
+        let mut stray_ledger = fixed_ledger.clone();
+        stray_ledger.conversions = vec![record];
+        let stray_audit = audit_conversions(
+            fixed.road_network_plan.as_ref().unwrap(),
+            &zones,
+            dry,
+            Some(&stray_ledger),
+        );
+        assert_eq!(stray_audit.status, "fail", "{stray_audit:?}");
+        assert!(stray_audit.failures.iter().any(|failure| failure
+            == &format!("ledger books conversion parcel home which the plan refused ({categories}); the pad has no entity")),
+            "{stray_audit:?}");
     }
 
     #[test]
