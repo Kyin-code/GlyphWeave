@@ -23,6 +23,9 @@ mod access_surface;
 pub use access::{AccessGraph, AccessLink, AccessPoint, build_access_graph};
 pub use access_surface::{AccessSurface, bake_access_surfaces, validate_access_surfaces};
 mod engineered_placement;
+pub use engineered_placement::{
+    PlacementReportAudit, verify_published_placement,
+};
 pub mod joint_frontage;
 pub mod road_network;
 pub mod road_alignment;

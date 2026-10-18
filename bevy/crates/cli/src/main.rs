@@ -1350,6 +1350,10 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let mut scene_reports = Vec::new();
     let mut access_surface_failed = false;
     let mut conversion_failed = false;
+    // Round 19 published reconciliation removals (`skips[]`); this report does
+    // not trust them, it recomputes them from the plan ids the bake published.
+    let mut engineering_placement_failed = false;
+    let mut engineering_placement_skips = 0_usize;
     let mut warnings = Vec::new();
     let mut chunks = 0_usize;
     let mut entities = 0_usize;
@@ -1419,9 +1423,75 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         );
     }
     let mut area_reports = Vec::new();
+    // A world baked with `rulesMode = rules` publishes one reconciliation report
+    // per scene. Removal is the only way reconciliation may shrink a scene, so a
+    // report that cannot be recomputed (a skip for an unplanned item, a skip for
+    // an authored landmark or infrastructure, a descriptor that never asked to be
+    // skipped, or a deleted record that breaks plan conservation) fails the
+    // quality report instead of passing silently.
+    let engineering_placement = fs::read(root.join("engineering-placement.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let placement_registry = manifest
+        .style
+        .get("rulesDir")
+        .and_then(serde_json::Value::as_str)
+        .map(PathBuf::from)
+        .and_then(|dir| {
+            ObjectRegistry::load_dir(&dir)
+                .or_else(|_| ObjectRegistry::load_dir(&root.join(dir)))
+                .ok()
+        });
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
             serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        let mut engineering_placement_audit = serde_json::Value::Null;
+        if let Some(report) = &engineering_placement {
+            let entry = report
+                .get("scenes")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|scenes| {
+                    scenes.iter().find(|entry| {
+                        entry.get("sceneId").and_then(serde_json::Value::as_str)
+                            == Some(scene.scene_id.as_str())
+                    })
+                });
+            if let Some(entry) = entry {
+                let published: BTreeSet<String> =
+                    scene.entities.iter().map(|e| e.entity_id.clone()).collect();
+                let authored: BTreeSet<String> =
+                    scene.landmarks.iter().map(|l| l.entity_id.clone()).collect();
+                match glyphweave_core::worldgen::verify_published_placement(
+                    entry,
+                    &published,
+                    &authored,
+                    placement_registry.as_ref(),
+                ) {
+                    Ok(audit) => {
+                        engineering_placement_skips += audit.skipped_items;
+                        engineering_placement_audit = serde_json::json!({
+                            "status": "pass",
+                            "planItems": audit.plan_items,
+                            "outputItems": audit.output_items,
+                            "skippedItems": audit.skipped_items,
+                            "skippedByRule": audit.skipped_by_rule,
+                            "evidence": "recomputed-from-published-plan-ids-and-descriptor-fallback",
+                        });
+                    }
+                    Err(message) => {
+                        engineering_placement_failed = true;
+                        warnings.push(format!(
+                            "{}: engineering placement report is not recomputable: {message}",
+                            scene.scene_id
+                        ));
+                        engineering_placement_audit = serde_json::json!({
+                            "status": "fail",
+                            "detail": message,
+                        });
+                    }
+                }
+            }
+        }
         let mut kinds = BTreeMap::<String, usize>::new();
         for entity in &scene.entities {
             *kinds.entry(entity.kind.clone()).or_default() += 1;
@@ -2020,6 +2090,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             })),
             "entityKinds": kinds,
             "landUseArea": area_reports.last(),
+            "engineeringPlacement": engineering_placement_audit,
         });
         // Only worlds that actually converted land carry the key, so a manifest without the explicit
         // switch keeps the exact report shape it always had.
@@ -2030,9 +2101,10 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     }
     let report = serde_json::json!({
         "format": "glyphweave.quality-report", "version": 2,
-        "status": if scale_failed || access_surface_failed || conversion_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
+        "status": if scale_failed || access_surface_failed || conversion_failed || engineering_placement_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
+        "engineeringPlacementSkips": engineering_placement_skips,
         "warnings": warnings, "scenes": scene_reports,
         "landUseProfileApplied": profile_applied,
         "landUseProfile": profile.map(|profile| serde_json::json!({
