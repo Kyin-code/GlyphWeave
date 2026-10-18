@@ -52,6 +52,13 @@ impl Rect {
             depth_m: (b - z) as u32,
         })
     }
+    /// Area two rectangles share, in whole square metres. The purpose allocation
+    /// (`worldgen::conversion_budget`) measures "how much urban land this rect
+    /// commits" with exactly this arithmetic, so the two cannot disagree about a
+    /// single square metre.
+    pub(crate) fn intersection_area(self, other: Self) -> u64 {
+        self.intersect(other).map_or(0, |shared| shared.area())
+    }
     fn contains(self, other: Self) -> bool {
         self.intersect(other) == Some(other)
     }
@@ -394,6 +401,43 @@ fn disjoint(rects: &[(String, Rect)]) -> Result<(), String> {
     Ok(())
 }
 
+/// The roadbed rectangle `plan` partitions a zone with for one road entity.
+///
+/// Factored out so the purpose allocation (`worldgen::conversion_budget`) can
+/// measure the same land the partition commits without re-deriving the geometry:
+/// a road that is 8 m wide and 64 m long along z owns the same square metres in
+/// both places, including the width/depth swap of a rotated road.
+pub(crate) fn road_rect(entity: &EntityInstance) -> Rect {
+    let (w, d) = if entity.rotation_y_deg == 0. {
+        (entity.width_m as u32, entity.depth_m as u32)
+    } else {
+        (entity.depth_m as u32, entity.width_m as u32)
+    };
+    Rect {
+        x: i64::from(entity.world_x) - i64::from(w / 2),
+        z: i64::from(entity.world_z) - i64::from(d / 2),
+        width_m: w,
+        depth_m: d,
+    }
+}
+
+/// The frontage-parcel rectangle `plan` partitions a zone with for one roadside
+/// site, derived from the site's own exact building geometry and authored insets.
+pub(crate) fn parcel_rect(
+    site: &crate::worldgen::road_network::RoadsideSite,
+) -> Result<Rect, String> {
+    let p = parcel_geometry::boundary_for_entity(
+        &site.entity(),
+        site.parcel_insets.unwrap_or_default(),
+    )?;
+    Ok(Rect {
+        x: p[0],
+        z: p[1],
+        width_m: (p[2] - p[0]) as u32,
+        depth_m: (p[3] - p[1]) as u32,
+    })
+}
+
 /// Deterministic pre-generation plan. The road plan must first be verified
 /// against its natural raster at the caller's trust boundary.
 pub fn plan(
@@ -451,17 +495,7 @@ pub fn plan(
         if let Some(profile)=&e.grounding.road_profile {
             profile.validate_entity(&e).map_err(|error|error.to_string())?;
         }
-        let (w, d) = if e.rotation_y_deg == 0. {
-            (e.width_m as u32, e.depth_m as u32)
-        } else {
-            (e.depth_m as u32, e.width_m as u32)
-        };
-        let r = Rect {
-            x: i64::from(e.world_x) - i64::from(w / 2),
-            z: i64::from(e.world_z) - i64::from(d / 2),
-            width_m: w,
-            depth_m: d,
-        };
+        let r = road_rect(&e);
         if !scene_rect.contains(r) {
             return Err("road outside development scene".into());
         }
@@ -484,13 +518,7 @@ pub fn plan(
         }
         let (hw, hd) = site.world_half_extents();
         let insets = site.parcel_insets.unwrap_or_default();
-        let p = parcel_geometry::boundary_for_entity(&site.entity(), insets)?;
-        let boundary = Rect {
-            x: p[0],
-            z: p[1],
-            width_m: (p[2] - p[0]) as u32,
-            depth_m: (p[3] - p[1]) as u32,
-        };
+        let boundary = parcel_rect(site)?;
         if !scene_rect.contains(boundary)
             || road_rects.iter().any(|r| r.intersect(boundary).is_some())
         {
@@ -920,6 +948,7 @@ mod tests {
             rejected_relief: 0,
             unselected_candidates: 0,
             pad_conversions: vec![],
+            conversion_allocation: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),

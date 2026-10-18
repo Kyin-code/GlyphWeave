@@ -217,6 +217,17 @@ pub fn audit_conversions(
         }
     }
     triangle_failures(plan, records, &refused, ledger, &mut failures);
+    // The purpose allocation: the verified conversion area may not exceed the urban land the plan
+    // allocated but did not commit, and every published refusal must name an area it could not
+    // afford. This is the half of the contract the LEDGER cannot re-derive on its own - the ledger
+    // sees the after state and refuses an overcredited row, while this refuses the plan that would
+    // produce it, by name, from the plan and the zoning alone. It runs before the "is there a
+    // published ledger" question, because a plan that over-spends the allocation is already wrong.
+    failures.extend(crate::worldgen::conversion_budget::allocation_failures(
+        plan,
+        zones,
+        converted_m2,
+    ));
     let Some(ledger) = ledger else {
         failures.push(format!(
             "no published ledger carries the {} conversion(s) the plan claims",
@@ -596,6 +607,23 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
     }
     if (result.realized_m2 + result.unresolved_m2 - area).abs() > EPS {
         return Err("ledger does not conserve scene area".into());
+    }
+    // A plan that spent conversions against an urban allocation made a claim about the urban cover it
+    // did not have to convert: roads, parcels and the programmed public open space. If what the world
+    // actually realized inside the urban zones is larger, that claim was false and the conversion
+    // decision was taken against a fiction - refused by name here instead of being quietly absorbed.
+    if let Some(allocation) = roads.conversion_allocation.as_ref() {
+        let physical = result
+            .by_purpose
+            .get("urban")
+            .map_or(0., |row| row.physical.total());
+        let bound = (allocation.committed_urban_m2 + allocation.residual_landcover_m2) as f64;
+        if physical > bound + EPS {
+            return Err(format!(
+                "ledger urban cover {physical} m2 exceeds the conversion allocation's {bound} m2 \
+                 commitment; the plan converted against land it had already spent"
+            ));
+        }
     }
     if result.unresolved_m2 <= EPS {
         result.realization_status = "pass".into();

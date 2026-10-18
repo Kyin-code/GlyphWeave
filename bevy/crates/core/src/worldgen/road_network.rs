@@ -63,6 +63,17 @@ pub struct RoadNetworkPlan {
     /// conversions, and `audit_conversions` re-derives every record from the pad's own geometry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pad_conversions: Vec<super::frontage::Conversion>,
+    /// Opt-in only, and only when the cap actually refused something: the urban purpose allocation
+    /// the plan's explicit rural-to-urban conversions were spent against, with every refusal and the
+    /// area it needed. A plan that never hit the cap publishes nothing here, so every already
+    /// generated world keeps its exact bytes.
+    ///
+    /// See `worldgen::conversion_budget` for the definition: the conversions may not exceed the urban
+    /// land the zoning plans minus the urban land the plan has already committed to roads and
+    /// parcels. That is what stops a conversion from pushing the urban row of the land-use ledger
+    /// past its plan (`ledger purpose overcredited`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversion_allocation: Option<super::conversion_budget::ConversionAllocation>,
     /// Road-first over structured water: one engineering structure per road
     /// segment that crosses the scene's water body.
     ///
@@ -881,6 +892,7 @@ pub(super) fn plan_with_zones_demand(
         edges: Vec::new(),
         roadside_sites: Vec::new(),
         pad_conversions: Vec::new(),
+        conversion_allocation: None,
         zoning_hash: zoning.as_ref().map(|z| z.hash.clone()),
         zoning_rejections: Vec::new(),
         service_outcomes: Vec::new(),
@@ -2290,8 +2302,46 @@ pub(super) fn plan_with_style_declared(
     // `frontage::pad_conversions`), so a pad displaced or renamed by the joint layout cannot leave a
     // stale record behind. With the switch off the list stays empty and no plan gains the key.
     if let Some(zones) = zones {
-        result.pad_conversions =
-            super::frontage::pad_conversions(&result, scene, zones, pad_conversion)?;
+        // Conversions are spent against the plan's urban purpose allocation
+        // (`worldgen::conversion_budget`): the rural land an explicit conversion turns into urban
+        // purpose may not exceed the urban land the zoning plans minus the urban land the plan has
+        // already committed to roads and parcels. A pad that declares an urban purpose on
+        // wholly-rural land and no longer fits that allocation is refused BY NAME here and taken out
+        // of the plan, exactly like a pad whose flat top cannot be held: it was planned, so it may
+        // not silently become a parcel for land the world never allocated as urban, and it may not
+        // push the land-use ledger's urban row past its plan (`ledger purpose overcredited`).
+        let outcome = super::frontage::pad_conversions(
+            &result,
+            scene,
+            zones,
+            pad_conversion,
+            // Only an opted-in world spends against the allocation, so only an opted-in world reads
+            // the residual-land policy here: a plan with the switch off keeps its exact bytes and its
+            // exact failure order.
+            if pad_conversion.is_explicit() {
+                super::conversion_budget::residual_open_space_ratio(style, scene)
+                    .map_err(TerrainError)?
+            } else {
+                0.0
+            },
+        )?;
+        let mut refusals = Vec::new();
+        for refusal in &outcome.refused {
+            refusals.push(BaseProfileRejection {
+                edge_id: refusal.parcel_id.clone(),
+                category: super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION.into(),
+                reason: format!(
+                    "pad {} would convert {} m2 of rural land to urban purpose, but the urban \
+                     allocation left only {} m2, so the pad is refused here by name instead of \
+                     leaving the land-use ledger overcredited",
+                    refusal.parcel_id, refusal.required_m2, refusal.remaining_m2,
+                ),
+            });
+            forget_refused_pad(&mut result, &refusal.parcel_id);
+        }
+        result.roadside_site_rejections.extend(refusals);
+        result.pad_conversions = outcome.records;
+        result.conversion_allocation = outcome.allocation;
     }
     // Opt-in waterfront: the roadside pad programme is NOT refused as a whole any
     // more, and the reason it used to be is worth recording because this used to
@@ -7707,14 +7757,14 @@ pub(super) fn pad_fill_conflict_of(
 /// The stable category a pad is refused under when a NEIGHBOUR's fill is what
 /// makes its declared flat top unbuildable.
 ///
-/// This and `PAD_UNREALIZABLE_CATEGORY` are the only roadside categories whose
-/// `edgeId` names a pad that WAS in the plan and was taken back out of it again:
-/// every other roadside category names a prospective site that was never planned,
-/// and two candidates on the same road and side share one prospective id. Audits
-/// may therefore assert on these two alone that the pad is absent from the plan,
-/// from the conversions, from the ledger and from the published scene - which is
-/// how "planned, booked, but absent from the world" is refused by name instead of
-/// reappearing as a silent deletion.
+/// This, `PAD_UNREALIZABLE_CATEGORY` and `CONVERSION_EXCEEDS_URBAN_ALLOCATION`
+/// are the only roadside categories whose `edgeId` names a pad that WAS in the plan
+/// and was taken back out of it again: every other roadside category names a
+/// prospective site that was never planned, and two candidates on the same road and
+/// side share one prospective id. Audits may therefore assert on these three alone
+/// that the pad is absent from the plan, from the conversions, from the ledger and
+/// from the published scene - which is how "planned, booked, but absent from the
+/// world" is refused by name instead of reappearing as a silent deletion.
 pub const PAD_FILL_CONFLICT_CATEGORY: &str = "pad_fill_conflicts_with_neighbour";
 
 /// The same refusal when no neighbour's fill accounts for it: the plan's own
@@ -7722,8 +7772,17 @@ pub const PAD_FILL_CONFLICT_CATEGORY: &str = "pad_fill_conflicts_with_neighbour"
 pub const PAD_UNREALIZABLE_CATEGORY: &str = "pad_flat_top_unrealizable";
 
 /// Every category a pad that was IN the plan can be taken back out under.
-pub const PAD_REFUSED_CATEGORIES: [&str; 2] =
-    [PAD_FILL_CONFLICT_CATEGORY, PAD_UNREALIZABLE_CATEGORY];
+///
+/// The third entry is the urban purpose allocation
+/// (`worldgen::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION`): the pad
+/// declared an urban purpose on wholly-rural land and the converted land does not
+/// fit what the world planned as urban, so the pad may not stay planned for land
+/// the plan never allocated.
+pub const PAD_REFUSED_CATEGORIES: [&str; 3] = [
+    PAD_FILL_CONFLICT_CATEGORY,
+    PAD_UNREALIZABLE_CATEGORY,
+    super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION,
+];
 
 /// The pad ids the plan refused by name out of an already planned pad list.
 ///
@@ -8446,14 +8505,31 @@ mod pad_refusal_tests {
         // And no conversion is derived for it: the records the ledger applies come
         // from the FINAL pad list, so a refused pad cannot be booked.
         let scene = scene();
-        let zones = rural_zones();
+        // The conversion spends the plan's URBAN purpose allocation, so the fixture needs urban land
+        // to spend: an 8 m urban strip at the scene's north edge, far from both pads, leaves their
+        // wholly-rural cores convertible exactly as before. (A world that allocates no urban land at
+        // all can convert nothing - its ledger would be overcredited by any conversion.)
+        let mut zones = rural_zones();
+        zones[0].world_z = 8;
+        zones[0].depth_m = 504;
+        zones.push(LandUseZone {
+            id: "north".into(),
+            kind: "urban".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 8,
+            source: "test".into(),
+        });
         let conversions = super::super::frontage::pad_conversions(
             &plan,
             &scene,
             &zones,
             super::super::frontage::RuralConversion::RuralToUrban,
+            0.0,
         )
-        .unwrap();
+        .unwrap()
+        .records;
         assert_eq!(
             conversions,
             vec![super::super::frontage::Conversion::rural_to_urban(

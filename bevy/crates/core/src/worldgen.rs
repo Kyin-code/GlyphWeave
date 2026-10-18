@@ -35,6 +35,7 @@ pub mod road_extensions;
 pub mod auto_roads;
 pub mod engineering_connections;
 pub mod frontage;
+pub mod conversion_budget;
 mod frontage_supply;
 pub mod parcel_geometry;
 pub mod road_parcel_feasibility;

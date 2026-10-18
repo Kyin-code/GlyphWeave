@@ -2,6 +2,7 @@
 //! Local road station heights are engineering inputs, not city-area credit.
 use super::{
     AccessGraph, EntityInstance, LandUseZone, SceneSpec, WaterGeometry, WorldManifest,
+    conversion_budget::{self, ConversionAllocation, UrbanAllocation},
     road_network::{RoadNetworkPlan, RoadsideSite},
     services::SiteProgram,
     zoning::ZoningMask,
@@ -220,25 +221,74 @@ pub(crate) fn pad_purpose_for_site(
 /// pad that a later pass displaces or renames cannot leave a record behind: a conversion exists
 /// exactly as long as its parcel does. Only a pad that DECLARED a purpose can appear here; a frontage
 /// parcel keeps its own record in the frontage report, so no square metre is converted twice.
+///
+/// Each record is spent against the plan's urban purpose allocation
+/// (`worldgen::conversion_budget`), continuing the account the frontage programme opened, and the
+/// pads are granted AFTER the frontage programme has had its turn because `frontage::append` reserved
+/// their conversion area before spending. A pad whose converted land does not fit what is left is
+/// REFUSED by name and returned in [`PadConversions::refused`], so the caller can withdraw it: a pad
+/// that cannot convert cannot take wholly-rural land, and booking it would push the urban row of the
+/// land-use ledger past its plan.
 pub(crate) fn pad_conversions(
     plan: &RoadNetworkPlan,
     scene: &SceneSpec,
     zones: &[LandUseZone],
     conversion: RuralConversion,
-) -> Result<Vec<Conversion>, TerrainError> {
+    residual_ratio: f64,
+) -> Result<PadConversions, TerrainError> {
     let mut records = Vec::new();
     if !conversion.is_explicit() {
-        return Ok(records);
+        return Ok(PadConversions {
+            records,
+            refused: Vec::new(),
+            allocation: plan.conversion_allocation.clone(),
+        });
     }
+    // One account for the whole world: a frontage programme that already spent against the urban
+    // allocation left its record on the plan, and the pads continue from it instead of opening a
+    // second budget. Only a plan with no frontage programme at all opens the account here.
+    let mut allocation = match &plan.conversion_allocation {
+        Some(record) => UrbanAllocation::resume(record, zones),
+        None => UrbanAllocation::open(plan, zones, residual_ratio),
+    };
+    let mut refused = Vec::new();
     for site in &plan.roadside_sites {
         if site.purpose.is_none() {
             continue;
         }
-        if let Some(area_m2) = pad_purpose_for_site(site, scene, zones, conversion)?.converted_m2 {
+        let Some(area_m2) = pad_purpose_for_site(site, scene, zones, conversion)?.converted_m2 else {
+            continue;
+        };
+        // The area left is taken BEFORE the grant so the refusal quotes exactly what the pad asked
+        // for and what was still there, whether or not the grant succeeds.
+        let remaining_m2 = allocation.remaining_m2();
+        if allocation.grant(&site.id, area_m2) {
             records.push(Conversion::rural_to_urban(&site.id, area_m2));
+        } else {
+            refused.push(conversion_budget::ConversionRefusal {
+                parcel_id: site.id.clone(),
+                required_m2: area_m2,
+                remaining_m2,
+            });
         }
     }
-    Ok(records)
+    Ok(PadConversions {
+        records,
+        refused,
+        allocation: allocation.close(),
+    })
+}
+
+/// What the roadside pad programme's conversions may keep after the urban allocation judged them.
+pub(crate) struct PadConversions {
+    /// The records the plan keeps, in plan order.
+    pub records: Vec<Conversion>,
+    /// Candidates the allocation refused, in plan order, each with the area it needed and the area
+    /// that was left. Every one of them must be withdrawn from the plan: a pad that cannot convert
+    /// cannot take wholly-rural land.
+    pub refused: Vec<conversion_budget::ConversionRefusal>,
+    /// The plan's allocation record after the pad decisions.
+    pub allocation: Option<ConversionAllocation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1874,6 +1924,7 @@ fn claim_and_place(
     state: &mut PlacementState<'_>,
     staged: &mut RoadNetworkPlan,
     budget: &mut RequestBudget,
+    mut allocation: Option<&mut UrbanAllocation>,
     station: usize,
     side: i32,
 ) -> Result<Option<Conversion>, TerrainError> {
@@ -1892,6 +1943,20 @@ fn claim_and_place(
         r.rural_conversion,
     );
     if reason.is_none() {
+        // The urban allocation is spent BEFORE the engineering preflight, so a lot that cannot
+        // afford the land its conversion would move is refused for that reason - not for a
+        // downstream symptom - and never competes for a station it may not take. The lot's own
+        // frontage rectangle commits urban land as well, so both areas are weighed here.
+        if let Some(account) = allocation.as_deref_mut() {
+            if let Some(area_m2) = converted_m2 {
+                let required_m2 = area_m2 + account.site_commitment(&site);
+                if !account.fits(required_m2) {
+                    account.refuse(&site.id, area_m2);
+                    budget.reject(conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION);
+                    return Ok(None);
+                }
+            }
+        }
         reason = state.assess(&site, staged)?;
     }
     if let Some(reason) = reason {
@@ -1904,6 +1969,12 @@ fn claim_and_place(
     site.bounded_cut_mm = state.cut_cap_for(&site);
     state.commit(&site);
     budget.accept(&site.id);
+    if let Some(account) = allocation.as_deref_mut() {
+        account.commit_site(&site);
+        if let Some(area_m2) = converted_m2 {
+            account.spend(area_m2);
+        }
+    }
     let conversion = converted_m2.map(|area_m2| Conversion::rural_to_urban(&site.id, area_m2));
     staged.roadside_sites.push(site);
     Ok(conversion)
@@ -1970,6 +2041,38 @@ pub(super) fn append(
     // diagnosis walks the very same order instead of re-deriving it. Realization evidence is written
     // in program order afterwards, so the published outcome order is unchanged.
     let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
+    // The urban purpose allocation, opened ONCE from the plan as it stands - every road final, every
+    // roadside pad final, the frontage parcels exactly the ones about to be placed - and spent in
+    // production order. Without it an explicit conversion can move more farmland into the urban
+    // purpose row than the world planned as urban, and the land-use ledger is then right to refuse
+    // the scene (`ledger purpose overcredited`).
+    //
+    // The authored pad programme's conversions are RESERVED before the demand-led frontage
+    // programme spends anything: a village school, a church and the shops are the world's own
+    // authored facilities, and the frontage programme is demand-led, so the reserve is what stops
+    // 120 generic lots from starving them out of the plan. When the switch is off the account is
+    // never opened and this loop cannot move by a byte.
+    let mut allocation = if requests
+        .iter()
+        .any(|request| request.rural_conversion.is_explicit())
+    {
+        // The residual-land policy realizes public open space on the urban zone's own remainder, and
+        // that share of the urban plan is not available to conversions (see `conversion_budget`).
+        let residual_ratio =
+            conversion_budget::residual_open_space_ratio(style, scene).map_err(err)?;
+        let mut account = UrbanAllocation::open(&staged, zones, residual_ratio);
+        for site in &staged.roadside_sites {
+            if site.purpose.as_deref() != Some(Conversion::URBAN) {
+                continue;
+            }
+            if let Some(area_m2) = pad_conversion_area(site, zones) {
+                account.reserve_for_pads(area_m2);
+            }
+        }
+        Some(account)
+    } else {
+        None
+    };
     for road in &roads {
         let schedule = StationSchedule::new(road, &requests)?;
         for turn in schedule.turns() {
@@ -1985,6 +2088,7 @@ pub(super) fn append(
                 &mut state,
                 &mut staged,
                 budget,
+                allocation.as_mut(),
                 turn.station,
                 turn.side,
             )? {
@@ -2006,6 +2110,9 @@ pub(super) fn append(
         });
     }
     staged.frontage = Some(report);
+    // The record is written to the plan only when the allocation refused something: a world that
+    // never spent against the cap gains no key and keeps its exact bytes.
+    staged.conversion_allocation = allocation.and_then(UrbanAllocation::close);
     *plan = staged;
     Ok(())
 }
@@ -4086,6 +4193,261 @@ mod tests {
             pad_conversion_area(&site, &protected_column),
             None,
             "a parcel with any protected square metre converts nothing"
+        );
+    }
+
+    /// Round 29, at placement scale: four legal 80 m2 conversions against an urban plan of 250 m2.
+    /// Three fit (240 m2); the next asks for 80 m2 with 10 m2 left and is refused BY NAME, with both
+    /// numbers published - the ledger is never asked to discover the overcredit afterwards.
+    #[test]
+    fn an_exhausted_urban_allocation_refuses_the_conversion_by_name_with_both_areas() {
+        let (s, n, w, _urban, base, style) = fixture(0);
+        // The urban purpose is a 250 m2 sliver at the scene's north edge; everything the fixture
+        // builds (the road corridor and every candidate parcel) stands south of it.
+        let zones = vec![
+            LandUseZone {
+                id: "sliver".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 250,
+                depth_m: 1,
+                source: "test-sliver".into(),
+            },
+            LandUseZone {
+                id: "sliver-tail".into(),
+                kind: "rural".into(),
+                world_x: 250,
+                world_z: 0,
+                width_m: 262,
+                depth_m: 1,
+                source: "test-sliver-tail".into(),
+            },
+            LandUseZone {
+                id: "band".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 1,
+                width_m: 512,
+                depth_m: 511,
+                source: "test-band".into(),
+            },
+        ];
+        assert_eq!(super::super::conversion_budget::planned_urban_m2(&zones), 250);
+        assert_eq!(
+            super::super::conversion_budget::committed_urban_m2(&base, &zones),
+            0,
+            "the fixture's road and parcels stand in the rural band, so the whole sliver is free"
+        );
+        let mut explicit = style.clone();
+        explicit["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        let mut p = base.clone();
+        append(&mut p, &s, &n, w, Some(&zones), &explicit).unwrap();
+        let report = p.frontage.as_ref().unwrap();
+        // 3 x 80 m2 = 240 m2 spent; the fourth core does not fit the last 10 m2.
+        assert_eq!(report.conversions.len(), 3, "{:?}", report.outcomes[0]);
+        assert_eq!(report.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 240);
+        assert_eq!(report.outcomes[0].unfilled, 1);
+        let refused = report.outcomes[0]
+            .rejected
+            .get(super::super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION)
+            .copied()
+            .unwrap_or(0);
+        assert!(refused >= 1, "the overflow must be named: {:?}", report.outcomes[0]);
+        let allocation = p
+            .conversion_allocation
+            .clone()
+            .expect("a plan that refused a conversion publishes the allocation it spent against");
+        assert_eq!(allocation.planned_urban_m2, 250);
+        assert_eq!(allocation.committed_urban_m2, 0);
+        assert_eq!(allocation.residual_landcover_m2, 0);
+        assert_eq!(allocation.converted_m2, 240);
+        assert_eq!(allocation.reserved_for_pads_m2, 0);
+        assert_eq!(allocation.allowance_m2(), 250);
+        assert_eq!(allocation.refusals.len(), refused as usize);
+        for refusal in &allocation.refusals {
+            assert_eq!(refusal.required_m2, 80, "the refused core is 80 m2");
+            assert_eq!(refusal.remaining_m2, 10, "240 of the 250 m2 were already spent");
+            assert!(
+                !report.outcomes[0].site_ids.contains(&refusal.parcel_id),
+                "a refused conversion may not also be a realized lot"
+            );
+        }
+        // The plan the cap produced passes the independent allocation audit unchanged, and the same
+        // plan with the overflow forged back in fails it.
+        assert_eq!(
+            super::super::conversion_budget::allocation_failures(&p, &zones, 240),
+            Vec::<String>::new()
+        );
+        assert!(
+            super::super::conversion_budget::allocation_failures(&p, &zones, 320)
+                .iter()
+                .any(|failure| failure.contains("converts 320 m2") && failure.contains("leaves only 250 m2")),
+            "320 m2 of conversions cannot fit a 250 m2 allocation"
+        );
+
+    }
+
+    /// A plan whose conversions exceed the urban allocation it was decided under is refused BY THE
+    /// AUDIT, by name, from the published plan and the zoning alone - no ledger, no world, no trust.
+    #[test]
+    fn a_forged_conversion_above_the_urban_allocation_is_refused_by_the_audit() {
+        let (s, n, w, _urban, base, style) = fixture(0);
+        // The world as the pre-round-29 planner produced it: four individually legal 80 m2
+        // conversions (320 m2) on a 51,200 m2 urban band, so nothing is capped and no allocation
+        // record is published - the plan simply states its conversions.
+        let wide = vec![
+            LandUseZone {
+                id: "north".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 512,
+                depth_m: 100,
+                source: "test-north".into(),
+            },
+            LandUseZone {
+                id: "band".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 100,
+                width_m: 512,
+                depth_m: 412,
+                source: "test-band".into(),
+            },
+        ];
+        let mut explicit = style.clone();
+        explicit["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        let mut p = base.clone();
+        append(&mut p, &s, &n, w, Some(&wide), &explicit).unwrap();
+        assert_eq!(p.frontage.as_ref().unwrap().conversions.len(), 4);
+        assert_eq!(
+            p.frontage
+                .as_ref()
+                .unwrap()
+                .conversions
+                .iter()
+                .map(|c| c.area_m2)
+                .sum::<i64>(),
+            320
+        );
+        assert!(
+            p.conversion_allocation.is_none(),
+            "320 m2 fits 51,200 m2, so nothing was refused and no key is published"
+        );
+        // The forgery: the same plan audited against the zoning it really had to fit - a 250 m2 urban
+        // purpose. The conversions are still individually legal land; the TOTAL is what is impossible.
+        let tight = vec![
+            LandUseZone {
+                id: "sliver".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 250,
+                depth_m: 1,
+                source: "test-sliver".into(),
+            },
+            LandUseZone {
+                id: "sliver-tail".into(),
+                kind: "rural".into(),
+                world_x: 250,
+                world_z: 0,
+                width_m: 262,
+                depth_m: 1,
+                source: "test-sliver-tail".into(),
+            },
+            LandUseZone {
+                id: "band".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 1,
+                width_m: 512,
+                depth_m: 511,
+                source: "test-band".into(),
+            },
+        ];
+        let failures = super::super::conversion_budget::allocation_failures(&p, &tight, 320);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(
+            failures[0].contains("converts 320 m2 of rural land to urban purpose"),
+            "{}",
+            failures[0]
+        );
+        assert!(failures[0].contains("leaves only 250 m2"), "{}", failures[0]);
+        // The ledger's own audit entry point re-derives the same refusal from the same two inputs,
+        // BEFORE it even asks whether a ledger was published.
+        let audit = crate::settlement::landuse_ledger::audit_conversions(&p, &tight, w, None);
+        assert_eq!(audit.status, "fail");
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|failure| failure.contains("leaves only 250 m2")),
+            "{:?}",
+            audit.failures
+        );
+    }
+
+    /// The switch off is the historical gate, byte for byte: no allocation key, no refusal, and the
+    /// whole plan document hashes to one frozen blake3 for every spelling the project does not accept.
+    #[test]
+    fn the_conversion_switch_off_state_is_byte_frozen() {
+        let mut digests = Vec::new();
+        for arm in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!("off"),
+            serde_json::json!("Explicit"),
+            serde_json::json!(true),
+        ] {
+            let (s, n, w, _urban, mut p, mut style) = fixture(0);
+            if !arm.is_null() {
+                style["frontageProgram"]["ruralConversion"] = arm;
+            }
+            // The conversion fixture's banding: every candidate parcel stands in rural land, so only
+            // the authored switch can decide whether a lot lands there.
+            let zones = vec![
+                LandUseZone {
+                    id: "north".into(),
+                    kind: "urban".into(),
+                    world_x: 0,
+                    world_z: 0,
+                    width_m: 512,
+                    depth_m: 100,
+                    source: "test-north".into(),
+                },
+                LandUseZone {
+                    id: "band".into(),
+                    kind: "rural".into(),
+                    world_x: 0,
+                    world_z: 100,
+                    width_m: 512,
+                    depth_m: 412,
+                    source: "test-band".into(),
+                },
+            ];
+            append(&mut p, &s, &n, w, Some(&zones), &style).unwrap();
+            let bytes = serde_json::to_vec(&p).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                json.get("conversionAllocation").is_none(),
+                "a plan that never spent against the allocation must not gain the key"
+            );
+            assert!(p.conversion_allocation.is_none());
+            assert!(p.frontage.as_ref().unwrap().conversions.is_empty());
+            assert!(p.roadside_sites.is_empty(), "the historical gate places nothing here");
+            digests.push(blake3::hash(&bytes).to_hex().to_string());
+        }
+        for digest in &digests[1..] {
+            assert_eq!(
+                *digest, digests[0],
+                "every non-accepted spelling must stay the off arm byte for byte"
+            );
+        }
+        assert_eq!(
+            digests[0], "337b6c67fde3dd1c5d4f623e7391861a0242a924cf8ee4b0454f499812322d81",
+
+            "the frozen blake3 of the frontage plan with the conversion switch off"
         );
     }
 }
