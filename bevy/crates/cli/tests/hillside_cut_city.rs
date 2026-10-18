@@ -66,8 +66,14 @@ const SCENE_CUT_DEPTH_SUM_MM: i64 = 753_367;
 const SCENE_CUT_VOLUME_M3: f64 = 753.367;
 const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
 /// Candidates refused because their cut footprint intersected an accepted pad's:
-/// two homes and one storefront (the three overlapping pairs Round 28 measured).
-const FOOTPRINT_REFUSALS: u32 = 3;
+/// two homes and two storefronts.
+///
+/// Round 31 moved this from three to four without moving a single accepted pad: the candidate order
+/// is now nearest-the-city first (`frontage::candidate_order`), so one storefront candidate that used
+/// to be refused earlier - as `occupied_or_road_support` - is now tried after the bench it would
+/// overlap and is named by the more precise `bounded_cut_footprint_overlaps_another_pad` instead. The
+/// 22 pads, the 7 benches and every excavation number below are unchanged.
+const FOOTPRINT_REFUSALS: u32 = 4;
 
 struct TestDir(PathBuf);
 impl TestDir {

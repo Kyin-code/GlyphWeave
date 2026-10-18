@@ -228,6 +228,14 @@ pub fn audit_conversions(
         zones,
         converted_m2,
     ));
+    // WHERE the conversions happened: every kept record's buildable core must lie inside the urban
+    // edge the world's explicit conversion policy allows, and a pad that declared an urban purpose on
+    // wholly-rural land may not stand outside that edge either. Re-derived from the plan and the
+    // zoning alone (`worldgen::conversion_fringe::audit_failures`), so a forged record or a pad kept
+    // without its conversion fails here by name with the distance it stands.
+    failures.extend(crate::worldgen::conversion_fringe::audit_failures(
+        plan, zones,
+    ));
     let Some(ledger) = ledger else {
         failures.push(format!(
             "no published ledger carries the {} conversion(s) the plan claims",

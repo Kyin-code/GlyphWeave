@@ -119,15 +119,24 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .expect("the opt-in authorizes the road network");
 
     // ---------------------------------------------------------------------
-    // 1. THE CHURCH IS BACK. 30 pads planned, 30 realized, and the far end of
+    // 1. THE CHURCH IS BACK. 28 pads planned, 28 realized, and the far end of
     //    the pipeline (the independent road audit) says every declared top is
     //    held with a design error of 0 m.
+    //
+    //    Round 31 moved this number from 30 to 28, and the reason is the round
+    //    itself: with `ruralConversion: "explicit"` the urban purpose may only be
+    //    declared on land inside the urban edge (`worldgen::conversion_fringe`,
+    //    64 m). Two pads lose that permission - the northernmost quay shop, whose
+    //    buildable core stands 83 m from the zoning, and the one frontage shop
+    //    south of the banks - and both are refused BY NAME rather than being
+    //    booked as urban land in the fields. The 22 dwellings, the four services
+    //    and the two remaining quay shops are untouched.
     // ---------------------------------------------------------------------
     assert_eq!(
         plan.roadside_sites.len(),
-        30,
-        "22 retained dwellings + 2 recovered replacements + 4 services + the shoreline row's 3 \
-         quay shops + the one converted frontage shop"
+        28,
+        "22 retained dwellings + 2 recovered replacements + 4 services + the shoreline row's 2 \
+         quay shops the urban edge reaches"
     );
     let rejections: BTreeMap<&str, u64> = plan
         .roadside_site_rejections
@@ -202,13 +211,14 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     }
 
     // ---------------------------------------------------------------------
-    // 3. THE LEDGER BOOKS LAND FOR PADS THAT EXIST. 11 pad conversions
-    //    (5 080 m2) plus the frontage parcel's 80 m2 = 12 records, 5 160 m2,
-    //    and the church's own 468 m2 is one of them.
+    // 3. THE LEDGER BOOKS LAND FOR PADS THAT EXIST. 12 pad conversions
+    //    (4 796 m2) and nothing else: round 31 removed the one frontage shop's
+    //    80 m2 because its core stood outside the urban edge. The church's own
+    //    468 m2 is one of the twelve.
     // ---------------------------------------------------------------------
     let pad_converted: i64 = plan.pad_conversions.iter().map(|record| record.area_m2).sum();
-    assert_eq!(plan.pad_conversions.len(), 13);
-    assert_eq!(pad_converted, 4_896);
+    assert_eq!(plan.pad_conversions.len(), 12);
+    assert_eq!(pad_converted, 4_796);
     let church = plan
         .pad_conversions
         .iter()
@@ -225,12 +235,12 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     }
     let ledger = read_json(dir.0.join("scenes/scene-0/land-use-ledger.json"));
     let ledger_records = ledger["conversions"].as_array().expect("the ledger applied them");
-    assert_eq!(ledger_records.len(), 14);
+    assert_eq!(ledger_records.len(), 12);
     let ledger_converted: i64 = ledger_records
         .iter()
         .map(|record| record["areaM2"].as_i64().unwrap())
         .sum();
-    assert_eq!(ledger_converted, 4_976);
+    assert_eq!(ledger_converted, 4_796);
     assert!(
         ledger_records
             .iter()
@@ -269,8 +279,8 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     assert_eq!(row["roadNetworkAudit"]["status"], json!("pass"));
     assert_eq!(row["roadNetworkAudit"]["plannedEdges"], json!(60));
     assert_eq!(row["roadNetworkAudit"]["realizedEdges"], json!(60));
-    assert_eq!(row["roadNetworkAudit"]["plannedSites"], json!(30));
-    assert_eq!(row["roadNetworkAudit"]["realizedSites"], json!(30));
+    assert_eq!(row["roadNetworkAudit"]["plannedSites"], json!(28));
+    assert_eq!(row["roadNetworkAudit"]["realizedSites"], json!(28));
     assert_eq!(row["roadNetworkAudit"]["failures"], json!([]));
     assert_eq!(
         row["roadNetworkAudit"]["maxSiteDesignHeightErrorM"].as_f64(),
@@ -299,14 +309,14 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     // 4d. The conversion audit passes: the plan's 12 records ARE the ledger's, the
     //     refused-pad count is 0, and no record is booked for a pad that is not planned.
     assert_eq!(row["purposeConversionAudit"]["status"], json!("pass"));
-    assert_eq!(row["purposeConversionAudit"]["planned"], json!(14));
-    assert_eq!(row["purposeConversionAudit"]["applied"], json!(14));
-    assert_eq!(row["purposeConversionAudit"]["convertedM2"], json!(4_976));
+    assert_eq!(row["purposeConversionAudit"]["planned"], json!(12));
+    assert_eq!(row["purposeConversionAudit"]["applied"], json!(12));
+    assert_eq!(row["purposeConversionAudit"]["convertedM2"], json!(4_796));
     assert_eq!(row["purposeConversionAudit"]["refusedPads"], json!(0));
     assert_eq!(row["purposeConversionAudit"]["failures"], json!([]));
 
     // 4e. The ledger closes per purpose and for the scene, with the conversion area
-    //     on the urban side: 34 306 m2 realized urban, 18 866 m2 realized rural.
+    //     on the urban side: 33 942 m2 realized urban, 18 908 m2 realized rural.
     let ledger_row = &row["landUseLedger"];
     let mut planned_total = 0.0;
     for (purpose, account) in ledger_row["byPurpose"].as_object().unwrap() {
@@ -326,9 +336,9 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         "the purposes cover the scene"
     );
     let urban = &ledger_row["byPurpose"]["urban"];
-    assert_eq!(urban["realizedM2"].as_f64(), Some(34_122.0));
+    assert_eq!(urban["realizedM2"].as_f64(), Some(33_942.0));
     let rural = &ledger_row["byPurpose"]["rural"];
-    assert_eq!(rural["realizedM2"].as_f64(), Some(19_242.0));
+    assert_eq!(rural["realizedM2"].as_f64(), Some(18_908.0));
 
     // ---------------------------------------------------------------------
     // 5. The reconciliation publishes the pad triangle. Every planned pad is
@@ -337,13 +347,13 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     // ---------------------------------------------------------------------
     let placement = read_json(dir.0.join("engineering-placement.json"));
     let entry = &placement["scenes"][0];
-    assert_eq!(entry["inputItems"], json!(431));
-    assert_eq!(entry["outputItems"], json!(430));
-    assert_eq!(entry["removedItems"], json!(1));
-    assert_eq!(entry["skips"].as_array().map(Vec::len), Some(1));
+    assert_eq!(entry["inputItems"], json!(432));
+    assert_eq!(entry["outputItems"], json!(432));
+    assert_eq!(entry["removedItems"], json!(0));
+    assert_eq!(entry["skips"].as_array().map(Vec::len), Some(0));
     assert_eq!(
         entry["plannedPadIds"].as_array().unwrap().len(),
-        30,
+        28,
         "the report publishes the plan's pad list so the triangle is recomputable"
     );
     assert!(
@@ -359,9 +369,9 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .collect();
     let audit = verify_published_placement(entry, &published_ids, &authored, None)
         .expect("the published pad triangle must recompute");
-    assert_eq!(audit.plan_items, 431);
-    assert_eq!(audit.output_items, 430);
-    assert_eq!(audit.skipped_items, 1);
+    assert_eq!(audit.plan_items, 432);
+    assert_eq!(audit.output_items, 432);
+    assert_eq!(audit.skipped_items, 0);
 
     // ---------------------------------------------------------------------
     // 6. Two bakes of the same input publish identical bytes.

@@ -505,8 +505,9 @@ fn the_rural_conversion_switch_decides_whether_the_row_converts() {
         .collect();
     assert_eq!(
         shoreline_records.len(),
-        SAMPLE_SHOREFRONT_SHOPS,
-        "every quay shop declares its urban purpose on the rural land it takes: {pad_records:?}"
+        SAMPLE_SHOREFRONT_CONVERTED_SHOPS,
+        "every quay shop that stands inside the urban edge converts, and the one that stands 83 m \
+         from it is refused by name instead of being booked as urban land: {pad_records:?}"
     );
     for record in &shoreline_records {
         assert_eq!(record["from"], json!("rural"));
@@ -517,6 +518,24 @@ fn the_rural_conversion_switch_decides_whether_the_row_converts() {
             "a shop converts exactly its own buildable core"
         );
     }
+    // The shop the band refused is gone from the plan, and the plan says WHY, by name.
+    let row_outcome = on_plan["serviceOutcomes"]
+        .as_array()
+        .expect("the plan publishes its service outcomes")
+        .iter()
+        .find(|outcome| outcome["request"]["id"] == json!("shorefront-row"))
+        .expect("the row's outcome is published");
+    assert_eq!(
+        row_outcome["plannedSiteIds"].as_array().map(Vec::len),
+        Some(SAMPLE_SHOREFRONT_CONVERTED_SHOPS),
+        "the explicit policy plans the two quay shops the urban edge reaches: {row_outcome:?}"
+    );
+    assert!(
+        row_outcome["rejectedCandidates"]
+            .get(glyphweave_core::worldgen::conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE)
+            .is_some(),
+        "the row's own refusals must name the urban edge: {row_outcome:?}"
+    );
 
     // The gate's own audit: the plan's records equal the ledger's, by name.
     let output = std::process::Command::new(glyphweave())
@@ -607,3 +626,12 @@ const SAMPLE_SHOREFRONT_SHOPS: usize = 3;
 const SAMPLE_SHOREFRONT_URBAN_SHOPS: usize = 0;
 /// The buildable core one converted quay shop takes, in whole square metres.
 const SAMPLE_SHOREFRONT_CONVERTED_M2: i64 = 100;
+/// How many of the three quay shops convert with `ruralConversion: "explicit"` on.
+///
+/// Round 31: the row is planned at the quay, and the sample's urban zoning stops 83 m south of the
+/// northernmost station, so that shop's buildable core (z 35..45) is refused BY NAME as
+/// `conversion_outside_the_urban_fringe` - it may not be booked as urban land 83 m from the city.
+/// The other two stand 35 m and 19 m from the zoning and convert exactly as before. The row keeps
+/// three shops with the switch OFF, which is what `SAMPLE_SHOREFRONT_SHOPS` measures: the band
+/// narrows the *purpose*, never the frontage the sample authors.
+const SAMPLE_SHOREFRONT_CONVERTED_SHOPS: usize = 2;

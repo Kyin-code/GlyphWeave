@@ -949,6 +949,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
+        conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),

@@ -789,7 +789,7 @@ impl<'a> SupplyContext<'a> {
             return Ok(None);
         }
         trace.attempted += 1;
-        let site = frontage::candidate_site(road, r, &self.scene.scene_id, station, side)?;
+        let mut site = frontage::candidate_site(road, r, &self.scene.scene_id, station, side)?;
         let parcel = frontage::parcel_boundary(&site)?;
         // The same gate production uses, including this request's along-road purpose
         // conversion, so a measured supply can never disagree with the placement it predicts.
@@ -822,6 +822,12 @@ impl<'a> SupplyContext<'a> {
                 reason.to_string()
             }
             None => {
+                // Production records the pad's own cut cap BEFORE committing it (`frontage::
+                // append`), because the cap is what publishes the footprint every later candidate is
+                // checked against. A replay that committed the parcel without it would silently stop
+                // applying the bench-overlap gate, refuse the same candidates under a different name
+                // and report a search the bake never performed.
+                site.bounded_cut_mm = state.cut_cap_for(&site);
                 state.commit(&site);
                 budget.accept(&site.id);
                 trace.accepted += 1;
@@ -1013,9 +1019,21 @@ pub(super) fn diagnose(
     // and the engineering state are owned once for the whole pass, as the bake
     // owns them, so every accepted parcel is already occupied ground for the
     // candidate that follows it.
+    //
+    // The ORDER itself comes from `frontage::candidate_order`, the very function `append` walks: when
+    // the world's explicit conversion policy is on, that order is nearest-the-city first, and a
+    // diagnosis that re-derived the historical order would publish a search the bake never performs.
     let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
     let mut state = context.state(&joint_plan);
-    for road in &usable {
+    let nearest_first = requests.iter().any(|r| r.rural_conversion.is_explicit());
+    let ordered = frontage::candidate_order(
+        &usable,
+        requests,
+        &scene.scene_id,
+        nearest_first.then_some(zones),
+    )?;
+    for (road_index, turns) in ordered {
+        let road = usable[road_index];
         let schedule = frontage::StationSchedule::new(road, requests)?;
         // One trace per request still in play on this road, in program order.
         let mut slots: Vec<Option<usize>> = vec![None; requests.len()];
@@ -1026,7 +1044,7 @@ pub(super) fn diagnose(
             slots[index] = Some(joint.len());
             joint.push(road_supply_header(road, r, schedule.stations_of(index)));
         }
-        for turn in schedule.turns() {
+        for turn in turns {
             let Some(slot) = slots[turn.request] else {
                 continue;
             };
@@ -2808,10 +2826,16 @@ mod tests {
     /// 43 / 176, so a downstream judgement could trust a search the bake never
     /// performed. The world is a `bevy/work` artifact and the suite must not
     /// depend on it, so the test skips when the directory is absent.
+    ///
+    /// Round 31 moved the fixture one directory along, to the world the round's own 1 km probe baked
+    /// (`bevy/work/r31/1km-b8-cut`). The previous artifact was baked under the round-30 policy, whose
+    /// conversions were free to stand anywhere in the fields; this build refuses that land by name, so
+    /// a stale world can only disagree with its own replay about conversions it no longer permits. The
+    /// assertions are unchanged - what moved is which published report they are held against.
     #[test]
     fn diagnosis_of_a_published_world_reproduces_its_frontage_report() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../work/rk-x/b8-conv/world");
+            .join("../../work/r31/1km-b8-cut");
         if !root.exists() {
             return;
         }
@@ -2889,9 +2913,14 @@ mod tests {
             .roadside_sites
             .retain(|site| !placed.contains(&site.id));
         stripped.frontage = None;
+        // The bounded-cut policy is part of the search, not a diagnostic setting: a lot the authored
+        // style may bench is accepted by the bake and refused by a replay that assumed no cut. The
+        // policy is therefore read from the SAME style the world was baked from, exactly as `append`
+        // reads it, so the replay cannot disagree with the bake about which lots are buildable.
+        let (policy, _not_enabled) =
+            super::super::bounded_cut::CutPolicy::from_style(&manifest.style);
         let diagnosis = diagnose(
-            &scene, &natural, &mask, water, &zones, &stripped, &requests, 0,
-            super::super::bounded_cut::CutPolicy::Disabled,
+            &scene, &natural, &mask, water, &zones, &stripped, &requests, 0, policy,
         )
         .expect("diagnosis");
         assert_eq!(
@@ -2942,6 +2971,13 @@ mod tests {
         }
         // The concrete numbers this world was published with, asserted directly so
         // the regression cannot pass by both sides drifting together.
+        //
+        // Round 31 re-pinned them: the fixture is the round's own 1 km probe, and its urban edge now
+        // decides how much of the authored demand can land. The 120-home request keeps 3 of its lots
+        // and the 24-shop request 19, because only 4 % of that scene is zoned urban and the 64 m band
+        // around it reaches a limited length of street: 314 of the home attempts and 352 of the shop
+        // attempts are refused BY NAME as `conversion_outside_the_urban_fringe` in the published
+        // report, and both requests stop with no feasible frontage left on the city's edge.
         let by_id: BTreeMap<&str, &RequestSummary> = diagnosis
             .requests
             .iter()
@@ -2950,19 +2986,19 @@ mod tests {
         let homes = by_id["urban-homes"];
         assert_eq!(
             (homes.joint_accepted, homes.joint_attempted),
-            (43, 412),
+            (3, 380),
             "homes: planned / attempted"
         );
         assert_eq!(homes.stop_reason, "no_feasible_frontage");
         let shops = by_id["urban-shops"];
         assert_eq!(
             (shops.joint_accepted, shops.joint_attempted),
-            (24, 176),
+            (19, 422),
             "shops: planned / attempted"
         );
-        assert_eq!(shops.stop_reason, "demand_satisfied");
-        assert_eq!(diagnosis.joint_accepted, 43 + 24);
-        assert_eq!(diagnosis.joint_station_attempts, 412 + 176);
+        assert_eq!(shops.stop_reason, "no_feasible_frontage");
+        assert_eq!(diagnosis.joint_accepted, 3 + 19);
+        assert_eq!(diagnosis.joint_station_attempts, 380 + 422);
         assert_eq!(diagnosis.stop_reason, "no_feasible_frontage");
     }
 

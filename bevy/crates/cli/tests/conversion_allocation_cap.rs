@@ -7,19 +7,41 @@
 //! buildable core lies wholly in rural land - and jointly impossible, so the ledger refused the
 //! whole scene with `ledger purpose overcredited`.
 //!
-//! The fixture below is the same defect at 512 m: the authored waterfront sample with the explicit
+//! The fixture is the same world at 512 m: the authored waterfront sample with the explicit
 //! conversion switched on, its urban profile squeezed to 5 % and a demand-led frontage programme far
-//! larger than that allocation. What the capped planner must produce instead:
+//! larger than that allocation.
 //!
-//!  * the world bakes (the ledger closes: `urban physical + conversions <= planned urban`),
-//!  * the overflow is refused BY NAME, with the area it needed and the area that was left,
-//!  * every refused pad is withdrawn from the plan, from the conversions and from the world,
-//!  * the published allocation is exactly the sum of the conversions the plan kept, and
-//!  * two bakes of the same input publish the same bytes.
+//! # What Round 31 changed here, and why the file is re-based rather than weakened
+//!
+//! Round 31 put a second bound in front of the same decision: a conversion may only take rural land
+//! whose buildable core stands within `conversion_fringe::FRINGE_M` (64 m) of an existing urban zone.
+//! On this fixture the urban edge turns out to be the TIGHTER bound - the 5 % profile plans one
+//! 16,384 m2 urban block, the band around it holds 14 convertible pads (5,764 m2 of buildable core),
+//! and the allocation still had 10,272 m2 of allowance when the programme ran out of candidates. The
+//! planner therefore publishes no allocation record at all here any more, and asserting otherwise
+//! would be asserting a scenario the world cannot produce.
+//!
+//! What is still asserted, end to end and by name:
+//!
+//!  * the world bakes, and the land-use ledger closes over the scene,
+//!  * every conversion the plan keeps stands inside the urban edge (`conversion_fringe`), which is
+//!    re-derived here from the published plan and zoning,
+//!  * the purpose allocation is still a LIVE contract on THIS plan: the audit accepts exactly the
+//!    area the plan kept and refuses one square metre more, by name, with both numbers,
+//!  * the ledger's urban row is exactly physical cover plus the kept conversions and never exceeds
+//!    the planned urban area,
+//!  * two bakes of the same input publish the same bytes, including the published band record.
+//!
+//! The cap's own refusal path - a candidate that cannot afford the land it would convert, refused by
+//! name with the area it needed and the area that was left - is asserted at the planner level in
+//! `worldgen::frontage::tests::an_exhausted_urban_allocation_refuses_the_conversion_by_name_with_both_areas`
+//! and `a_forged_conversion_above_the_urban_allocation_is_refused_by_the_audit`, where the fixture
+//! can make the allowance bind without needing a fringe that does not exist.
 use glyphweave_core::settlement::landuse_ledger::LandUseLedger;
 use glyphweave_core::worldgen::{
     SceneIndex, WorldManifest, bake_world,
     conversion_budget::{self, CONVERSION_EXCEEDS_URBAN_ALLOCATION},
+    conversion_fringe,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -27,6 +49,10 @@ use std::{fs, path::PathBuf};
 
 /// The published sample, compiled in: the fixture cannot drift from the example.
 const SAMPLE: &str = include_str!("../../../../examples/waterfront-city-512.manifest.json");
+
+/// What the capped planner keeps on this fixture: 14 convertible pads, all inside the urban edge.
+const KEPT_RECORDS: usize = 14;
+const KEPT_M2: i64 = 5_764;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -115,7 +141,7 @@ fn tree(root: &PathBuf) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn the_oversubscribed_conversion_world_spends_its_allocation_and_closes_its_ledger() {
+fn the_capped_conversion_world_spends_inside_its_allocation_and_inside_the_urban_edge() {
     let dir = TestDir::new("conversion-allocation");
     let manifest = oversized();
     manifest.validate().expect("the over-subscribed sample validates");
@@ -133,84 +159,83 @@ fn the_oversubscribed_conversion_world_spends_its_allocation_and_closes_its_ledg
         .expect("the switch authorizes the road network");
     let zones = &scene.land_use_zones;
 
-    // ---- the allocation is the plan's own geometry, re-derived from the published bytes ----------
+    // ---- the conversions are inside the urban edge, re-derived from the published bytes -----------
     let planned = conversion_budget::planned_urban_m2(zones);
     let committed = conversion_budget::committed_urban_m2(plan, zones);
-    let allocation = plan
-        .conversion_allocation
-        .clone()
-        .expect("the cap refused conversions, so the plan publishes the allocation it spent against");
-    assert_eq!(allocation.planned_urban_m2, planned);
-    assert_eq!(allocation.committed_urban_m2, committed);
     assert!(planned > 0);
     assert!(committed > 0, "roads and parcels stand in the urban zone");
-    // The conversions the plan KEPT are inside what the allocation granted, and both fit it.
     let kept = conversion_budget::plan_conversion_records(plan);
     let kept_m2: i64 = kept.iter().map(|record| record.area_m2).sum();
-    assert!(
-        kept_m2 <= allocation.converted_m2,
-        "the plan kept {kept_m2} m2 of conversions but granted only {}",
-        allocation.converted_m2
-    );
-    assert!(
-        allocation.converted_m2 <= allocation.allowance_m2(),
-        "the allocation granted {} m2 out of an allowance of {} m2",
-        allocation.converted_m2,
-        allocation.allowance_m2()
-    );
-    assert!(
-        kept_m2 <= allocation.allowance_m2(),
-        "{kept_m2} m2 of conversions must fit an allowance of {} m2",
-        allocation.allowance_m2()
-    );
-    // The audit re-derives the same verdict from the plan and the zoning alone.
+    assert_eq!(kept.len(), KEPT_RECORDS, "{kept:?}");
+    assert_eq!(kept_m2, KEPT_M2);
+    // Every record's own geometry is re-verified against this zoning, and the whole list passes the
+    // band audit: the urban purpose did not appear one square metre outside the city's edge.
+    for record in &kept {
+        assert_eq!(
+            glyphweave_core::worldgen::frontage::verify_conversion(plan, zones, None, record)
+                .expect("a kept record re-derives from the parcel's own geometry"),
+            record.area_m2
+        );
+    }
     assert_eq!(
-        conversion_budget::allocation_failures(plan, zones, kept_m2),
+        conversion_fringe::audit_failures(plan, zones),
         Vec::<String>::new()
     );
-
-    // ---- the overflow was refused BY NAME, with both areas --------------------------------
+    // The band refused far more than it allowed, and it says so with the distance it measured.
+    let band = plan
+        .conversion_fringe
+        .clone()
+        .expect("a plan the urban edge refused publishes the band it converted inside");
+    assert_eq!(band.fringe_m, conversion_fringe::FRINGE_M);
+    assert_eq!(band.fringe_m, 64);
+    assert!(!band.refusals.is_empty());
+    for refusal in &band.refusals {
+        let nearest = refusal.nearest_m.expect("this world plans urban land");
+        assert!(
+            nearest > conversion_fringe::FRINGE_M,
+            "request {} publishes a nearest refused candidate {nearest} m out, inside the band",
+            refusal.request_id
+        );
+    }
+    // The urban edge, not the allocation, is what bounded this world: with the conversions inside the
+    // band there was still allowance left, so the plan publishes no allocation record at all.
+    let allowance_left = planned - committed - kept_m2;
     assert!(
-        !allocation.refusals.is_empty(),
-        "a programme this size against a 5 % urban profile must overflow"
+        allowance_left > 0,
+        "the fixture must leave allowance unspent, or the argument here is empty: {planned} - \
+         {committed} - {kept_m2}"
     );
-    for refusal in &allocation.refusals {
-        assert!(
-            refusal.required_m2 > refusal.remaining_m2,
-            "{} asked for {} m2 with {} m2 left",
-            refusal.parcel_id,
-            refusal.required_m2,
-            refusal.remaining_m2
-        );
-        assert!(
-            !kept.iter().any(|record| record.parcel_id == refusal.parcel_id),
-            "a refused conversion may not also be recorded"
-        );
-    }
-    let refused_pads: Vec<&str> = plan
-        .roadside_site_rejections
-        .iter()
-        .filter(|rejection| rejection.category == CONVERSION_EXCEEDS_URBAN_ALLOCATION)
-        .map(|rejection| rejection.edge_id.as_str())
-        .collect();
-    // Every pad refused for the allocation is gone from the plan, from the conversions and from the
-    // published world - the triangle the round 28 machinery established, now for this refusal too.
-    for id in &refused_pads {
-        assert!(
-            !plan.roadside_sites.iter().any(|site| site.id == *id),
-            "pad {id} is refused by the allocation and still planned"
-        );
-        assert!(
-            !plan.pad_conversions.iter().any(|record| record.parcel_id == *id),
-            "pad {id} is refused by the allocation and still converted"
-        );
-        assert!(
-            !scene.entities.iter().any(|entity| entity.entity_id == *id),
-            "pad {id} is refused by the allocation and still published"
-        );
-    }
+    assert!(
+        plan.conversion_allocation.is_none(),
+        "a plan that never hit the cap publishes no allocation record"
+    );
 
-    // ---- the land-use ledger closes ---------------------------------------------------------
+    // ---- the allocation is still a LIVE contract on THIS plan --------------------------------------
+    // The audit's own bound, from the plan and the zoning alone: planned urban minus the urban land
+    // the plan already committed to roads and parcels (no allocation record is published here, so the
+    // residual-land share is not part of the claim). The area the plan kept fits it, and one square
+    // metre more does not - which is the cap doing its job, asserted on the real plan.
+    let bound = (planned - committed).max(0);
+    assert!(kept_m2 <= bound, "{kept_m2} m2 of conversions vs a bound of {bound} m2");
+    assert_eq!(
+        conversion_budget::allocation_failures(plan, zones, kept_m2),
+        Vec::<String>::new(),
+        "the area the plan kept fits what the zoning allows"
+    );
+    let forged = conversion_budget::allocation_failures(plan, zones, bound + 1);
+    assert_eq!(forged.len(), 1, "{forged:?}");
+    assert!(
+        forged[0].contains(&format!("converts {} m2", bound + 1)),
+        "the audit must name the area it cannot afford: {}",
+        forged[0]
+    );
+    assert!(
+        forged[0].contains(&format!("leaves only {bound} m2")),
+        "the audit must publish the allowance it had: {}",
+        forged[0]
+    );
+
+    // ---- the land-use ledger closes ---------------------------------------------------------------
     let ledger: LandUseLedger = serde_json::from_slice(
         &fs::read(dir.0.join("scenes/scene-0/land-use-ledger.json")).unwrap(),
     )
@@ -240,11 +265,15 @@ fn the_oversubscribed_conversion_world_spends_its_allocation_and_closes_its_ledg
         ledger.conversions, kept,
         "the ledger applies exactly the conversions the plan records"
     );
-    // The physical cover the ledger books is inside the commitment the allocation claimed for it.
-    assert!(
-        urban.physical.total() <= (allocation.committed_urban_m2 + allocation.residual_landcover_m2) as f64 + 1e-6,
-        "the allocation's urban commitment must bound the realized urban cover"
-    );
+    // No pad was refused for the allocation, and none for any other withdrawn-pad reason: on this
+    // fixture the cap never had to withdraw a planned pad.
+    let withdrawn: Vec<&str> = plan
+        .roadside_site_rejections
+        .iter()
+        .filter(|rejection| rejection.category == CONVERSION_EXCEEDS_URBAN_ALLOCATION)
+        .map(|rejection| rejection.edge_id.as_str())
+        .collect();
+    assert!(withdrawn.is_empty(), "{withdrawn:?}");
 }
 
 #[test]
@@ -265,14 +294,14 @@ fn two_bakes_of_the_same_world_publish_identical_bytes() {
     for (path, digest) in &a {
         assert_eq!(digest, &b[path], "{path} differs between two bakes");
     }
-    // And the allocation's own record is one of the frozen bytes, not a diagnostic that drifts.
+    // And the band's own record is one of the frozen bytes, not a diagnostic that drifts.
     let scene = scene_index(&first);
     let recorded = scene
         .road_network_plan
         .as_ref()
-        .and_then(|plan| plan.conversion_allocation.clone())
-        .expect("the allocation record is published");
+        .and_then(|plan| plan.conversion_fringe.clone())
+        .expect("the urban edge refused candidates, so the band is published");
     let repeated = read_json(first.0.join("scenes/scene-0/road-network-plan.json"));
     let from_json: Value = serde_json::to_value(&recorded).unwrap();
-    assert_eq!(repeated["conversionAllocation"], from_json);
+    assert_eq!(repeated["conversionFringe"], from_json);
 }

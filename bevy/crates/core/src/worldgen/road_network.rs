@@ -74,6 +74,16 @@ pub struct RoadNetworkPlan {
     /// past its plan (`ledger purpose overcredited`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversion_allocation: Option<super::conversion_budget::ConversionAllocation>,
+    /// Opt-in only, and only when the urban-edge policy actually refused something: the band the
+    /// plan's explicit conversions were confined to, with how far the nearest refused candidate
+    /// stood from the nearest urban zone. A plan whose conversions all sit on the urban edge
+    /// publishes nothing here, so its bytes are unchanged.
+    ///
+    /// See `worldgen::conversion_fringe`: a conversion may only take rural land whose buildable core
+    /// lies within `FRINGE_M` of an existing urban zone, so the urban purpose grows at the city's
+    /// edge instead of appearing in whatever field a road crosses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversion_fringe: Option<super::conversion_fringe::ConversionFringe>,
     /// Road-first over structured water: one engineering structure per road
     /// segment that crosses the scene's water body.
     ///
@@ -893,6 +903,7 @@ pub(super) fn plan_with_zones_demand(
         roadside_sites: Vec::new(),
         pad_conversions: Vec::new(),
         conversion_allocation: None,
+        conversion_fringe: None,
         zoning_hash: zoning.as_ref().map(|z| z.hash.clone()),
         zoning_rejections: Vec::new(),
         service_outcomes: Vec::new(),
@@ -1738,11 +1749,17 @@ pub(super) fn plan_with_zones_demand(
                     };
                     let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
                     if let Some(reason) = verdict.reason {
+                        // The urban-edge refusal carries the measured distance in the prose (the
+                        // category alone cannot say HOW far out the pad stood); every other reason
+                        // appends nothing, so its published text is unchanged.
+                        let detail = zones.map_or(String::new(), |zones| {
+                            super::frontage::pad_refusal_detail(&site, zones, reason)
+                        });
                         site_rejections.push(BaseProfileRejection {
                             edge_id: site.id.clone(),
                             category: reason.into(),
                             reason: format!(
-                                "pad at ({x},{z}) on road {}: {reason} for a {} pad",
+                                "pad at ({x},{z}) on road {}: {reason}{detail} for a {} pad",
                                 e.id,
                                 site.kind()
                             ),
@@ -1848,11 +1865,14 @@ pub(super) fn plan_with_zones_demand(
                 };
                 let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
                 if let Some(reason) = verdict.reason {
+                    let detail = zones.map_or(String::new(), |zones| {
+                        super::frontage::pad_refusal_detail(&site, zones, reason)
+                    });
                     site_rejections.push(BaseProfileRejection {
                         edge_id: site.id.clone(),
                         category: reason.into(),
                         reason: format!(
-                            "pad at ({x},{z}) on road {}: {reason} for a {} pad",
+                            "pad at ({x},{z}) on road {}: {reason}{detail} for a {} pad",
                             e.id,
                             site.kind()
                         ),
@@ -3313,14 +3333,62 @@ mod pad_purpose_tests {
             );
             assert_eq!((record.from.as_str(), record.to.as_str()), ("rural", "urban"));
         }
-        // Every pad that stands on urban land keeps it: nothing is converted there, and no pad is
-        // dropped silently - the switch only re-books land, it never widens a pad's permission.
+        // Round 31 narrows this contract on purpose. Until the urban-edge policy, the switch only
+        // re-booked land: a pad that declared an urban purpose could stand anywhere its own envelope
+        // allowed and the ledger merely moved its core from rural to urban. That is what put urban
+        // purpose in the middle of farmland, so a pad whose core is rural land outside the 64 m band
+        // (`conversion_fringe`) is now REFUSED BY NAME and never planned - the programme may therefore
+        // be SMALLER with the switch on than with it off. What must still hold is the triangle: every
+        // pad that is gone is named, and the number of pads that disappeared is the number of
+        // out-of-band refusals.
+        let out_of_band = on
+            .roadside_site_rejections
+            .iter()
+            .filter(|rejection| {
+                rejection.category
+                    == crate::worldgen::conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE
+            })
+            .count();
         assert!(
-            on.roadside_sites.len() >= off.roadside_sites.len(),
-            "the purpose gate must not shrink the planned pad programme: {} -> {}",
-            off.roadside_sites.len(),
-            on.roadside_sites.len()
+            out_of_band > 0,
+            "the fixture's east half carries pads further than 64 m from the urban edge, or the \
+             narrowing this test now pins would be untested"
         );
+        assert!(
+            on.roadside_sites.len() + out_of_band >= off.roadside_sites.len(),
+            "no pad may disappear without a named urban-edge refusal: {} planned + {} refused < {} \
+             historical",
+            on.roadside_sites.len(),
+            out_of_band,
+            off.roadside_sites.len()
+        );
+        // Every pad that is still planned either stands on urban land or converts inside the band.
+        for site in &on.roadside_sites {
+            let Some(core) = frontage::site_buildable_core(site, &zones) else {
+                continue;
+            };
+            assert!(
+                !frontage::core_is_rural(core, &zones)
+                    || crate::worldgen::conversion_fringe::within_band(
+                        crate::worldgen::conversion_fringe::distance_to_urban(core, &zones)
+                    ),
+                "pad {} stands on rural land outside the urban fringe",
+                site.id
+            );
+        }
+        // And every refusal that names the urban edge carries the distance it measured.
+        for rejection in &on.roadside_site_rejections {
+            if rejection.category
+                != crate::worldgen::conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE
+            {
+                continue;
+            }
+            assert!(
+                rejection.reason.contains("m from the nearest urban zone"),
+                "an urban-edge refusal must publish its distance: {}",
+                rejection.reason
+            );
+        }
         // The ledger applies exactly the plan's records, once, and the audit re-derives them.
         let converted: i64 = on.pad_conversions.iter().map(|record| record.area_m2).sum();
         let audit = landuse_ledger::audit_conversions(&on, &zones, water_geometry(
@@ -8362,6 +8430,33 @@ mod pad_refusal_tests {
         }]
     }
 
+    /// The same rural scene with the CITY the conversion has to continue: an urban band on the north
+    /// edge, close enough that the fixture's pads (whose buildable cores start at z = 89) stand inside
+    /// the 64 m urban fringe (`conversion_fringe`). Without a city edge there is nothing for an
+    /// explicit conversion to extend, and the policy refuses it by name - which is a different test.
+    fn rural_with_city() -> Vec<LandUseZone> {
+        vec![
+            LandUseZone {
+                id: "rural".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 40,
+                width_m: 512,
+                depth_m: 472,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "north-city".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 512,
+                depth_m: 40,
+                source: "test".into(),
+            },
+        ]
+    }
+
     /// A 24x24 pad site on the legacy 2/2/2 parcel: its 22x22 = 484 m2 buildable
     /// core is what a conversion may take.
     fn site(id: &str, x: i32, z: i32, support_level_m: i32, program: bool) -> serde_json::Value {
@@ -8506,21 +8601,12 @@ mod pad_refusal_tests {
         // from the FINAL pad list, so a refused pad cannot be booked.
         let scene = scene();
         // The conversion spends the plan's URBAN purpose allocation, so the fixture needs urban land
-        // to spend: an 8 m urban strip at the scene's north edge, far from both pads, leaves their
-        // wholly-rural cores convertible exactly as before. (A world that allocates no urban land at
-        // all can convert nothing - its ledger would be overcredited by any conversion.)
-        let mut zones = rural_zones();
-        zones[0].world_z = 8;
-        zones[0].depth_m = 504;
-        zones.push(LandUseZone {
-            id: "north".into(),
-            kind: "urban".into(),
-            world_x: 0,
-            world_z: 0,
-            width_m: 512,
-            depth_m: 8,
-            source: "test".into(),
-        });
+        // to spend, AND that land has to be the city the conversion continues: the pads' cores start
+        // at z = 89, so a 40 m urban band on the north edge is 49 m away - inside the 64 m urban
+        // fringe (`conversion_fringe`). (A world that allocates no urban land at all can convert
+        // nothing - its ledger would be overcredited by any conversion - and a world whose urban land
+        // is further than the band away can convert nothing either.)
+        let zones = rural_with_city();
         let conversions = super::super::frontage::pad_conversions(
             &plan,
             &scene,
@@ -8594,7 +8680,9 @@ mod pad_refusal_tests {
         );
         // The audit primitive resolves the kept record and names the withdrawn one.
         let scene = scene();
-        let zones = rural_zones();
+        // The city the kept pad's conversion continues, as above: its core is 49 m from the urban
+        // band, so `verify_conversion` resolves the kept record and its area.
+        let zones = rural_with_city();
         assert_eq!(
             super::super::frontage::verify_conversion(
                 &plan,

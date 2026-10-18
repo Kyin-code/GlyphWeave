@@ -3,6 +3,7 @@
 use super::{
     AccessGraph, EntityInstance, LandUseZone, SceneSpec, WaterGeometry, WorldManifest,
     conversion_budget::{self, ConversionAllocation, UrbanAllocation},
+    conversion_fringe,
     road_network::{RoadNetworkPlan, RoadsideSite},
     services::SiteProgram,
     zoning::ZoningMask,
@@ -41,8 +42,11 @@ pub enum RuralConversion {
     /// The historical gate: only zones of the request's own purpose may carry a parcel.
     #[default]
     Disabled,
-    /// An urban request may also take a parcel whose buildable core lies WHOLLY in rural land. The
-    /// parcel is then recorded as a rural-to-urban conversion, which the land-use ledger applies.
+    /// An urban request may also take a parcel whose buildable core lies WHOLLY in rural land AND
+    /// inside the urban edge (`worldgen::conversion_fringe`: within 64 m of an existing urban zone).
+    /// The parcel is then recorded as a rural-to-urban conversion, which the land-use ledger applies.
+    /// Land outside that band is refused by name: a conversion continues the city, it does not start
+    /// a new one in whichever field the road crosses.
     RuralToUrban,
 }
 
@@ -171,6 +175,29 @@ pub(crate) fn pad_purpose_of(
     }
 }
 
+/// The buildable core of one planned pad's parcel, when the parcel claims no protected square metre.
+///
+/// This is the ONE derivation of "the land this pad may convert": the placement gate
+/// ([`pad_purpose_of`]), the record form ([`pad_conversion_area`]) and the urban-edge audit
+/// (`worldgen::conversion_fringe::audit_failures`) all measure the same rectangle, so a pad's
+/// distance from the city can never mean two different things.
+pub fn site_buildable_core(site: &RoadsideSite, zones: &[LandUseZone]) -> Option<[i64; 4]> {
+    let parcel = parcel_boundary(site).ok()?;
+    if parcel_claims_protected(parcel, zones) {
+        return None;
+    }
+    buildable_core(
+        parcel,
+        site.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+    )
+}
+
+/// True when EVERY square metre of `b` lies in rural land (see [`core_entirely_in`]).
+pub fn core_is_rural(b: [i64; 4], zones: &[LandUseZone]) -> bool {
+    core_entirely_in(b, zones, Conversion::RURAL)
+}
+
 /// The buildable-core area one planned pad converts from rural to urban purpose, if it earns one.
 ///
 /// Scene-free on purpose: this is the form the AUDIT needs, because a record's area must be provable
@@ -178,20 +205,8 @@ pub(crate) fn pad_purpose_of(
 /// when the pad landed, and a parcel that claims a single protected square metre earns nothing here
 /// (`verify_conversion` refuses such a record by name on its own).
 pub fn pad_conversion_area(site: &RoadsideSite, zones: &[LandUseZone]) -> Option<i64> {
-    let parcel = parcel_boundary(site).ok()?;
-    if parcel_claims_protected(parcel, zones) {
-        return None;
-    }
-    let core = buildable_core(
-        parcel,
-        site.parcel_insets.unwrap_or_default(),
-        site.rotation_y_deg,
-    )?;
-    if core_entirely_in(core, zones, Conversion::RURAL) {
-        Some(area(core))
-    } else {
-        None
-    }
+    let core = site_buildable_core(site, zones)?;
+    core_is_rural(core, zones).then(|| area(core))
 }
 
 /// The same verdict for one planned pad, from that pad's own parcel geometry and its own kind.
@@ -213,6 +228,25 @@ pub(crate) fn pad_purpose_for_site(
         site.kind(),
         conversion,
     ))
+}
+
+/// The measured evidence one pad's purpose refusal carries in the plan's prose.
+///
+/// A pad refused for standing outside the urban edge says how far it stood, from the pad's own
+/// buildable core and the zoning, using the same message the frontage gate and the audit print - so
+/// one parcel can never be quoted at two different distances. Every other refusal reason carries no
+/// extra evidence here and returns an empty string.
+pub(crate) fn pad_refusal_detail(
+    site: &RoadsideSite,
+    zones: &[LandUseZone],
+    reason: &str,
+) -> String {
+    if reason != conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE {
+        return String::new();
+    }
+    let distance = site_buildable_core(site, zones)
+        .and_then(|core| conversion_fringe::distance_to_urban(core, zones));
+    format!(", whose {}", conversion_fringe::outside_message(&site.id, distance))
 }
 
 /// Every rural-to-urban conversion this plan's roadside PADS earned, in plan order.
@@ -618,12 +652,16 @@ pub(super) struct Turn {
 }
 /// The candidate order of ONE road, shared by placement and measurement.
 ///
-/// `append` places from this schedule and `frontage_supply::diagnose` measures
-/// from it, so a read-only diagnosis cannot describe a search the bake never
-/// performs. The order is: per station, per side, with the requests ROTATED by
-/// that diagonal. At a shared station usually only ONE parcel fits, so a fixed
-/// request order would let the first request take every contested station while
-/// the later requests place nothing even though they are considered.
+/// `append` places from this schedule and `frontage_supply::diagnose` measures from it, so a
+/// read-only diagnosis cannot describe a search the bake never performs. The order is: per station,
+/// per side, with the requests ROTATED by that diagonal. At a shared station usually only ONE parcel
+/// fits, so a fixed request order would let the first request take every contested station while the
+/// later requests place nothing even though they are considered.
+///
+/// The word "schedule" is exact: [`candidate_order`] owns what placement actually visits (the roads,
+/// and the order of the turns inside each road), because the explicit conversion policy re-sorts both
+/// by distance from the city. This struct is the per-road part of that order and knows nothing about
+/// the policy.
 pub(super) struct StationSchedule<'a> {
     requests: &'a [Request],
     /// Station ordinates per request; `None` when that request has no station on
@@ -798,11 +836,17 @@ fn outside_scene(parcel: [i64; 4], scene: &SceneSpec) -> bool {
 ///
 /// The disabled branch calls `envelope_reason` ITSELF rather than a copy of its logic, so switching
 /// the conversion off cannot change a single decision. The enabled branch adds exactly one
-/// acceptance: an urban request whose buildable core lies WHOLLY in rural land. Nature, unassigned
-/// and protection zones reject the parcel in both branches, and `preflight` still refuses water, so
-/// a conversion can never be pointed at land that is not rural. A parcel rectangle that includes any
-/// protected square metre is refused in both branches too (`parcel_claims_protected`): the
-/// conversion only decides what the BUILDABLE CORE stands on, never what the parcel may own.
+/// acceptance: an urban request whose buildable core lies WHOLLY in rural land AND inside the urban
+/// edge (`worldgen::conversion_fringe`). Nature, unassigned and protection zones reject the parcel in
+/// both branches, and `preflight` still refuses water, so a conversion can never be pointed at land
+/// that is not rural. A parcel rectangle that includes any protected square metre is refused in both
+/// branches too (`parcel_claims_protected`): the conversion only decides what the BUILDABLE CORE
+/// stands on, never what the parcel may own.
+///
+/// A core that is wholly rural but stands further than `FRINGE_M` from every urban zone is refused
+/// by name ([`conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE`]), not accepted: the urban
+/// purpose may only grow at the city's edge, which is the difference between a city that accretes and
+/// a city scattered across farmland.
 ///
 /// Returns the rejection reason (the same `&'static str` keys the audit counts) and, when the parcel
 /// is accepted by conversion, the converted buildable-core area in whole square metres.
@@ -835,7 +879,10 @@ pub(super) fn envelope_verdict(
         return (None, None);
     }
     if purpose == Conversion::URBAN && core_entirely_in(core, zones, Conversion::RURAL) {
-        return (None, Some(area(core)));
+        if conversion_fringe::within_band(conversion_fringe::distance_to_urban(core, zones)) {
+            return (None, Some(area(core)));
+        }
+        return (Some(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE), None);
     }
     (Some("wrong_purpose_or_protected"), None)
 }
@@ -942,6 +989,17 @@ pub fn verify_conversion(
         return Err(format!(
             "conversion parcel {} core is not wholly rural land",
             conversion.parcel_id
+        ));
+    }
+    // WHERE the conversion may happen: the buildable core must lie inside the urban edge
+    // (`worldgen::conversion_fringe`). Re-derived here from the parcel's own geometry and the zoning,
+    // so a record whose parcel was not, or is no longer, on the urban edge fails by name with the
+    // distance it stands - and a hand-edited area cannot launder an out-of-band parcel.
+    let distance = conversion_fringe::distance_to_urban(core, zones);
+    if !conversion_fringe::within_band(distance) {
+        return Err(conversion_fringe::outside_message(
+            &conversion.parcel_id,
+            distance,
         ));
     }
     if let Some(water) = water {
@@ -1866,6 +1924,13 @@ pub(super) struct RequestBudget {
     pub site_ids: Vec<String>,
     pub attempted: u32,
     pub rejected: BTreeMap<String, u32>,
+    /// Candidates this request refused because their buildable core stood outside the urban edge
+    /// (`conversion_fringe`). Counted beside `rejected`'s own entry, and the plan's published fringe
+    /// record is checked against both.
+    pub fringe_refused: u32,
+    /// The distance of the NEAREST candidate refused for standing outside the urban edge, in metres,
+    /// or `None` when the scene plans no urban zone at all.
+    pub fringe_nearest_m: Option<i64>,
 }
 impl RequestBudget {
     pub(super) fn new(request: &Request) -> Self {
@@ -1874,6 +1939,18 @@ impl RequestBudget {
             site_ids: vec![],
             attempted: 0,
             rejected: BTreeMap::new(),
+            fringe_refused: 0,
+            fringe_nearest_m: None,
+        }
+    }
+    /// Record one candidate the urban edge refused, with how far it stood.
+    pub(super) fn refuse_outside_fringe(&mut self, distance: Option<i64>) {
+        self.fringe_refused += 1;
+        if let Some(distance) = distance {
+            self.fringe_nearest_m = Some(match self.fringe_nearest_m {
+                Some(current) => current.min(distance),
+                None => distance,
+            });
         }
     }
     pub(super) fn satisfied(&self) -> bool {
@@ -1960,6 +2037,17 @@ fn claim_and_place(
         reason = state.assess(&site, staged)?;
     }
     if let Some(reason) = reason {
+        // The urban-edge refusal publishes the distance it measured, from the same core the gate
+        // judged, so the plan says HOW far outside the band the candidate stood.
+        if reason == conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE {
+            let distance = buildable_core(
+                parcel,
+                r.parcel_insets.unwrap_or_default(),
+                site.rotation_y_deg,
+            )
+            .and_then(|core| conversion_fringe::distance_to_urban(core, zones));
+            budget.refuse_outside_fringe(distance);
+        }
         budget.reject(reason);
         return Ok(None);
     }
@@ -2073,28 +2161,82 @@ pub(super) fn append(
     } else {
         None
     };
-    for road in &roads {
-        let schedule = StationSchedule::new(road, &requests)?;
-        for turn in schedule.turns() {
-            let budget = &mut budgets[turn.request];
-            if budget.satisfied() || !budget.budget_left() {
-                continue;
+    // WHERE the conversions may happen is decided by the urban edge (`conversion_fringe`), and a
+    // candidate's standing there is also its PRIORITY: the roads nearest the existing city are
+    // searched first, and within a road the stations nearest the city are tried first. The land on
+    // the city's own edge is therefore taken before the land 60 m further out, and a request that
+    // runs out of attempts has spent them on the parcels that continue the city rather than on the
+    // ones that scatter away from it.
+    //
+    // The order is ROAD-MAJOR by necessity, not by preference: `frontage_supply::diagnose` must
+    // reproduce this search exactly (it publishes one trace per road and request, and its own
+    // regression test compares the accepted parcels identity for identity), so the unit of ordering
+    // is what it can share - `candidate_order` below, which both call. Ties keep the station
+    // schedule's own order, so the round-robin fairness above is unchanged wherever distance cannot
+    // distinguish two candidates, which is most of the time: a whole street side shares one distance.
+    //
+    // Off-policy worlds never enter this branch: with the switch off the loop below walks the raw
+    // schedule exactly as it always did, and the plan cannot move by a byte.
+    let ordered = if allocation.is_some() {
+        Some(candidate_order(
+            &roads.iter().collect::<Vec<_>>(),
+            &requests,
+            &scene.scene_id,
+            Some(zones),
+        )?)
+    } else {
+        None
+    };
+    match ordered {
+        Some(roads_in_order) => {
+            for (road_index, turns) in roads_in_order {
+                for turn in turns {
+                    let budget = &mut budgets[turn.request];
+                    if budget.satisfied() || !budget.budget_left() {
+                        continue;
+                    }
+                    if let Some(conversion) = claim_and_place(
+                        &roads[road_index],
+                        &requests[turn.request],
+                        scene,
+                        zones,
+                        &mut state,
+                        &mut staged,
+                        budget,
+                        allocation.as_mut(),
+                        turn.station,
+                        turn.side,
+                    )? {
+                        report.conversions.push(conversion);
+                    }
+                }
             }
-            if let Some(conversion) = claim_and_place(
-                road,
-                &requests[turn.request],
-                scene,
-                zones,
-                &mut state,
-                &mut staged,
-                budget,
-                allocation.as_mut(),
-                turn.station,
-                turn.side,
-            )? {
-                // Recorded ONLY for an accepted parcel, so the ledger can never apply a
-                // conversion for a candidate that engineering refused afterwards.
-                report.conversions.push(conversion);
+        }
+        None => {
+            for road in &roads {
+                let schedule = StationSchedule::new(road, &requests)?;
+                for turn in schedule.turns() {
+                    let budget = &mut budgets[turn.request];
+                    if budget.satisfied() || !budget.budget_left() {
+                        continue;
+                    }
+                    if let Some(conversion) = claim_and_place(
+                        road,
+                        &requests[turn.request],
+                        scene,
+                        zones,
+                        &mut state,
+                        &mut staged,
+                        budget,
+                        allocation.as_mut(),
+                        turn.station,
+                        turn.side,
+                    )? {
+                        // Recorded ONLY for an accepted parcel, so the ledger can never apply a
+                        // conversion for a candidate that engineering refused afterwards.
+                        report.conversions.push(conversion);
+                    }
+                }
             }
         }
     }
@@ -2109,12 +2251,113 @@ pub(super) fn append(
             stop_reason: budget.stop_reason(),
         });
     }
+    // The band's own refusals, one entry per request, written only when the band refused something so
+    // a world whose conversions all sit on the city edge gains no key and keeps its exact bytes.
+    let fringe_refusals: Vec<conversion_fringe::FringeRefusal> = budgets
+        .iter()
+        .filter(|budget| budget.fringe_refused > 0)
+        .map(|budget| conversion_fringe::FringeRefusal {
+            request_id: budget.request.id.clone(),
+            refused: budget.fringe_refused,
+            nearest_m: budget.fringe_nearest_m,
+        })
+        .collect();
     staged.frontage = Some(report);
     // The record is written to the plan only when the allocation refused something: a world that
     // never spent against the cap gains no key and keeps its exact bytes.
     staged.conversion_allocation = allocation.and_then(UrbanAllocation::close);
+    staged.conversion_fringe = conversion_fringe::ConversionFringe::from_refusals(fringe_refusals);
     *plan = staged;
     Ok(())
+}
+
+/// The production candidate order of the whole frontage programme: every road with the turns that
+/// road offers, in the order placement visits them.
+///
+/// Shared by `append` and the read-only `frontage_supply::diagnose`, so a measurement can never
+/// describe a search the bake does not perform. With `zones = None` this is the historical order,
+/// unchanged: the roads as given, each road's station schedule as [`StationSchedule::turns`] builds
+/// it. With `zones = Some` the urban-edge policy is on and the order becomes nearest-the-city first:
+///
+///  * the TURNS of one road are ordered by the distance from their buildable core to the nearest
+///    urban zone (`conversion_fringe::distance_to_urban`), ascending;
+///  * the ROADS are ordered by the smallest such distance among their own turns, ascending.
+///
+/// Both sorts are stable, so equal distances keep the schedule's order - the request rotation across
+/// a shared station survives wherever distance cannot separate two candidates. The result is
+/// deterministic for one input: the schedules are pure functions of the road and the requests, and the
+/// only tie-break is the position in the order the caller handed over.
+///
+/// The order is road-major because that is the unit the diagnosis publishes (one trace per road and
+/// request, and a regression test that compares its accepted parcels identity for identity), so
+/// ordering across roads rather than within one would make the two disagree.
+pub(super) fn candidate_order(
+    roads: &[&EntityInstance],
+    requests: &[Request],
+    scene_id: &str,
+    zones: Option<&[LandUseZone]>,
+) -> Result<Vec<(usize, Vec<Turn>)>, TerrainError> {
+    let mut out: Vec<(usize, Vec<Turn>, i64)> = Vec::with_capacity(roads.len());
+    for (index, road) in roads.iter().enumerate() {
+        let schedule = StationSchedule::new(road, requests)?;
+        let mut turns: Vec<Turn> = schedule.turns().collect();
+        let mut nearest = 0_i64;
+        if let Some(zones) = zones {
+            let distances: Vec<i64> = turns
+                .iter()
+                .map(|turn| {
+                    candidate_urban_distance(
+                        road,
+                        &requests[turn.request],
+                        scene_id,
+                        *turn,
+                        zones,
+                    )
+                })
+                .collect();
+            let mut order: Vec<usize> = (0..turns.len()).collect();
+            order.sort_by_key(|position| distances[*position]);
+            nearest = distances.iter().copied().min().unwrap_or(i64::MAX);
+            turns = order
+                .into_iter()
+                .map(|position| turns[position])
+                .collect();
+        }
+        out.push((index, turns, nearest));
+    }
+    if zones.is_some() {
+        out.sort_by_key(|(index, _, nearest)| (*nearest, *index));
+    }
+    Ok(out
+        .into_iter()
+        .map(|(index, turns, _)| (index, turns))
+        .collect())
+}
+
+/// The priority of one candidate under the urban-edge policy: how far its buildable core stands from
+/// the nearest urban zone, in whole metres.
+///
+/// Cheap, deterministic and measured exactly as the gate measures it (`buildable_core` of the
+/// candidate's own parcel, then `conversion_fringe::distance_to_urban`), so the order the programme
+/// visits is the order the band would accept. A candidate whose geometry cannot be built at all
+/// (an unusable parcel, a non-cardinal rotation, a scene with no urban zone) sorts last: it is
+/// refused on its own merits, and inventing a near distance for it would let it jump the queue.
+fn candidate_urban_distance(
+    road: &EntityInstance,
+    r: &Request,
+    scene_id: &str,
+    turn: Turn,
+    zones: &[LandUseZone],
+) -> i64 {
+    let Ok(site) = candidate_site(road, r, scene_id, turn.station, turn.side) else {
+        return i64::MAX;
+    };
+    let Ok(parcel) = parcel_boundary(&site) else {
+        return i64::MAX;
+    };
+    let core = buildable_core(parcel, r.parcel_insets.unwrap_or_default(), site.rotation_y_deg)
+        .unwrap_or(parcel);
+    conversion_fringe::distance_to_urban(core, zones).unwrap_or(i64::MAX)
 }
 /// The authored street morphology a shoreline commercial row is planned from: its street setback,
 /// taken from the world's own first frontage request, or derived from `style.morphologyProfile`
@@ -3247,8 +3490,18 @@ mod tests {
             Some([13, 13, 43, 75]),
             "the core must be the part the conversion gate measures"
         );
-        let rural_only = vec![zone("rural", "rural", 0, 128)];
-        let protected_tail = vec![zone("rural", "rural", 0, 76), zone("preserve", "nature", 76, 52)];
+        // Round 31 adds WHERE a conversion may happen: the buildable core must stand on the existing
+        // city's edge (`conversion_fringe`, 64 m). The city the fixture grows from is a 2 m urban
+        // strip at the scene's north edge, 11 m from the parcel's core, so the conversion below is
+        // still legal land and only the protected band can refuse it. It is appended LAST so the
+        // existing zone indices in this test are unchanged.
+        let city = zone("city-edge", "urban", 0, 2);
+        let rural_only = vec![zone("rural", "rural", 0, 128), city.clone()];
+        let protected_tail = vec![
+            zone("rural", "rural", 0, 76),
+            zone("preserve", "nature", 76, 52),
+            city,
+        ];
         // The protected band shares exactly 40 m x 12 m with the parcel: the same 480 m2
         // the seed-42 fixture lost.
         assert_eq!(
@@ -4202,14 +4455,27 @@ mod tests {
     #[test]
     fn an_exhausted_urban_allocation_refuses_the_conversion_by_name_with_both_areas() {
         let (s, n, w, _urban, base, style) = fixture(0);
-        // The urban purpose is a 250 m2 sliver at the scene's north edge; everything the fixture
-        // builds (the road corridor and every candidate parcel) stands south of it.
+        // The urban purpose is a 250 m2 sliver one block north of the corridor: the fixture's parcels
+        // stand between z = 104 and z = 158, so their cores are 6 m (north side) and 40 m (south side)
+        // from it - inside the 64 m urban fringe the explicit conversion policy allows
+        // (`conversion_fringe`), which is what makes this a budget test rather than a band test. The
+        // sliver is at z = 100..101 so it clips neither a roadbed (z 124..132) nor a parcel rectangle,
+        // which is why the whole 250 m2 is free.
         let zones = vec![
+            LandUseZone {
+                id: "north".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 512,
+                depth_m: 100,
+                source: "test-north".into(),
+            },
             LandUseZone {
                 id: "sliver".into(),
                 kind: "urban".into(),
                 world_x: 0,
-                world_z: 0,
+                world_z: 100,
                 width_m: 250,
                 depth_m: 1,
                 source: "test-sliver".into(),
@@ -4218,7 +4484,7 @@ mod tests {
                 id: "sliver-tail".into(),
                 kind: "rural".into(),
                 world_x: 250,
-                world_z: 0,
+                world_z: 100,
                 width_m: 262,
                 depth_m: 1,
                 source: "test-sliver-tail".into(),
@@ -4227,9 +4493,9 @@ mod tests {
                 id: "band".into(),
                 kind: "rural".into(),
                 world_x: 0,
-                world_z: 1,
+                world_z: 101,
                 width_m: 512,
-                depth_m: 511,
+                depth_m: 411,
                 source: "test-band".into(),
             },
         ];
@@ -4337,12 +4603,23 @@ mod tests {
         );
         // The forgery: the same plan audited against the zoning it really had to fit - a 250 m2 urban
         // purpose. The conversions are still individually legal land; the TOTAL is what is impossible.
+        // The sliver keeps the SAME urban edge the plan converted against (z = 100..101) and shrinks it
+        // to 250 m2, so the band still reaches the parcels: what changed is the area, not the geography.
         let tight = vec![
+            LandUseZone {
+                id: "north".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 512,
+                depth_m: 100,
+                source: "test-north".into(),
+            },
             LandUseZone {
                 id: "sliver".into(),
                 kind: "urban".into(),
                 world_x: 0,
-                world_z: 0,
+                world_z: 100,
                 width_m: 250,
                 depth_m: 1,
                 source: "test-sliver".into(),
@@ -4351,7 +4628,7 @@ mod tests {
                 id: "sliver-tail".into(),
                 kind: "rural".into(),
                 world_x: 250,
-                world_z: 0,
+                world_z: 100,
                 width_m: 262,
                 depth_m: 1,
                 source: "test-sliver-tail".into(),
@@ -4360,9 +4637,9 @@ mod tests {
                 id: "band".into(),
                 kind: "rural".into(),
                 world_x: 0,
-                world_z: 1,
+                world_z: 101,
                 width_m: 512,
-                depth_m: 511,
+                depth_m: 411,
                 source: "test-band".into(),
             },
         ];
@@ -4448,6 +4725,411 @@ mod tests {
             digests[0], "337b6c67fde3dd1c5d4f623e7391861a0242a924cf8ee4b0454f499812322d81",
 
             "the frozen blake3 of the frontage plan with the conversion switch off"
+        );
+    }
+
+    /// The conversion fixture's banding with the city as deep as the caller asks: everything south of
+    /// `city_depth` is rural, so a candidate's distance from the city is exactly `core_top - depth`.
+    fn banded_city(city_depth: u32) -> Vec<LandUseZone> {
+        vec![
+            LandUseZone {
+                id: "north".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 512,
+                depth_m: city_depth,
+                source: "test-north".into(),
+            },
+            LandUseZone {
+                id: "band".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: city_depth as i32,
+                width_m: 512,
+                depth_m: 512 - city_depth,
+                source: "test-band".into(),
+            },
+        ]
+    }
+
+    /// A city the conversion can continue, as a 2 m urban strip ACROSS the corridor at `x`: the
+    /// candidates' distance from it is then their own along-road distance, which is what the ordering
+    /// test needs.
+    fn city_strip_at(x: i32) -> Vec<LandUseZone> {
+        vec![
+            LandUseZone {
+                id: "west".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: x as u32,
+                depth_m: 512,
+                source: "test-west".into(),
+            },
+            LandUseZone {
+                id: "city".into(),
+                kind: "urban".into(),
+                world_x: x,
+                world_z: 0,
+                width_m: 2,
+                depth_m: 512,
+                source: "test-city".into(),
+            },
+            LandUseZone {
+                id: "east".into(),
+                kind: "rural".into(),
+                world_x: x + 2,
+                world_z: 0,
+                width_m: 512 - (x as u32 + 2),
+                depth_m: 512,
+                source: "test-east".into(),
+            },
+        ]
+    }
+
+    /// Round 31, item 1 and 2: WHERE an explicit conversion may happen, and the name it is refused
+    /// under when it is nowhere near the city.
+    ///
+    /// The permission is not "wholly rural" any more, it is "wholly rural AND inside the urban edge":
+    /// the buildable core must stand within `FRINGE_M` = 64 m of an existing urban zone. The fixture's
+    /// corridor has its north-side cores at z = 107 and its south-side cores at z = 141, so the city's
+    /// own depth decides the distance exactly - 7 m and 41 m against a 100 m city, 77 m and 111 m
+    /// against a 30 m one.
+    #[test]
+    fn a_conversion_lands_inside_the_urban_fringe_and_is_refused_by_name_outside_it() {
+        let (s, n, w, _urban, base, style) = fixture(0);
+        let mut explicit = style.clone();
+        explicit["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        // 1) INSIDE the band: all four lots convert, and no fringe key is published at all.
+        let near = banded_city(100);
+        let mut inside = base.clone();
+        append(&mut inside, &s, &n, w, Some(&near), &explicit).unwrap();
+        let report = inside.frontage.as_ref().unwrap();
+        assert_eq!(report.conversions.len(), 4, "{:?}", report.outcomes[0]);
+        assert_eq!(
+            report.conversions.iter().map(|c| c.area_m2).sum::<i64>(),
+            320
+        );
+        assert!(
+            inside.conversion_fringe.is_none(),
+            "a plan whose conversions all sit on the city edge must not gain the band's key"
+        );
+        // The nearest accepted core is the 6 m north-side row: the ordering (item 3) spends the
+        // request on the closest land first, so the accepted set is exactly that row.
+        let first = &inside.roadside_sites[0];
+        let core = site_buildable_core(first, &near).unwrap();
+        assert_eq!(core[1], 107, "the first parcel taken is the north row");
+        assert_eq!(
+            conversion_fringe::distance_to_urban(core, &near),
+            Some(7),
+            "the north row stands 7 m from the 100 m deep city"
+        );
+        // 2) OUTSIDE it: the same city 70 m shallower. Nothing may convert, every attempt is refused
+        //    under the band's own name, and the refusal publishes the distance it measured.
+        let far = banded_city(30);
+        let mut outside = base.clone();
+        append(&mut outside, &s, &n, w, Some(&far), &explicit).unwrap();
+        let report = outside.frontage.as_ref().unwrap();
+        assert!(outside.roadside_sites.is_empty(), "{:?}", report.outcomes[0]);
+        assert!(report.conversions.is_empty());
+        assert_eq!(report.outcomes[0].unfilled, 4);
+        assert_eq!(
+            report.outcomes[0]
+                .rejected
+                .get(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE)
+                .copied(),
+            Some(report.outcomes[0].attempted),
+            "every attempt must be refused under the band's own name: {:?}",
+            report.outcomes[0]
+        );
+        let band = outside
+            .conversion_fringe
+            .clone()
+            .expect("a plan the band refused publishes the band");
+        assert_eq!(band.fringe_m, conversion_fringe::FRINGE_M);
+        assert_eq!(band.fringe_m, 64);
+        assert_eq!(band.refusals.len(), 1);
+        assert_eq!(band.refusals[0].request_id, "homes");
+        assert_eq!(band.refusals[0].refused, report.outcomes[0].attempted);
+        assert_eq!(
+            band.refusals[0].nearest_m,
+            Some(77),
+            "the nearest refused core stood 77 m from the 30 m deep city"
+        );
+        // The audit re-derives that verdict from the plan and this zoning alone.
+        assert!(
+            conversion_fringe::audit_failures(&outside, &far).is_empty(),
+            "{:?}",
+            conversion_fringe::audit_failures(&outside, &far)
+        );
+        // 3) NO CITY AT ALL: there is no edge to grow from, so the same four legal parcels convert
+        //    nothing and the record says the scene has no urban zone.
+        let wilderness = vec![LandUseZone {
+            id: "field".into(),
+            kind: "rural".into(),
+            world_x: 0,
+            world_z: 0,
+            width_m: 512,
+            depth_m: 512,
+            source: "test-field".into(),
+        }];
+        let mut empty = base.clone();
+        append(&mut empty, &s, &n, w, Some(&wilderness), &explicit).unwrap();
+        assert!(empty.roadside_sites.is_empty());
+        let band = empty.conversion_fringe.clone().unwrap();
+        assert_eq!(band.fringe_m, 64);
+        assert_eq!(band.refusals[0].nearest_m, None);
+        assert_eq!(
+            empty.frontage.as_ref().unwrap().outcomes[0]
+                .rejected
+                .get(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE)
+                .copied(),
+            Some(empty.frontage.as_ref().unwrap().outcomes[0].attempted)
+        );
+    }
+
+    /// Round 31, item 3: the candidate order is nearest-the-city first, so the lot on the city's edge
+    /// is accepted before the lot behind it - and the order is a pure function of the input.
+    ///
+    /// The fixture's only profiled street is the 256 m extension running east from x = 96, with
+    /// stations every 16 m (x = 110, 126, ... 334) and 12x10 homes whose buildable core is
+    /// `[x-5, 107/141, x+5, 115/149]`. A 2 m urban strip across it therefore gives every candidate a
+    /// distance of its own, and one demand lot must take the nearest.
+    #[test]
+    fn the_parcel_nearest_the_city_is_accepted_before_the_one_behind_it() {
+        let (s, n, w, _urban, base, style) = fixture(0);
+        let mut one = style.clone();
+        one["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        one["frontageProgram"]["requests"][0]["count"] = serde_json::json!(1);
+        let requests = from_style(&one).unwrap().unwrap().requests;
+        let roads = profile_roads(&base);
+        let loaned: Vec<&EntityInstance> = roads.iter().collect();
+        // Two city positions inside the street's own reach, so the same candidates answer two
+        // different distances and the acceptance must follow the distance.
+        for (strip_x, expected) in [(200, 5_i64), (300, 9_i64)] {
+            let zones = city_strip_at(strip_x);
+            // The candidate order itself: ascending distance, measured on the same core the gate uses.
+            let ordered = candidate_order(&loaned, &requests, &s.scene_id, Some(&zones)).unwrap();
+            let mut distances = Vec::new();
+            for (road_index, turns) in &ordered {
+                for turn in turns {
+                    distances.push(candidate_urban_distance(
+                        &loaned[*road_index],
+                        &requests[turn.request],
+                        &s.scene_id,
+                        *turn,
+                        &zones,
+                    ));
+                }
+            }
+            assert_eq!(
+                distances.len(),
+                30,
+                "the extension street offers one candidate per station and side: {distances:?}"
+            );
+            let mut ascending = distances.clone();
+            ascending.sort_unstable();
+            assert_eq!(distances, ascending, "the order must be by distance, ascending");
+            // What the historical order would have tried first: station 0, side -1, x = 110. The
+            // policy has to change that, or the fixture proves nothing about the order.
+            let street = roads_with_profile(&base).remove(0);
+            let historic: Vec<i64> = StationSchedule::new(&street, &requests)
+                .unwrap()
+                .turns()
+                .map(|turn| candidate_urban_distance(&street, &requests[turn.request], &s.scene_id, turn, &zones))
+                .collect();
+            assert_ne!(
+                historic, distances,
+                "the urban-edge order must differ from the historical station order (city at x = {strip_x})"
+            );
+            let historic_first = historic[0];
+            assert!(
+                *distances.last().unwrap() > *distances.first().unwrap(),
+                "the fixture must offer candidates at different distances: {distances:?}"
+            );
+            let mut p = base.clone();
+            append(&mut p, &s, &n, w, Some(&zones), &one).unwrap();
+            let accepted = &p.roadside_sites[0];
+            let core = site_buildable_core(accepted, &zones).unwrap();
+            let taken = conversion_fringe::distance_to_urban(core, &zones).unwrap();
+            assert_eq!(
+                taken, expected,
+                "the accepted lot must be the nearest one the band can take (city strip at x = {strip_x})"
+            );
+            assert!(
+                taken < historic_first,
+                "the historical station order would have taken a lot {historic_first} m out"
+            );
+            assert_eq!(p.frontage.as_ref().unwrap().conversions.len(), 1);
+        }
+        // Determinism: the same input twice, byte for byte, including the band's own record.
+        let zones = city_strip_at(300);
+        let mut a = base.clone();
+        let mut b = base.clone();
+        append(&mut a, &s, &n, w, Some(&zones), &one).unwrap();
+        append(&mut b, &s, &n, w, Some(&zones), &one).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&a).unwrap(),
+            serde_json::to_vec(&b).unwrap(),
+            "one input must place one plan"
+        );
+        assert_eq!(a.conversion_fringe, b.conversion_fringe);
+    }
+
+    /// Round 31, item 4: the audit re-derives WHERE each conversion stood, from the plan and the
+    /// zoning alone, and refuses a record the band does not reach - by name, with the distance.
+    #[test]
+    fn a_conversion_the_audit_cannot_place_on_the_city_edge_is_refused_by_name_with_its_distance() {
+        let (s, n, w, _urban, base, style) = fixture(0);
+        let mut explicit = style.clone();
+        explicit["frontageProgram"]["ruralConversion"] = serde_json::json!("explicit");
+        let near = banded_city(100);
+        let mut p = base.clone();
+        append(&mut p, &s, &n, w, Some(&near), &explicit).unwrap();
+        let records = p.frontage.as_ref().unwrap().conversions.clone();
+        assert_eq!(records.len(), 4);
+        // The plan is honest against the zoning it was built under.
+        for record in &records {
+            assert_eq!(verify_conversion(&p, &near, None, record).unwrap(), 80);
+        }
+        assert!(conversion_fringe::audit_failures(&p, &near).is_empty());
+        // Audit the SAME plan against a city 70 m further away: the land did not move, the band it
+        // had to be inside did not reach it, and every record fails by name with the distance.
+        let far = banded_city(30);
+        let mut measured = Vec::new();
+        for record in &records {
+            let site = p
+                .roadside_sites
+                .iter()
+                .find(|site| site.id == record.parcel_id)
+                .unwrap();
+            let distance = conversion_fringe::distance_to_urban(
+                site_buildable_core(site, &far).unwrap(),
+                &far,
+            )
+            .unwrap();
+            measured.push(distance);
+            assert_eq!(
+                verify_conversion(&p, &far, None, record).unwrap_err(),
+                format!(
+                    "conversion parcel {} has its buildable core {distance} m from the nearest \
+                     urban zone, outside the 64 m urban fringe the explicit conversion policy allows",
+                    record.parcel_id
+                )
+            );
+        }
+        // All four are the north row, 77 m out: 107 - 30.
+        assert_eq!(measured, vec![77, 77, 77, 77], "the forged plan measures 77 m");
+        let failures = conversion_fringe::audit_failures(&p, &far);
+        assert_eq!(failures.len(), records.len(), "{failures:?}");
+        for failure in &failures {
+            assert!(
+                failure.contains("outside the 64 m urban fringe"),
+                "{failure}"
+            );
+            assert!(
+                failure.contains("(and is still recorded as converting 80 m2)"),
+                "{failure}"
+            );
+        }
+        // The ledger's own entry point refuses the same plan, before it asks about a ledger at all.
+        let audit = crate::settlement::landuse_ledger::audit_conversions(&p, &far, w, None);
+        assert_eq!(audit.status, "fail");
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|failure| failure.contains("outside the 64 m urban fringe")),
+            "{:?}",
+            audit.failures
+        );
+        // A pad cannot escape the same rule by losing its conversion record: a pad that declared an
+        // urban purpose on wholly-rural land outside the band fails the audit BY ITS OWN NAME.
+        let mut orphans = base.clone();
+        orphans.roadside_sites.clear();
+        let mut site = candidate_site(
+            roads_with_profile(&base).first().unwrap(),
+            &frontage_request(&explicit),
+            &s.scene_id,
+            190,
+            1,
+        )
+        .unwrap();
+        site.id = "pad.outside".into();
+        site.purpose = Some("urban".into());
+        orphans.roadside_sites.push(site);
+        let failures = conversion_fringe::audit_failures(&orphans, &far);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("pad pad.outside"), "{}", failures[0]);
+        assert!(failures[0].contains("outside the 64 m urban fringe"), "{}", failures[0]);
+    }
+
+    /// The profile-bearing roads of a fixture plan, in production order.
+    fn roads_with_profile(plan: &RoadNetworkPlan) -> Vec<EntityInstance> {
+        plan.entities()
+            .into_iter()
+            .filter(|road| road.grounding.road_profile.is_some())
+            .collect()
+    }
+
+    /// The single authored request of a frontage style, as placement reads it.
+    fn frontage_request(style: &serde_json::Value) -> Request {
+        from_style(style).unwrap().unwrap().requests.remove(0)
+    }
+
+    /// Round 31, item 5: with the switch off the urban edge is INERT. The plan may not gain the band's
+    /// key, and no conversion may be recorded or refused in its name - whatever the city looks like.
+    #[test]
+    fn the_urban_edge_policy_changes_nothing_when_the_switch_is_off() {
+        // The same world with its city at four different depths, from "nowhere near the corn" to
+        // "almost the whole scene is urban". WHICH lots land in these worlds is the historical purpose
+        // gate's business and does depend on the zoning (a lot inside an urban zone has always landed
+        // without converting); what must not depend on it is the POLICY.
+        for city_depth in [1_u32, 30, 100, 511] {
+            let (s, n, w, _urban, mut p, style) = fixture(0);
+            let zones = banded_city(city_depth);
+            append(&mut p, &s, &n, w, Some(&zones), &style).unwrap();
+            let json: serde_json::Value =
+                serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
+            assert!(
+                json.get("conversionFringe").is_none(),
+                "the switch is off: no band key may be published"
+            );
+            assert!(json.get("conversionAllocation").is_none());
+            assert!(p.conversion_fringe.is_none());
+            let report = p.frontage.as_ref().unwrap();
+            assert!(
+                report.conversions.is_empty(),
+                "the switch is off: nothing converts"
+            );
+            for outcome in &report.outcomes {
+                assert!(
+                    !outcome
+                        .rejected
+                        .contains_key(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE),
+                    "the switch is off: the band cannot refuse anything"
+                );
+            }
+            assert!(
+                p.roadside_site_rejections
+                    .iter()
+                    .all(|rejection| rejection.category
+                        != conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE),
+                "the switch is off: the band cannot refuse a pad"
+            );
+        }
+        // And with the historical band - a 100 m city - the whole document is the digest the earlier
+        // rounds froze, to the byte.
+        let (s, n, w, _urban, mut p, style) = fixture(0);
+        let zones = banded_city(100);
+        append(&mut p, &s, &n, w, Some(&zones), &style).unwrap();
+        assert_eq!(
+            blake3::hash(&serde_json::to_vec(&p).unwrap())
+                .to_hex()
+                .to_string(),
+            "337b6c67fde3dd1c5d4f623e7391861a0242a924cf8ee4b0454f499812322d81",
+            "the off state is the historical plan byte for byte"
         );
     }
 }
