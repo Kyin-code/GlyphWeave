@@ -1,58 +1,66 @@
-//! Round 32: the plan's pad platform and the ENTITY earthwork are now closed.
+//! Round 39: the plan's pad platform and the entity stage are closed in BOTH
+//! directions - the pad keeps its declared top, and the pad keeps its entity.
 //!
 //! `examples/hillside-town-512.manifest.json` with `landUseProfile.urbanGrowth =
-//! "axis-and-node"` is a 512 m river-gorge town grown along its axes. Before this
-//! round it baked NOTHING: planning accepted a 8x8 `storefront` pad at (144, 260)
-//! on a declared 5.325 m top from the plan's OWN earthwork, the entity stage then
-//! placed a 16 m `urban_building` whose 144 m support ring stands over that pad,
-//! and `bounded_cut_verify` step 5 refused the whole scene with
-//! `bounded_cut_pad_top_not_flat: pad ... holds 81 footprint cells away from its
-//! declared 5325 mm top`. One pad, 81 cells, one wrong platform - and no way to say
-//! which.
+//! "axis-and-node"` is a 512 m river-gorge town grown along its axes. Round 32 found
+//! that planning accepted an 8x8 `storefront` pad at (144, 260) on a declared 5.325 m
+//! top and the entity earthwork buried it; Round 36 found that the completion pass
+//! that was supposed to settle it read a composition the bake never publishes, and
+//! that the pad's own ENTITY had been deleted by the rules engine before the pass
+//! ever ran, so the pad was deepened once (a no-op) and then refused as `Unstable` -
+//! 16 pads, 5 shops, and a plan that no longer claimed the parcel.
 //!
 //! What this test asserts, in the order the bake produces it:
 //!
-//! 1. the bake SUCCEEDS, and the whole cut audit verifies from the published bytes:
-//!    3 benches, 777 cells, 522,318 mm of excavation, ZERO cut cells on protected
-//!    land, in the water and on the shoreline passage band;
-//! 2. the pad is refused BY NAME under
-//!    `pad_top_conflicts_with_entity_platform`, quoting the entity that buried it,
-//!    the 81 cells and the 3.780 m lift, and it is withdrawn from the PLAN, the
-//!    frontage outcome, the JOINT receipt, the CONVERSIONS and the ENTITY list -
-//!    five views, one verdict;
-//! 3. the world still builds its city: 16 pads remain planned and every one of them
-//!    is realized, the school is placed, and the housing minimum is unchanged;
-//! 4. two bakes of the same manifest publish byte-identical bytes;
-//! 5. with the cut policy OFF the completion pass publishes NOTHING - no rejection,
-//!    no artifact, no moved byte - and two off-state bakes agree file for file.
+//! 1. the bake SUCCEEDS and keeps EVERY planned pad: 17 sites in the plan and 17
+//!    entities in the scene, the 8x8 shop among them;
+//! 2. the pad's own platform is what the raster publishes: 5,325 mm on all 81 cells
+//!    of its declared flat top, so the completion pass has nothing to refuse and
+//!    publishes no `pad-completion.json` at all - it converged in its first round;
+//! 3. the structure that used to evict the pad is refused BY NAME instead: the
+//!    38x20 `resort_lodge` at (140, 280) reaches 3.5 m into the pad after its 90
+//!    degree rotation, its reject names the pad, and it is not in the world;
+//! 4. the cut audit still verifies from the published bytes: 4 benches, 911 cells,
+//!    530,566 mm of excavation, ZERO cut cells on protected land, in the water and on
+//!    the shoreline passage band, and the ledger IS the rasters' own measurement;
+//! 5. the world still builds its city: every planned pad is realized on its declared
+//!    top, the school is placed, and the housing minimum is unchanged;
+//! 6. the plan, the reconcile report and the published entities agree: every planned
+//!    pad is a published entity, no refused pad is anywhere, and
+//!    `verify_published_placement` accepts the published `engineering-placement.json`
+//!    (and still refuses a doctored one, so the check is live);
+//! 7. two bakes of the same manifest publish byte-identical bytes.
 use glyphweave_core::baked_terrain::BakedTerrain;
 use glyphweave_core::worldgen::bounded_cut::{self, CutLedger, CutPolicy};
 use glyphweave_core::worldgen::road_network::{RoadNetworkPlan, PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM};
 use glyphweave_core::worldgen::{
-    LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world, water_geometry,
-    water_kind,
+    LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world,
+    verify_published_placement, water_geometry, water_kind,
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::{fs, path::PathBuf};
 
 /// The published sample, compiled in: the test cannot drift from the example.
 const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manifest.json");
 /// The one cap this world authors, in whole millimetres.
 const MAX_CUT_MM: i32 = 2000;
-/// The pad the entity earthwork buries: an 8x8 storefront on a 5.325 m declared top.
-const REFUSED_PAD: &str =
+/// The pad the entity stage used to lose: an 8x8 storefront on a 5.325 m declared top.
+const THE_PAD: &str =
     "generated.frontage.scene-0.gorge-shops.generated.road-network.scene-0.23-30.36.negative";
+/// The declared top of that pad, in whole millimetres.
+const DECLARED_MM: i32 = 5_325;
 /// Cells of that pad's declared flat top (`flat_top_bounds` of a 8x8 pad is 9x9).
-const REFUSED_CELLS: u32 = 81;
-/// The lift the entity platform puts over the declared top, whole millimetres.
-const REFUSED_LIFT_MM: i32 = 3780;
-/// The pads the grown plan keeps.
-const REMAINING_PADS: usize = 16;
-/// The excavation the scene holds, summed once from the two published rasters.
-const SCENE_CUT_CELLS: u64 = 777;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 522_318;
-const SCENE_CUT_PADS: usize = 3;
+const PAD_CELLS: u32 = 81;
+/// The structure that used to evict it: a 38x20 lodge whose rotated footprint reaches
+/// into the pad.
+const THE_LODGE: &str = "generated.resort-lodge.";
+/// The pads the grown plan keeps - every one of them, now.
+const PLANNED_PADS: usize = 17;
+/// The excavation the scene holds, summed once from its two published rasters.
+const SCENE_CUT_PADS: usize = 4;
+const SCENE_CUT_CELLS: u64 = 911;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 530_566;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -160,7 +168,7 @@ fn published_files(root: &PathBuf) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
+fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_pad() {
     let dir = TestDir::new("pad-platform-grown");
     let manifest = grown();
     // 1. The bake publishes. `bounded_cut_ledger_for` refuses a world whose cut
@@ -172,86 +180,98 @@ fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
     let plan: RoadNetworkPlan =
         serde_json::from_value(plan_value.clone()).expect("the plan round-trips");
 
-    // 2. The pad is refused BY NAME, with the entity, the cells and the lift.
-    assert!(
-        plan.roadside_sites.iter().all(|site| site.id != REFUSED_PAD),
-        "the refused pad is not planned any more"
-    );
-    assert_eq!(plan.roadside_sites.len(), REMAINING_PADS);
-    let refusal = plan
-        .roadside_site_rejections
+    // 2. Every planned pad stays planned - the pad the entity stage used to lose
+    //    included - and no completion refusal is published at all.
+    assert_eq!(plan.roadside_sites.len(), PLANNED_PADS);
+    let site = plan
+        .roadside_sites
         .iter()
-        .find(|rejection| rejection.edge_id == REFUSED_PAD)
-        .expect("the refusal is published in the plan");
-    assert_eq!(refusal.category, PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM);
-    let published = read_json(dir.0.join("pad-completion.json"));
-    assert_eq!(published["maxRounds"], json!(2));
-    assert_eq!(published["maxLiftMm"], json!(MAX_CUT_MM));
-    let record = &published["scenes"][0]["pads"][0];
-    assert_eq!(record["padId"], json!(REFUSED_PAD));
-    assert_eq!(record["outcome"], json!("refused"));
-    assert_eq!(record["declaredMm"], json!(5_325));
-    assert_eq!(record["mismatchedCells"], json!(REFUSED_CELLS));
-    assert_eq!(record["footprintCells"], json!(REFUSED_CELLS));
-    assert_eq!(record["liftMm"], json!(REFUSED_LIFT_MM));
-    assert_eq!(record["maxCutMm"], json!(MAX_CUT_MM));
-    assert_eq!(record["naturalMaxMm"], json!(5_417));
-    assert_eq!(record["neededCutMm"], json!(92));
-    let entity = record["entityId"].as_str().expect("the refusal names the entity");
+        .find(|site| site.id == THE_PAD)
+        .expect("the shop pad is a pad of this plan");
+    assert_eq!((site.width_m, site.depth_m), (8, 8));
+    assert_eq!((site.world_x, site.world_z), (144, 260));
+    assert_eq!(site.support_level_mm, Some(DECLARED_MM));
+    assert_eq!(site.bounded_cut_mm, Some(MAX_CUT_MM));
     assert!(
-        entity.starts_with("generated.urban-building."),
-        "the entity that buried the pad: {entity}"
+        plan.roadside_site_rejections
+            .iter()
+            .all(|rejection| rejection.category != PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM),
+        "nothing refuses a pad top any more: {:?}",
+        plan.roadside_site_rejections
     );
-    assert_eq!(record["entityKind"], json!("urban_building"));
-    let entity_top = record["entityTopMm"].as_i64().unwrap();
-    assert_eq!(
-        entity_top - 5_325,
-        i64::from(REFUSED_LIFT_MM),
-        "the named platform IS the lift"
-    );
-    assert_eq!(published["scenes"][0]["padsRefused"], json!(1));
-    assert_eq!(published["scenes"][0]["padsDeepened"], json!(0));
-    assert_eq!(published["scenes"][0]["rounds"], json!(2));
+    // The completion pass converged in its first round and had nothing to publish:
+    // no record file, and therefore no refusal anywhere in it.
     assert!(
-        refusal.reason.contains(entity),
-        "the published reason names the entity: {}",
-        refusal.reason
-    );
-    assert!(
-        refusal.reason.contains("3780 mm"),
-        "the published reason quotes the lift: {}",
-        refusal.reason
+        !dir.0.join("pad-completion.json").exists(),
+        "a world whose platforms all hold publishes no completion record"
     );
 
-    // 2b. Five views, one verdict: entity, conversions, frontage outcome, joint
-    //     receipt, plan.
+    // 3. The pad's OWN platform is what the world publishes, cell for cell.
     let scene = scene_index(&dir);
+    let entity = scene
+        .entities
+        .iter()
+        .find(|entity| entity.entity_id == THE_PAD)
+        .expect("the pad's entity is IN the world: the entity stage no longer loses it");
+    assert_eq!(entity.kind, "storefront");
+    assert_eq!((entity.world_x, entity.world_z), (144, 260));
+    assert_eq!((entity.width_m, entity.depth_m), (8., 8.));
+    assert_eq!(entity.grounding.bounded_cut_mm, Some(MAX_CUT_MM));
+    let final_terrain = raster(&dir, &scene, true);
+    let verdict = bounded_cut::pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
+        .expect("the pad declares a flat top");
+    assert!(verdict.holds(), "the published top does not hold: {verdict:?}");
+    assert_eq!(verdict.cells, PAD_CELLS);
+    assert_eq!(verdict.highest_mm, DECLARED_MM);
+    assert_eq!(verdict.lowest_mm, DECLARED_MM);
+    assert_eq!(verdict.mismatched, 0);
+    assert_eq!(final_terrain.height_millimetres(140, 259), Some(DECLARED_MM));
+    assert_eq!(final_terrain.height_millimetres(140, 256), Some(DECLARED_MM));
+    assert_eq!(final_terrain.height_millimetres(148, 264), Some(DECLARED_MM));
+
+    // 4. The structure that used to evict the pad is refused BY NAME instead, and it
+    //    is not in the world: the pad keeps its ground, the lodge keeps none.
+    let placement = read_json(dir.0.join("rules-placement.json"));
+    let rejects = placement["scenes"][0]["rejects"].as_array().unwrap();
+    let displaced: Vec<&Value> = rejects
+        .iter()
+        .filter(|record| record["conflict_with"] == json!(THE_PAD))
+        .filter(|record| {
+            record["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("keeps its ground"))
+        })
+        .collect();
+    assert_eq!(displaced.len(), 1, "{displaced:?}");
+    assert_eq!(displaced[0]["item_id"], json!("resort_lodge"));
+    assert_eq!(displaced[0]["candidate_x"], json!(140));
+    assert_eq!(displaced[0]["candidate_z"], json!(280));
+    assert!(
+        displaced[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("refused by name"),
+        "the refusal is published in words: {}",
+        displaced[0]["reason"]
+    );
     assert!(
         scene
             .entities
             .iter()
-            .all(|entity| entity.entity_id != REFUSED_PAD),
-        "the pad's own entity left the world"
+            .all(|entity| !entity.entity_id.starts_with(THE_LODGE)),
+        "the structure the pad displaced is not published"
     );
+
+    // 5. Five views, one pad: the plan, the conversions, the frontage report, the
+    //    joint receipt and the entity list all carry it.
     assert!(
         plan.pad_conversions
             .iter()
-            .all(|record| record.parcel_id != REFUSED_PAD),
-        "the conversion the pad earned left with it"
+            .all(|record| record.parcel_id != THE_PAD),
+        "a storefront earns no rural-to-urban conversion; the pad is still planned"
     );
     let frontage = plan.frontage.as_ref().expect("the frontage report");
-    assert!(
-        frontage
-            .conversions
-            .iter()
-            .all(|conversion| conversion.parcel_id != REFUSED_PAD),
-        "the along-road frontage report does not book it either"
-    );
     for outcome in &frontage.outcomes {
-        assert!(
-            outcome.site_ids.iter().all(|id| id != REFUSED_PAD),
-            "no frontage outcome keeps the refused pad"
-        );
         assert_eq!(
             outcome.unfilled,
             outcome.request.count.saturating_sub(outcome.site_ids.len() as u32),
@@ -259,48 +279,65 @@ fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
         );
     }
     let joint = plan.joint_layout.as_ref().expect("the joint receipt");
-    for ids in [
-        &joint.retained_residential_ids,
-        &joint.displaced_residential_ids,
-        &joint.replacement_residential_ids,
-    ] {
-        assert!(ids.iter().all(|id| id != REFUSED_PAD));
-    }
     assert_eq!(
         joint.unfilled_residential,
-        joint
-            .residential_minimum
-            .saturating_sub(plan.roadside_sites.iter().filter(|site| site.program.is_none()).count()),
+        joint.residential_minimum.saturating_sub(
+            plan.roadside_sites
+                .iter()
+                .filter(|site| site.program.is_none())
+                .count()
+        ),
         "the joint receipt charges its own minimum against the pads that remain"
     );
-    // The reconcile report agrees with both: the pad is named refused and is in
-    // neither the reconcile plan nor its output.
+
+    // 6. The triangle: every planned pad is a published entity, every refused id is
+    //    nowhere, and the reconcile report can be recomputed from the published ids.
     let engineering = read_json(dir.0.join("engineering-placement.json"));
     let entry = &engineering["scenes"][0];
-    assert!(entry["refusedEntityIds"]
-        .as_array()
-        .unwrap()
+    let published_ids: BTreeSet<String> = scene
+        .entities
         .iter()
-        .any(|id| id == REFUSED_PAD));
-    for field in ["inputEntityIds", "outputEntityIds"] {
+        .map(|entity| entity.entity_id.clone())
+        .collect();
+    let planned_ids: Vec<String> = plan
+        .roadside_sites
+        .iter()
+        .map(|site| site.id.clone())
+        .collect();
+    for id in &planned_ids {
         assert!(
-            entry[field]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|id| id != REFUSED_PAD),
-            "{field} does not carry the refused pad"
+            published_ids.contains(id),
+            "planned pad {id} is not a published entity: the plan and the ledger claim a \
+             parcel the world does not carry"
         );
     }
-    assert_eq!(
-        entry["plannedPadIds"].as_array().unwrap().len(),
-        REMAINING_PADS
+    assert_eq!(entry["plannedPadIds"].as_array().unwrap().len(), PLANNED_PADS);
+    assert!(
+        entry.get("refusedEntityIds").is_none(),
+        "no pad was refused, so no refused id may be published: {entry}"
+    );
+    let authored: BTreeSet<String> = manifest
+        .landmarks
+        .iter()
+        .map(|landmark| landmark.entity_id.clone())
+        .collect();
+    let registry = glyphweave_core::rules::ObjectRegistry::load_dir(&rules())
+        .expect("the rules registry loads");
+    verify_published_placement(entry, &published_ids, &authored, Some(&registry))
+        .expect("the published placement is consistent with the plan and the world");
+    // The check is live: drop one planned pad's entity from the published set and the
+    // same verifier refuses it.
+    let mut without_the_pad = published_ids.clone();
+    without_the_pad.remove(THE_PAD);
+    assert!(
+        verify_published_placement(entry, &without_the_pad, &authored, Some(&registry)).is_err(),
+        "a planned pad with no entity must be refused by the triangle check"
     );
 
-    // 3. The world still builds its city: every remaining pad is realized on its
+    // 7. The world still builds its city: every planned pad is realized on its
     //    declared top, and the school is placed.
     let road_audit = read_json(scene_dir(&dir).join("road-network-audit.json"));
-    assert_eq!(road_audit["plannedSites"], json!(REMAINING_PADS));
+    assert_eq!(road_audit["plannedSites"], json!(PLANNED_PADS));
     assert_eq!(
         road_audit["realizedSites"],
         road_audit["plannedSites"],
@@ -319,7 +356,7 @@ fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
         .expect("the school request");
     assert_eq!(school.planned_site_ids.len(), 1, "the school is already placed");
 
-    // 4. The cut audit, recomputed from the published bytes.
+    // 8. The cut audit, recomputed from the published bytes.
     let ledger: CutLedger = serde_json::from_value(
         read_json(scene_dir(&dir).join("engineered-terrain.json"))["boundedCut"].clone(),
     )
@@ -331,8 +368,20 @@ fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
     assert_eq!(ledger.cut_depth_sum_mm, SCENE_CUT_DEPTH_SUM_MM);
     assert_eq!(ledger.cut_volume_m3, SCENE_CUT_DEPTH_SUM_MM as f64 / 1000.);
     assert!(ledger.max_cut_depth_mm <= MAX_CUT_MM);
+    // The pad the entity stage used to lose publishes its own excavation: 92 mm at
+    // its deepest cell, not the 708 mm of neighbour fill that stands above it.
+    let pad_record = ledger
+        .pads
+        .iter()
+        .find(|record| record.pad_id == THE_PAD)
+        .expect("the kept pad books its own bench");
+    assert_eq!(pad_record.max_cut_mm, MAX_CUT_MM);
+    assert_eq!(pad_record.design_level_mm, DECLARED_MM);
+    assert!(
+        pad_record.max_cut_depth_mm <= 200,
+        "the pad's own bench is shallow: {pad_record:?}"
+    );
     let natural = raster(&dir, &scene, false);
-    let final_terrain = raster(&dir, &scene, true);
     let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain)
         .expect("the two published rasters measure");
     assert_eq!(
@@ -370,6 +419,7 @@ fn the_grown_hillside_town_refuses_the_buried_pad_by_name_and_still_bakes() {
     assert_eq!(audit.shore_band_cells_cut, 0);
 }
 
+/// Requirement 4: two bakes of the same manifest publish byte-identical bytes.
 #[test]
 fn two_bakes_of_the_grown_hillside_town_are_byte_identical() {
     let first = TestDir::new("grown-first");

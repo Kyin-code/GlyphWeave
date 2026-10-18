@@ -3285,13 +3285,70 @@ fn complete_pad_tops(
     let mut deepened: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for round in 0..pad_completion::MAX_COMPLETION_ROUNDS {
         out.rounds = round + 1;
-        // THE probe: the surface the FILL-FIRST composition publishes over each
-        // pad's declared flat top, at the audit's own window and precision.
+        // Round 39, the TRIANGLE: a cap-carrying pad the plan keeps must be an
+        // entity of this world. Without one there is no carve, no platform and no
+        // declaration to publish - and a probe that only composes surfaces can miss
+        // it entirely whenever the ground under the pad happens to stand on the
+        // declared level already, which is exactly the case where the plan, the
+        // development plan, the cut ledger and the conversions would all go on
+        // claiming a pad the world does not carry and no audit would see it. The
+        // entity stage is asked directly, and a pad with no entity is refused BY
+        // NAME through the SAME five-record withdrawal as any other completion
+        // refusal (plan, service outcomes, joint receipt, conversions, entity list).
+        let mut evicted: Vec<String> = plan
+            .roadside_sites
+            .iter()
+            .filter(|site| site.bounded_cut_mm.is_some())
+            .filter(|site| !entities.iter().any(|entity| entity.entity_id == site.id))
+            .map(|site| site.id.clone())
+            .collect();
+        evicted.sort();
+        if !evicted.is_empty() {
+            for pad_id in &evicted {
+                let reason = format!(
+                    "pad {pad_id} is a pad of this plan and the entity stage published no entity \
+                     for it, so its declared flat top has no platform to stand on; the pad is \
+                     refused by name instead of leaving the plan, the development plan and the \
+                     cut ledger claiming a parcel the world does not carry"
+                );
+                road_network::refuse_pad_top_conflict(plan, pad_id, reason.clone());
+                entities.retain(|entity| entity.entity_id != *pad_id);
+                out.refused += 1;
+                out.records.push(serde_json::json!({
+                    "padId": pad_id,
+                    "outcome": "refused",
+                    "reason": reason,
+                    "entityStage": "no-entity",
+                }));
+            }
+            // Everything the pad list feeds is re-derived from the plan that is left.
+            if let Some(record) = development_plan.as_mut() {
+                if let Ok(rebuilt) = development::plan(scene, zones, plan) {
+                    *record = rebuilt;
+                }
+            }
+            *carves = plan_terrain_carves(entities);
+            for _ in 0..2 {
+                rebase_grounded_entities_to_carved_surface(seed, water, entities, carves);
+                *carves = plan_terrain_carves(entities);
+            }
+            continue;
+        }
+        // THE probe: the surface the bake PUBLISHES over each pad's declared flat
+        // top, at the audit's own window and precision - the composition with the
+        // bounded-cut platform rule ACTIVE (`PadPlatform::Active`, the same
+        // `published_terrain_height_zoned` the chunk encoder calls), so a pad whose
+        // own declared platform stands is never reported as buried by the fill that
+        // platform overrules. Reading the fill-first composition here was the
+        // Round 36 phantom: a pad whose platform already published its declared top
+        // was deepened, re-read on the same fill-first surface and refused as
+        // unstable, while `bounded_cut::verify` step 5 - the audit that reads the
+        // published raster - would have found nothing wrong.
         let conflicts = {
             let published = |x: i32, z: i32| {
                 Some(
-                    (terrain_height_zoned(seed, x, z, water, carves, Some(mask)) * 1000.).round()
-                        as i32,
+                    (published_terrain_height_zoned(seed, x, z, water, carves, Some(mask)) * 1000.)
+                        .round() as i32,
                 )
             };
             let natural = |x: i32, z: i32| {
@@ -5993,6 +6050,15 @@ fn apply_rules_mode(
     // filler platform that merely reaches into the pad's audit window buries the pad's declared flat
     // top - the bake then fails its bounded-cut ledger with `bounded_cut_pad_top_not_flat` on a pad
     // the planner was right to accept. The window is the same one the pad's own flat-top audit uses.
+    //
+    // Round 39: that window guard is not enough on its own. A filler can be collided
+    // with the pad by a margin the window never sees - the grown hillside town's 38x20
+    // `resort_lodge` is proposed 20 m away, is ROTATED 90 degrees by `place_all`'s
+    // fallback, and then reaches 3.5 m into an 8x8 shop pad - and the pad's one
+    // placement request is rejected while the plan goes on claiming the parcel. The
+    // guard below is therefore paired with the attributed re-placement after
+    // `place_all` (see the "planned pad is an OBLIGATION" block further down), which
+    // refuses the structure the ENGINE blamed and places the scene again.
     let planned_pads: Vec<EntityInstance> =
         if water.road_water_crossings() || urban_growth::enabled(style) {
             road_plan
@@ -6169,9 +6235,128 @@ fn apply_rules_mode(
         })
         .unwrap_or_default();
     let designed_height = |x, z| terrain_context.height(x, z, &road_carves);
-    let outcome = with_height_placement_context(seed, scene, water, &designed_height, |ctx| {
-        crate::rules::place_all(&registry, &requests, ctx, seed)
-    });
+    let place = |requests: &[crate::rules::PlacementRequest]| {
+        with_height_placement_context(seed, scene, water, &designed_height, |ctx| {
+            crate::rules::place_all(&registry, requests, ctx, seed)
+        })
+    };
+    let mut outcome = place(&requests);
+    // Round 39: a planned pad is an OBLIGATION, and `place_all` may not delete one.
+    //
+    // The engine has no way to know a request is a plan obligation: when the pad's one
+    // candidate collides with an already placed structure it records a reject whose
+    // `item_id` is the DESCRIPTOR ("storefront") and whose `conflict_with` is the
+    // structure, and the pad's entity simply is not in the output. The plan, the
+    // development plan, the cut ledger and the conversions went on claiming it - the
+    // grown hillside town lost a shop exactly this way to a 38x20 `resort_lodge` whose
+    // rotated (90 degree) footprint reached 3.5 m into the pad.
+    //
+    // The repair uses the engine's own attribution instead of a second geometry
+    // predicate: for every planned pad the engine did not place, ask WHICH already
+    // placed structure it blamed at the pad's own request position, and when that
+    // structure is a building the carve planner knows (`carves_as_building` - never a
+    // road, a canal or an authored landmark), refuse THAT structure by name and place
+    // the scene again. The pad's request is re-evaluated against the world without the
+    // structure that displaced it, and the structure cannot silently win a spot the
+    // plan had already given the pad. Bounded: every re-placement drops at least one
+    // request, so the loop can run at most once per planned pad.
+    //
+    // A pad the engine still cannot place after that is left to the entity-stage
+    // completion pass, which now reads the PUBLISHED composition: a pad with no
+    // platform standing publishes no declared top, so it is refused BY NAME through
+    // `pad_completion` (plan, services, joint receipt, conversions and entity list
+    // withdrawn together) instead of vanishing here.
+    let mut displaced = Vec::new();
+    for _ in 0..planned_pads.len() {
+        if planned_pads.is_empty() {
+            break;
+        }
+        let evicted: Vec<&EntityInstance> = planned_pads
+            .iter()
+            .filter(|pad| {
+                !outcome.placed.iter().any(|e| e.entity_id == pad.entity_id)
+                    && !passthrough.iter().any(|e| e.entity_id == pad.entity_id)
+            })
+            .collect();
+        if evicted.is_empty() {
+            break;
+        }
+        let mut blamed: Vec<(String, String)> = Vec::new();
+        for pad in &evicted {
+            for record in &outcome.rejected {
+                if record.candidate_x != pad.world_x || record.candidate_z != pad.world_z {
+                    continue;
+                }
+                let Some(other) = record.conflict_with.as_deref() else {
+                    continue;
+                };
+                if planned_pad_ids.contains(other) || authored_ids.contains(other) {
+                    continue;
+                }
+                let Some(source) = requests
+                    .iter()
+                    .filter_map(|request| request.source.as_ref())
+                    .find(|source| source.entity_id == other)
+                else {
+                    continue;
+                };
+                if !carves_as_building(&source.kind) {
+                    continue;
+                }
+                // The pad this reject belongs to, for the published record.
+                if !blamed.iter().any(|(id, _)| id == other) {
+                    blamed.push((other.to_string(), source.kind.clone()));
+                }
+            }
+        }
+        if blamed.is_empty() {
+            break;
+        }
+        for (entity_id, kind) in &blamed {
+            let Some(position) = requests
+                .iter()
+                .find(|request| {
+                    request
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.entity_id == *entity_id)
+                })
+                .map(|request| (request.x, request.z))
+            else {
+                continue;
+            };
+            let pad = evicted
+                .iter()
+                .find(|pad| {
+                    outcome.rejected.iter().any(|record| {
+                        record.candidate_x == pad.world_x
+                            && record.candidate_z == pad.world_z
+                            && record.conflict_with.as_deref() == Some(entity_id.as_str())
+                    })
+                })
+                .map(|pad| pad.entity_id.clone())
+                .unwrap_or_default();
+            displaced.push(crate::rules::RejectRecord {
+                item_id: kind.clone(),
+                candidate_x: position.0,
+                candidate_z: position.1,
+                reason: format!(
+                    "stands on the planned roadside pad {pad} the plan owes: {entity_id} and the \
+                     pad collide, so the pad keeps its ground and this structure is refused by name"
+                ),
+                conflict_with: Some(pad),
+                rule: "plan".into(),
+            });
+            requests.retain(|request| {
+                request
+                    .source
+                    .as_ref()
+                    .is_none_or(|source| source.entity_id != *entity_id)
+            });
+        }
+        outcome = place(&requests);
+    }
+    refused_fillers.extend(displaced);
     // A move fallback can relocate a generated object into an authored mass even
     // when its proposal was clear. Apply the same fixed-landmark reservation to
     // the committed result before merging passthrough landmarks.
@@ -6214,7 +6399,6 @@ fn apply_rules_mode(
         })
     });
     merged.extend(passthrough);
-    let mut outcome = outcome;
     outcome.rejected.extend(refused_fillers);
     (merged, outcome)
 }

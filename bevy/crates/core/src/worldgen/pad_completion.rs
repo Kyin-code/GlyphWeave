@@ -26,21 +26,39 @@
 //!
 //! The answer is [`bounded_cut::pad_top_holds`] - the same function
 //! `bounded_cut::verify` step 5 uses, so the bake and the audit cannot disagree
-//! about what "holding the top" means. It is computed on the FILL-FIRST
-//! composition (`TerrainCarve` composition without the bounded-cut platform rule),
-//! which is what "the whole earthwork stands here" looks like before the pad's own
-//! platform is asserted: that is the surface a lift is measured on.
+//! about what "holding the top" means. It is computed on the composition the encoder
+//! actually PUBLISHES (`worldgen::PadPlatform::Active`): inside a cap-carrying pad's
+//! declared flat top the pad's own platform ([`bounded_cut::platform_surface_m`]) is
+//! the surface, both above a neighbour's blended fill and above the pad's own bench.
+//!
+//! # Round 36: the probe used to read a surface the bake never publishes
+//!
+//! The probe was wired to the FILL-FIRST composition (`PadPlatform::Dormant`), which
+//! is the planning-time reading and deliberately does NOT contain the pad's own
+//! platform face. On the grown hillside town that composition published 6,033 mm at
+//! the worst cell of a shop pad declared at 5,325 mm, the probe called it a 708 mm
+//! lift and decided `Deepen` - and because a deepening changes nothing in a
+//! composition that has no platform in it, the second round read the same 708 mm and
+//! refused the pad as `Unstable`. The pad's declared platform was never the problem:
+//! the encoder publishes it cell for cell inside the pad's own flat top, and
+//! `bounded_cut::verify` step 5 (which reads the published raster) finds nothing
+//! wrong there. The judgement therefore reads the published composition, so "this
+//! pad's top does not hold" means the raster the world ships really does not hold it.
 //!
 //! # The two answers, in priority order
 //!
-//! 1. **Deepen.** The pad carries a cap, its own bench can reach the declared top
-//!    within that cap, and the fill standing over it is at most [`MAX_CUT_MM`]:
+//! 1. **Deepen.** The pad carries a cap and its own bench can reach the declared
+//!    top within that cap, but the published composition still stands over the top:
 //!    the pad's platform wins inside its own flat top
 //!    ([`bounded_cut::platform_surface_m`]) and the excavation the raster shows is
 //!    exactly the excavation `bounded_cut::cut_surface_m` already describes. The
 //!    per-cell prohibitions ([`bounded_cut::CellGuards`]) and the footprint
 //!    exclusion still apply, because a bench may not cut protected land, water,
-//!    the shore passage band, an occupied cell or another accepted bench.
+//!    the shore passage band, an occupied cell or another accepted bench. Reading the
+//!    published composition makes this the RARE arm: a cell the platform cannot own
+//!    (a graded road band crossing the pad, a cell the zoning clips) is the only
+//!    thing a deepening can still be asked for, and a second round that finds it
+//!    unchanged refuses it as `Unstable` instead of publishing it.
 //! 2. **Refuse by name.** Everything else - no cap at all, a bench its own cap
 //!    cannot deepen far enough, a fill deeper than the one cap, a guarded cell, a
 //!    footprint that would share a cell - is refused under
@@ -55,9 +73,10 @@
 //! [`MAX_COMPLETION_ROUNDS`] is two. A pad can be deepened at most once (a second
 //! breach after a deepening is a refusal, not another round), and a refused pad
 //! leaves the checked set, so every round that changes anything removes a
-//! conflict for good. In practice the first round settles every world: a refused
-//! pad's envelope only ever LOWERED the ground around it, and a deepened pad's
-//! platform is the audited surface.
+//! conflict for good. The loop is a bound, not a schedule: a world whose pads all
+//! hold their published platforms - now the normal case, because the probe reads the
+//! surface the encoder publishes - spends exactly one round and publishes no
+//! completion record at all.
 
 use super::bounded_cut::{self, CellGuards};
 use super::road_network::{RoadNetworkPlan, RoadsideSite};
@@ -202,14 +221,19 @@ impl Decision {
     }
 }
 
-/// Sample the FLAT-FIRST composition and report every planned pad whose declared
+/// Sample the PUBLISHED composition and report every planned pad whose declared
 /// flat top it does not hold.
 ///
-/// `published_mm` is the surface the fill-first composition publishes: the whole
-/// earthwork of the plan and of the entities, without the bounded-cut platform
-/// rule. `natural_mm` is the natural datum the cut is measured from. Both are the
-/// bake's own functions, so this probe asks the encoder's question rather than a
-/// model of it.
+/// `published_mm` is the surface the bake publishes - the composition with the
+/// bounded-cut platform rule ACTIVE (`worldgen::PadPlatform::Active`), which is what
+/// the chunk encoder writes and what `bounded_cut::verify` step 5 re-reads. Inside a
+/// cap-carrying pad's own flat top that composition is the pad's declared platform,
+/// so a neighbour's blended fill can no longer make a pad look buried when the world
+/// ships it flat. A caller that hands in the fill-first composition instead is asking
+/// a different question (what the earthwork would compose without the pad's own
+/// platform) and will report pads the raster holds - the Round 36 phantom.
+/// `natural_mm` is the natural datum the cut is measured from. Both are the bake's own
+/// functions, so this probe asks the encoder's question rather than a model of it.
 pub fn probe(
     plan: &RoadNetworkPlan,
     world: &[EntityInstance],
@@ -877,6 +901,91 @@ fn a_lift_inside_the_one_cap_is_deepened_and_the_platform_holds() {
             }
         }
     );
+}
+
+/// Round 39, requirement 1: the probe judges the PUBLISHED composition, so a pad
+/// whose own platform stands is not reported as buried by the fill that platform
+/// overrules - the Round 36 phantom, with the grown hillside town's own numbers.
+///
+/// The fixture is that world's pad: an 8x8 storefront whose declared top is 5.325 m
+/// on ground standing 5.417 m, under a neighbour platform at 6.033 m whose fill
+/// covers the pad's whole 81-cell window.
+#[test]
+fn the_probe_reads_the_published_platform_not_the_fill_it_overrules() {
+    let base = 5.417_f64;
+    let mut site = pad("pad.shops.negative", 100, 100, 5_325, Some(2_000));
+    site.width_m = 8;
+    site.depth_m = 8;
+    let plan = plan(vec![site.clone()]);
+    let entities = vec![
+        site.entity(),
+        building(
+            "generated.urban-building.0",
+            "urban_building",
+            100,
+            116,
+            24.,
+            6.033,
+        ),
+    ];
+    let mask = zoning();
+    // 1. The FILL-FIRST composition has no pad platform in it, so the neighbour's
+    //    6.033 m fill reads as a platform conflict the pad can never resolve: 81 of
+    //    81 cells off the declared top, a 708 mm lift over ground that stands at
+    //    5.417 m, and a bench that only has to excavate 92 mm.
+    let fill_first = surface(&entities, base, false);
+    let phantom = probe(&plan, &entities, &fill_first, &natural(base));
+    assert_eq!(phantom.len(), 1, "{phantom:?}");
+    let conflict = &phantom[0];
+    assert_eq!(conflict.pad_id, "pad.shops.negative");
+    assert_eq!(conflict.declared_mm, 5_325);
+    assert_eq!(conflict.cells, 81, "the audit's own 9x9 window");
+    assert_eq!(conflict.total_cells, 81);
+    assert_eq!(conflict.lift_mm, 708);
+    assert_eq!(conflict.needed_cut_mm, 92);
+    assert_eq!(conflict.natural_max_mm, 5_417);
+    assert_eq!(conflict.shortfall_mm, 0);
+    let owner = conflict.owner.as_ref().expect("the phantom names an entity");
+    assert_eq!(owner.kind, "urban_building");
+    assert_eq!(owner.top_mm, 6_033);
+    assert_eq!(conflict.lift_mm, owner.top_mm - conflict.declared_mm);
+    // On that reading the repair is a deepening - which changes nothing in a
+    // composition that has no platform to deepen, so a second round reads the same
+    // 708 mm and the pad is refused as `Unstable`.
+    assert_eq!(
+        decide(conflict, &site, &guards(&mask), false),
+        Decision::Deepen {
+            lift_mm: 708,
+            cut_depth_mm: 92
+        }
+    );
+    assert_eq!(
+        decide(conflict, &site, &guards(&mask), true),
+        Decision::Refuse {
+            cause: Refusal::Unstable { lift_mm: 708 }
+        }
+    );
+    // 2. The PUBLISHED composition - the one the encoder writes - contains the pad's
+    //    own platform, so the very same world reports nothing at all and the first
+    //    round converges on the declaration itself.
+    let published = surface(&entities, base, true);
+    assert!(
+        probe(&plan, &entities, &published, &natural(base)).is_empty(),
+        "the published raster already holds the declared top"
+    );
+    let verdict =
+        bounded_cut::pad_top_holds(&site, &published).expect("the pad has a declaration");
+    assert!(verdict.holds(), "{verdict:?}");
+    assert_eq!(verdict.highest_mm, 5_325);
+    assert_eq!(verdict.lowest_mm, 5_325);
+    assert_eq!(verdict.cells, 81);
+    assert_eq!(verdict.lift_mm(), 0);
+    assert_eq!(published(100, 100), Some(5_325));
+    assert_eq!(published(96, 96), Some(5_325), "the window's far corner");
+    assert_eq!(published(104, 104), Some(5_325), "the window's far corner");
+    // The excavation that publishes is the pad's own bench, 92 mm, not the 708 mm
+    // of neighbour fill above it.
+    assert_eq!(5_417 - published(100, 100).unwrap(), 92);
 }
 
 /// Requirement 2b, the other arms: no cap, a bench its own cap cannot reach, a cell

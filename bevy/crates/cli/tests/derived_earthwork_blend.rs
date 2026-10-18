@@ -22,19 +22,30 @@
 //! own plan record (`earthworkBlendM`), the entity reads it out of that record, and
 //! the rebuild reads it out of that record too: one ring, one place, both sides.
 //!
+//! Round 39 changes what the two arms PUBLISH over the pad's own flat top. The ring
+//! is still the thing the carve list carries (144 m -> 48 m at the widest), but the
+//! bounded-cut platform rule now publishes the pad's declared 5,325 mm on all 81 cells
+//! in BOTH arms, and the pad keeps its entity in both arms. The numbers below were
+//! re-measured on the same fixtures: the pad's window reads 5,325 mm where it used to
+//! read 9,105 mm (off) and 6,016 mm (derived), the plan keeps 17 pads instead of 16,
+//! and the completion pass publishes no record at all because it has nothing to
+//! settle. The ring's own effect is still visible where it always was measurable - in
+//! the carve list and in the structures' envelopes - which is what the assertions
+//! below hold.
+//!
 //! What this file asserts, world by world, all of it read back from the bytes the
 //! bake published:
 //!
 //! 1. OFF: no entity AND no plan pad carries a derived ring, the published plan has
 //!    no `earthworkBlendM` key at all, and two bakes are byte-identical. Every
 //!    structure's carve publishes the fixed envelope (`3 x (ground + 32)`, exactly
-//!    144 m on the 16 m plate), the structure carves include that 144 m ring and the
-//!    pad's window publishes 9,105 mm - the ring standing 86.5 m away.
+//!    144 m on the 16 m plate), the structure carves include that 144 m ring, and the
+//!    pad's window publishes its own declared 5,325 mm.
 //! 2. ON: the 144 m ring is gone from the published carve list, the rule-engine
-//!    structures carry the derived ring (33 m for the 25x23 plate, 46 m for the
-//!    38x20 lodge), every one of the 16 planned pads carries the ring its own
-//!    width/height derives (16/20/32/48 m instead of 114 m), the same window
-//!    publishes 6,016 mm, and the recorded lift falls from 3,780 mm to 708 mm.
+//!    structures carry the derived ring (33 m for the 25x23 plate, 48 m for the 40x30
+//!    school), every one of the 17 planned pads carries the ring its own width/height
+//!    derives (16/20/32/48 m instead of 114 m), and the same window publishes the
+//!    same declared 5,325 mm.
 //! 3. The plan's pads and the world's entities are the SAME BYTES: the development
 //!    plan rebuilt from the published road plan equals the published
 //!    `development-plan.json`, and every pad's published entity equals its rebuilt
@@ -58,10 +69,10 @@ use std::{fs, path::PathBuf};
 const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manifest.json");
 /// The registered waterfront sample, with the conversion switch this round runs.
 const WATERFRONT: &str = include_str!("../../../../examples/waterfront-city-512.manifest.json");
-/// The pad the entity earthwork buries, by name.
-const REFUSED_PAD: &str =
+/// The pad the entity earthwork used to bury, by name.
+const THE_PAD: &str =
     "generated.frontage.scene-0.gorge-shops.generated.road-network.scene-0.23-30.36.negative";
-/// The cell of that pad's window the published raster disagrees with most.
+/// The cell of that pad's window the round reads its published top on.
 const PAD_CELL: (i32, i32) = (140, 259);
 /// The plate the round is about: a 25x23 `urban_building` on a 16 m platform.
 const PLATE_GROUND_M: f64 = 16.0;
@@ -71,38 +82,36 @@ const PLATE_HEIGHT_M: f64 = 12.0;
 const LEGACY_RING_M: f64 = 144.0;
 /// The derived envelope at that plate: `max(25, 12) x 1 + 8`.
 const DERIVED_RING_M: f64 = 33.0;
-/// The historical ring of a PLANNED pad on a 6 m plate: `3 x (6 + 32)`. Thirteen of
-/// them carried it while only rule-engine structures were derived.
+/// The historical ring of a PLANNED pad on a 6 m plate: `3 x (6 + 32)`.
 const LEGACY_PAD_RING_M: f64 = 114.0;
-/// What the pad's window publishes under each envelope, in whole millimetres.
-const LEGACY_PAD_MM: i32 = 9105;
-const DERIVED_PAD_MM: i32 = 6016;
-/// The lift each arm records for that pad, and the entity that owns it. The
-/// opt-in took the owner from the rule engine's 144 m structure ring to the auto
-/// road's own fill: 3,780 mm -> 708 mm, `urban_building` -> `road`.
-const LEGACY_LIFT_MM: i32 = 3780;
-const DERIVED_LIFT_MM: i32 = 708;
-const LEGACY_LIFT_OWNER_KIND: &str = "urban_building";
-const DERIVED_LIFT_OWNER_KIND: &str = "road";
-const DERIVED_LIFT_OWNER_ID: &str = "generated.road-auto.scene-0.0";
-/// The entity platform of each owner, in whole millimetres above the datum.
-const LEGACY_LIFT_OWNER_TOP_MM: i32 = 9105;
-const DERIVED_LIFT_OWNER_TOP_MM: i32 = 6033;
-/// The cell the owner stands on, on both arms.
-const LIFT_CELL: (i32, i32) = (140, 259);
-const DERIVED_LIFT_CELL: (i32, i32) = (140, 256);
+/// What the pad's window publishes in BOTH arms now: its own declared top. Before
+/// Round 39 the same cell published 9,105 mm (off) and 6,016 mm (derived), because the
+/// pad's entity had been deleted and its platform could not be published at all.
+const PAD_MM: i32 = 5_325;
 /// The excavation the derived scene holds, summed once from its two rasters.
-const DERIVED_CUT_PADS: usize = 3;
-const DERIVED_CUT_CELLS: u64 = 1097;
-const DERIVED_CUT_DEPTH_SUM_MM: i64 = 729_038;
-/// The pads the grown plan keeps.
-const REMAINING_PADS: usize = 16;
+const DERIVED_CUT_PADS: usize = 4;
+const DERIVED_CUT_CELLS: u64 = 1_231;
+const DERIVED_CUT_DEPTH_SUM_MM: i64 = 737_286;
+/// The excavation the fixed-envelope scene holds.
+const OFF_CUT_PADS: usize = 4;
+const OFF_CUT_CELLS: u64 = 911;
+const OFF_CUT_DEPTH_SUM_MM: i64 = 530_566;
+/// The pads the grown plan keeps: every one of them.
+const PLANNED_PADS: usize = 17;
+/// The published bytes of the two fixtures THIS ROUND MUST NOT MOVE, as one blake3
+/// digest each over every published file except the path-bearing generation report.
+/// Both were taken from the HEAD binary's own output (`glyphweave-r36.exe`), and the
+/// round's binary reproduces them file for file.
+const FROZEN_HILLSIDE_DIGEST: &str =
+    "9603f6e5ba702575f0b2a251cb8a3f4151aa152f877bc0bd012fdf955b5d2fab";
+const FROZEN_WATERFRONT_DIGEST: &str =
+    "cfd1185009ad5b783aa0aa88a6046ff9968ab90639776016d30152bebb42b917";
 /// The ring every planned pad of the grown hillside town derives, by kind:
 /// `(width_m, depth_m, height_m, ring_m, count)`. A pad's ring reads its OWN
 /// published width and height - never its depth, never its elevation.
 const GROWN_PAD_RINGS: [(u32, u32, u32, f64, usize); 4] = [
     (12, 12, 6, 20.0, 3),
-    (8, 8, 6, 16.0, 2),
+    (8, 8, 6, 16.0, 3),
     (24, 24, 8, 32.0, 10),
     (40, 30, 10, 48.0, 1),
 ];
@@ -383,7 +392,7 @@ fn the_default_envelope_is_still_the_fixed_ring() {
 
     // The published carve list carries that 144 m ring, and nothing wider.
     let rings = building_rings(&dir);
-    assert_eq!(rings.len(), 52, "one carve per structure and per apron");
+    assert_eq!(rings.len(), 53, "one carve per structure and per apron");
     assert_eq!(
         rings.iter().cloned().fold(0.0_f64, f64::max),
         LEGACY_RING_M
@@ -391,22 +400,23 @@ fn the_default_envelope_is_still_the_fixed_ring() {
     assert_eq!(rings.iter().filter(|ring| **ring == LEGACY_RING_M).count(), 1);
     assert_road_rings_unchanged(&dir);
 
-    // The pad is still buried, by name, by the structure's ring.
-    let completion = read_json(dir.0.join("pad-completion.json"));
-    let record = &completion["scenes"][0]["pads"][0];
-    assert_eq!(record["padId"], json!(REFUSED_PAD));
-    assert_eq!(record["outcome"], json!("refused"));
-    assert_eq!(record["liftMm"], json!(LEGACY_LIFT_MM));
-    assert_eq!(record["entityKind"], json!(LEGACY_LIFT_OWNER_KIND));
-    assert_eq!(record["entityTopMm"], json!(LEGACY_LIFT_OWNER_TOP_MM));
-    assert_eq!(record["at"], json!([LIFT_CELL.0, LIFT_CELL.1]));
-    assert_eq!(completion["scenes"][0]["padsRefused"], json!(1));
-    assert_eq!(completion["scenes"][0]["padsDeepened"], json!(0));
-
-    // And the ring's reach is in the bytes: the pad's window publishes the plate's
-    // own blended fill 86.5 m away, not the natural ground.
+    // Round 39: the ring reaches across the pad's window, but the window publishes
+    // the pad's OWN declared top, and the completion pass has nothing to settle - no
+    // record file, and the pad is still a pad of the plan.
+    assert!(
+        !dir.0.join("pad-completion.json").exists(),
+        "a world whose platforms hold publishes no completion record"
+    );
+    let plan: Value = read_json(scene_dir(&dir).join("road-network-plan.json"));
+    let sites = plan["roadsideSites"].as_array().unwrap();
+    assert_eq!(sites.len(), PLANNED_PADS);
+    assert!(sites.iter().any(|site| site["id"] == json!(THE_PAD)));
     let baked = raster(&dir, &scene, true);
-    assert_eq!(baked.height_millimetres(PAD_CELL.0, PAD_CELL.1), Some(LEGACY_PAD_MM));
+    assert_eq!(
+        baked.height_millimetres(PAD_CELL.0, PAD_CELL.1),
+        Some(PAD_MM),
+        "the pad's own platform is the published surface, whatever the ring around it"
+    );
 }
 
 /// 2. ON: every rule-engine structure AND every planned pad carries the derived
@@ -437,11 +447,13 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
             stamped.insert(entity.entity_id.clone(), f64::from(ring));
         }
     }
-    // 16 planned pads + the plate, two more urban blocks and the lodge.
+    // 17 planned pads + the plate and two more urban blocks. The 38x20 lodge that
+    // used to stand 3.5 m inside the shop pad is refused by name, so the pad it
+    // displaced carries the 16 m ring instead of the lodge's 46 m.
     assert_eq!(stamped.len(), 20, "every structure of this scene, planned pads included");
     let mut values: Vec<f64> = stamped.values().cloned().collect();
     values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let mut want = vec![30.0, 30.0, DERIVED_RING_M, 46.0];
+    let mut want = vec![30.0, 30.0, DERIVED_RING_M];
     for (_, _, _, ring, count) in GROWN_PAD_RINGS {
         for _ in 0..count {
             want.push(ring);
@@ -466,12 +478,12 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     // 114 m ring, and every ring is one the formula could produce. Roads are
     // untouched: the same 29 carves with the same rings as the fixed-envelope world.
     let rings = building_rings(&dir);
-    assert_eq!(rings.len(), 52, "one carve per structure and per apron");
+    assert_eq!(rings.len(), 53, "one carve per structure and per apron");
     assert!(
         rings.iter().all(|ring| *ring < LEGACY_PAD_RING_M),
         "the 144 m and 114 m rings must be gone: {rings:?}"
     );
-    for ring in [DERIVED_RING_M, 46.0, 30.0, 48.0, 32.0, 20.0, 16.0] {
+    for ring in [DERIVED_RING_M, 30.0, 48.0, 32.0, 20.0, 16.0] {
         assert!(rings.contains(&ring), "the derived ring {ring} m is published");
     }
     assert_eq!(
@@ -482,41 +494,39 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     assert_eq!(rings.iter().cloned().fold(0.0_f64, f64::max), 48.0);
     assert_road_rings_unchanged(&dir);
 
-    // The same window: the plate's fill is gone, the road's own fill is what stands.
+    // The same window: the pad's own declared top, in this arm too. The ring no
+    // longer decides what stands over a pad's declared top - the pad's platform does.
     let baked = raster(&dir, &scene, true);
-    assert_eq!(baked.height_millimetres(PAD_CELL.0, PAD_CELL.1), Some(DERIVED_PAD_MM));
+    assert_eq!(
+        baked.height_millimetres(PAD_CELL.0, PAD_CELL.1),
+        Some(PAD_MM)
+    );
 
-    // The lift the completion pass records falls from 3,780 mm to 708 mm, and the
-    // owner stops being a structure: it is an auto road's own graded fill.
-    let completion = read_json(dir.0.join("pad-completion.json"));
-    let scene_record = &completion["scenes"][0];
-    assert_eq!(scene_record["padsRefused"], json!(1));
-    assert_eq!(scene_record["padsDeepened"], json!(1));
-    let records = scene_record["pads"].as_array().unwrap();
-    assert_eq!(records.len(), 2, "one deepening, then the refusal that follows it");
-    let lift = &records[0];
-    assert_eq!(lift["padId"], json!(REFUSED_PAD));
-    assert_eq!(lift["liftMm"], json!(DERIVED_LIFT_MM));
-    assert_eq!(lift["mismatchedCells"], json!(81));
-    assert_eq!(lift["footprintCells"], json!(81));
-    assert_eq!(lift["entityKind"], json!(DERIVED_LIFT_OWNER_KIND));
-    assert_eq!(lift["entityId"], json!(DERIVED_LIFT_OWNER_ID));
-    assert_eq!(lift["entityTopMm"], json!(DERIVED_LIFT_OWNER_TOP_MM));
-    assert_eq!(lift["at"], json!([DERIVED_LIFT_CELL.0, DERIVED_LIFT_CELL.1]));
-    assert_eq!(lift["outcome"], json!("deepened"));
-    assert_eq!(records[1]["outcome"], json!("refused"));
-    assert_eq!(records[1]["entityKind"], json!(DERIVED_LIFT_OWNER_KIND));
-
-    // The pads the plan keeps are still the plan's pads.
+    // The completion pass has nothing to settle, so it publishes no record at all and
+    // every planned pad - the shop the entity stage used to lose included - is still
+    // a pad of the plan.
+    assert!(
+        !dir.0.join("pad-completion.json").exists(),
+        "a world whose platforms hold publishes no completion record"
+    );
     let plan: Value = read_json(scene_dir(&dir).join("road-network-plan.json"));
     assert!(
         plan["roadsideSites"]
             .as_array()
             .unwrap()
             .iter()
-            .all(|site| site["id"] != json!(REFUSED_PAD))
+            .any(|site| site["id"] == json!(THE_PAD))
     );
-    assert_eq!(plan["roadsideSites"].as_array().unwrap().len(), REMAINING_PADS);
+    assert_eq!(plan["roadsideSites"].as_array().unwrap().len(), PLANNED_PADS);
+    assert!(
+        plan["roadsideSiteRejections"]
+            .as_array()
+            .is_none_or(|rejections| rejections
+                .iter()
+                .all(|rejection| rejection["category"]
+                    != json!("pad_top_conflicts_with_entity_platform"))),
+        "no pad top is refused in this arm"
+    );
 
     // 3. The cut ledger is still the rasters' own measurement, and the protected
     //    land, the water and the shore band still carry no excavation.
@@ -698,6 +708,50 @@ fn the_waterfront_sample_keeps_its_plan_and_its_entities() {
         .all(|site| site.get("earthworkBlendM").is_none()));
 }
 
+/// One digest over every published file of a world, so a fixture's bytes can be
+/// frozen as ONE constant. `generation-report.json` is excluded because it records the
+/// output directory, which the test's temporary folder changes every run; nothing else
+/// in a world embeds a path.
+fn world_digest(files: &BTreeMap<String, String>) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for (path, digest) in files.iter().filter(|(path, _)| !path.contains("generation-report")) {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(digest.as_bytes());
+        hasher.update(b"\0");
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// 6. OFF is FROZEN against the previous binary: the committed hillside sample and the
+///    registered waterfront sample publish exactly the bytes Round 36 published, file
+///    for file (the digests were taken from the HEAD binary's own output). This is the
+///    cross-binary freeze the round's contract asks for, in a form a test can hold: if
+///    a later change moves a byte of either fixture, one digest changes.
+#[test]
+fn the_committed_fixtures_publish_the_frozen_bytes() {
+    let hillside_dir = TestDir::new("frozen-hillside");
+    let mut hillside: WorldManifest = serde_json::from_str(SAMPLE).expect("sample parses");
+    hillside.style["rulesDir"] = json!(rules());
+    bake_world(&hillside, &hillside_dir.0).expect("the committed hillside bakes");
+    let hillside_digest = world_digest(&published_files(&hillside_dir.0));
+
+    let waterfront_dir = TestDir::new("frozen-waterfront");
+    bake_world(&waterfront(false), &waterfront_dir.0).expect("the waterfront bakes");
+    let waterfront_digest = world_digest(&published_files(&waterfront_dir.0));
+
+    assert_eq!(
+        hillside_digest, FROZEN_HILLSIDE_DIGEST,
+        "the committed hillside town moved: {}",
+        hillside_digest
+    );
+    assert_eq!(
+        waterfront_digest, FROZEN_WATERFRONT_DIGEST,
+        "the registered waterfront sample moved: {}",
+        waterfront_digest
+    );
+}
+
 /// 1. OFF is byte-inert in the PLAN too, not only on the entity: no pad record gains
 ///    the key, the published plan never contains the string, and two bakes of the
 ///    same manifest publish the same bytes - fixture by fixture.
@@ -752,7 +806,7 @@ fn every_planned_pad_carries_the_ring_its_own_width_and_height_derive() {
     bake_world(&grown_derived(), &dir.0).expect("the derived-envelope world bakes");
     let plan: Value = read_json(scene_dir(&dir).join("road-network-plan.json"));
     let sites = plan["roadsideSites"].as_array().unwrap();
-    assert_eq!(sites.len(), REMAINING_PADS);
+    assert_eq!(sites.len(), PLANNED_PADS);
 
     let mut histogram: BTreeMap<(u32, u32, u32, u32), usize> = BTreeMap::new();
     for site in sites {
@@ -850,58 +904,33 @@ fn the_planned_pad_entity_is_the_rebuilt_plan_entity_byte_for_byte() {
             );
         }
     }
-    assert_eq!(carrying, REMAINING_PADS, "every planned pad carries a ring");
+    assert_eq!(carrying, PLANNED_PADS, "every planned pad carries a ring");
 }
 
-/// 4. The same world, two arms: the number of planned pads a STRUCTURE's ring buries
-///    falls from one to none, and the lift that remains is a road's own fill.
+/// 4. The same world, two arms: the ring no longer decides what stands over a pad's
+///    declared top, and the cut ledger of each arm is the rasters' own measurement.
 ///
 /// | | arm OFF | arm ON |
 /// |---|---|---|
-/// | pads buried by a structure | 1 | 0 |
-/// | worst structure lift over a pad | 3,780 mm | 0 mm |
-/// | the pad's remaining lift | 3,780 mm (`urban_building`, 144 m ring) | 708 mm (`road`) |
-/// | buried cells of the pad's top | 81 of 81 | 81 of 81 |
-/// | published pads whose top the raster fails to hold | 0 | 0 |
+/// | published pads whose top the raster fails to hold | 0 of 17 | 0 of 17 |
+/// | the pad's window | 5,325 mm (its own declared top) | 5,325 mm |
+/// | widest structure ring in the carve list | 144 m | 48 m |
+/// | completion records published | none | none |
+/// | cut ledger (pads / cells / mm) | 4 / 911 / 530,566 | 4 / 1,231 / 737,286 |
 #[test]
-fn the_derived_ring_takes_the_structure_ring_off_the_buried_pad() {
+fn the_derived_ring_narrows_the_envelope_and_the_pad_top_holds_in_both_arms() {
     let off = TestDir::new("blend-bury-off");
     let on = TestDir::new("blend-bury-on");
     bake_world(&grown(), &off.0).expect("the fixed-envelope world bakes");
     bake_world(&grown_derived(), &on.0).expect("the derived-envelope world bakes");
 
-    // (a) The pad an ENTITY PLATFORM buries, by owner kind, and the depth it buries it.
     let arms = |dir: &TestDir| {
-        let completion = read_json(dir.0.join("pad-completion.json"));
-        let records = completion["scenes"][0]["pads"].as_array().unwrap().clone();
-        let structure_lift = records
-            .iter()
-            .filter(|record| record["entityKind"] != json!("road"))
-            .map(|record| record["liftMm"].as_i64().unwrap())
-            .max()
-            .unwrap_or(0);
-        let buried_by_structure = records
-            .iter()
-            .filter(|record| record["entityKind"] != json!("road"))
-            .count();
-        let lift = records
-            .iter()
-            .map(|record| record["liftMm"].as_i64().unwrap())
-            .max()
-            .unwrap_or(0);
-        let owner = records
-            .iter()
-            .find(|record| record["padId"] == json!(REFUSED_PAD))
-            .map(|record| record["entityKind"].as_str().unwrap().to_string())
-            .unwrap();
         let scene = scene_index(dir);
-        // (c) And what the world PUBLISHES: no pad of the final plan may be buried,
-        // in either arm - the buried pad left the plan by name in both.
         let baked = raster(dir, &scene, true);
-        let plan: glyphweave_core::worldgen::road_network::RoadNetworkPlan = serde_json::from_value(
-            read_json(scene_dir(dir).join("road-network-plan.json")),
-        )
-        .unwrap();
+        let plan: glyphweave_core::worldgen::road_network::RoadNetworkPlan =
+            serde_json::from_value(read_json(scene_dir(dir).join("road-network-plan.json")))
+                .unwrap();
+        // Every pad the plan keeps publishes its own declared top, cell for cell.
         let published_buried = plan
             .roadside_sites
             .iter()
@@ -910,15 +939,38 @@ fn the_derived_ring_takes_the_structure_ring_off_the_buried_pad() {
                     .is_some_and(|verdict| !verdict.holds())
             })
             .count();
-        (buried_by_structure, structure_lift, lift, owner, published_buried)
+        let ledger: CutLedger = serde_json::from_value(
+            read_json(scene_dir(dir).join("engineered-terrain.json"))["boundedCut"].clone(),
+        )
+        .expect("the arm publishes its bounded-cut ledger");
+        (
+            plan.roadside_sites.len(),
+            published_buried,
+            baked.height_millimetres(PAD_CELL.0, PAD_CELL.1),
+            building_rings(dir).iter().cloned().fold(0.0_f64, f64::max),
+            dir.0.join("pad-completion.json").exists(),
+            (
+                ledger.pads.len(),
+                ledger.cut_cells,
+                ledger.cut_depth_sum_mm,
+            ),
+        )
     };
     let before = arms(&off);
     let after = arms(&on);
-    assert_eq!(before, (1, i64::from(LEGACY_LIFT_MM), i64::from(LEGACY_LIFT_MM), LEGACY_LIFT_OWNER_KIND.to_string(), 0));
-    assert_eq!(after, (0, 0, i64::from(DERIVED_LIFT_MM), DERIVED_LIFT_OWNER_KIND.to_string(), 0));
-    assert!(after.0 < before.0, "the structure ring no longer buries the pad");
-    assert!(after.1 < before.1, "and no structure lift stands over any pad");
-    // The residual that is left is a ROAD's own graded fill, not a ring: 3,780 -> 708 mm.
-    assert_eq!(after.2, i64::from(DERIVED_LIFT_MM));
-    assert_eq!(before.2, i64::from(LEGACY_LIFT_MM));
+    assert_eq!(before.0, PLANNED_PADS);
+    assert_eq!(after.0, PLANNED_PADS, "the derived arm keeps every pad");
+    assert_eq!(before.1, 0, "no kept pad's top may fail to hold");
+    assert_eq!(after.1, 0, "no kept pad's top may fail to hold");
+    assert_eq!(before.2, Some(PAD_MM));
+    assert_eq!(after.2, Some(PAD_MM));
+    assert_eq!(before.3, LEGACY_RING_M, "the fixed envelope is still the widest");
+    assert_eq!(after.3, 48.0, "the derived envelope is the widest left");
+    assert!(!before.4, "the fixed-envelope arm settles no pad top");
+    assert!(!after.4, "the derived-envelope arm settles no pad top");
+    assert_eq!(before.5, (OFF_CUT_PADS, OFF_CUT_CELLS, OFF_CUT_DEPTH_SUM_MM));
+    assert_eq!(
+        after.5,
+        (DERIVED_CUT_PADS, DERIVED_CUT_CELLS, DERIVED_CUT_DEPTH_SUM_MM)
+    );
 }
