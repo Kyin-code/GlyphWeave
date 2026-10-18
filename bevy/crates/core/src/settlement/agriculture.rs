@@ -2,6 +2,7 @@
 //! blocks and 4m farm-access lanes are sampled against final terrain. This is
 //! bounded deterministic land preparation, not crop/irrigation simulation.
 use super::farm_access;
+use super::farm_program::{CONTOUR_ELONGATED, FieldTemplate};
 use super::{
     development::{LandcoverPlan, LandcoverRole, Rect},
     landcover::{self, Material, SurfacePatch},
@@ -16,6 +17,54 @@ const HEADLAND: i64 = 4;
 const FIELD_GRADE: f64 = 0.12;
 const TRACK_GRADE: f64 = 0.08;
 const MAX_ACCESS_LENGTH: i64 = 160;
+/// Distance kept between a field and the border of its own source cell. This is
+/// the authored 2 m margin; the contour strategy may reshape a field but never
+/// trims this, which is why it is a shared constant instead of a literal.
+const FIELD_MARGIN: i64 = 2;
+/// Every side of every field, square or strip, stays on the 4 m lattice inside
+/// this domain. These mirror `FieldTemplate::validate` on purpose: the audit
+/// re-checks the published shape against its own copy of the domain rather than
+/// trusting the generator's ladder.
+const FIELD_MIN_SIDE: u32 = 16;
+const FIELD_MAX_SIDE: u32 = 128;
+/// Upper bound on long:short for a contour strip. A strip may not be unboundedly
+/// long: past this ratio the shape is spanning land on the strength of its
+/// length rather than following the terrain, and the source cell rarely offers
+/// it anyway.
+const FIELD_ASPECT_MAX: u32 = 3;
+/// Bounded ladder size. Each extra short side multiplies the anchor scan of the
+/// cell, and the measured gain on the 1 km fixture comes from the first three
+/// steps (the authored width and the way down to the 16 m minimum), so the
+/// ladder stops after eight offers instead of walking a 128 m template.
+const MAX_STRIP_SHAPES: usize = 8;
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ContourAxis {
+    /// Long side runs east-west, i.e. the contours are aligned with x.
+    #[serde(rename = "x")]
+    X,
+    /// Long side runs north-south.
+    #[serde(rename = "z")]
+    Z,
+}
+impl ContourAxis {
+    fn label(self) -> &'static str {
+        match self {
+            ContourAxis::X => "x",
+            ContourAxis::Z => "z",
+        }
+    }
+}
+/// The published shape decision for one contour strip. Every number here is
+/// also recomputable from `boundary`, which is exactly how the audit cross
+/// checks a forged record: the long side, its axis and the cell's own contour
+/// axis must all agree or the field fails by name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContourFieldShape {
+    pub long_axis: String,
+    pub long_side_m: u32,
+    pub short_side_m: u32,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FarmField {
@@ -34,6 +83,11 @@ pub struct FarmField {
     /// published bytes) for every world that never enabled shared tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_track: Option<SharedTrackJoin>,
+    /// Present only when the opt-in contour strategy shaped this field. Absent
+    /// for every requested-shape field and for every world that never enabled
+    /// the strategy, so those bytes cannot move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contour_shape: Option<ContourFieldShape>,
 }
 /// One lane that joins an already realized farm track. `road_distance_m` is the
 /// length that track already spends between the join square and the nearest
@@ -65,6 +119,11 @@ pub struct AgricultureRealization {
     pub model: String,
     pub fields: Vec<FarmField>,
     pub rejected_fields: Vec<FarmRejection>,
+    /// Which field-shape rule produced these fields, so an audit can demand the
+    /// matching evidence. Absent unless the opt-in strategy ran, which keeps
+    /// the legacy realization byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_shapes: Option<String>,
 }
 struct Index<'a> {
     rows: BTreeMap<i64, Vec<(i64, i64, &'a super::development::LandcoverCell)>>,
@@ -150,6 +209,110 @@ fn grade(t: &BakedTerrain, x: i64, z: i64) -> Option<f64> {
             .max((d - c).abs())
             .hypot((c - a).abs().max((d - b).abs())),
     )
+}
+/// The axis a cell's contours run along, i.e. perpendicular to its dominant
+/// gradient. Height differences are summed as exact integers of storage units
+/// over a bounded stride grid, so the answer cannot depend on floating-point
+/// rounding, on cell size or on any hash order: the same cell on the same final
+/// terrain always yields the same axis. That determinism is what lets the audit
+/// recompute it instead of trusting the published label.
+fn contour_axis(t: &BakedTerrain, r: Rect) -> ContourAxis {
+    // At most 32x32 probes per cell: an orientation decision needs a trend, not
+    // every sample, and the cell may be 143 m wide.
+    const PROBES: i64 = 32;
+    let step_x = (i64::from(r.width_m) / PROBES).max(1);
+    let step_z = (i64::from(r.depth_m) / PROBES).max(1);
+    let (mut sx, mut sz) = (0_i64, 0_i64);
+    let mut z = r.z;
+    while z + 1 < r.z + i64::from(r.depth_m) {
+        let mut x = r.x;
+        while x + 1 < r.x + i64::from(r.width_m) {
+            let sample = |dx: i64, dz: i64| -> Option<i64> {
+                let x = i32::try_from(x + dx).ok()?;
+                let z = i32::try_from(z + dz).ok()?;
+                Some(i64::from(t.height_millimetres(x, z)?))
+            };
+            if let (Some(here), Some(toward_x), Some(toward_z)) =
+                (sample(0, 0), sample(1, 0), sample(0, 1))
+            {
+                sx += toward_x - here;
+                sz += toward_z - here;
+            }
+            x += step_x;
+        }
+        z += step_z;
+    }
+    if sx == 0 && sz == 0 {
+        // Flat and unreadable cells have no contour to follow: fall back to the
+        // cell's own longer dimension, and an exactly square cell to z.
+        return if r.width_m > r.depth_m {
+            ContourAxis::X
+        } else {
+            ContourAxis::Z
+        };
+    }
+    // Gradient (sx, sz); contours are perpendicular to it. A dominant z
+    // gradient means the slope runs north-south, so the contours and the long
+    // side run along x. A tie resolves to z so the choice is total.
+    if sz.abs() > sx.abs() {
+        ContourAxis::X
+    } else {
+        ContourAxis::Z
+    }
+}
+/// Deterministic contour-strip ladder for one cell, in preference order.
+///
+/// The authored template supplies the requested short side (across the
+/// contour). The ladder walks that side down to the 16 m minimum, and for each
+/// short side the long side is the largest multiple of 4 that both respects
+/// `FIELD_ASPECT_MAX` and fits inside the cell's unchanged 2 m margin along the
+/// contour. When the cell cannot span an elongated strip the ladder still emits
+/// the largest legal contour-aligned rectangle rather than dropping the cell, so
+/// a source that is too small for the authored square is not automatically
+/// unusable. Nothing here reads a hash or an iterator order.
+fn contour_shapes(cell: Rect, template: FieldTemplate, axis: ContourAxis) -> Vec<(u32, u32)> {
+    let (along, across) = match axis {
+        ContourAxis::X => (cell.width_m, cell.depth_m),
+        ContourAxis::Z => (cell.depth_m, cell.width_m),
+    };
+    let margin = 2 * u32::try_from(FIELD_MARGIN).unwrap_or(2);
+    let across_fit = across.saturating_sub(margin);
+    let along_fit = along.saturating_sub(margin) / 4 * 4;
+    let mut shapes: Vec<(u32, u32)> = Vec::new();
+    if across_fit < FIELD_MIN_SIDE || along_fit < FIELD_MIN_SIDE {
+        return shapes;
+    }
+    let requested = template
+        .width_m
+        .min(template.depth_m)
+        .min(FIELD_MAX_SIDE)
+        .max(FIELD_MIN_SIDE)
+        .min(across_fit);
+    let mut short = requested - requested % 4;
+    while short >= FIELD_MIN_SIDE && shapes.len() < MAX_STRIP_SHAPES {
+        let long = (FIELD_ASPECT_MAX * short)
+            .min(FIELD_MAX_SIDE)
+            .min(along_fit);
+        let long = long - long % 4;
+        if long >= FIELD_MIN_SIDE {
+            // The short side never exceeds what fits across the contour, and an
+            // over-long short side collapses onto the length that does fit: the
+            // shape is then a square, which is still a legal field in the domain.
+            let short_side = short.min(long);
+            let (width_m, depth_m) = match axis {
+                ContourAxis::X => (long, short_side),
+                ContourAxis::Z => (short_side, long),
+            };
+            if !shapes.contains(&(width_m, depth_m)) {
+                shapes.push((width_m, depth_m));
+            }
+        }
+        if short == FIELD_MIN_SIDE {
+            break;
+        }
+        short = short.saturating_sub(4).max(FIELD_MIN_SIDE);
+    }
+    shapes
 }
 fn append_cell(patch: &mut SurfacePatch, t: &BakedTerrain, x: i64, z: i64) -> Result<(), String> {
     // Shared indexed metre vertices are intentionally deferred until the
@@ -404,6 +567,46 @@ fn join_realized_track(
     }
     Ok(None)
 }
+/// One enumerated field placement. `shape` is `None` for the authored template
+/// and `Some((width, depth), axis)` for a contour strip, which keeps the two
+/// rules in the same queue without letting a strip borrow the square rule's
+/// geometry.
+#[derive(Clone, Copy)]
+struct FieldCandidate<'a> {
+    distance: i64,
+    z: i64,
+    x: i64,
+    cell: &'a super::development::LandcoverCell,
+    detour: bool,
+    shape: Option<((u32, u32), ContourAxis)>,
+}
+/// Authored canals, rivers and lakes are authoritative feature footprints even
+/// when the scene's water geometry is empty, so both the generator and the audit
+/// classify them through this one predicate.
+fn water_feature(e: &EntityInstance) -> bool {
+    matches!(e.kind.as_str(), "canal" | "river" | "lake" | "water")
+}
+/// Parks, reserves and already authored farmland/pasture are reserved land use.
+/// A field may never be prepared on them, whatever shape the strategy picks.
+fn reserved_feature(e: &EntityInstance) -> bool {
+    matches!(
+        e.kind.as_str(),
+        "park" | "green_space" | "nature_reserve" | "mountain_forest" | "farmland" | "pasture"
+    )
+}
+/// Cheapest Manhattan distance from a field centre to any road footprint. It is
+/// only ever used to order the candidate queues, so both the square and the
+/// strip enumeration share this one definition of "nearer the road".
+fn road_distance(roads: &[(&EntityInstance, Rect)], center: [i64; 2]) -> i64 {
+    roads
+        .iter()
+        .map(|(_, r)| {
+            (center[0].clamp(r.x, r.x + i64::from(r.width_m)) - center[0]).abs()
+                + (center[1].clamp(r.z, r.z + i64::from(r.depth_m)) - center[1]).abs()
+        })
+        .min()
+        .unwrap_or(i64::MAX)
+}
 /// All roads supplied here are final actual entities. Callers additionally
 /// enforce the RoadNetworkPlan/final-raster contract before release.
 pub fn realize(
@@ -469,24 +672,8 @@ fn realize_with_query(
     let solids: Vec<_> = entities.iter().filter(|e| landcover::solid(e)).collect();
     // Structured natural water is not the only reserved feature: authored
     // canals, parks and existing fields remain authoritative entity footprints.
-    let water_features: Vec<_> = entities
-        .iter()
-        .filter(|e| matches!(e.kind.as_str(), "canal" | "river" | "lake" | "water"))
-        .collect();
-    let reserved_features: Vec<_> = entities
-        .iter()
-        .filter(|e| {
-            matches!(
-                e.kind.as_str(),
-                "park"
-                    | "green_space"
-                    | "nature_reserve"
-                    | "mountain_forest"
-                    | "farmland"
-                    | "pasture"
-            )
-        })
-        .collect();
+    let water_features: Vec<_> = entities.iter().filter(|e| water_feature(e)).collect();
+    let reserved_features: Vec<_> = entities.iter().filter(|e| reserved_feature(e)).collect();
     // Cache whole-cell feasibility, reused by competing routes and fields.
     let mut facts = BTreeMap::<(i64, i64), Result<f64, &'static str>>::new();
     let mut inspect = |x: i64, z: i64| -> Result<f64, &'static str> {
@@ -523,6 +710,10 @@ fn realize_with_query(
         .farm_pattern
         .as_ref()
         .and_then(|p| p.track_network.as_ref());
+    let contour_enabled = plan
+        .farm_pattern
+        .as_ref()
+        .is_some_and(|p| p.contour_elongated());
     let mut result = AgricultureRealization {
         // The model states which access rule produced this scene, so a world
         // that shares realized tracks cannot claim the road-only model.
@@ -532,12 +723,20 @@ fn realize_with_query(
             "explicit-rectangular-field-access-v3"
         }
         .into(),
+        // The shape rule is a separate axis from the access rule: a contour
+        // world still reaches its fields along roads or shared tracks.
+        field_shapes: contour_enabled.then(|| CONTOUR_ELONGATED.to_string()),
         ..Default::default()
     };
     let mut patches = vec![];
     let mut claimed_fields = BTreeSet::new();
     let mut claimed_tracks = BTreeMap::<(i64, i64), TrackClaim>::new();
     let mut candidates = vec![];
+    // The opt-in strategy only ever ADDS this second queue: the first queue is
+    // built exactly as before, so every field the square rule accepts keeps its
+    // geometry and its access, and the published bytes of a world that never
+    // enables the strategy cannot move.
+    let mut strips = vec![];
     for cell in plan
         .cells
         .iter()
@@ -551,10 +750,19 @@ fn realize_with_query(
         template.validate()?;
         let width = i64::from(template.width_m);
         let depth = i64::from(template.depth_m);
+        let axis = contour_enabled.then(|| contour_axis(t, cell.boundary));
+        let ladder = match axis {
+            Some(axis) => contour_shapes(cell.boundary, template, axis),
+            None => vec![],
+        };
         if plan.farm_pattern.is_some()
             && (i64::from(cell.boundary.width_m) < width + 4
                 || i64::from(cell.boundary.depth_m) < depth + 4)
+            && ladder.is_empty()
         {
+            // With the strategy on this only fires when no legal strip fits the
+            // cell and its unchanged 2 m margin either, so the named reason now
+            // means "no legal field of any offered shape fits here".
             result.rejected_fields.push(FarmRejection {
                 source_cell_id: cell.id.clone(),
                 boundary: cell.boundary,
@@ -562,28 +770,47 @@ fn realize_with_query(
             });
         }
         // Leave at least 2m around source boundaries, and 4m between blocks.
-        for z in (cell.boundary.z + 2
+        for z in (cell.boundary.z + FIELD_MARGIN
             ..cell.boundary.z + i64::from(cell.boundary.depth_m) - depth - 1)
             .step_by((depth + 4) as usize)
         {
-            for x in (cell.boundary.x + 2
+            for x in (cell.boundary.x + FIELD_MARGIN
                 ..cell.boundary.x + i64::from(cell.boundary.width_m) - width - 1)
                 .step_by((width + 4) as usize)
             {
                 let center = [x + width / 2, z + depth / 2];
-                let distance = roads
-                    .iter()
-                    .map(|(_, r)| {
-                        (center[0] - center[0].clamp(r.x, r.x + i64::from(r.width_m))).abs()
-                            + (center[1] - center[1].clamp(r.z, r.z + i64::from(r.depth_m))).abs()
-                    })
-                    .min()
-                    .unwrap_or(i64::MAX);
+                let distance = road_distance(&roads, center);
                 candidates.push((distance, z, x, cell));
+            }
+        }
+        // The ladder is only built for a cell whose contour axis is known, so a
+        // strip candidate always carries the axis its long side follows.
+        if let Some(axis) = axis {
+            for (rank, (strip_w, strip_d)) in ladder.iter().copied().enumerate() {
+                for z in (cell.boundary.z + FIELD_MARGIN
+                    ..cell.boundary.z + i64::from(cell.boundary.depth_m)
+                        - i64::from(strip_d)
+                        - 1)
+                    .step_by((i64::from(strip_d) + 4) as usize)
+                {
+                    for x in (cell.boundary.x + FIELD_MARGIN
+                        ..cell.boundary.x + i64::from(cell.boundary.width_m)
+                            - i64::from(strip_w)
+                            - 1)
+                        .step_by((i64::from(strip_w) + 4) as usize)
+                    {
+                        let center = [x + i64::from(strip_w) / 2, z + i64::from(strip_d) / 2];
+                        let distance = road_distance(&roads, center);
+                        strips.push((rank, distance, z, x, cell, ((strip_w, strip_d), axis)));
+                    }
+                }
             }
         }
     }
     candidates.sort_by_key(|(distance, z, x, _)| (*distance, *z, *x));
+    // Widest contour strip first, then nearer the road, then north-west: a total
+    // and stable order that never depends on how the cells were collected.
+    strips.sort_by_key(|(rank, distance, z, x, _, _)| (*rank, *distance, *z, *x));
     let targets: Vec<_> = roads
         .iter()
         .map(|(e, r)| farm_access::Target {
@@ -592,24 +819,65 @@ fn realize_with_query(
         })
         .collect();
     // Finish the existing direct-access pass first. Detours may add fields but
-    // cannot displace already accepted fields or their access/ownership.
-    let mut queue: VecDeque<_> = candidates
+    // cannot displace already accepted fields or their access/ownership. The
+    // contour queue is drained only once the authored queue is empty (detours
+    // included), which is what keeps every square field identical.
+    let mut queue: VecDeque<FieldCandidate> = candidates
         .into_iter()
-        .map(|(d, z, x, c)| (d, z, x, c, false))
+        .map(|(distance, z, x, cell)| FieldCandidate {
+            distance,
+            z,
+            x,
+            cell,
+            detour: false,
+            shape: None,
+        })
         .collect();
-    while let Some((distance, z, x, cell, detour_pass)) = queue.pop_front() {
+    let mut strip_queue: VecDeque<FieldCandidate> = strips
+        .into_iter()
+        .map(|(_, distance, z, x, cell, shape)| FieldCandidate {
+            distance,
+            z,
+            x,
+            cell,
+            detour: false,
+            shape: Some(shape),
+        })
+        .collect();
+    loop {
+        let (from_strips, candidate) = match queue.pop_front() {
+            Some(candidate) => (false, candidate),
+            None => match strip_queue.pop_front() {
+                Some(candidate) => (true, candidate),
+                None => break,
+            },
+        };
+        let FieldCandidate {
+            distance,
+            z,
+            x,
+            cell,
+            detour: detour_pass,
+            shape,
+        } = candidate;
         let template = plan
             .farm_pattern
             .as_ref()
             .map(|p| p.for_zone(&cell.zone_id))
             .unwrap_or_default();
-        let width = i64::from(template.width_m);
-        let depth = i64::from(template.depth_m);
+        // A contour strip carries its own legal shape; everything else is the
+        // authored template, exactly as before.
+        let (shape_width, shape_depth) = shape.map_or(
+            (template.width_m, template.depth_m),
+            |((width_m, depth_m), _)| (width_m, depth_m),
+        );
+        let width = i64::from(shape_width);
+        let depth = i64::from(shape_depth);
         let bounds = Rect {
             x,
             z,
-            width_m: template.width_m,
-            depth_m: template.depth_m,
+            width_m: shape_width,
+            depth_m: shape_depth,
         };
         let reject = |reason: &str| FarmRejection {
             source_cell_id: cell.id.clone(),
@@ -647,8 +915,8 @@ fn realize_with_query(
         let cultivated = Rect {
             x: x + HEADLAND,
             z: z + HEADLAND,
-            width_m: template.width_m - 2 * HEADLAND as u32,
-            depth_m: template.depth_m - 2 * HEADLAND as u32,
+            width_m: shape_width - 2 * HEADLAND as u32,
+            depth_m: shape_depth - 2 * HEADLAND as u32,
         };
         let starts = [
             [x + width / 2, z + 2],
@@ -719,7 +987,17 @@ fn realize_with_query(
             break;
         }
         if accepted.is_none() && !detour_pass {
-            queue.push_back((distance, z, x, cell, true));
+            // Re-enter the SAME queue: a contour strip's detour must not jump
+            // ahead of the authored fields still waiting in the first queue.
+            let retry = FieldCandidate {
+                detour: true,
+                ..candidate
+            };
+            if from_strips {
+                strip_queue.push_back(retry);
+            } else {
+                queue.push_back(retry);
+            }
             continue;
         }
         if detour_pass {
@@ -878,6 +1156,16 @@ fn realize_with_query(
             access_search_expanded,
             preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
             shared_track: join,
+            // Published only for fields the contour strategy shaped, so an
+            // auditor can recompute the axis and the ratio instead of inferring
+            // them from a rectangle that also fits a square rule. A square strip
+            // has no unique long side, so it publishes the cell's own contour
+            // axis.
+            contour_shape: shape.map(|((width_m, depth_m), axis)| ContourFieldShape {
+                long_axis: axis.label().into(),
+                long_side_m: width_m.max(depth_m),
+                short_side_m: width_m.min(depth_m),
+            }),
         });
     }
     Ok((result, patches))
@@ -1014,10 +1302,154 @@ pub fn verify_access_network(
         .collect())
 }
 
+/// Recomputes every field's shape and slope legality from the published
+/// realization alone. Nothing here trusts a recorded number: the source cell,
+/// the 2 m margin, the 4 m headland inset, the long/short sides, the contour
+/// axis, the aspect ratio and the 12% grade are all re-derived from the final
+/// terrain and the plan, which is what makes the opt-in shape strategy auditable
+/// rather than merely generated. `landcover::verify` calls exactly this.
+pub fn verify_field_shapes(
+    realization: &AgricultureRealization,
+    plan: &LandcoverPlan,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+) -> Result<(), String> {
+    let contour_enabled = plan
+        .farm_pattern
+        .as_ref()
+        .is_some_and(|p| p.contour_elongated());
+    if realization.field_shapes.as_deref() != contour_enabled.then_some(CONTOUR_ELONGATED) {
+        return Err("agricultural field-shape policy differs from the manifest".into());
+    }
+    let water_features: Vec<_> = entities.iter().filter(|e| water_feature(e)).collect();
+    let reserved_features: Vec<_> = entities.iter().filter(|e| reserved_feature(e)).collect();
+    let solids: Vec<_> = entities.iter().filter(|e| landcover::solid(e)).collect();
+    for field in &realization.fields {
+        let source = plan
+            .cells
+            .iter()
+            .find(|cell| cell.id == field.source_cell_id)
+            .ok_or("agricultural field has no planned source cell")?;
+        if source.role != LandcoverRole::AgricultureCandidate {
+            return Err("agricultural field is not on a candidate source cell".into());
+        }
+        let template = plan
+            .farm_pattern
+            .as_ref()
+            .map(|p| p.for_zone(&source.zone_id))
+            .unwrap_or_default();
+        let boundary = field.boundary;
+        if boundary.width_m == 0 || boundary.depth_m == 0 {
+            return Err("agricultural field has an empty boundary".into());
+        }
+        // The 2 m margin is the contract the strategy may reshape around but
+        // never trim.
+        if boundary.x < source.boundary.x + FIELD_MARGIN
+            || boundary.z < source.boundary.z + FIELD_MARGIN
+            || boundary.x + i64::from(boundary.width_m)
+                > source.boundary.x + i64::from(source.boundary.width_m) - FIELD_MARGIN
+            || boundary.z + i64::from(boundary.depth_m)
+                > source.boundary.z + i64::from(source.boundary.depth_m) - FIELD_MARGIN
+        {
+            return Err("agricultural field breaks the unchanged 2m source margin".into());
+        }
+        let (width_m, depth_m) = (boundary.width_m, boundary.depth_m);
+        match &field.contour_shape {
+            None => {
+                if (width_m, depth_m) != (template.width_m, template.depth_m) {
+                    return Err("agricultural field is not the authored field template".into());
+                }
+            }
+            Some(shape) => {
+                if !contour_enabled {
+                    return Err("contour field shape published without the enabling policy".into());
+                }
+                let (long, short) = (width_m.max(depth_m), width_m.min(depth_m));
+                if shape.long_side_m != long || shape.short_side_m != short {
+                    return Err("contour field shape differs from its own boundary".into());
+                }
+                // A strip's long side must be the side the label names; a square
+                // strip has no unique long side and is judged by the cell's axis
+                // alone (below).
+                if width_m != depth_m {
+                    let axis = if width_m > depth_m {
+                        ContourAxis::X
+                    } else {
+                        ContourAxis::Z
+                    };
+                    if shape.long_axis != axis.label() {
+                        return Err("contour field long side is not on the published axis".into());
+                    }
+                }
+                if !(FIELD_MIN_SIDE..=FIELD_MAX_SIDE).contains(&long)
+                    || !(FIELD_MIN_SIDE..=FIELD_MAX_SIDE).contains(&short)
+                    || long % 4 != 0
+                    || short % 4 != 0
+                {
+                    return Err("contour field side leaves the unchanged 16..=128m domain".into());
+                }
+                if long > FIELD_ASPECT_MAX * short {
+                    return Err("contour field aspect ratio exceeds its unchanged cap".into());
+                }
+                if short > template.width_m.min(template.depth_m).min(FIELD_MAX_SIDE) {
+                    return Err(
+                        "contour field is wider across the contour than the requested field".into(),
+                    );
+                }
+                // Recompute the cell's contour axis from the final terrain and
+                // require the strip to follow it.
+                let cell_axis = contour_axis(terrain, source.boundary);
+                if shape.long_axis != cell_axis.label() {
+                    return Err("contour field does not follow its cell's contour axis".into());
+                }
+                // And the shape must be one the ladder may legally offer here.
+                let ladder = contour_shapes(source.boundary, template, cell_axis);
+                if !ladder.contains(&(width_m, depth_m)) {
+                    return Err("contour field shape is not a legal strip for its source".into());
+                }
+            }
+        }
+        let cultivated = Rect {
+            x: boundary.x + HEADLAND,
+            z: boundary.z + HEADLAND,
+            width_m: width_m - 2 * HEADLAND as u32,
+            depth_m: depth_m - 2 * HEADLAND as u32,
+        };
+        if field.cultivated != cultivated {
+            return Err("agricultural field headland is not the unchanged 4m inset".into());
+        }
+        // The slope and protection contract is re-sampled per metre from the
+        // published rectangle, not read from the generator's own cache.
+        for (x, z) in cells(boundary) {
+            if water.intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5) {
+                return Err("agricultural field intersects water".into());
+            }
+            if water_features
+                .iter()
+                .chain(reserved_features.iter())
+                .chain(solids.iter())
+                .any(|e| landcover::obstacle_intersects(e, x, z))
+            {
+                return Err("agricultural field intersects a reserved feature".into());
+            }
+            match grade(terrain, x, z) {
+                None => return Err("agricultural field has no final terrain sample".into()),
+                Some(g) if g > FIELD_GRADE + 1e-9 => {
+                    return Err("agricultural field exceeds the unchanged 12 percent grade".into())
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::pedestrian_index::triangle_overlaps_cell;
     use super::super::development;
+    use super::super::farm_program::{FarmPattern, FieldTemplate, TrackNetwork};
     use super::*;
     use crate::worldgen::{
         GroundingSpec, LandUseZone, WaterKind,
@@ -1251,6 +1683,7 @@ mod tests {
             default_field: Default::default(),
             zone_fields: BTreeMap::new(),
             track_network: None,
+            field_shapes: None,
         });
         pattern.track_network = shared.then(TrackNetwork::shared);
         plan.farm_pattern = Some(pattern);
@@ -1541,6 +1974,7 @@ mod tests {
                 access_search_expanded: 0,
                 preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
                 shared_track: None,
+                contour_shape: None,
             });
             realization.fields.push(FarmField {
                 id: "joined".into(),
@@ -1569,6 +2003,7 @@ mod tests {
                     road_distance_m: 139,
                     chain_lanes: 1,
                 }),
+                contour_shape: None,
             });
             realization
         };
@@ -1781,6 +2216,8 @@ mod tests {
             },
             zone_fields: BTreeMap::new(),
             track_network: None,
+
+            field_shapes: None,
         });
         let (result, patches) = realize(&s, &plan, &t, w, &e, &[]).unwrap();
         assert!(!result.fields.is_empty());
@@ -1850,6 +2287,8 @@ mod tests {
                 },
             )]),
             track_network: None,
+
+            field_shapes: None,
         });
         let (result, _) = realize(&s, &plan, &t, w, &e, &[]).unwrap();
         assert!(result.fields.iter().any(|f| f.boundary.width_m == 48));
@@ -2031,6 +2470,782 @@ mod tests {
         assert!(triangle_overlaps_cell(t, 1, 0));
         assert!(!triangle_overlaps_cell(t, 2, 0));
     }
+    /// Deterministic millimetre terrain, so a 10% and a 20% slope are exact and
+    /// the grade gate is tested with numbers rather than with luck.
+    fn terrain_from_metres(s: &SceneSpec, h: impl Fn(i64, i64) -> f64) -> BakedTerrain {
+        let metres = (0..i64::from(s.depth_m))
+            .flat_map(|z| (0..i64::from(s.width_m)).map(move |x| (x, z)))
+            .map(|(x, z)| h(x, z));
+        let bytes = crate::height_payload::encode_millimetres(s.width_m, s.depth_m, metres)
+            .expect("fixture terrain must encode");
+        let mut t = BakedTerrain::new(s).unwrap();
+        t.insert_chunk(s.origin_x, s.origin_z, s.width_m, s.depth_m, &bytes)
+            .unwrap();
+        t
+    }
+    fn pattern(default_field: (u32, u32), shapes: Option<&str>, shared: bool) -> FarmPattern {
+        FarmPattern {
+            default_field: FieldTemplate {
+                width_m: default_field.0,
+                depth_m: default_field.1,
+            },
+            zone_fields: BTreeMap::new(),
+            track_network: shared.then(TrackNetwork::shared),
+            field_shapes: shapes.map(str::to_string),
+        }
+    }
+    fn with_pattern(plan: &LandcoverPlan, pattern: FarmPattern) -> LandcoverPlan {
+        let mut plan = plan.clone();
+        plan.farm_pattern = Some(pattern);
+        plan
+    }
+
+    #[test]
+    fn the_contour_axis_is_the_cells_own_terrain_trend() {
+        let s = SceneSpec {
+            scene_id: "axis".into(),
+            width_m: 64,
+            depth_m: 64,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let square = Rect {
+            x: 0,
+            z: 0,
+            width_m: 64,
+            depth_m: 64,
+        };
+        // Rising eastwards: the gradient runs along x, so the contours (and the
+        // long side) run along z.
+        let east = terrain_from_metres(&s, |x, _| x as f64 * 0.1);
+        assert_eq!(contour_axis(&east, square), ContourAxis::Z);
+        // Rising northwards: contours run along x.
+        let north = terrain_from_metres(&s, |_, z| z as f64 * 0.1);
+        assert_eq!(contour_axis(&north, square), ContourAxis::X);
+        // Flat: no contour to follow, so the cell's longer side decides and an
+        // exactly square flat cell resolves to z.
+        let flat = terrain_from_metres(&s, |_, _| 0.);
+        assert_eq!(contour_axis(&flat, square), ContourAxis::Z);
+        assert_eq!(
+            contour_axis(
+                &flat,
+                Rect {
+                    x: 0,
+                    z: 0,
+                    width_m: 64,
+                    depth_m: 32
+                }
+            ),
+            ContourAxis::X
+        );
+        // An exactly diagonal ramp is a tie and resolves to z, so the choice is
+        // total rather than arbitrary.
+        let diagonal = terrain_from_metres(&s, |x, z| (x + z) as f64 * 0.05);
+        assert_eq!(contour_axis(&diagonal, square), ContourAxis::Z);
+    }
+
+    #[test]
+    fn the_contour_ladder_stays_inside_the_unchanged_domain_and_aspect() {
+        let template = FieldTemplate {
+            width_m: 24,
+            depth_m: 24,
+        };
+        let big = Rect {
+            x: 0,
+            z: 0,
+            width_m: 143,
+            depth_m: 143,
+        };
+        assert_eq!(
+            contour_shapes(big, template, ContourAxis::X),
+            vec![(72, 24), (60, 20), (48, 16)]
+        );
+        // The same cell offers the transposed strips on the other contour axis.
+        assert_eq!(
+            contour_shapes(big, template, ContourAxis::Z),
+            vec![(24, 72), (20, 60), (16, 48)]
+        );
+        // A cell only 24 m deep cannot hold a 24 m short side plus the 2 m
+        // margin, but a narrower strip still fits: this is the small-source case
+        // the strategy exists for. The long side shrinks with the short side
+        // because the aspect cap is applied to the short side that fits.
+        assert_eq!(
+            contour_shapes(
+                Rect {
+                    x: 0,
+                    z: 0,
+                    width_m: 143,
+                    depth_m: 24
+                },
+                template,
+                ContourAxis::X
+            ),
+            vec![(60, 20), (48, 16)]
+        );
+        // 16 m deep is 4 m short of the minimum strip plus its 2 m margins.
+        assert!(contour_shapes(
+            Rect {
+                x: 0,
+                z: 0,
+                width_m: 143,
+                depth_m: 16
+            },
+            template,
+            ContourAxis::X
+        )
+        .is_empty());
+        // Every offered shape honours the domain, the lattice, the aspect cap
+        // and the cell's own 2 m margin.
+        for cell in [
+            big,
+            Rect {
+                x: 0,
+                z: 0,
+                width_m: 143,
+                depth_m: 24,
+            },
+            Rect {
+                x: 0,
+                z: 0,
+                width_m: 31,
+                depth_m: 39,
+            },
+        ] {
+            for axis in [ContourAxis::X, ContourAxis::Z] {
+                for (w, d) in contour_shapes(cell, template, axis) {
+                    let (long, short) = (w.max(d), w.min(d));
+                    assert!((FIELD_MIN_SIDE..=FIELD_MAX_SIDE).contains(&long));
+                    assert!((FIELD_MIN_SIDE..=FIELD_MAX_SIDE).contains(&short));
+                    assert_eq!(long % 4, 0);
+                    assert_eq!(short % 4, 0);
+                    assert!(long <= FIELD_ASPECT_MAX * short);
+                    assert!(w + 2 * FIELD_MARGIN as u32 <= cell.width_m);
+                    assert!(d + 2 * FIELD_MARGIN as u32 <= cell.depth_m);
+                    // A square shape may sit on either axis; a strip may not.
+                    if w != d {
+                        assert_eq!(w > d, axis == ContourAxis::X);
+                    }
+                }
+            }
+        }
+    }
+
+
+    /// A 160 x 24 m rural source whose requested 24 x 24 field plus its 2 m
+    /// margin needs 28 m of depth. A 24 m deep connector bridges it to the road,
+    /// so access is never the reason this source fails: it is exactly the
+    /// "source_too_small_for_requested_field_and_margin" shape the contour
+    /// ladder exists to recover.
+    fn shallow_fixture() -> (
+        SceneSpec,
+        LandcoverPlan,
+        BakedTerrain,
+        WaterGeometry,
+        Vec<EntityInstance>,
+    ) {
+        let (scene, mut plan, terrain, water, entities) = fixture();
+        let template = plan.cells[0].clone();
+        let mut cell = template.clone();
+        cell.id = "shallow.cell".into();
+        cell.zone_id = "shallow.zone".into();
+        cell.zone_kind = "rural".into();
+        cell.role = LandcoverRole::AgricultureCandidate;
+        cell.boundary = Rect {
+            x: 0,
+            z: 40,
+            width_m: 160,
+            depth_m: 24,
+        };
+        let mut connector = template;
+        connector.id = "connector".into();
+        connector.zone_id = "shallow.zone".into();
+        connector.zone_kind = "rural".into();
+        connector.role = LandcoverRole::FutureDevelopment;
+        connector.boundary = Rect {
+            x: 0,
+            z: 64,
+            width_m: 160,
+            depth_m: 24,
+        };
+        plan.cells = vec![cell, connector];
+        (scene, plan, terrain, water, entities)
+    }
+    /// Flat ground with a single ramp inside z = 44..48, well above the access
+    /// lanes. A 10% ramp must pass and a 13% ramp must fail: that is the
+    /// unchanged 12% gate, exercised with exact numbers.
+    fn ramp_terrain(s: &SceneSpec, slope: f64) -> BakedTerrain {
+        terrain_from_metres(s, |_, z| {
+            let rise = (z - 44).clamp(0, 4) as f64;
+            slope * rise
+        })
+    }
+
+    #[test]
+    fn the_contour_strategy_off_keeps_the_published_bytes() {
+        let (s, p, t, w, e) = fixture();
+        let base = realize(&s, &p, &t, w, &e, &[]).unwrap();
+        assert_eq!(
+            blake3::hash(&serde_json::to_vec(&base).unwrap())
+                .to_hex()
+                .to_string(),
+            LEGACY_AGRICULTURE_HASH
+        );
+        // The off state is the program WITHOUT the key: every other spelling of
+        // the strategy must produce exactly those bytes, including the
+        // small-source rejections that only a present program can emit.
+        let off_plan = with_pattern(&p, pattern((24, 24), None, false));
+        let (off, off_patches) = realize(&s, &off_plan, &t, w, &e, &[]).unwrap();
+        assert_eq!(off.field_shapes, None);
+        let off_hash = blake3::hash(&serde_json::to_vec(&off).unwrap())
+            .to_hex()
+            .to_string();
+        assert!(off
+            .rejected_fields
+            .iter()
+            .any(|r| r.reason == "source_too_small_for_requested_field_and_margin"));
+        for shapes in [
+            Some(""),
+            Some("contour"),
+            Some("square"),
+            Some("contour-elongated-ish"),
+            Some("CONTOUR-ELONGATED"),
+        ] {
+            let program = with_pattern(&p, pattern((24, 24), shapes, false));
+            let (out, patches) = realize(&s, &program, &t, w, &e, &[]).unwrap();
+            assert_eq!(
+                blake3::hash(&serde_json::to_vec(&out).unwrap())
+                    .to_hex()
+                    .to_string(),
+                off_hash,
+                "{shapes:?} must not move the realization bytes"
+            );
+            assert_eq!(
+                serde_json::to_vec(&patches).unwrap(),
+                serde_json::to_vec(&off_patches).unwrap(),
+                "{shapes:?} must not move the surface bytes"
+            );
+        }
+        // The same holds on the shared-track model, so the off switch is
+        // independent of every other policy.
+        let shared = with_pattern(&p, pattern((24, 24), None, true));
+        let (shared_off, shared_patches) = realize(&s, &shared, &t, w, &e, &[]).unwrap();
+        let shared_hash = blake3::hash(&serde_json::to_vec(&shared_off).unwrap())
+            .to_hex()
+            .to_string();
+        let shared_other = with_pattern(&p, pattern((24, 24), Some("square"), true));
+        let (shared_out, shared_out_patches) =
+            realize(&s, &shared_other, &t, w, &e, &[]).unwrap();
+        assert_eq!(
+            blake3::hash(&serde_json::to_vec(&shared_out).unwrap())
+                .to_hex()
+                .to_string(),
+            shared_hash
+        );
+        assert_eq!(
+            serde_json::to_vec(&shared_out_patches).unwrap(),
+            serde_json::to_vec(&shared_patches).unwrap()
+        );
+    }
+
+    #[test]
+    fn flat_fixture_on_realizes_the_same_squares_and_passes_the_audit() {
+        let (s, p, t, w, e) = fixture();
+        let on_plan = with_pattern(&p, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
+        let (on, _) = realize(&s, &on_plan, &t, w, &e, &[]).unwrap();
+        // The flat 160 m fixture is already fully tiled by 24 x 24 squares, so
+        // the ladder finds no legal strip and adds no field. Turning the
+        // strategy on may only add fields, never replace one.
+        assert_eq!(on.fields.len(), 20);
+        assert_eq!(
+            on.fields
+                .iter()
+                .filter(|f| f.contour_shape.is_some())
+                .count(),
+            0
+        );
+        assert_eq!(on.field_shapes.as_deref(), Some(CONTOUR_ELONGATED));
+        assert!(verify_field_shapes(&on, &on_plan, &t, w, &e).is_ok());
+        // The square rule's rejections survive verbatim, and the strips that
+        // lost their cells to a square say so by name.
+        assert!(on
+            .rejected_fields
+            .iter()
+            .any(|r| r.reason == "source_too_small_for_requested_field_and_margin"));
+        assert!(on
+            .rejected_fields
+            .iter()
+            .any(|r| r.reason == "reserved_field_or_track"));
+    }
+
+    #[test]
+    fn contour_strips_realize_a_source_too_shallow_for_the_requested_field() {
+        let (s, plan, t, w, e) = shallow_fixture();
+        let off_plan = with_pattern(&plan, pattern((24, 24), None, false));
+        let (off, off_patches) = realize(&s, &off_plan, &t, w, &e, &[]).unwrap();
+        // Before: the 24 m deep source is refused by name and prepares nothing.
+        assert!(off.fields.is_empty());
+        assert!(off_patches.is_empty());
+        assert_eq!(
+            off.rejected_fields
+                .iter()
+                .filter(|r| r.reason == "source_too_small_for_requested_field_and_margin")
+                .count(),
+            1
+        );
+        let on_plan = with_pattern(&plan, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
+        let (on, on_patches) = realize(&s, &on_plan, &t, w, &e, &[]).unwrap();
+        // After: two 60 x 20 strips, the widest shape 20 m of usable depth holds.
+        assert_eq!(on.fields.len(), 2);
+        let mut strips = on.fields.iter().collect::<Vec<_>>();
+        strips.sort_by_key(|f| (f.boundary.x, f.boundary.z));
+        assert_eq!(
+            strips
+                .iter()
+                .map(|f| (f.boundary.x, f.boundary.z, f.boundary.width_m, f.boundary.depth_m))
+                .collect::<Vec<_>>(),
+            vec![(2, 42, 60, 20), (66, 42, 60, 20)]
+        );
+        for field in &strips {
+            assert_eq!(field.source_cell_id, "shallow.cell");
+            // The authored 2 m margin and the unchanged 4 m headland inset.
+            assert!(field.boundary.x >= 0 + 2 && field.boundary.x + 60 <= 158);
+            assert!(field.boundary.z >= 42 && field.boundary.z + 20 <= 62);
+            assert_eq!(
+                (field.cultivated.width_m, field.cultivated.depth_m),
+                (52, 12)
+            );
+            assert_eq!(field.cultivated.area(), 624);
+            assert_eq!(field.boundary.area() - field.cultivated.area(), 576);
+            assert_eq!(
+                field.contour_shape,
+                Some(ContourFieldShape {
+                    long_axis: "x".into(),
+                    long_side_m: 60,
+                    short_side_m: 20,
+                })
+            );
+            assert!(field.access_length_m <= 160);
+        }
+        // The small-source refusal is gone because a legal field now fits.
+        assert!(on
+            .rejected_fields
+            .iter()
+            .all(|r| r.reason != "source_too_small_for_requested_field_and_margin"));
+        // Every square the road-only rule would have accepted is untouched: on
+        // this fixture there are none, and the strips are pure addition.
+        assert!(on.fields.len() >= off.fields.len());
+        // Area accounting is the unchanged headland decomposition.
+        let cultivated = on_patches
+            .iter()
+            .filter(|p| p.material == Material::CultivatedSoil)
+            .map(|p| p.area_m2)
+            .sum::<f64>();
+        let headland = on_patches
+            .iter()
+            .filter(|p| p.material == Material::FieldHeadland)
+            .map(|p| p.area_m2)
+            .sum::<f64>();
+        assert_eq!(cultivated, 2. * 624.);
+        assert_eq!(headland, 2. * 576.);
+        // The audit recomputes all of it from the published plan and terrain.
+        verify_field_shapes(&on, &on_plan, &t, w, &e).unwrap();
+        // Determinism: same input, same serialized bytes.
+        let (again, again_patches) = realize(&s, &on_plan, &t, w, &e, &[]).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&on).unwrap(),
+            serde_json::to_vec(&again).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&on_patches).unwrap(),
+            serde_json::to_vec(&again_patches).unwrap()
+        );
+    }
+
+    #[test]
+    fn the_unchanged_twelve_percent_grade_still_refuses_a_strip() {
+        let (s, plan, _, w, e) = shallow_fixture();
+        let on_plan = with_pattern(&plan, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
+        // 10% passes: the same strips realize on the gentler ramp.
+        let gentle = ramp_terrain(&s, 0.10);
+        let (pass, _) = realize(&s, &on_plan, &gentle, w, &e, &[]).unwrap();
+        assert_eq!(pass.fields.len(), 2);
+        assert!(pass
+            .rejected_fields
+            .iter()
+            .all(|r| r.reason != "field_grade_exceeds_12_percent"));
+        verify_field_shapes(&pass, &on_plan, &gentle, w, &e).unwrap();
+        // 12.5% fails: the gate is not relaxed for strips. 0.125 is exact in
+        // binary, so this is a slope decision and not a rounding artefact.
+        let steep = ramp_terrain(&s, 0.125);
+        let (fail, fail_patches) = realize(&s, &on_plan, &steep, w, &e, &[]).unwrap();
+        assert!(fail.fields.is_empty());
+        assert!(fail_patches.is_empty());
+        // Every strip candidate in the cell is refused by name: two 60x20
+        // anchors plus three 48x16 anchors.
+        assert_eq!(
+            fail.rejected_fields
+                .iter()
+                .filter(|r| r.reason == "field_grade_exceeds_12_percent")
+                .count(),
+            5
+        );
+    }
+
+    #[test]
+    fn the_shape_audit_recomputes_margin_domain_aspect_axis_grade_and_protection() {
+        let (s, plan, t, w, e) = shallow_fixture();
+        let on_plan = with_pattern(&plan, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
+        let (on, _) = realize(&s, &on_plan, &t, w, &e, &[]).unwrap();
+        assert!(verify_field_shapes(&on, &on_plan, &t, w, &e).is_ok());
+        // The field nearest the road wins the claim order, so pick the western
+        // strip by position rather than by index.
+        let field_index = on
+            .fields
+            .iter()
+            .position(|f| f.boundary.x == 2)
+            .expect("the shallow fixture realizes the western strip");
+        let tamper = |field: usize, edit: &dyn Fn(&mut FarmField)| {
+            let mut copy = on.clone();
+            edit(&mut copy.fields[field]);
+            verify_field_shapes(&copy, &on_plan, &t, w, &e)
+        };
+        // A published shape that no longer matches its own rectangle.
+        assert_eq!(
+            tamper(field_index, &|f| f.contour_shape.as_mut().unwrap().long_side_m += 4)
+                .unwrap_err(),
+            "contour field shape differs from its own boundary"
+        );
+        // A strip on the wrong axis for its cell's contours.
+        assert_eq!(
+            tamper(field_index, &|f| {
+                f.contour_shape.as_mut().unwrap().long_axis = "z".into();
+            })
+            .unwrap_err(),
+            "contour field long side is not on the published axis"
+        );
+        // A shape that grew past its source cell's 2 m margin.
+        assert_eq!(
+            tamper(field_index, &|f| f.boundary.x -= 4).unwrap_err(),
+            "agricultural field breaks the unchanged 2m source margin"
+        );
+        // A tampered rectangular field on a world that never enabled the rule.
+        let mut legacy = on.clone();
+        legacy.field_shapes = None;
+        assert_eq!(
+            verify_field_shapes(&legacy, &on_plan, &t, w, &e).unwrap_err(),
+            "agricultural field-shape policy differs from the manifest"
+        );
+        // Synthetic fields, so the illegal cases a generator must never publish
+        // are still provable by the audit alone. The source is 160 x 128 m and
+        // flat, so its contour axis is x and the ladder offers 72x24, 60x20 and
+        // 48x16.
+        let (big_scene, big_plan, _, big_water, big_entities) = shallow_fixture();
+        let mut wide_plan = big_plan.clone();
+        for cell in &mut wide_plan.cells {
+            cell.boundary = Rect {
+                x: 0,
+                z: 0,
+                width_m: 160,
+                depth_m: 128,
+            };
+            cell.role = LandcoverRole::AgricultureCandidate;
+        }
+        let wide = with_pattern(&wide_plan, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
+        let field = |x: i64, z: i64, width_m: u32, depth_m: u32, shape: ContourFieldShape| FarmField {
+            id: format!("probe.field.{x}.{z}"),
+            source_cell_id: "shallow.cell".into(),
+            boundary: Rect {
+                x,
+                z,
+                width_m,
+                depth_m,
+            },
+            cultivated: Rect {
+                x: x + HEADLAND,
+                z: z + HEADLAND,
+                width_m: width_m - 8,
+                depth_m: depth_m - 8,
+            },
+            road_id: "road".into(),
+            access_path: vec![[x + 2, z + 2], [x + 2, 80]],
+            access_method: "direct_axis_route".into(),
+            access_length_m: 1,
+            access_search_expanded: 0,
+            preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
+            shared_track: None,
+            contour_shape: Some(shape),
+        };
+        let realization = |f: FarmField| AgricultureRealization {
+            model: "explicit-rectangular-field-access-v3".into(),
+            fields: vec![f],
+            rejected_fields: vec![],
+            field_shapes: Some(CONTOUR_ELONGATED.into()),
+        };
+        let strip = |w: u32, d: u32, axis: &str| ContourFieldShape {
+            long_axis: axis.into(),
+            long_side_m: w.max(d),
+            short_side_m: w.min(d),
+        };
+        let flat = terrain_from_metres(&big_scene, |_, _| 0.);
+        // Outside the source cell altogether.
+        let outside = realization(field(-8, 42, 60, 20, strip(60, 20, "x")));
+        assert_eq!(
+            verify_field_shapes(&outside, &wide, &flat, big_water, &big_entities).unwrap_err(),
+            "agricultural field breaks the unchanged 2m source margin"
+        );
+        // Inside the source but outside the 16..=128 m side domain.
+        let oversized = realization(field(2, 2, 140, 16, strip(140, 16, "x")));
+        assert_eq!(
+            verify_field_shapes(&oversized, &wide, &flat, big_water, &big_entities).unwrap_err(),
+            "contour field side leaves the unchanged 16..=128m domain"
+        );
+        // Inside the domain but past the aspect cap.
+        let elongated = realization(field(2, 2, 128, 32, strip(128, 32, "x")));
+        assert_eq!(
+            verify_field_shapes(&elongated, &wide, &flat, big_water, &big_entities).unwrap_err(),
+            "contour field aspect ratio exceeds its unchanged cap"
+        );
+        // A legal contour rectangle the ladder may not offer here: 56x20 is in
+        // the domain, under the aspect cap and on the cell's contour axis, but
+        // the ladder only offers 60x20 for that width.
+        let invented = realization(field(2, 42, 56, 20, strip(56, 20, "x")));
+        assert_eq!(
+            verify_field_shapes(&invented, &wide, &flat, big_water, &big_entities).unwrap_err(),
+            "contour field shape is not a legal strip for its source"
+        );
+        // The legal control: the narrowest strip the ladder offers, placed so a
+        // ramp inside the cell can be laid over it.
+        let legal = || realization(field(2, 42, 48, 16, strip(48, 16, "x")));
+        assert!(verify_field_shapes(&legal(), &wide, &flat, big_water, &big_entities).is_ok());
+        // Reserved land use under an otherwise legal strip.
+        let mut reserved = big_entities.clone();
+        let mut park = reserved[0].clone();
+        park.entity_id = "authored.park".into();
+        park.kind = "park".into();
+        park.world_x = 20;
+        park.world_z = 44;
+        park.width_m = 16.;
+        park.depth_m = 16.;
+        reserved.push(park);
+        assert_eq!(
+            verify_field_shapes(&legal(), &wide, &flat, big_water, &reserved).unwrap_err(),
+            "agricultural field intersects a reserved feature"
+        );
+        // And the slope gate, re-sampled from the published rectangle. 0.125 is
+        // exact in binary, so this is a slope decision and not a rounding
+        // artefact; 0.10 must still pass.
+        let steep = ramp_terrain(&big_scene, 0.125);
+        assert_eq!(
+            verify_field_shapes(&legal(), &wide, &steep, big_water, &big_entities).unwrap_err(),
+            "agricultural field exceeds the unchanged 12 percent grade"
+        );
+        let gentle = ramp_terrain(&big_scene, 0.10);
+        assert!(verify_field_shapes(&legal(), &wide, &gentle, big_water, &big_entities).is_ok());
+    }
+
+    #[test]
+    #[ignore = "explicit 1 km published-world measurement; requires GLYPHWEAVE_AUDIT_WORLD"]
+    fn contour_shape_audit_of_a_published_world() {
+        use super::super::landuse_ledger;
+        use crate::worldgen::{
+            LandUseProfile, SceneIndex, WorldManifest, bake_access_surfaces, build_access_graph,
+            water_kind,
+        };
+        let root = std::path::PathBuf::from(
+            std::env::var_os("GLYPHWEAVE_AUDIT_WORLD").expect("set a completed world path"),
+        );
+        let manifest: WorldManifest = serde_json::from_reader(std::io::BufReader::new(
+            std::fs::File::open(root.join("glyphweave.manifest.json")).unwrap(),
+        ))
+        .unwrap();
+        let spec = &manifest.scenes[0];
+        let folder = root.join("scenes").join(&spec.scene_id);
+        let mut scene: SceneIndex = serde_json::from_reader(std::io::BufReader::new(
+            std::fs::File::open(folder.join("scene.json")).unwrap(),
+        ))
+        .unwrap();
+        let mut terrain = BakedTerrain::new(spec).unwrap();
+        for chunk in &scene.chunks {
+            terrain
+                .insert_chunk(
+                    chunk.world_x,
+                    chunk.world_z,
+                    chunk.valid_width_m,
+                    chunk.valid_depth_m,
+                    &std::fs::read(folder.join(&chunk.height_file)).unwrap(),
+                )
+                .unwrap();
+        }
+        terrain.require_complete().unwrap();
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            spec,
+            &manifest.style,
+        );
+        let access = bake_access_surfaces(&build_access_graph(&scene.entities, &terrain, water), &terrain)
+            .unwrap_or_default();
+        let plan = scene.landcover_plan.as_ref().unwrap().clone();
+        let profile = LandUseProfile::from_style(&manifest.style).expect("land use profile");
+        let published = scene.landcover_surfaces.as_ref().unwrap().clone();
+        let published_agriculture = (
+            published.agriculture.clone(),
+            published
+                .patches
+                .iter()
+                .filter(|patch| {
+                    matches!(
+                        patch.material,
+                        Material::CultivatedSoil | Material::FieldHeadland | Material::FarmTrack
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        let mut runs = vec![];
+        for (name, pattern) in [
+            ("published", None),
+            ("sharedEnvelope", Some(pattern((24, 24), None, true))),
+            (
+                "contourElongated",
+                Some(pattern((24, 24), Some(CONTOUR_ELONGATED), true)),
+            ),
+        ] {
+            let mut config = plan.clone();
+            config.farm_pattern = pattern;
+            let started = std::time::Instant::now();
+            let (realization, patches) =
+                realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+            let seconds = started.elapsed().as_secs_f64();
+            verify_field_shapes(&realization, &config, &terrain, water, &scene.entities)
+                .expect("published contour fields must satisfy the independent shape audit");
+            if name == "published" {
+                // The control: recomputing the published planet must reproduce
+                // the stored agriculture bytes exactly.
+                assert_eq!(
+                    blake3::hash(&serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap())
+                        .to_hex()
+                        .to_string(),
+                    blake3::hash(&serde_json::to_vec(&published_agriculture).unwrap())
+                        .to_hex()
+                        .to_string(),
+                    "the published world no longer reproduces its own agriculture"
+                );
+            }
+            {
+                let surfaces = scene.landcover_surfaces.as_mut().unwrap();
+                surfaces.agriculture = realization.clone();
+                surfaces.patches.retain(|patch| {
+                    !matches!(
+                        patch.material,
+                        Material::CultivatedSoil | Material::FieldHeadland | Material::FarmTrack
+                    )
+                });
+                surfaces.patches.extend(patches.iter().cloned());
+            }
+            let ledger = landuse_ledger::analyze(&scene, &profile).expect("ledger");
+            let rural = &ledger.by_purpose["rural"];
+            let mut reasons = BTreeMap::<String, usize>::new();
+            for rejection in &realization.rejected_fields {
+                *reasons.entry(rejection.reason.clone()).or_default() += 1;
+            }
+            let area = |material: Material| {
+                patches
+                    .iter()
+                    .filter(|patch| patch.material == material)
+                    .map(|patch| patch.area_m2)
+                    .sum::<f64>()
+            };
+            let strips = realization
+                .fields
+                .iter()
+                .filter(|field| field.contour_shape.is_some())
+                .count();
+            runs.push(serde_json::json!({
+                "config": name,
+                "policy": realization.field_shapes,
+                "fields": realization.fields.len(),
+                "strips": strips,
+                "rejections": realization.rejected_fields.len(),
+                "reasons": reasons,
+                "cultivatedM2": area(Material::CultivatedSoil),
+                "headlandM2": area(Material::FieldHeadland),
+                "farmTrackM2": area(Material::FarmTrack),
+                "ruralRealizedM2": rural.realized_m2,
+                "ruralPlannedM2": rural.planned_m2,
+                "ruralUnresolvedM2": rural.unresolved_m2,
+                "verifySeconds": seconds,
+                "contourFields": realization
+                    .fields
+                    .iter()
+                    .filter(|field| field.contour_shape.is_some())
+                    .map(|field| [
+                        field.boundary.width_m as i64,
+                        field.boundary.depth_m as i64,
+                        field.contour_shape.as_ref().unwrap().long_side_m as i64,
+                        field.contour_shape.as_ref().unwrap().short_side_m as i64,
+                    ])
+                    .collect::<Vec<_>>(),
+            }));
+            if name == "sharedEnvelope" {
+                // Every field the pre-existing rule accepts survives verbatim;
+                // the strategy may only add.
+                for field in &realization.fields {
+                    assert!(field.contour_shape.is_none());
+                }
+            }
+        }
+        // Monotonicity: the contour run must contain every shared-envelope field
+        // with identical geometry and access.
+        let mut config = plan.clone();
+        config.farm_pattern = Some(pattern((24, 24), None, true));
+        let (envelope, _) = realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+        config.farm_pattern = Some(pattern((24, 24), Some(CONTOUR_ELONGATED), true));
+        let (contour, _) = realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+        for field in &envelope.fields {
+            let kept = contour
+                .fields
+                .iter()
+                .find(|other| other.id == field.id)
+                .expect("the contour rule must not lose a square field");
+            assert_eq!(kept.boundary, field.boundary);
+            assert_eq!(kept.cultivated, field.cultivated);
+            assert_eq!(kept.access_path, field.access_path);
+            assert_eq!(kept.access_method, field.access_method);
+            assert_eq!(kept.shared_track, field.shared_track);
+            assert_eq!(kept.contour_shape, None);
+        }
+        assert!(contour.fields.len() >= envelope.fields.len());
+        // Determinism on the same input.
+        let (again, _) = realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&contour).unwrap(),
+            serde_json::to_vec(&again).unwrap()
+        );
+        let report = serde_json::json!({
+            "format": "glyphweave.contour-elongated-field-audit",
+            "world": root,
+            "sceneId": spec.scene_id,
+            "sizeM": [spec.width_m, spec.depth_m],
+            "entities": scene.entities.len(),
+            "runs": runs,
+        });
+        if let Some(path) = std::env::var_os("GLYPHWEAVE_AUDIT_REPORT") {
+            let path = std::path::PathBuf::from(path);
+            std::io::Write::write_all(
+                &mut std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+                    .expect("the audit report path must not already exist"),
+                &serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
+        }
+        eprintln!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
     #[test]
     fn indexed_and_linear_complete_farm_outputs_are_identical() {
         let(s,p,t,w,e)=fixture();

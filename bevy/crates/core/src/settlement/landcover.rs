@@ -772,6 +772,12 @@ pub fn verify(
     entities: &[EntityInstance],
 ) -> Result<SurfaceAudit, String> {
     let expected = realize(scene, development, plan, terrain, water, entities)?;
+    // Field shapes are re-derived from the published rectangles and the final
+    // terrain before any byte comparison: a contour strip that drifts off its
+    // cell's contour axis, out of the size domain, off the 12% grade or across a
+    // protected feature fails by name instead of only as "differs from the
+    // independent realization".
+    super::agriculture::verify_field_shapes(&actual.agriculture, plan, terrain, water, entities)?;
     ecology_plant_contract(&actual.ecology, &actual.patches, water, entities)?;
     if !ecology_matches(&actual.ecology, &expected.ecology) {
         return Err("landcover ecology differs from independent realization".into());

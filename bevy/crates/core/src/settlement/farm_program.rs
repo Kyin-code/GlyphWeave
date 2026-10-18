@@ -37,6 +37,11 @@ impl FieldTemplate {
 pub struct TrackNetwork {
     pub model: String,
 }
+/// The only opt-in field-shape strategy: strips that run along the contours of
+/// their own source cell instead of near-square blocks. Any other value (and an
+/// absent field) keeps the pre-existing square rule, so a typo can never widen
+/// a numeric contract by accident.
+pub const CONTOUR_ELONGATED: &str = "contour-elongated";
 /// The only shared-track model, so a typo cannot silently select a different
 /// budget rule than the one the audit re-checks.
 pub const SHARED_TRACK_MODEL: &str = "shared-farm-track-v1";
@@ -61,6 +66,12 @@ pub struct FarmPattern {
     pub zone_fields: BTreeMap<String, FieldTemplate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_network: Option<TrackNetwork>,
+    /// Opt-in field-shape strategy. Only `CONTOUR_ELONGATED` changes anything:
+    /// every other string (and `None`) resolves to the unchanged square rule,
+    /// and the field is not serialized at all when absent, so an authored
+    /// pattern that never mentions it round-trips to its exact old bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_shapes: Option<String>,
 }
 impl FarmPattern {
     pub fn validate(&self) -> Result<(), String> {
@@ -78,6 +89,11 @@ impl FarmPattern {
             t.validate()?;
         }
         Ok(())
+    }
+    /// The contour strategy is the only shape rule that may depart from the
+    /// authored near-square template. Unknown spellings stay off by design.
+    pub fn contour_elongated(&self) -> bool {
+        self.field_shapes.as_deref() == Some(CONTOUR_ELONGATED)
     }
     pub fn for_zone(&self, id: &str) -> FieldTemplate {
         self.zone_fields
@@ -380,10 +396,66 @@ mod tests {
             },
             zone_fields: BTreeMap::from([("small".into(), FieldTemplate::default())]),
             track_network: None,
+            field_shapes: None,
         };
         p.validate().unwrap();
         assert_eq!(p.for_zone("small"), FieldTemplate::default());
         assert_eq!(p.for_zone("other"), p.default_field);
+    }
+    #[test]
+    fn the_contour_shape_strategy_is_opt_in_and_any_other_value_stays_off() {
+        // Only the exact spelling enables strips. Every other string is the
+        // unchanged square rule, which is the whole safety property of an
+        // opt-in strategy: a typo cannot silently change a published world.
+        for shapes in [
+            None,
+            Some(""),
+            Some("contour"),
+            Some("contour_elongated"),
+            Some("CONTOUR-ELONGATED"),
+            Some("square"),
+        ] {
+            let p = FarmPattern {
+                default_field: FieldTemplate::default(),
+                zone_fields: BTreeMap::new(),
+                track_network: None,
+                field_shapes: shapes.map(str::to_string),
+            };
+            p.validate().unwrap();
+            assert!(!p.contour_elongated(), "{shapes:?} must stay off");
+        }
+        let on = FarmPattern {
+            default_field: FieldTemplate::default(),
+            zone_fields: BTreeMap::new(),
+            track_network: None,
+            field_shapes: Some(CONTOUR_ELONGATED.into()),
+        };
+        assert!(on.contour_elongated());
+        // The policy is part of the authoritative manifest, so an auditor can
+        // tell the two rules apart without re-reading the generator.
+        assert_eq!(
+            serde_json::to_value(&on).unwrap(),
+            serde_json::json!({
+                "defaultField":{"widthM":24,"depthM":24},
+                "zoneFields":{},
+                "fieldShapes":"contour-elongated"
+            })
+        );
+        assert_eq!(
+            farm_program_shapes(&serde_json::json!({
+                "agricultureProgram":{"version":1,"scenes":{"scene-0":{
+                    "defaultField":{"widthM":24,"depthM":24},
+                    "fieldShapes":"contour-elongated"}}}
+            })),
+            Some(CONTOUR_ELONGATED.to_string())
+        );
+    }
+    /// Read back the strategy string through the public manifest path.
+    fn farm_program_shapes(style: &serde_json::Value) -> Option<String> {
+        from_style(style)
+            .unwrap()
+            .and_then(|program| program.scenes.get("scene-0").cloned())
+            .and_then(|pattern| pattern.field_shapes)
     }
     #[test]
     fn shared_track_policy_is_explicit_and_unknown_models_fail_closed() {
@@ -409,6 +481,7 @@ mod tests {
             default_field: FieldTemplate::default(),
             zone_fields: BTreeMap::new(),
             track_network: None,
+            field_shapes: None,
         };
         assert_eq!(
             serde_json::to_value(&legacy).unwrap(),
