@@ -23710,6 +23710,7 @@ mod tests {
         let site_entity = fixture.north.clone();
         let site = super::super::road_network::RoadsideSite {
             program: None,
+            purpose: None,
             id: site_entity.entity_id.clone(),
             road_id: fixture.road_a.entity_id.clone(),
             world_x: site_entity.world_x,

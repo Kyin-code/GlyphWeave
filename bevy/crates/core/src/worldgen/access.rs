@@ -1402,6 +1402,7 @@ mod tests {
         let road_point = [x + nx * 39, z + nz * 39];
         let site = super::super::road_network::RoadsideSite {
             program: None,
+            purpose: None,
             id: "generated.frontage.cardinal-fixed".into(),
             road_id: "road.cardinal".into(),
             world_x: x,

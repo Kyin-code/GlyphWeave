@@ -56,6 +56,13 @@ pub struct RoadNetworkPlan {
     /// site is NOT placed and is never silently dropped.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roadside_site_rejections: Vec<BaseProfileRejection>,
+    /// Opt-in only: the parcels this plan's roadside PADS converted from rural to urban purpose, in
+    /// plan order. Empty (and therefore absent) unless
+    /// `style.frontageProgram.ruralConversion` is the exact string "explicit", so no existing plan
+    /// gains the key. The land-use ledger applies these beside the frontage programme's own
+    /// conversions, and `audit_conversions` re-derives every record from the pad's own geometry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pad_conversions: Vec<super::frontage::Conversion>,
     /// Road-first over structured water: one engineering structure per road
     /// segment that crosses the scene's water body.
     ///
@@ -125,6 +132,12 @@ pub struct RoadEdge {
 pub struct RoadsideSite {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<super::services::SiteProgram>,
+    /// Opt-in only: the purpose this pad DECLARES on the land it takes, derived from its own kind
+    /// before it landed (`frontage::pad_purpose`). Absent for every pad of a world that did not
+    /// enable the explicit along-road conversion, so no published pad gains the key - and a pad with
+    /// no declaration cannot convert anything, which is what the audit re-checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
     pub id: String,
     pub road_id: String,
     pub world_x: i32,
@@ -143,21 +156,19 @@ pub struct RoadsideSite {
     pub natural_max_m: f32,
 }
 impl RoadsideSite {
+    /// The building kind this pad realizes: its declared programme kind, or the settlement
+    /// programme's own residential default when it carries no programme record.
+    pub fn kind(&self) -> &str {
+        self.program
+            .as_ref()
+            .map_or("residential_home", |p| p.kind.as_str())
+    }
     pub(crate) fn entity(&self) -> EntityInstance {
         let s = self;
         EntityInstance {
             entity_id: s.id.clone(),
-            asset_id: format!(
-                "prop.{}",
-                s.program
-                    .as_ref()
-                    .map_or("residential_home", |p| p.kind.as_str())
-            ),
-            kind: s
-                .program
-                .as_ref()
-                .map_or("residential_home", |p| p.kind.as_str())
-                .into(),
+            asset_id: format!("prop.{}", s.kind()),
+            kind: s.kind().into(),
             world_x: s.world_x,
             world_z: s.world_z,
             world_y: s
@@ -779,7 +790,14 @@ pub(super) fn plan_with_zones(
     water: WaterGeometry,
     zones: Option<&[LandUseZone]>,
 ) -> Result<RoadNetworkPlan, TerrainError> {
-    plan_with_zones_demand(scene, terrain, water, zones, false)
+    plan_with_zones_demand(
+        scene,
+        terrain,
+        water,
+        zones,
+        false,
+        super::frontage::RuralConversion::Disabled,
+    )
 }
 
 /// B01-T2 R13: `settlement_demand` says whether this scene actually asks for
@@ -788,12 +806,17 @@ pub(super) fn plan_with_zones(
 /// roadside scan is speculative and its refusals would only remove evidence.
 /// A demanding scene refuses grading that cannot host its own pads - see the
 /// R13 pre-pass below for the measurements and the exact rule.
+///
+/// `pad_conversion` is the authored explicit along-road conversion policy the whole scene is under
+/// (`style.frontageProgram.ruralConversion`). It only ever narrows or re-books a pad: with the
+/// policy off every pad decision below is byte-identical to the historical programme.
 pub(super) fn plan_with_zones_demand(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
     water: WaterGeometry,
     zones: Option<&[LandUseZone]>,
     settlement_demand: bool,
+    pad_conversion: super::frontage::RuralConversion,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let zoning = zones.map(|z| ZoningMask::new(scene, z)).transpose()?;
     terrain.require_complete()?;
@@ -829,6 +852,7 @@ pub(super) fn plan_with_zones_demand(
         nodes: Vec::new(),
         edges: Vec::new(),
         roadside_sites: Vec::new(),
+        pad_conversions: Vec::new(),
         zoning_hash: zoning.as_ref().map(|z| z.hash.clone()),
         zoning_rejections: Vec::new(),
         service_outcomes: Vec::new(),
@@ -1615,8 +1639,9 @@ pub(super) fn plan_with_zones_demand(
                             .filter(|_| e.profile.is_none())
                             .filter(|mm| i64::from(*mm) != i64::from(level) * 1000),
                     };
-                    result.roadside_sites.push(RoadsideSite {
+                    let mut site = RoadsideSite {
                         program: None,
+                        purpose: None,
                         id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
                         road_id: e.id.clone(),
                         world_x: x,
@@ -1653,7 +1678,22 @@ pub(super) fn plan_with_zones_demand(
                         },
                         natural_min_m: min,
                         natural_max_m: max,
-                    });
+                    };
+                    let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
+                    if let Some(reason) = verdict.reason {
+                        site_rejections.push(BaseProfileRejection {
+                            edge_id: site.id.clone(),
+                            category: reason.into(),
+                            reason: format!(
+                                "pad at ({x},{z}) on road {}: {reason} for a {} pad",
+                                e.id,
+                                site.kind()
+                            ),
+                        });
+                        continue;
+                    }
+                    site.purpose = verdict.declared.map(str::to_owned);
+                    result.roadside_sites.push(site);
                     continue;
                 };
                 let mut declared_mm = waterfront_declared_mm.unwrap_or(own_mm);
@@ -1724,8 +1764,9 @@ pub(super) fn plan_with_zones_demand(
                     continue;
                 }
                 let support_mm: Option<i32> = i32::try_from(declared_mm).ok();
-                result.roadside_sites.push(RoadsideSite {
+                let mut site = RoadsideSite {
                     program: None,
+                    purpose: None,
                     id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
                     road_id: e.id.clone(),
                     world_x: x,
@@ -1745,7 +1786,22 @@ pub(super) fn plan_with_zones_demand(
                     },
                     natural_min_m: min,
                     natural_max_m: max,
-                });
+                };
+                let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
+                if let Some(reason) = verdict.reason {
+                    site_rejections.push(BaseProfileRejection {
+                        edge_id: site.id.clone(),
+                        category: reason.into(),
+                        reason: format!(
+                            "pad at ({x},{z}) on road {}: {reason} for a {} pad",
+                            e.id,
+                            site.kind()
+                        ),
+                    });
+                    continue;
+                }
+                site.purpose = verdict.declared.map(str::to_owned);
+                result.roadside_sites.push(site);
                 }
             }
         }
@@ -1754,22 +1810,59 @@ pub(super) fn plan_with_zones_demand(
     Ok(result)
 }
 
+/// The purpose gate of one roadside pad, as the pad would land.
+///
+/// Without land-use zoning there is no purpose to declare, so the explicit policy is inert and the
+/// pad programme keeps its historical shape. With zoning the pad is judged by
+/// `frontage::pad_purpose_for_site`: the pad must declare a purpose first, and only then may its
+/// buildable core be urban land (lands as-is), wholly rural land (converted and recorded) or nothing
+/// (refused by name).
+fn pad_purpose_gate(
+    site: &RoadsideSite,
+    scene: &SceneSpec,
+    zones: Option<&[LandUseZone]>,
+    conversion: super::frontage::RuralConversion,
+) -> Result<super::frontage::PadPurpose, TerrainError> {
+    let Some(zones) = zones else {
+        return Ok(super::frontage::PadPurpose::OFF);
+    };
+    super::frontage::pad_purpose_for_site(site, scene, zones, conversion)
+}
+
 pub(super) fn plan_with_program(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
     water: WaterGeometry,
     zones: Option<&[LandUseZone]>,
     program: Option<&super::services::ServiceProgram>,
+    pad_conversion: super::frontage::RuralConversion,
 ) -> Result<RoadNetworkPlan, TerrainError> {
-    let mut result = plan_with_zones_demand(scene, terrain, water, zones, program.is_some())?;
+    let mut result =
+        plan_with_zones_demand(scene, terrain, water, zones, program.is_some(), pad_conversion)?;
     let Some(program) = program else {
         return Ok(result);
     };
     let zones = zones.ok_or_else(|| TerrainError("service program requires zoning".into()))?;
     if program.version == 2 {
-        return super::joint_frontage::plan(result, scene, terrain, water, zones, program);
+        return super::joint_frontage::plan(
+            result,
+            scene,
+            terrain,
+            water,
+            zones,
+            program,
+            pad_conversion,
+        );
     }
-    super::services::append(&mut result, scene, terrain, water, zones, program)?;
+    super::services::append(
+        &mut result,
+        scene,
+        terrain,
+        water,
+        zones,
+        program,
+        pad_conversion,
+    )?;
     Ok(result)
 }
 
@@ -2090,7 +2183,15 @@ pub(super) fn plan_with_style_declared(
     style: &serde_json::Value,
     source: super::NaturalSource,
 ) -> Result<RoadNetworkPlan, TerrainError> {
-    let mut result = plan_with_program(scene, terrain, water, zones, program)?;
+    // One authored switch, read once: the roadside PAD programme and the along-road frontage
+    // programme share `style.frontageProgram.ruralConversion`, so they can never disagree about
+    // which land may change purpose.
+    let pad_conversion = super::frontage::RuralConversion::from_declared(
+        style
+            .get("frontageProgram")
+            .and_then(|program| program.get("ruralConversion")),
+    );
+    let mut result = plan_with_program(scene, terrain, water, zones, program, pad_conversion)?;
     if super::road_extensions::from_style(style)?.is_some() {
         super::road_extensions::append(
             &mut result,
@@ -2113,6 +2214,14 @@ pub(super) fn plan_with_style_declared(
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
+    // Every pad that declared an URBAN purpose and stands on wholly-rural land converts exactly its
+    // own buildable core, once. The records are derived from the FINAL pad list (see
+    // `frontage::pad_conversions`), so a pad displaced or renamed by the joint layout cannot leave a
+    // stale record behind. With the switch off the list stays empty and no plan gains the key.
+    if let Some(zones) = zones {
+        result.pad_conversions =
+            super::frontage::pad_conversions(&result, scene, zones, pad_conversion)?;
+    }
     // Opt-in waterfront: the roadside pad programme is NOT refused as a whole any
     // more, and the reason it used to be is worth recording because this used to
     // be the difference between a planned city and an empty quay.
@@ -2720,6 +2829,400 @@ mod waterfront_tests {
             errored.failures
         );
     }
+}
+
+#[cfg(test)]
+mod pad_purpose_tests {
+    //! The roadside pad programme under `style.frontageProgram.ruralConversion`.
+    //!
+    //! A pad carries no authored purpose, which is exactly why the historical programme could stand
+    //! on any buildable land: the "city" grew on the farmland edge while the urban core stayed empty,
+    //! and the purpose-gated frontage requests lost the roadside to it. This module pins the fix to
+    //! the SAME conversion mechanism the along-road programme already uses:
+    //!
+    //!  * with the switch off, the plan is BYTE-IDENTICAL (a blake3 lock on two fixtures: one dry,
+    //!    one waterfront) and no pad declares a purpose or a conversion;
+    //!  * with it on, every pad declares an urban purpose before it lands, a pad whose buildable core
+    //!    is wholly rural is converted and recorded, and the ledger moves exactly that area;
+    //!  * `audit_conversions` re-derives every pad record from the pad's own parcel, so a forged area,
+    //!    a duplicate parcel, a protected parcel and a deleted record all fail by name.
+    use super::*;
+    use crate::settlement::landuse_ledger;
+    use crate::worldgen::{
+        LandUseZone, SceneSpec, frontage, plan_landuse_zones, water_geometry, water_kind,
+    };
+
+    fn scene() -> SceneSpec {
+        SceneSpec {
+            scene_id: "pad-purpose".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        }
+    }
+
+    /// A flat natural raster: a pad's earthwork is then the only thing that can move a height, so a
+    /// pad either lands on its own declared datum or is refused for a reason that is named.
+    fn flat_terrain(scene: &SceneSpec) -> BakedTerrain {
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &crate::height_payload::encode_millimetres(
+                    scene.width_m,
+                    scene.depth_m,
+                    vec![0.; (scene.width_m * scene.depth_m) as usize],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        terrain
+    }
+
+    /// The zoning this module reasons about: the western half is urban, the eastern half rural. A pad
+    /// whose 22 m buildable core stays inside one half is therefore unambiguous, and a pad on the
+    /// quarter-kilometre boundary is the case the gate must refuse.
+    fn banded_zones() -> Vec<LandUseZone> {
+        vec![
+            LandUseZone {
+                id: "west-urban".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 256,
+                depth_m: 512,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "east-rural".into(),
+                kind: "rural".into(),
+                world_x: 256,
+                world_z: 0,
+                width_m: 256,
+                depth_m: 512,
+                source: "test".into(),
+            },
+        ]
+    }
+
+    fn style(switch: Option<&str>) -> serde_json::Value {
+        let mut style = serde_json::json!({
+            "generationProfile": "strict",
+            "heightPrecision": "millimeter",
+            "terrainProfile": "plains",
+            "landUseProfile": {
+                "theme": "temperate-plain",
+                "urbanCoreRatio": 0.25,
+                "suburbanRatio": 0.05,
+                "greenRatio": 0.05,
+                "farmRatio": 0.40,
+                "forestRatio": 0.10,
+                "pastureRatio": 0.10,
+                "reserveRatio": 0.05
+            },
+            "frontageProgram": {
+                "version": 1,
+                "requests": [{
+                    "id": "urban-homes",
+                    "sceneId": "pad-purpose",
+                    "purpose": "urban",
+                    "kind": "residential_home",
+                    "count": 4,
+                    "widthM": 24,
+                    "depthM": 24,
+                    "heightM": 8,
+                    "stationSpacingM": 32,
+                    "setbackM": 8,
+                    "maxCandidateAttempts": 256
+                }]
+            },
+            "settlementProgram": {
+                "version": 2,
+                "housingMinimum": { "pad-purpose": 8 },
+                "requests": [{
+                    "id": "pad-school",
+                    "sceneId": "pad-purpose",
+                    "kind": "school",
+                    "count": 1,
+                    "widthM": 40,
+                    "depthM": 30,
+                    "heightM": 10
+                }]
+            }
+        });
+        if let Some(value) = switch {
+            style["frontageProgram"]["ruralConversion"] = serde_json::json!(value);
+        }
+        style
+    }
+
+    fn plan(
+        scene: &SceneSpec,
+        terrain: &BakedTerrain,
+        style: &serde_json::Value,
+    ) -> Result<RoadNetworkPlan, crate::baked_terrain::TerrainError> {
+        let zones = banded_zones();
+        let water = water_geometry(water_kind(style), &[], scene, style);
+        plan_with_style_declared(
+            scene,
+            terrain,
+            water,
+            Some(&zones),
+            None,
+            style,
+            crate::worldgen::NaturalSource::SuppliedRaster,
+        )
+    }
+
+    /// The reusable lock the round asks for: one water-free fixture and one waterfront fixture, both
+    /// with the switch OFF, pinned by the blake3 of the plan's own published bytes.
+    fn blake3_of(plan: &RoadNetworkPlan) -> String {
+        blake3::hash(&serde_json::to_vec(plan).unwrap())
+            .to_hex()
+            .to_string()
+    }
+
+    #[test]
+    fn the_switch_off_plan_is_byte_identical_and_carries_no_purpose_on_a_dry_fixture() {
+        let scene = scene();
+        let terrain = flat_terrain(&scene);
+        // Absent, null and every other spelling are the historical programme: nothing to declare.
+        let off = plan(&scene, &terrain, &style(None)).unwrap();
+        let off_bytes = serde_json::to_vec(&off).unwrap();
+        assert_eq!(
+            blake3_of(&off),
+            DRY_PLAN_OFF_BLAKE3,
+            "the dry pad programme's published bytes changed with the switch off"
+        );
+        for other in [None, Some(""), Some("off"), Some("true"), Some("Explicit")] {
+            let disabled = plan(&scene, &terrain, &style(other)).unwrap();
+            assert_eq!(
+                serde_json::to_vec(&disabled).unwrap(),
+                off_bytes,
+                "only the exact string \"explicit\" may enable the pad policy, not {other:?}"
+            );
+        }
+        // The pads really are there - a lock on an empty plan would prove nothing - and none of
+        // them declares a purpose, while the plan carries no conversion list at all.
+        assert!(
+            !off.roadside_sites.is_empty(),
+            "the fixture must plan pads, or the off-lock proves nothing"
+        );
+        assert!(
+            off.roadside_sites.iter().all(|site| site.purpose.is_none()),
+            "a pad of a switched-off world may not gain a purpose"
+        );
+        assert!(off.pad_conversions.is_empty());
+        let json = serde_json::to_value(&off).unwrap();
+        assert!(
+            json.get("padConversions").is_none(),
+            "a plan without pad conversions must not gain the key"
+        );
+        assert!(
+            json["roadsideSites"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|site| site.get("purpose").is_none()),
+            "a pad without a purpose must not gain the key"
+        );
+    }
+
+    #[test]
+    fn the_switch_off_plan_is_byte_identical_on_a_waterfront_fixture() {
+        // The structured-water opt-in is what puts the pad programme on a graded bank, where every
+        // pad already carries a precise datum: the purpose switch must still change nothing.
+        let scene = SceneSpec {
+            scene_id: "pad-purpose".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut style = style(None);
+        style["automaticRoadExtensions"] = serde_json::json!({
+            "version": 1,
+            "allowStructuredWater": STRUCTURED_WATER_OPT_IN,
+            "scenes": [{
+                "sceneId": "pad-purpose",
+                "maxNewSegments": 2,
+                "maxCandidateAttempts": 64,
+                "segmentLengthsM": [64],
+                "priorityPurposes": ["urban", "rural"],
+                "reachDistanceM": 32
+            }]
+        });
+        style["water"] = serde_json::json!({
+            "waterType": "river",
+            "levelPolicy": "horizontal-datum",
+            "levelM": 0
+        });
+        let landmark: crate::worldgen::LandmarkSpec = serde_json::from_value(serde_json::json!({
+            "entityId": "landmark.pad-river",
+            "name": "pad river",
+            "type": "river",
+            "purpose": "structured water the pads have to keep clear of",
+            "description": "north-south river through the middle of the pad bank",
+            "sceneId": "pad-purpose",
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": 16,
+            "depthM": 512,
+            "heightM": 1,
+            "assetId": "water.pad-river"
+        }))
+        .unwrap();
+        let water = water_geometry(water_kind(&style), &[landmark], &scene, &style);
+        let mask = crate::worldgen::zoning::ZoningMask::new(&scene, &banded_zones()).unwrap();
+        let (height, _surface, _lod2, _terrain) = crate::worldgen::generate_chunk_encoded(
+            42,
+            scene.origin_x,
+            scene.origin_z,
+            scene.width_m,
+            scene.depth_m,
+            water,
+            &[],
+            // a millimetre source, because this fixture really authors a frontage programme
+            true,
+            Some(&mask),
+        );
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &height,
+            )
+            .unwrap();
+        let built = plan_with_style_declared(
+            &scene,
+            &terrain,
+            water,
+            Some(&banded_zones()),
+            None,
+            &style,
+            crate::worldgen::NaturalSource::AuthoredSeed {
+                seed: 42,
+                precise: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            !built.roadside_sites.is_empty(),
+            "the waterfront fixture must plan pads, or the off-lock proves nothing"
+        );
+        assert!(
+            built.roadside_sites.iter().all(|site| site.purpose.is_none()),
+            "a waterfront pad of a switched-off world may not gain a purpose"
+        );
+        assert_eq!(
+            blake3_of(&built),
+            WATERFRONT_PLAN_OFF_BLAKE3,
+            "the waterfront pad programme's published bytes changed with the switch off"
+        );
+    }
+
+    #[test]
+    fn the_switch_on_declares_urban_and_converts_exactly_the_rural_core_it_takes() {
+        let scene = scene();
+        let terrain = flat_terrain(&scene);
+        let zones = banded_zones();
+        let off = plan(&scene, &terrain, &style(None)).unwrap();
+        let on = plan(&scene, &terrain, &style(Some("explicit"))).unwrap();
+        // Every pad declares the purpose of its own kind before it lands.
+        assert!(!on.roadside_sites.is_empty());
+        for site in &on.roadside_sites {
+            if site.program.as_ref().is_some_and(|program| program.request_id == "urban-homes") {
+                // a frontage parcel carries its purpose on its authored request instead
+                continue;
+            }
+            assert_eq!(
+                site.purpose.as_deref(),
+                Some("urban"),
+                "pad {} did not declare its purpose",
+                site.id
+            );
+            assert_eq!(
+                frontage::pad_purpose(site.kind()),
+                Some("urban"),
+                "the declared purpose must be the one the pad's own kind maps to"
+            );
+        }
+        // The conversion list is exactly the pads whose buildable core is wholly rural - and every
+        // one of them is a pad, not a frontage parcel.
+        let mut expected: Vec<frontage::Conversion> = Vec::new();
+        for site in &on.roadside_sites {
+            if site.purpose.is_none() {
+                continue;
+            }
+            if let Some(area) = frontage::pad_conversion_area(site, &zones) {
+                expected.push(frontage::Conversion::rural_to_urban(&site.id, area));
+            }
+        }
+        assert_eq!(on.pad_conversions, expected);
+        assert!(
+            !on.pad_conversions.is_empty(),
+            "the fixture must convert at least one pad, or the on-case proves nothing"
+        );
+        for record in &on.pad_conversions {
+            let site = on
+                .roadside_sites
+                .iter()
+                .find(|site| site.id == record.parcel_id)
+                .expect("a record must name a planned pad");
+            let core = frontage::buildable_core(
+                frontage::parcel_boundary(site).unwrap(),
+                site.parcel_insets.unwrap_or_default(),
+                site.rotation_y_deg,
+            )
+            .expect("a planned pad has a buildable core");
+            assert_eq!(
+                record.area_m2,
+                (core[2] - core[0]) * (core[3] - core[1]),
+                "a pad converts its buildable core, not its parcel"
+            );
+            assert_eq!((record.from.as_str(), record.to.as_str()), ("rural", "urban"));
+        }
+        // Every pad that stands on urban land keeps it: nothing is converted there, and no pad is
+        // dropped silently - the switch only re-books land, it never widens a pad's permission.
+        assert!(
+            on.roadside_sites.len() >= off.roadside_sites.len(),
+            "the purpose gate must not shrink the planned pad programme: {} -> {}",
+            off.roadside_sites.len(),
+            on.roadside_sites.len()
+        );
+        // The ledger applies exactly the plan's records, once, and the audit re-derives them.
+        let converted: i64 = on.pad_conversions.iter().map(|record| record.area_m2).sum();
+        let audit = landuse_ledger::audit_conversions(&on, &zones, water_geometry(
+            water_kind(&style(None)),
+            &[],
+            &scene,
+            &style(None),
+        ), None);
+        assert_eq!(
+            (audit.planned, audit.converted_m2),
+            (on.pad_conversions.len(), converted),
+            "{audit:?}"
+        );
+        // ... and the identity the ledger enforces is the one the records claim: the sum of the pad
+        // records is what moves between the two rows.
+        assert!(converted > 0);
+    }
+
+    /// The blake3 locks above. They are fixtures, not published samples: if one of them changes the
+    /// switch-off pad programme moved, which is exactly what this round may not do.
+    const DRY_PLAN_OFF_BLAKE3: &str = "c007835a3b0fe905882b06a601de1219c9c182c2ad75afac61489d7a8b285b4c";
+    const WATERFRONT_PLAN_OFF_BLAKE3: &str =
+        "9c9cc1d746e397a936a3a457e73634b947c21342003ea3b367313adcaf56181e";
 }
 
 #[cfg(test)]
@@ -6625,7 +7128,14 @@ fn verify_impl(
     } else if let Some(style) = style {
         plan_with_style_declared(scene, natural, water, zones, program, style, source)?
     } else {
-        plan_with_program(scene, natural, water, zones, program)?
+        plan_with_program(
+            scene,
+            natural,
+            water,
+            zones,
+            program,
+            super::frontage::RuralConversion::Disabled,
+        )?
     };
 
     if !trusted_record

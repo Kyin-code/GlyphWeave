@@ -141,6 +141,7 @@ pub(super) fn append(
     water: WaterGeometry,
     zones: &[super::LandUseZone],
     program: &ServiceProgram,
+    pad_conversion: super::frontage::RuralConversion,
 ) -> Result<(), TerrainError> {
     let mask = ZoningMask::new(scene, zones)?;
     for r in program
@@ -489,7 +490,7 @@ pub(super) fn append(
                                     .or_default() += 1;
                                 continue;
                             }
-                            accepted = Some(RoadsideSite {
+                            let mut site = RoadsideSite {
                                 id: format!(
                                     "generated.service.{}.{}.{}",
                                     scene.scene_id, r.id, serial
@@ -517,7 +518,27 @@ pub(super) fn append(
                                     kind: r.kind.clone(),
                                     height_m: r.height_m,
                                 }),
-                            });
+                                purpose: None,
+                            };
+                            // The pad declares a purpose BEFORE it lands (explicit policy only). It
+                            // is applied last, after every engineering gate above, so a refused
+                            // water, shore-band, reserved-land or fill candidate keeps its own
+                            // named reason and this gate never contests one.
+                            let verdict = super::frontage::pad_purpose_for_site(
+                                &site,
+                                scene,
+                                zones,
+                                pad_conversion,
+                            )?;
+                            if let Some(reason) = verdict.reason {
+                                *outcome
+                                    .rejected_candidates
+                                    .entry(reason.into())
+                                    .or_default() += 1;
+                                continue;
+                            }
+                            site.purpose = verdict.declared.map(str::to_owned);
+                            accepted = Some(site);
                             break 'candidates;
                         }
                     }
@@ -665,7 +686,16 @@ mod tests {
     fn explicit_variable_school_is_added_without_replacing_homes() {
         let (s, n, w, z, mut p) = fixture();
         let home = p.roadside_sites[0].clone();
-        append(&mut p, &s, &n, w, &z, &request("school", 40, 30)).unwrap();
+        append(
+            &mut p,
+            &s,
+            &n,
+            w,
+            &z,
+            &request("school", 40, 30),
+            super::super::frontage::RuralConversion::Disabled,
+        )
+        .unwrap();
         assert_eq!(p.roadside_sites.len(), 2);
         assert_eq!(
             serde_json::to_value(&p.roadside_sites[0]).unwrap(),
@@ -701,7 +731,16 @@ mod tests {
         let mut n = BakedTerrain::new(&s).unwrap();
         n.insert_chunk(-256, -256, 512, 512, &vec![0; 512 * 512 * 2])
             .unwrap();
-        append(&mut p, &s, &n, w, &z, &request("school", 80, 60)).unwrap();
+        append(
+            &mut p,
+            &s,
+            &n,
+            w,
+            &z,
+            &request("school", 80, 60),
+            super::super::frontage::RuralConversion::Disabled,
+        )
+        .unwrap();
         assert_eq!(p.roadside_sites.len(), 1);
         assert_eq!(p.service_outcomes[0].unfilled_count, 1);
         assert_eq!(p.service_outcomes[0].request.width_m, 80);
@@ -718,7 +757,16 @@ mod tests {
     #[test]
     fn exact_service_requires_actual_entity_and_assigned_access() {
         let (s, n, w, z, mut p) = fixture();
-        append(&mut p, &s, &n, w, &z, &request("church", 20, 28)).unwrap();
+        append(
+            &mut p,
+            &s,
+            &n,
+            w,
+            &z,
+            &request("church", 20, 28),
+            super::super::frontage::RuralConversion::Disabled,
+        )
+        .unwrap();
         let mut e = p.site_entities();
         for e in &mut e {
             e.normalize_spatial_semantics();

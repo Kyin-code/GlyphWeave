@@ -595,6 +595,7 @@ mod tests {
                 profile: None,
             }],
             roadside_sites: vec![],
+            pad_conversions: vec![],
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: vec![],

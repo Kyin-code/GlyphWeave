@@ -919,6 +919,7 @@ mod tests {
             rejected_water: 0,
             rejected_relief: 0,
             unselected_candidates: 0,
+            pad_conversions: vec![],
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -960,6 +961,7 @@ mod tests {
             ],
             roadside_sites: vec![RoadsideSite {
                 program: None,
+                purpose: None,
                 id: "generated.site".into(),
                 road_id: "road0".into(),
                 world_x: 64,

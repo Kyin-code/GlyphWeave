@@ -95,6 +95,152 @@ impl Conversion {
     }
 }
 
+/// The purpose a roadside PAD's building kind declares, or `None` when the settlement programme does
+/// not know the kind.
+///
+/// A pad is not a frontage request: it carries no authored `purpose`, and that absence is exactly why
+/// the historical pad programme could stand on any buildable land and let the "city" grow on the
+/// farmland edge while the urban core stayed empty. The building kind is the only authored fact a pad
+/// has, so its purpose is DERIVED from that kind here and declared on the land the pad takes. A kind
+/// this function does not know cannot declare a purpose at all and is refused by name
+/// (`pad_purpose_undeclared`) instead of being handed a default.
+pub fn pad_purpose(kind: &str) -> Option<&'static str> {
+    match kind {
+        "residential_home" | "residential_block" | "storefront" | "school" | "church"
+        | "convenience_store" | "town_hall" | "market" => Some(Conversion::URBAN),
+        _ => None,
+    }
+}
+
+/// What the explicit along-road policy decides about ONE pad parcel BEFORE the pad lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PadPurpose {
+    /// The purpose the pad declares on the land it takes. `None` whenever the policy is off, which is
+    /// the historical pad programme: no declaration, no gate, no conversion.
+    pub declared: Option<&'static str>,
+    /// Why the pad may not land, if it may not.
+    pub reason: Option<&'static str>,
+    /// Buildable-core area the pad converts from rural to urban purpose, in whole square metres.
+    pub converted_m2: Option<i64>,
+}
+
+impl PadPurpose {
+    /// The policy-off verdict: no declaration, no refusal, no conversion.
+    pub(crate) const OFF: PadPurpose = PadPurpose {
+        declared: None,
+        reason: None,
+        converted_m2: None,
+    };
+}
+
+/// The purpose gate of ONE roadside pad, measured on the pad's own parcel.
+///
+/// With `style.frontageProgram.ruralConversion` off this is the identity `PadPurpose::OFF`, so the
+/// historical pad programme cannot move by a single byte. Switched on, the pad must first declare a
+/// purpose and then pass the SAME envelope verdict an along-road frontage parcel passes: urban land
+/// carries it directly, land whose buildable core is WHOLLY rural is converted and recorded, and
+/// everything else - nature, unassigned, protection, a parcel outside the scene - is refused under
+/// the existing `wrong_purpose_or_protected` key. Water, the reserved shore band and the engineering
+/// gates are refused BEFORE this by the pad's own checks and keep their own named reasons.
+pub(crate) fn pad_purpose_of(
+    parcel: [i64; 4],
+    insets: ParcelInsets,
+    rotation_y_deg: f32,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    kind: &str,
+    conversion: RuralConversion,
+) -> PadPurpose {
+    if !conversion.is_explicit() {
+        return PadPurpose::OFF;
+    }
+    let Some(purpose) = pad_purpose(kind) else {
+        return PadPurpose {
+            declared: None,
+            reason: Some("pad_purpose_undeclared"),
+            converted_m2: None,
+        };
+    };
+    let (reason, converted_m2) =
+        envelope_verdict(parcel, insets, rotation_y_deg, scene, zones, purpose, conversion);
+    PadPurpose {
+        declared: Some(purpose),
+        reason,
+        converted_m2,
+    }
+}
+
+/// The buildable-core area one planned pad converts from rural to urban purpose, if it earns one.
+///
+/// Scene-free on purpose: this is the form the AUDIT needs, because a record's area must be provable
+/// from the plan, the pad's own parcel and the zoning alone. The scene envelope was already enforced
+/// when the pad landed, and a parcel that claims a single protected square metre earns nothing here
+/// (`verify_conversion` refuses such a record by name on its own).
+pub fn pad_conversion_area(site: &RoadsideSite, zones: &[LandUseZone]) -> Option<i64> {
+    let parcel = parcel_boundary(site).ok()?;
+    if parcel_claims_protected(parcel, zones) {
+        return None;
+    }
+    let core = buildable_core(
+        parcel,
+        site.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+    )?;
+    if core_entirely_in(core, zones, Conversion::RURAL) {
+        Some(area(core))
+    } else {
+        None
+    }
+}
+
+/// The same verdict for one planned pad, from that pad's own parcel geometry and its own kind.
+pub(crate) fn pad_purpose_for_site(
+    site: &RoadsideSite,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    conversion: RuralConversion,
+) -> Result<PadPurpose, TerrainError> {
+    if !conversion.is_explicit() {
+        return Ok(PadPurpose::OFF);
+    }
+    Ok(pad_purpose_of(
+        parcel_boundary(site)?,
+        site.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+        scene,
+        zones,
+        site.kind(),
+        conversion,
+    ))
+}
+
+/// Every rural-to-urban conversion this plan's roadside PADS earned, in plan order.
+///
+/// The records are derived from the FINAL pad list instead of being accumulated while placing, so a
+/// pad that a later pass displaces or renames cannot leave a record behind: a conversion exists
+/// exactly as long as its parcel does. Only a pad that DECLARED a purpose can appear here; a frontage
+/// parcel keeps its own record in the frontage report, so no square metre is converted twice.
+pub(crate) fn pad_conversions(
+    plan: &RoadNetworkPlan,
+    scene: &SceneSpec,
+    zones: &[LandUseZone],
+    conversion: RuralConversion,
+) -> Result<Vec<Conversion>, TerrainError> {
+    let mut records = Vec::new();
+    if !conversion.is_explicit() {
+        return Ok(records);
+    }
+    for site in &plan.roadside_sites {
+        if site.purpose.is_none() {
+            continue;
+        }
+        if let Some(area_m2) = pad_purpose_for_site(site, scene, zones, conversion)?.converted_m2 {
+            records.push(Conversion::rural_to_urban(&site.id, area_m2));
+        }
+    }
+    Ok(records)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Program {
@@ -466,6 +612,9 @@ pub(super) fn candidate_site(
             kind: r.kind.clone(),
             height_m: r.height_m,
         }),
+        // A frontage parcel's purpose is its authored request, which `verify_conversion` reads from
+        // the outcome; it never declares one on the parcel itself.
+        purpose: None,
         id,
         road_id: road.entity_id.clone(),
         world_x: x,
@@ -624,13 +773,41 @@ pub fn verify_conversion(
                     .any(|id| id == &conversion.parcel_id)
             })
         })
-        .map(|outcome| outcome.request.purpose.clone())
-        .ok_or_else(|| {
-            format!(
-                "conversion parcel {} belongs to no authored request",
-                conversion.parcel_id
-            )
-        })?;
+        .map(|outcome| outcome.request.purpose.clone());
+    // A roadside PAD is not an authored frontage request: it declares its purpose on its own parcel
+    // instead. The declaration is re-derived from the pad's kind here rather than trusted, so a pad
+    // whose real purpose is not the urban one it claims fails by name.
+    let purpose = match purpose {
+        Some(purpose) => purpose,
+        None => match site.purpose.as_deref() {
+            Some(declared) => {
+                match pad_purpose(site.kind()) {
+                    Some(derived) if derived == declared => {}
+                    Some(derived) => {
+                        return Err(format!(
+                            "conversion parcel {} declares purpose {declared} but its kind {} is {derived}",
+                            conversion.parcel_id,
+                            site.kind()
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "conversion parcel {} declares purpose {declared} but its kind {} is no settlement purpose",
+                            conversion.parcel_id,
+                            site.kind()
+                        ));
+                    }
+                }
+                declared.to_string()
+            }
+            None => {
+                return Err(format!(
+                    "conversion parcel {} belongs to no authored request and declares no purpose",
+                    conversion.parcel_id
+                ));
+            }
+        },
+    };
     if purpose != Conversion::URBAN {
         return Err(format!(
             "conversion parcel {} belongs to a {purpose} request, not an urban one",
@@ -766,7 +943,7 @@ fn core_entirely_in(b: [i64; 4], zones: &[LandUseZone], kind: &str) -> bool {
 ///
 /// Returns `None` when the rotation is not one of the four cardinal directions or the core is degenerate,
 /// so a caller cannot silently treat an unusable core as covered.
-fn buildable_core(
+pub(crate) fn buildable_core(
     b: [i64; 4],
     insets: ParcelInsets,
     rotation_y_deg: f32,
@@ -2622,5 +2799,268 @@ mod tests {
                 "even wrong terrain must be audited, not silently heal the planned entity"
             );
         }
+    }
+
+    /// A 512 m scene cut into one urban block and one rural block by a single
+    /// horizontal boundary at z = 256. Every pad parcel below is placed around it, so one
+    /// number decides whether its core is urban, wholly rural or neither.
+    fn banded_zones(scene: &SceneSpec, north: &str) -> Vec<LandUseZone> {
+        vec![
+            LandUseZone {
+                id: "north".into(),
+                kind: north.into(),
+                world_x: scene.origin_x,
+                world_z: scene.origin_z,
+                width_m: scene.width_m,
+                depth_m: 256,
+                source: "test-north".into(),
+            },
+            LandUseZone {
+                id: "south".into(),
+                kind: "rural".into(),
+                world_x: scene.origin_x,
+                world_z: scene.origin_z + 256,
+                width_m: scene.width_m,
+                depth_m: 256,
+                source: "test-south".into(),
+            },
+        ]
+    }
+
+    fn pad_scene() -> SceneSpec {
+        SceneSpec {
+            scene_id: "pad-purpose".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        }
+    }
+
+    /// The pad programme's whole purpose contract, measured on the parcel itself: an explicit
+    /// switch is the ONLY thing that makes a pad declare a purpose, the declaration reuses the
+    /// frontage envelope verdict, and every land that is not urban or wholly rural is refused.
+    #[test]
+    fn a_pad_declares_its_purpose_only_under_the_explicit_switch_and_converts_only_rural_core() {
+        let s = pad_scene();
+        // A 24x24 pad on a zero-inset parcel: a 22x22 = 484 m2 buildable core.
+        let insets = ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 };
+        let parcel_at = |z: i64| {
+            let z = i64::from(0) + z;
+            // x 200..224, z z0..z0+24 in world metres
+            [200, z, 224, z + 24]
+        };
+        // OFF is the identity: the pad declares nothing, is never refused and never converts, even
+        // when it stands on protected land. That is what makes the switch byte-identical.
+        for kind in ["residential_home", "school", "convenience_store", "unknown_kind"] {
+            for north in ["urban", "rural", "nature", "unassigned"] {
+                let zones = banded_zones(&s, north);
+                assert_eq!(
+                    pad_purpose_of(
+                        parcel_at(300),
+                        insets,
+                        0.,
+                        &s,
+                        &zones,
+                        kind,
+                        RuralConversion::Disabled,
+                    ),
+                    PadPurpose::OFF,
+                    "kind {kind} on {north} land must be untouched with the switch off"
+                );
+            }
+        }
+        let rural = banded_zones(&s, "urban");
+        // ON, wholly rural core (z 280..304 stands in the rural half): the pad declares urban and
+        // converts exactly its buildable core.
+        let verdict = pad_purpose_of(
+            parcel_at(280),
+            insets,
+            0.,
+            &s,
+            &rural,
+            "residential_home",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!(verdict.declared, Some("urban"));
+        assert_eq!(verdict.reason, None);
+        assert_eq!(verdict.converted_m2, Some(484));
+        // ON, urban core: declared, placed directly, nothing converted.
+        let verdict = pad_purpose_of(
+            parcel_at(100),
+            insets,
+            0.,
+            &s,
+            &rural,
+            "residential_home",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!((verdict.declared, verdict.reason, verdict.converted_m2), (Some("urban"), None, None));
+        // ON, a core that is MOSTLY urban lands directly: the pad reuses the frontage programme's
+        // bounded-majority rule, so a core that only clips the rural edge is still urban land. No
+        // conversion is claimed for it, which is what keeps the two programmes on one rule.
+        let verdict = pad_purpose_of(
+            parcel_at(236),
+            insets,
+            0.,
+            &s,
+            &rural,
+            "residential_home",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!(
+            (verdict.declared, verdict.reason, verdict.converted_m2),
+            (Some("urban"), None, None),
+            "a core that is 17 of its 22 rows in urban land is urban land"
+        );
+        // ON, a core that is neither mostly urban nor wholly rural is refused under the existing
+        // purpose/protection key rather than converted, because a conversion may only take land whose
+        // buildable core is WHOLLY rural.
+        let verdict = pad_purpose_of(
+            parcel_at(244),
+            insets,
+            0.,
+            &s,
+            &rural,
+            "residential_home",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!(verdict.reason, Some("wrong_purpose_or_protected"));
+        assert_eq!(verdict.converted_m2, None);
+        // ON, protected land: a pad is never given a purpose there (the pad's own zoning and water
+        // gates refuse it first; this is the second, independent refusal).
+        for north in ["nature", "unassigned"] {
+            let zones = banded_zones(&s, north);
+            // the pad stands INSIDE the protected half here, so its core is that land
+            let verdict = pad_purpose_of(
+                parcel_at(100),
+                insets,
+                0.,
+                &s,
+                &zones,
+                "residential_home",
+                RuralConversion::RuralToUrban,
+            );
+            assert_eq!(
+                verdict.reason,
+                Some("wrong_purpose_or_protected"),
+                "{north} land must not be converted"
+            );
+            assert_eq!(verdict.converted_m2, None);
+        }
+        // A parcel whose RECTANGLE reaches one protected square metre earns nothing, even when its
+        // buildable core is wholly rural: the conversion decides the core, never what the parcel may
+        // own. The 1 m nature column runs through the whole scene so the west/east bands keep tiling.
+        let protected_column = vec![
+            LandUseZone {
+                id: "north-west".into(),
+                kind: "urban".into(),
+                world_x: 0,
+                world_z: 0,
+                width_m: 223,
+                depth_m: 256,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "column".into(),
+                kind: "nature".into(),
+                world_x: 223,
+                world_z: 0,
+                width_m: 1,
+                depth_m: 512,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "north-east".into(),
+                kind: "urban".into(),
+                world_x: 224,
+                world_z: 0,
+                width_m: 288,
+                depth_m: 256,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "south-west".into(),
+                kind: "rural".into(),
+                world_x: 0,
+                world_z: 256,
+                width_m: 223,
+                depth_m: 256,
+                source: "test".into(),
+            },
+            LandUseZone {
+                id: "south-east".into(),
+                kind: "rural".into(),
+                world_x: 224,
+                world_z: 256,
+                width_m: 288,
+                depth_m: 256,
+                source: "test".into(),
+            },
+        ];
+        assert_eq!(
+            protected_column
+                .iter()
+                .map(|zone| i64::from(zone.width_m) * i64::from(zone.depth_m))
+                .sum::<i64>(),
+            512 * 512,
+            "the protected fixture must tile the scene"
+        );
+        let claimed = parcel_at(280);
+        let core = buildable_core(claimed, insets, 0.).unwrap();
+        assert!(
+            core_entirely_in(core, &protected_column, "rural"),
+            "the buildable core must be wholly rural, so only the parcel rule can refuse it"
+        );
+        let verdict = pad_purpose_of(
+            claimed,
+            insets,
+            0.,
+            &s,
+            &protected_column,
+            "residential_home",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!(verdict.reason, Some("wrong_purpose_or_protected"));
+        assert_eq!(verdict.converted_m2, None);
+        // A kind the settlement programme does not know cannot declare a purpose at all, and that is
+        // the ONE new named refusal this round adds.
+        let verdict = pad_purpose_of(
+            parcel_at(280),
+            insets,
+            0.,
+            &s,
+            &rural,
+            "turnip_cart",
+            RuralConversion::RuralToUrban,
+        );
+        assert_eq!(verdict, PadPurpose { declared: None, reason: Some("pad_purpose_undeclared"), converted_m2: None });
+        // The scene-free form the AUDIT uses answers the same area for the same parcel.
+        let site = RoadsideSite {
+            program: None,
+            purpose: Some("urban".into()),
+            id: "generated.site".into(),
+            road_id: "road".into(),
+            world_x: 212,
+            world_z: 292,
+            width_m: 24,
+            depth_m: 24,
+            support_level_m: 0,
+            parcel_insets: Some(insets),
+            support_level_mm: None,
+            frontage_road_point: None,
+            rotation_y_deg: 0.,
+            natural_min_m: 0.,
+            natural_max_m: 0.,
+        };
+        assert_eq!(pad_conversion_area(&site, &rural), Some(484));
+        let urban_site = RoadsideSite { world_z: 112, ..site.clone() };
+        assert_eq!(pad_conversion_area(&urban_site, &rural), None);
+        assert_eq!(
+            pad_conversion_area(&site, &protected_column),
+            None,
+            "a parcel with any protected square metre converts nothing"
+        );
     }
 }

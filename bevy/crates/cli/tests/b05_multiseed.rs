@@ -464,7 +464,12 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
         let stop = outcome["stopReason"].as_str().unwrap_or("unspecified").to_owned();
         *frontage_stop_reasons.entry(stop).or_insert(0) += 1;
     }
-    let plan_conversions = frontage["conversions"].as_array().map_or(0, Vec::len);
+    // Every record the PLAN claims, from both lists: the along-road frontage programme's parcels and
+    // the roadside PAD programme's. A pad carries no authored request, so its record lives on the
+    // plan (`padConversions`) instead of inside the frontage report; the ledger applies both, so
+    // counting only one list would compare a partial plan against a complete ledger.
+    let mut plan_conversions = frontage["conversions"].as_array().map_or(0, Vec::len);
+    plan_conversions += roads["padConversions"].as_array().map_or(0, Vec::len);
     // The ledger is the accounting document: it rows the applied conversions.
     let ledger_conversions = ledger["conversions"].as_array().cloned().unwrap_or_default();
     let conversion_area_m2: i64 = ledger_conversions

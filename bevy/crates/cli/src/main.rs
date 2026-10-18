@@ -1986,10 +1986,17 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         let conversion_audit = match &scene.road_network_plan {
             Some(plan)
                 if land_use_ledger.is_some()
-                    && plan
+                    && (plan
                         .frontage
                         .as_ref()
-                        .is_some_and(|report| !report.conversions.is_empty()) =>
+                        .is_some_and(|report| !report.conversions.is_empty())
+                        || !plan.pad_conversions.is_empty()
+                        // A pad that DECLARED a purpose must be audited even when it converted
+                        // nothing: the audit is what proves no earned conversion was left out.
+                        || plan
+                            .roadside_sites
+                            .iter()
+                            .any(|site| site.purpose.is_some())) =>
             {
                 // The published ledger is the document a reader sees, so that is what must agree with
                 // the plan; a missing one carries no claim at all and therefore fails.
