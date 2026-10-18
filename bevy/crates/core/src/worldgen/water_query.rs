@@ -37,6 +37,21 @@ impl Rect {
 }
 
 impl WaterGeometry {
+    /// The raster-side waterfront opt-in. `false` for every input that did not
+    /// state `automaticRoadExtensions.allowStructuredWater`.
+    pub fn road_water_crossings(self) -> bool {
+        self.road_water_crossings
+    }
+
+    /// May an earthwork fill be placed at this cell?
+    ///
+    /// Only ever `false` for an opted-in structured-water scene: the water bed,
+    /// the banks and the surface are then the natural raster exactly, so a road
+    /// that reaches the water has to be carried by a registered structure deck.
+    pub fn forbids_earthwork(self, x: f64, z: f64) -> bool {
+        self.road_water_crossings && self.contains_point(x, z)
+    }
+
     pub fn contains_point(self, x: f64, z: f64) -> bool {
         match self.kind {
             WaterKind::None => false,
@@ -205,6 +220,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         }
     }
     fn rect(x: f64, z: f64, hx: f64, hz: f64, angle: f64) -> Rect {

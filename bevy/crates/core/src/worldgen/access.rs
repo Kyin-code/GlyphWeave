@@ -1282,11 +1282,11 @@ mod tests {
         let (mut entities, terrain, _) = fixture();
         entities[1].entity_id = "generated.road".into();
         entities[1].world_y = 100;
-        rebase_generated_transport_to_baked_surface(&mut entities, &[], &terrain);
+        rebase_generated_transport_to_baked_surface(&mut entities, &[], &terrain, None);
         assert_eq!(entities[1].world_y, 0);
         entities[1].entity_id = "authored.road".into();
         entities[1].world_y = 100;
-        rebase_generated_transport_to_baked_surface(&mut entities, &[], &terrain);
+        rebase_generated_transport_to_baked_surface(&mut entities, &[], &terrain, None);
         assert_eq!(entities[1].world_y, 100);
     }
 

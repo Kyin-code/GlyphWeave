@@ -56,6 +56,19 @@ pub struct RoadNetworkPlan {
     /// site is NOT placed and is never silently dropped.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roadside_site_rejections: Vec<BaseProfileRejection>,
+    /// Road-first over structured water: one engineering structure per road
+    /// segment that crosses the scene's water body.
+    ///
+    /// Empty for every input that did not opt in
+    /// (`automaticRoadExtensions.allowStructuredWater`), so the field is absent
+    /// from every existing plan.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub water_crossings: Vec<WaterCrossing>,
+    /// Opt-in only: candidates that intersect the water body but were refused,
+    /// with the reason. Never a silent drop - the historical count-only
+    /// `rejected_water` cannot say why a waterfront scene has no crossing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub water_crossing_rejections: Vec<BaseProfileRejection>,
 }
 
 /// One named refusal from base-edge profile generation (B01-T2 C2).
@@ -244,6 +257,16 @@ impl RoadNetworkPlan {
                     grounding: GroundingSpec {
                         road_profile: profile,
                         bottom_offset_m: (height - height.floor()) as f32,
+                        // Opt-in: a registered water crossing is a STRUCTURE deck.
+                        // `plan_terrain_carves` refuses to carve it, so the water
+                        // bed under the span and the ground under the span are
+                        // exactly the natural raster. False everywhere else, and
+                        // not serialized when false, so existing entities are
+                        // byte-identical.
+                        structure_deck: self
+                            .water_crossings
+                            .iter()
+                            .any(|crossing| crossing.road_id == e.id),
                         ..Default::default()
                     },
                     anchors: Vec::new(),
@@ -254,13 +277,37 @@ impl RoadNetworkPlan {
     }
 }
 
+/// The only accepted value of `style.automaticRoadExtensions.allowStructuredWater`.
+///
+/// The value is a decision, not a flag: it says every road metre over the
+/// scene's structured water body is carried by a registered engineering
+/// structure (`bridge`/`causeway`) and that no earthwork is placed in the
+/// water. Absent or any other value keeps road-first disabled for a water
+/// scene, which is the historical behaviour (`enabled`).
+pub const STRUCTURED_WATER_OPT_IN: &str = "bridge-or-causeway";
+
+/// Does this style authorize road-first planning across structured water?
+///
+/// Pure string test against [`STRUCTURED_WATER_OPT_IN`]; it never inspects the
+/// water geometry, so the caller can ask before a scene is even baked. The
+/// consuming bake additionally stamps the same predicate onto `WaterGeometry`
+/// (`road_water_crossings`), which is what keys the no-earthwork-in-water rule
+/// for the raster.
+pub fn allows_structured_water(style: &serde_json::Value) -> bool {
+    style
+        .get("automaticRoadExtensions")
+        .and_then(|program| program.get("allowStructuredWater"))
+        .and_then(serde_json::Value::as_str)
+        == Some(STRUCTURED_WATER_OPT_IN)
+}
+
 pub fn enabled(style: &serde_json::Value, water: WaterGeometry) -> bool {
     matches!(
         style
             .get("generationProfile")
             .and_then(serde_json::Value::as_str),
         Some("strict" | "release")
-    ) && water.kind == super::WaterKind::None
+    ) && (water.kind == super::WaterKind::None || allows_structured_water(style))
         && style.get("landUseProfile").is_some()
         && style
             .get("naturalOnly")
@@ -494,6 +541,173 @@ fn roadside_placement_candidates(
     out
 }
 
+/// One road segment that is carried over a structured water body by an
+/// engineering structure instead of by earthwork.
+///
+/// This record is the *only* authorization for a road to sit on water, and it
+/// is audited against the water body and the natural/final rasters rather than
+/// trusted: [`measure_water_crossing`] recomputes every number here from the
+/// road's own published footprint, and [`audit_water_crossings`] refuses any
+/// disagreement by name.
+///
+/// A crossing road performs NO earthwork: its deck is a structure, so the water
+/// bed, the banks and the water surface are exactly what the natural raster
+/// already holds. `causeway` is accepted as a type because the authorization is
+/// about the structure class, not about how it is built; both classes are held
+/// to the same invariant - nothing is filled, and the deck clears the water.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WaterCrossing {
+    /// the road entity that carries the span
+    pub road_id: String,
+    /// `"bridge"` or `"causeway"`; nothing else is a legal structure here
+    pub kind: String,
+    /// the road's pavement width over the span, in metres
+    pub width_m: u32,
+    /// measured length of the span over water: the number of 1 m stations along
+    /// the road axis whose pavement band holds at least one water cell
+    pub length_m: u32,
+    /// footprint cells of the pavement band that lie inside the water body
+    pub wet_cells: u32,
+    /// bounding box of those cells, `[min_x, min_z, max_x, max_z]`
+    pub span: [i32; 4],
+    /// canonical identity of the crossed water body (`water.<scene>.<kind>`)
+    pub water_id: String,
+    /// `"lake"` or `"river"` - the crossed body's class, restated so a record
+    /// cannot outlive the water it names
+    pub water_kind: String,
+    /// the water datum the deck has to clear, millimetres above the scene datum
+    pub water_level_mm: i32,
+    /// the deck surface, millimetres (the road's own design level)
+    pub deck_level_mm: i32,
+    /// natural bed range under the span, millimetres
+    pub bed_min_mm: i32,
+    pub bed_max_mm: i32,
+    /// highest natural ground on the DRY part of the roadbed. The deck is
+    /// required to sit at or above it (no excavation) and to reach it from
+    /// above by no more than the roadbed fill contract (`maxRoadbedFillM`).
+    pub take_off_max_mm: i32,
+}
+
+/// Independently recomputable measurement of one road's contact with water.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaterCrossingMeasurement {
+    pub wet_cells: u32,
+    pub stations_m: u32,
+    pub span: [i32; 4],
+    pub bed_min_mm: i32,
+    pub bed_max_mm: i32,
+}
+
+/// Measure the pavement band of `road` against `water`, from the published road
+/// geometry alone. `None` when the band never touches the water body.
+///
+/// The band is the road's graded TRANSPORT footprint
+/// (`graded_transport_half_extents`): the same rectangle the earthwork contract
+/// is audited on and the same one the planner scans, so the planned record, the
+/// audit's re-measurement and the fill/no-fill clauses cannot disagree about
+/// which cells belong to the road.
+///
+/// One function produces both the planned record and the audit's re-measurement,
+/// so the two cannot drift: a record is a *claim* about this function's output,
+/// and a forged claim is a disagreement with it.
+pub fn measure_water_crossing(
+    road: &EntityInstance,
+    water: WaterGeometry,
+    natural: &BakedTerrain,
+) -> Result<Option<WaterCrossingMeasurement>, TerrainError> {
+    if water.kind == super::WaterKind::None {
+        return Ok(None);
+    }
+    let (hw, hd) = super::graded_transport_half_extents(road);
+    let along_x = road.rotation_y_deg != 90.;
+    let mut wet_cells = 0_u32;
+    let mut stations = 0_u32;
+    let mut span = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+    let mut bed_min_mm = i32::MAX;
+    let mut bed_max_mm = i32::MIN;
+    let (lo_along, hi_along) = if along_x {
+        (road.world_x - hw, road.world_x + hw)
+    } else {
+        (road.world_z - hd, road.world_z + hd)
+    };
+    let transverse = if along_x { hd } else { hw };
+    for station in lo_along..=hi_along {
+        let mut station_wet = false;
+        for offset in -transverse..=transverse {
+            let (x, z) = if along_x {
+                (station, road.world_z + offset)
+            } else {
+                (road.world_x + offset, station)
+            };
+            if !water.contains_point(f64::from(x), f64::from(z)) {
+                continue;
+            }
+            station_wet = true;
+            wet_cells += 1;
+            span[0] = span[0].min(x);
+            span[1] = span[1].min(z);
+            span[2] = span[2].max(x);
+            span[3] = span[3].max(z);
+            // The bed is the NATURAL surface under the deck: the record states
+            // it so a span cannot be claimed over ground that was never wet.
+            let h = natural
+                .height(x, z)
+                .ok_or_else(|| TerrainError("water crossing missing natural bed sample".into()))?;
+            let mm = (h * 1000.).round() as i32;
+            bed_min_mm = bed_min_mm.min(mm);
+            bed_max_mm = bed_max_mm.max(mm);
+        }
+        if station_wet {
+            stations += 1;
+        }
+    }
+    if wet_cells == 0 {
+        return Ok(None);
+    }
+    Ok(Some(WaterCrossingMeasurement {
+        wet_cells,
+        stations_m: stations,
+        span,
+        bed_min_mm,
+        bed_max_mm,
+    }))
+}
+
+/// The water surface datum, in millimetres above the scene datum.
+///
+/// `terrain_height_metres` is the authority: every lake/river bed cell is
+/// clamped into `-7.0 ..= -1.0` m and every bank cell is lifted to at least
+/// `1.5` m, so the surface a deck has to clear is the scene datum itself.
+/// `style.water.levelM` is a *reporting* field - the bake never reads it - so it
+/// cannot move this number without moving the baked bed first.
+pub const WATER_DATUM_MM: i32 = 0;
+
+/// The structure classes a water crossing may use. Anything else is refused.
+pub const WATER_CROSSING_KINDS: [&str; 2] = ["bridge", "causeway"];
+
+pub fn water_kind_name(kind: super::WaterKind) -> &'static str {
+    match kind {
+        super::WaterKind::None => "none",
+        super::WaterKind::Lake => "lake",
+        super::WaterKind::River => "river",
+    }
+}
+
+/// Canonical identity of a scene's structured water body, restated in every
+/// crossing record so a record cannot outlive the water it names.
+pub fn water_body_id(scene_id: &str, water: WaterGeometry) -> String {
+    format!("water.{scene_id}.{}", water_kind_name(water.kind))
+}
+
+/// One candidate segment that touches the water body, carried from the
+/// candidate scan into the level search and then into the published record.
+#[derive(Clone, Copy)]
+pub(super) struct CrossingDraft {
+    /// highest natural ground on the DRY part of the band
+    dry_max_m: f32,
+}
+
 pub(super) fn plan_with_zones(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
@@ -554,6 +768,8 @@ pub(super) fn plan_with_zones_demand(
         zoning_rejections: Vec::new(),
         service_outcomes: Vec::new(),
         joint_layout: None,
+        water_crossings: Vec::new(),
+        water_crossing_rejections: Vec::new(),
     };
     let xs: Vec<i32> = (32..scene.width_m.saturating_sub(32))
         .step_by(step as usize)
@@ -575,6 +791,7 @@ pub(super) fn plan_with_zones_demand(
     }
     let mut edges = Vec::new();
     let mut level_caps = Vec::new();
+    let mut crossing_drafts: BTreeMap<String, CrossingDraft> = BTreeMap::new();
     for row in 0..zs.len() {
         for col in 0..xs.len() {
             let from = row * xs.len() + col;
@@ -608,24 +825,35 @@ pub(super) fn plan_with_zones_demand(
                     result.zoning_rejections.push(reject);
                     continue;
                 }
-                if water.intersects_axis_aligned(
+                let water_contact = water.intersects_axis_aligned(
                     f64::from(x),
                     f64::from(z),
                     f64::from(hw),
                     f64::from(hd),
-                ) {
+                );
+                if water_contact && !water.road_water_crossings() {
                     result.rejected_water += 1;
                     continue;
                 }
                 let mut min = f32::INFINITY;
                 let mut max = f32::NEG_INFINITY;
                 let mut protected_cap = f64::INFINITY;
+                let mut wet_cells = 0_u32;
                 // Full authoritative raster, not nine probes that miss ridges.
                 for zz in z - hd..=z + hd {
                     for xx in x - hw..=x + hw {
                         let h = terrain.height(xx, zz).ok_or_else(|| {
                             TerrainError("road footprint missing natural sample".into())
                         })?;
+                        if water_contact
+                            && water.contains_point(f64::from(xx), f64::from(zz))
+                        {
+                            // Opt-in structure deck: the span over water carries
+                            // no earthwork, so it is excluded from the roadbed
+                            // fill range and can never raise the bed.
+                            wet_cells += 1;
+                            continue;
+                        }
                         min = min.min(h);
                         max = max.max(h);
                         if let Some(mask) = &zoning {
@@ -634,9 +862,43 @@ pub(super) fn plan_with_zones_demand(
                         }
                     }
                 }
-                if max.ceil() - min > max_fill || f64::from(max.ceil()) > protected_cap {
+                let crossing = wet_cells > 0;
+                if crossing && !min.is_finite() {
+                    // A candidate whose whole band is water has no dry support at
+                    // either end: gripping it would need piers standing in the
+                    // water, which the water-surface invariant forbids. Refused
+                    // BY NAME so a waterfront scene can say why it has no bridge.
+                    result.water_crossing_rejections.push(BaseProfileRejection {
+                        edge_id: format!(
+                            "generated.road-network.{}.{}-{}",
+                            scene.scene_id, from, to
+                        ),
+                        category: "crossing_spans_only_water".into(),
+                        reason: format!(
+                            "candidate at ({x},{z}) is {}x{} m and its entire graded transport band is water; a structure with no dry take-off at either end would need piers in the water body",
+                            hw * 2 + 1,
+                            hd * 2 + 1
+                        ),
+                    });
+                    result.rejected_water += 1;
+                    continue;
+                }
+                if !crossing && (max.ceil() - min > max_fill || f64::from(max.ceil()) > protected_cap)
+                {
                     result.rejected_relief += 1;
                     continue;
+                }
+                if crossing {
+                    // A deck is not an embankment: the roadbed FILL contract does
+                    // not apply to it, and the 6 m number is not relaxed - it is
+                    // re-applied to the only earthwork contact the span has, the
+                    // dry take-off (`level - dry_max <= max_roadbed_fill_m`, see
+                    // the level search below). Filling the water instead is
+                    // forbidden outright.
+                    crossing_drafts.insert(
+                        format!("generated.road-network.{}.{}-{}", scene.scene_id, from, to),
+                        CrossingDraft { dry_max_m: max },
+                    );
                 }
                 level_caps.push(protected_cap);
                 edges.push(RoadEdge {
@@ -666,10 +928,20 @@ pub(super) fn plan_with_zones_demand(
     for level in levels {
         let mut adjacency = vec![Vec::new(); all_nodes.len()];
         for (i, e) in edges.iter().enumerate() {
-            if level as f32 >= e.natural_max_m
-                && level as f32 - e.natural_min_m <= max_fill
-                && f64::from(level) <= level_caps[i]
-            {
+            // A structure deck has no embankment to build, so the roadbed-fill
+            // bound is applied to its only earthwork contact instead: the deck
+            // may sit at or above the highest dry cell (never excavating) and no
+            // more than `max_fill` above it. Its own span carries no fill at all.
+            let fill_ok = if let Some(draft) = crossing_drafts.get(&e.id) {
+                level as f32 >= e.natural_max_m
+                    && level as f32 - draft.dry_max_m <= max_fill
+                    // The deck has to clear the water surface, or the "road" is a
+                    // submerged slab and the water is displaced by the roadbed.
+                    && level as f32 > WATER_DATUM_MM as f32 / 1000.
+            } else {
+                level as f32 >= e.natural_max_m && level as f32 - e.natural_min_m <= max_fill
+            };
+            if fill_ok && f64::from(level) <= level_caps[i] {
                 adjacency[e.from].push((e.to, i));
                 adjacency[e.to].push((e.from, i));
             }
@@ -721,6 +993,41 @@ pub(super) fn plan_with_zones_demand(
         result.edges.push(e);
     }
     result.nodes = used.into_values().collect();
+    // Opt-in water crossings: one engineering structure per SELECTED segment that
+    // touches the water body. The record is measured from the very pavement
+    // geometry the product publishes (`RoadNetworkPlan::entities`), so the audit
+    // can recompute it rather than trust it.
+    if let Some(level) = result.level_m {
+        let mut records = Vec::new();
+        for entity in result.entities() {
+            let Some(draft) = crossing_drafts.get(&entity.entity_id) else {
+                continue;
+            };
+            let Some(measured) = measure_water_crossing(&entity, water, terrain)? else {
+                continue;
+            };
+            records.push(WaterCrossing {
+                road_id: entity.entity_id.clone(),
+                // A span that leaves the water bed untouched is a bridge; a
+                // causeway record is accepted by the audit only under the same
+                // no-displacement invariant, which this planner never has to
+                // project because it only builds free spans.
+                kind: "bridge".into(),
+                width_m: entity.depth_m.round() as u32,
+                length_m: measured.stations_m,
+                wet_cells: measured.wet_cells,
+                span: measured.span,
+                water_id: water_body_id(&scene.scene_id, water),
+                water_kind: water_kind_name(water.kind).into(),
+                water_level_mm: WATER_DATUM_MM,
+                deck_level_mm: level * 1000,
+                bed_min_mm: measured.bed_min_mm,
+                bed_max_mm: measured.bed_max_mm,
+                take_off_max_mm: (draft.dry_max_m * 1000.).round() as i32,
+            });
+        }
+        result.water_crossings = records;
+    }
     // B01-R1 T2 (OPT-B): now that the base edges and the chosen level are known, give each base edge its
     // own authoritative profile through the REAL alignment solver. Edges whose design or validation does
     // not hold keep `profile: None` and their named rejection is returned to the caller, so a base road
@@ -900,6 +1207,16 @@ pub(super) fn plan_with_zones_demand(
         let pad_win: i32 = pad_own_hw_f.ceil() as i32;
         let pad_win_i64: i64 = i64::from(pad_win);
         let audit_win: i32 = pad_half_f.ceil() as i32;
+        // Opt-in waterfront: the pad's fill gate scans the window the AUDIT
+        // scans, not only the pad's own. A waterfront bank drops several metres
+        // inside the 2 m apron between the two windows, so a pad whose own window
+        // is legal can still be audited against a cell the gate never looked at.
+        // The two windows are byte-identical for every input that did not opt in.
+        let fill_gate_win: i32 = if water.road_water_crossings() {
+            audit_win
+        } else {
+            pad_win
+        };
         let mut site_rejections: Vec<BaseProfileRejection> = Vec::new();
         // `roadside_request` is defined once at the top of this block: the R13
         // grading-feasibility pre-pass and this station scan must ask the frontage
@@ -1054,6 +1371,50 @@ pub(super) fn plan_with_zones_demand(
                     });
                     continue;
                 }
+                if water.road_water_crossings() {
+                    // Opt-in waterfront: a pad is declared FLAT and its carve is
+                    // fill-only, so the ground inside the pad's audited window has
+                    // to be realizable within the roadbed fill contract. On a bank
+                    // or a shore shelf the natural ground drops several metres
+                    // inside that window, the pad would need far more fill than the
+                    // contract allows, and the final audit would refuse the site
+                    // after it had been placed. Refuse it HERE, by name.
+                    let declared_f = f64::from(level);
+                    let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
+                    for zz in z - audit_win..=z + audit_win {
+                        for xx in x - audit_win..=x + audit_win {
+                            let natural_m = f64::from(terrain.height(xx, zz).ok_or_else(|| {
+                                TerrainError("missing roadside natural sample".into())
+                            })?);
+                            low = low.min(natural_m);
+                            high = high.max(natural_m);
+                        }
+                    }
+                    if high - low > f64::from(max_fill)
+                        || declared_f - low > f64::from(max_fill) + 1e-9
+                        // Every waterfront pad is flat on the NETWORK level. A pad
+                        // that would have to be declared above it (because the
+                        // ground inside its window already stands higher) would sit
+                        // at a different height from its neighbours, and a higher
+                        // pad's fill-only carve buries the lower one; the pad is
+                        // refused instead of being placed at a second level.
+                        || high > declared_f + 1e-9
+                    {
+                        site_rejections.push(BaseProfileRejection {
+                            edge_id: format!(
+                                "generated.roadside.{}.{}.{side}",
+                                scene.scene_id, e.id
+                            ),
+                            category: "pad_ground_exceeds_roadbed_contract".into(),
+                            reason: format!(
+                                "site at ({x},{z}) on road {}: its flat pad on {declared_f:.3} m would need {:.3} m of fill over natural {low:.3}..{high:.3} m (cap {max_fill} m, no excavation)",
+                                e.id,
+                                declared_f - low
+                            ),
+                        });
+                        continue;
+                    }
+                }
                 let own_mm = station_own_mm;
                 let Some(own_mm) = own_mm else {
                     // legacy / unprofiled adjacent road: keep the old flat-level path
@@ -1140,8 +1501,8 @@ pub(super) fn plan_with_zones_demand(
                     }
                 }
                 let declared_f = declared_mm as f64 / 1000.;
-                for zz in z - pad_win..=z + pad_win {
-                    for xx in x - pad_win..=x + pad_win {
+                for zz in z - fill_gate_win..=z + fill_gate_win {
+                    for xx in x - fill_gate_win..=x + fill_gate_win {
                         let natural_m = f64::from(
                             terrain
                                 .height(xx, zz)
@@ -1468,8 +1829,30 @@ pub(super) fn attach_base_edge_profiles(
         }
     }
     let mut refusals = Vec::new();
+    let decks: BTreeSet<String> = plan
+        .water_crossings
+        .iter()
+        .map(|crossing| crossing.road_id.clone())
+        .collect();
     for edge in plan.edges.iter_mut() {
         if edge.profile.is_some() {
+            continue;
+        }
+        if decks.contains(&edge.id) {
+            // A registered water crossing is a structure deck: the corridor
+            // designer models a graded EARTHWORK support band, which this span
+            // deliberately does not have. The refusal is named instead of being
+            // reported as a solver failure, and the deck keeps the flat junction
+            // level, so its longitudinal grade is 0 mm/m - inside the contract's
+            // 80 mm/m rather than exempt from it.
+            refusals.push(BaseProfileRejection {
+                edge_id: edge.id.clone(),
+                category: "water_crossing_structure_deck".into(),
+                reason: format!(
+                    "edge {}: registered bridge over structured water carries no graded earthwork corridor, so no longitudinal profile is designed; the deck is flat at the junction level (0 mm/m rise against the 80 mm/m contract)",
+                    edge.id
+                ),
+            });
             continue;
         }
         match base_edge_profile(edge, nodes, &context, level) {
@@ -1554,8 +1937,499 @@ pub(super) fn plan_with_style_declared(
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
+    if water.road_water_crossings() {
+        // Opt-in waterfront: the roadside pad programme is refused as a whole.
+        //
+        // A pad is a FLAT 24x24 surface whose top the baked audit holds exactly,
+        // while everything around it is fill-only: a neighbouring lot that needs a
+        // platform a couple of metres higher raises the raster across the pad's
+        // own window and the pad is then buried - measured here as one
+        // `residential_home` pad at 7 m sitting under an `urban_building` platform
+        // at 9 m in the final raster, refused by the rules audit as
+        // "not grounded". Neither side can be repaired by earthwork, because
+        // excavating the bank is exactly what this contract forbids, and a shore is
+        // a multi-level surface by construction. So the pads are refused BY NAME
+        // (never silently dropped) and the road network - which is what the opt-in
+        // authorizes - is planned unchanged. A refusal keeps the plan honest: an
+        // audit can read, per pad, why the waterfront block carries no lots.
+        let mut refused = Vec::new();
+        for site in std::mem::take(&mut result.roadside_sites) {
+            refused.push(BaseProfileRejection {
+                edge_id: site.id.clone(),
+                category: "waterfront_pad_needs_a_second_level".into(),
+                reason: format!(
+                    "site at ({},{}) on road {} would be declared flat on {} m; a waterfront shore is a multi-level surface, and a neighbouring platform's fill-only carve would bury this pad while excavating the bank to meet it is forbidden",
+                    site.world_x, site.world_z, site.road_id, site.support_level_m
+                ),
+            });
+        }
+        result.roadside_site_rejections.extend(refused);
+    }
     Ok(result)
 }
+#[cfg(test)]
+mod waterfront_tests {
+    //! Opt-in road-first across structured water
+    //! (`style.automaticRoadExtensions.allowStructuredWater = "bridge-or-causeway"`).
+    //!
+    //! The contract, in the order it is asserted:
+    //!
+    //!  * a water scene WITHOUT the switch still plans no road network at all
+    //!    (`enabled` is the only gate, and it has not moved);
+    //!  * a water scene WITH the switch plans a connected network and registers
+    //!    one bridge per road segment that touches the water;
+    //!  * every registered number - span length, wet-cell count, position box,
+    //!    bed range, deck level, take-off - equals the value RECOMPUTED from the
+    //!    road's own published geometry, the water body and the natural raster;
+    //!  * the water surface is exactly the same before and after: nothing is
+    //!    filled in the water, so the wetted area cannot move;
+    //!  * the existing numeric contracts still hold on the span: the deck sits at
+    //!    or above every dry cell, the rise from the take-off stays inside the
+    //!    6 m roadbed fill contract, and the flat deck is 0 mm/m against the
+    //!    8%/m grade contract;
+    //!  * forged records fail BY NAME: an overstated span, a deleted record, a dry
+    //!    road marked as a bridge, a wrong water body and a buried deck.
+    //!
+    //! The rasters are produced by the PRODUCTION encoder
+    //! (`generate_chunk_encoded`) from the plan's own entities and carves, so the
+    //! audit sees exactly the raster a bake would publish for this plan.
+    use super::*;
+    use crate::worldgen::{
+        LandUseProfile, NaturalSource, SceneSpec, WaterKind, plan_landuse_zones,
+        plan_terrain_carves, water_geometry,
+    };
+
+    fn scene() -> SceneSpec {
+        SceneSpec {
+            scene_id: "waterfront".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        }
+    }
+
+    fn style(opt_in: bool) -> serde_json::Value {
+        let mut program = serde_json::json!({
+            "version": 1,
+            "scenes": [{
+                "sceneId": "waterfront",
+                "maxNewSegments": 1,
+                "maxCandidateAttempts": 1,
+                "segmentLengthsM": [64],
+                "priorityPurposes": ["urban"],
+                "reachDistanceM": 16
+            }]
+        });
+        if opt_in {
+            program["allowStructuredWater"] = serde_json::json!(STRUCTURED_WATER_OPT_IN);
+        }
+        serde_json::json!({
+            "generationProfile": "strict",
+            "heightPrecision": "millimeter",
+            "terrainProfile": "plains",
+            "landUseProfile": {
+                "theme": "temperate-plain",
+                "urbanCoreRatio": 0.10,
+                "suburbanRatio": 0.10,
+                "greenRatio": 0.06,
+                "farmRatio": 0.32,
+                "forestRatio": 0.14,
+                "pastureRatio": 0.26,
+                "reserveRatio": 0.04
+            },
+            "water": { "waterType": "river", "levelPolicy": "horizontal-datum", "levelM": 0 },
+            "automaticRoadExtensions": program
+        })
+    }
+
+    fn landmark() -> super::super::LandmarkSpec {
+        serde_json::from_value(serde_json::json!({
+            "entityId": "landmark.waterfront-river",
+            "name": "waterfront river",
+            "type": "river",
+            "purpose": "structured water the plan has to span",
+            "description": "north-south river through the middle of the town",
+            "sceneId": "waterfront",
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": 16,
+            "depthM": 512,
+            "heightM": 1,
+            "assetId": "water.waterfront-river"
+        }))
+        .unwrap()
+    }
+
+    fn water(style: &serde_json::Value, scene: &SceneSpec) -> WaterGeometry {
+        water_geometry(
+            super::super::water_kind(style),
+            &[landmark()],
+            scene,
+            style,
+        )
+    }
+
+    /// The production raster for this scene and carve set, as the bake would
+    /// publish it (`generate_chunk_encoded` writes the same bytes). `zoning` is
+    /// the same mask the bake hands the encoder, so protected land keeps its
+    /// natural height exactly as it does in a published world.
+    fn raster(
+        scene: &SceneSpec,
+        seed: u64,
+        water: WaterGeometry,
+        carves: &[super::super::TerrainCarve],
+        zoning: Option<&crate::worldgen::zoning::ZoningMask>,
+    ) -> BakedTerrain {
+        let (height, _surface, _lod2, _terrain) = super::super::generate_chunk_encoded(
+            seed,
+            scene.origin_x,
+            scene.origin_z,
+            scene.width_m,
+            scene.depth_m,
+            water,
+            carves,
+            false,
+            zoning,
+        );
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &height,
+            )
+            .unwrap();
+        terrain
+    }
+
+    /// Wet cells: inside the water body and strictly below the baked datum.
+    fn wet_area(terrain: &BakedTerrain, water: WaterGeometry) -> u64 {
+        let (origin_x, origin_z) = terrain.scene_origin();
+        let (width, depth) = terrain.scene_dimensions();
+        let mut wet = 0_u64;
+        for z in origin_z..origin_z + depth as i32 {
+            for x in origin_x..origin_x + width as i32 {
+                if water.contains_point(f64::from(x), f64::from(z))
+                    && terrain.height(x, z).is_some_and(|h| h < 0.)
+                {
+                    wet += 1;
+                }
+            }
+        }
+        wet
+    }
+
+    #[test]
+    fn without_the_switch_a_water_scene_still_plans_no_network() {
+        let style = style(false);
+        let scene = scene();
+        // `enabled` is the one predicate the whole product chain asks; the switch
+        // is the only thing that changed, and without it a structured water body
+        // still disables road-first exactly as before.
+        assert!(!allows_structured_water(&style));
+        let water = water(&style, &scene);
+        assert!(!enabled(&style, water));
+    }
+
+    #[test]
+    fn opt_in_plans_spans_that_match_the_water_and_leave_it_untouched() {
+        let seed = 42_u64;
+        let style = style(true);
+        let scene = scene();
+        let water = water(&style, &scene);
+        assert!(allows_structured_water(&style));
+        assert!(enabled(&style, water));
+        assert!(water.road_water_crossings());
+        let zones = plan_landuse_zones(
+            &scene,
+            &LandUseProfile::from_style(&style).unwrap(),
+        );
+        let mask = crate::worldgen::zoning::ZoningMask::new(&scene, &zones).unwrap();
+        let natural = raster(&scene, seed, water, &[], None);
+        let source = NaturalSource::AuthoredSeed { seed, precise: false };
+        let plan = plan_with_style_declared(
+            &scene,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        assert!(
+            !plan.edges.is_empty(),
+            "the opt-in has to produce a connected network: {plan:?}"
+        );
+        assert_eq!(plan.status, "planned_connected_network");
+        assert!(
+            !plan.water_crossings.is_empty(),
+            "a road network over a 16 m river must register spans"
+        );
+
+        // The published entities and the production raster for exactly those
+        // entities: no rebase, no settlement programme, just the road plan.
+        let entities: Vec<EntityInstance> = plan
+            .entities()
+            .into_iter()
+            .chain(plan.site_entities())
+            .collect();
+        let carves = plan_terrain_carves(&entities);
+        let final_terrain = raster(&scene, seed, water, &carves, Some(&mask));
+
+        // (2) every record is a claim about the road's own published geometry.
+        let mut measured_total = 0_u32;
+        let mut recorded_total = 0_u32;
+        for crossing in &plan.water_crossings {
+            assert_eq!(crossing.kind, "bridge");
+            assert_eq!(crossing.water_id, water_body_id("waterfront", water));
+            assert_eq!(crossing.water_kind, "river");
+            assert_eq!(crossing.water_level_mm, WATER_DATUM_MM);
+            assert!(crossing.length_m > 0 && crossing.wet_cells > 0);
+            assert_eq!(
+                i64::from(crossing.length_m),
+                i64::from(crossing.span[2]) - i64::from(crossing.span[0]) + 1
+            );
+            let road = plan
+                .entities()
+                .into_iter()
+                .find(|entity| entity.entity_id == crossing.road_id)
+                .expect("crossing names a planned road");
+            let measured = measure_water_crossing(&road, water, &natural)
+                .unwrap()
+                .expect("the named road really does touch the water");
+            assert_eq!(crossing.length_m, measured.stations_m, "{}", crossing.road_id);
+            assert_eq!(crossing.wet_cells, measured.wet_cells);
+            assert_eq!(crossing.span, measured.span);
+            assert_eq!(crossing.bed_min_mm, measured.bed_min_mm);
+            assert_eq!(crossing.bed_max_mm, measured.bed_max_mm);
+            assert_eq!(crossing.deck_level_mm, road.world_y * 1000);
+            assert!(crossing.deck_level_mm > crossing.water_level_mm);
+            recorded_total += crossing.length_m;
+            measured_total += measured.stations_m;
+        }
+        assert_eq!(recorded_total, measured_total);
+        // (3) the water surface is EXACTLY the same before and after.
+        let wet_before = wet_area(&natural, water);
+        let wet_after = wet_area(&final_terrain, water);
+        assert!(wet_before > 0);
+        assert_eq!(
+            wet_before, wet_after,
+            "the span must place no earthwork in the water"
+        );
+        // (4) the independent audit of the same record passes end to end,
+        //     including the ledger-side clauses (`verify` re-plans and compares,
+        //     checks every road/site transform and the earthwork envelope).
+        assert_eq!(
+            audit_water_crossings(&plan, water, &natural, &final_terrain).unwrap(),
+            Vec::<String>::new()
+        );
+        let audit = verify_with_style_declared(
+            &plan,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        assert_eq!(audit.status, "pass", "{:?}", audit.failures);
+        assert_eq!(audit.realized_edges, plan.edges.len());
+        // (4b) the reserved-land audit is unchanged, and nothing the plan builds
+        //      occupies the water: no roadside pad may claim it.
+        let protection =
+            super::super::zoning::audit_protection(&scene, &zones, &natural, &final_terrain, &entities)
+                .unwrap();
+        assert_eq!(protection.status, "pass", "{protection:?}");
+        for entity in plan.site_entities() {
+            assert!(
+                !super::super::footprint_intersects_water(&entity, water, 0.),
+                "{} occupies the water",
+                entity.entity_id
+            );
+        }
+        let deck_roads = plan
+            .entities()
+            .iter()
+            .filter(|entity| entity.grounding.structure_deck)
+            .count();
+        assert_eq!(deck_roads, plan.water_crossings.len());
+        // No earthwork at all under a deck: every watered cell of the span keeps
+        // the natural height exactly, which is what makes the wetted area
+        // integral to the millimetre.
+        for crossing in &plan.water_crossings {
+            for z in crossing.span[1]..=crossing.span[3] {
+                for x in crossing.span[0]..=crossing.span[2] {
+                    if water.contains_point(f64::from(x), f64::from(z)) {
+                        assert_eq!(
+                            final_terrain.height(x, z),
+                            natural.height(x, z),
+                            "({x},{z}) under {} was changed",
+                            crossing.road_id
+                        );
+                    }
+                }
+            }
+        }
+        // (5) same input, twice: byte-identical plan.
+        let again = plan_with_style_declared(
+            &scene,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_vec(&plan).unwrap(),
+            serde_json::to_vec(&again).unwrap()
+        );
+        println!(
+            "waterfront opt-in: {} roads, {} spans, {} m of span over water, wet area {} -> {} m2, level {:?} m, deck {:?} mm",
+            plan.edges.len(),
+            plan.water_crossings.len(),
+            recorded_total,
+            wet_before,
+            wet_after,
+            plan.level_m,
+            plan.water_crossings.first().map(|c| c.deck_level_mm)
+        );
+    }
+
+    #[test]
+    fn forged_span_records_fail_by_name() {
+        let seed = 42_u64;
+        let style = style(true);
+        let scene = scene();
+        let water = water(&style, &scene);
+        let zones = plan_landuse_zones(&scene, &LandUseProfile::from_style(&style).unwrap());
+        let mask = crate::worldgen::zoning::ZoningMask::new(&scene, &zones).unwrap();
+        let natural = raster(&scene, seed, water, &[], None);
+        let source = NaturalSource::AuthoredSeed { seed, precise: false };
+        let plan = plan_with_style_declared(
+            &scene,
+            &natural,
+            water,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        let entities: Vec<EntityInstance> = plan
+            .entities()
+            .into_iter()
+            .chain(plan.site_entities())
+            .collect();
+        let final_terrain = raster(&scene, seed, water, &plan_terrain_carves(&entities), Some(&mask));
+        let audit = |forged: &RoadNetworkPlan| {
+            audit_water_crossings(forged, water, &natural, &final_terrain).unwrap()
+        };
+        assert!(audit(&plan).is_empty());
+
+        // 1. an inflated span length
+        let mut inflated = plan.clone();
+        inflated.water_crossings[0].length_m += 3;
+        let failures = audit(&inflated);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("disagrees with the water it names"));
+
+        // 2. a deleted record
+        let mut deleted = plan.clone();
+        let road_id = deleted.water_crossings[0].road_id.clone();
+        deleted.water_crossings.remove(0);
+        let failures = audit(&deleted);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("unregistered water crossing"));
+        assert!(failures[0].contains(&road_id));
+
+        // 3. a dry road marked as a bridge
+        let dry = plan
+            .entities()
+            .into_iter()
+            .find(|entity| {
+                !plan
+                    .water_crossings
+                    .iter()
+                    .any(|crossing| crossing.road_id == entity.entity_id)
+                    && measure_water_crossing(entity, water, &natural)
+                        .unwrap()
+                        .is_none()
+            })
+            .expect("a dry road exists");
+        let mut dry_marked = plan.clone();
+        let mut forged = plan.water_crossings[0].clone();
+        forged.road_id = dry.entity_id.clone();
+        dry_marked.water_crossings.push(forged);
+        let failures = audit(&dry_marked);
+        assert!(
+            failures
+                .iter()
+                .any(|failure| failure.contains("never touches that water body")),
+            "{failures:?}"
+        );
+
+        // 4. a record that names a different water body
+        let mut wrong_water = plan.clone();
+        wrong_water.water_crossings[0].water_id = "water.somewhere-else.lake".into();
+        let failures = audit(&wrong_water);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("but this scene holds"));
+
+        // 5. a deck that does not clear the water datum: the deck must be the
+        //    road's own published surface AND strictly above the datum, so a
+        //    lowered deck is refused for whichever of the two it breaks first.
+        let mut buried = plan.clone();
+        buried.water_crossings[0].deck_level_mm = WATER_DATUM_MM;
+        let failures = audit(&buried);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("deck"), "{failures:?}");
+
+        // 6. an unknown structure class
+        let mut tunnel = plan.clone();
+        tunnel.water_crossings[0].kind = "tunnel".into();
+        let failures = audit(&tunnel);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("only [\"bridge\", \"causeway\"] may span water"));
+
+        // A forged record is also refused BY NAME by the production audit entry,
+        // instead of being flattened into "plan differs from reconstruction".
+        let errored = verify_with_style_declared(
+            &inflated,
+            &scene,
+            &natural,
+            &final_terrain,
+            water,
+            &entities,
+            Some(&zones),
+            None,
+            &style,
+            source,
+        )
+        .unwrap();
+        assert_eq!(errored.status, "fail");
+        assert!(
+            errored
+                .failures
+                .iter()
+                .any(|failure| failure.contains("disagrees with the water it names")),
+            "{:?}",
+            errored.failures
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1982,6 +2856,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let planned = plan(&scene, &natural, wet).unwrap();
         assert!(planned.edges.is_empty());
@@ -4097,6 +4972,7 @@ mod tests {
             std::slice::from_mut(&mut entity),
             &[],
             &terrain,
+            None,
         );
         assert_eq!(entity.world_y, -2, "the anchor must not be re-derived");
         assert!(
@@ -4229,6 +5105,7 @@ mod tests {
             &mut entities,
             &[],
             &final_terrain,
+            None,
         );
         // The bake's own order: choose generated entrances, then build the graph
         // the development audit reads.
@@ -4457,6 +5334,7 @@ mod tests {
             &mut entities,
             &landmarks,
             &final_terrain,
+            None,
         );
         let mut checked = 0_usize;
         let mut violations: Vec<serde_json::Value> = Vec::new();
@@ -4909,6 +5787,287 @@ mod tests {
     }
 }
 
+/// Independent audit of the scene's water crossings, from the plan's own
+/// published road geometry, the water body and BOTH rasters.
+///
+/// Every number in a [`WaterCrossing`] is a *claim*, and each one is recomputed
+/// here by [`measure_water_crossing`] (the same function the planner used, so the
+/// two cannot drift) or read off the natural/final rasters. There is no trusted
+/// shortcut: a forged record fails by name.
+///
+/// The clauses, in the order they are checked:
+///
+///  1. the record names a road that the plan actually contains;
+///  2. its structure class is `bridge` or `causeway`;
+///  3. it names THIS scene's water body and its class;
+///  4. the road it names really does reach the water (a dry road marked as a
+///     bridge is refused);
+///  5. the recorded span length, wet-cell count, position box and bed range
+///     equal the measured ones (an overstated or understated length is refused);
+///  6. the recorded deck level equals the road's own published surface at the
+///     span, and clears the water datum;
+///  7. the recorded take-off equals the highest DRY natural cell, the deck sits
+///     at or above it, and the rise from it stays inside
+///     `maxRoadbedFillM` - the roadbed fill contract applied to the only
+///     earthwork contact a structure deck has;
+///  8. every road that reaches the water carries a record (a deleted record is
+///     refused);
+///  9. no earthwork was placed in the water: the wetted area of the scene is the
+///     same before and after, cell for cell, so the surface cannot be shrunk by
+///     filling the bed.
+#[allow(clippy::too_many_lines)]
+pub fn audit_water_crossings(
+    record: &RoadNetworkPlan,
+    water: WaterGeometry,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+) -> Result<Vec<String>, TerrainError> {
+    let mut failures = Vec::new();
+    if water.kind == super::WaterKind::None {
+        if !record.water_crossings.is_empty() {
+            failures.push(format!(
+                "{} water crossings are recorded but the scene declares no structured water",
+                record.water_crossings.len()
+            ));
+        }
+        return Ok(failures);
+    }
+    let expected_water_id = water_body_id(&record.scene_id, water);
+    let expected_water_kind = water_kind_name(water.kind);
+    let roads: Vec<EntityInstance> = record.entities();
+    let by_id: BTreeMap<&str, &EntityInstance> =
+        roads.iter().map(|e| (e.entity_id.as_str(), e)).collect();
+    let mut recorded: BTreeSet<&str> = BTreeSet::new();
+    for crossing in &record.water_crossings {
+        let road = crossing.road_id.as_str();
+        if !recorded.insert(road) {
+            failures.push(format!(
+                "water crossing {road} is recorded twice; one span cannot carry two structures"
+            ));
+            continue;
+        }
+        let Some(entity) = by_id.get(road) else {
+            failures.push(format!(
+                "water crossing {road} names no road in the plan"
+            ));
+            continue;
+        };
+        if !WATER_CROSSING_KINDS.contains(&crossing.kind.as_str()) {
+            failures.push(format!(
+                "water crossing {road} has structure type {:?}; only {:?} may span water",
+                crossing.kind, WATER_CROSSING_KINDS
+            ));
+            continue;
+        }
+        if crossing.water_id != expected_water_id || crossing.water_kind != expected_water_kind {
+            failures.push(format!(
+                "water crossing {road} names water body {}/{} but this scene holds {expected_water_id}/{expected_water_kind}",
+                crossing.water_id, crossing.water_kind
+            ));
+            continue;
+        }
+        let (pavement_hw, pavement_hd) = super::graded_pavement_half_extents(entity);
+        let along_x = entity.rotation_y_deg != 90.;
+        let measured_width = if along_x { pavement_hd } else { pavement_hw } * 2;
+        if i64::from(crossing.width_m) != i64::from(measured_width) {
+            failures.push(format!(
+                "water crossing {road} records a {}-m deck but the road's own pavement is {measured_width} m wide",
+                crossing.width_m
+            ));
+            continue;
+        }
+        let Some(measured) = measure_water_crossing(entity, water, natural)? else {
+            failures.push(format!(
+                "water crossing {road} records a span over {expected_water_id} but the road never touches that water body"
+            ));
+            continue;
+        };
+        if crossing.length_m != measured.stations_m
+            || crossing.wet_cells != measured.wet_cells
+            || crossing.span != measured.span
+            || crossing.bed_min_mm != measured.bed_min_mm
+            || crossing.bed_max_mm != measured.bed_max_mm
+        {
+            failures.push(format!(
+                "water crossing {road} disagrees with the water it names: recorded {} m / {} cells at {:?} bed {}..{} mm, measured {} m / {} cells at {:?} bed {}..{} mm",
+                crossing.length_m,
+                crossing.wet_cells,
+                crossing.span,
+                crossing.bed_min_mm,
+                crossing.bed_max_mm,
+                measured.stations_m,
+                measured.wet_cells,
+                measured.span,
+                measured.bed_min_mm,
+                measured.bed_max_mm
+            ));
+            continue;
+        }
+        let span_centre = [
+            (measured.span[0] + measured.span[2]) / 2,
+            (measured.span[1] + measured.span[3]) / 2,
+        ];
+        let deck_mm = entity
+            .grounding
+            .road_profile
+            .as_ref()
+            .and_then(|p| p.height_at(f64::from(span_centre[0]), f64::from(span_centre[1])))
+            .map_or_else(
+                || entity.world_y.saturating_mul(1000),
+                |m| (m * 1000.).round() as i32,
+            );
+        if crossing.deck_level_mm != deck_mm {
+            failures.push(format!(
+                "water crossing {road} records deck {} mm but the road's own surface at the span is {deck_mm} mm",
+                crossing.deck_level_mm
+            ));
+            continue;
+        }
+        if crossing.water_level_mm != WATER_DATUM_MM {
+            failures.push(format!(
+                "water crossing {road} records water level {} mm but the baked datum is {WATER_DATUM_MM} mm",
+                crossing.water_level_mm
+            ));
+            continue;
+        }
+        if crossing.deck_level_mm <= crossing.water_level_mm {
+            failures.push(format!(
+                "water crossing {road} deck at {} mm does not clear the water datum at {} mm",
+                crossing.deck_level_mm, crossing.water_level_mm
+            ));
+            continue;
+        }
+        let measured_take_off = measured_take_off_mm(entity, water, natural)?;
+        if crossing.take_off_max_mm != measured_take_off {
+            failures.push(format!(
+                "water crossing {road} records take-off {} mm but the highest dry cell under the road is {measured_take_off} mm",
+                crossing.take_off_max_mm
+            ));
+            continue;
+        }
+        if crossing.deck_level_mm < crossing.take_off_max_mm {
+            failures.push(format!(
+                "water crossing {road} deck at {} mm is below its {} mm take-off, which would excavate the shore",
+                crossing.deck_level_mm, crossing.take_off_max_mm
+            ));
+            continue;
+        }
+        let rise_mm = i64::from(crossing.deck_level_mm) - i64::from(crossing.take_off_max_mm);
+        let cap_mm = f64::from(record.max_roadbed_fill_m) * 1000. + 1.;
+        if rise_mm as f64 > cap_mm {
+            failures.push(format!(
+                "water crossing {road} raises its deck {rise_mm} mm above the take-off, beyond the {} m roadbed fill contract",
+                record.max_roadbed_fill_m
+            ));
+            continue;
+        }
+        for (x, z) in [
+            (measured.span[0], measured.span[1]),
+            (measured.span[2], measured.span[3]),
+        ] {
+            let (Some(n), Some(f)) = (natural.height(x, z), final_terrain.height(x, z)) else {
+                failures.push(format!(
+                    "water crossing {road} has no raster sample at ({x},{z})"
+                ));
+                continue;
+            };
+            if f != n {
+                failures.push(format!(
+                    "water crossing {road} raised the water bed at ({x},{z}) from {n} m to {f} m; a span must place no earthwork in the water"
+                ));
+            }
+        }
+    }
+    // A road that reaches the water may not do so anonymously.
+    for entity in &roads {
+        if recorded.contains(entity.entity_id.as_str()) {
+            continue;
+        }
+        if let Some(measured) = measure_water_crossing(entity, water, natural)? {
+            failures.push(format!(
+                "unregistered water crossing on road {}: {} m of its pavement band lies inside {expected_water_id} with no bridge or causeway record",
+                entity.entity_id, measured.stations_m
+            ));
+        }
+    }
+    // No building parcel may claim the water, whatever the road plan says.
+    for site in record.site_entities() {
+        if super::footprint_intersects_water(&site, water, 0.) {
+            failures.push(format!(
+                "roadside site {} occupies {expected_water_id}",
+                site.entity_id
+            ));
+        }
+    }
+    // The wetted area of the scene, recomputed from BOTH rasters. A fill inside
+    // the water lifts the bed above the datum, the cell leaves the wet set and
+    // the surface shrinks - exactly the "fill the lake to build the road" defect
+    // this contract exists to refuse.
+    if water.road_water_crossings() || !record.water_crossings.is_empty() {
+        let (origin_x, origin_z) = final_terrain.scene_origin();
+        let (width, depth) = final_terrain.scene_dimensions();
+        let (mut footprint, mut wet_natural, mut wet_final) = (0_u64, 0_u64, 0_u64);
+        for z in origin_z..origin_z + depth as i32 {
+            for x in origin_x..origin_x + width as i32 {
+                if !water.contains_point(f64::from(x), f64::from(z)) {
+                    continue;
+                }
+                footprint += 1;
+                if natural.height_millimetres(x, z).is_some_and(|h| h < WATER_DATUM_MM) {
+                    wet_natural += 1;
+                }
+                if final_terrain
+                    .height_millimetres(x, z)
+                    .is_some_and(|h| h < WATER_DATUM_MM)
+                {
+                    wet_final += 1;
+                }
+            }
+        }
+        if wet_natural != footprint {
+            failures.push(format!(
+                "natural water body of {expected_water_id} is not entirely below the {WATER_DATUM_MM} mm datum ({wet_natural} of {footprint} cells)"
+            ));
+        }
+        if wet_natural != wet_final {
+            failures.push(format!(
+                "water surface area changed: {wet_natural} m2 of {expected_water_id} before, {wet_final} m2 after"
+            ));
+        }
+    }
+    Ok(failures)
+}
+
+/// Highest DRY natural cell of the road's pavement band, in millimetres.
+///
+/// The mirror of the planner's `dry_max`: a structure deck is required to sit at
+/// or above it (no excavation) and within the roadbed fill contract above it.
+fn measured_take_off_mm(
+    road: &EntityInstance,
+    water: WaterGeometry,
+    natural: &BakedTerrain,
+) -> Result<i32, TerrainError> {
+    let (hw, hd) = super::graded_transport_half_extents(road);
+    let mut take_off = i32::MIN;
+    let mut dry = 0_u32;
+    for z in road.world_z - hd..=road.world_z + hd {
+        for x in road.world_x - hw..=road.world_x + hw {
+            if water.contains_point(f64::from(x), f64::from(z)) {
+                continue;
+            }
+            dry += 1;
+            let h = natural.height(x, z).ok_or_else(|| {
+                TerrainError("water crossing missing natural take-off sample".into())
+            })?;
+            take_off = take_off.max((h * 1000.).round() as i32);
+        }
+    }
+    if dry == 0 {
+        return Ok(i32::MIN);
+    }
+    Ok(take_off)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoadNetworkAudit {
@@ -5150,6 +6309,25 @@ fn verify_impl(
     trusted_record: bool,
     source: super::NaturalSource,
 ) -> Result<RoadNetworkAudit, TerrainError> {
+    // Water crossings are audited on the RECORD, before the plan-equality gate:
+    // a forged crossing record must fail BY NAME ("overstated length", "dry road
+    // marked as a bridge", "deleted record"), not be flattened into the generic
+    // "plan differs from natural raster reconstruction".
+    let crossing_failures = audit_water_crossings(record, water, natural, final_terrain)?;
+    if !crossing_failures.is_empty() {
+        return Ok(RoadNetworkAudit {
+            status: "fail".into(),
+            planned_edges: record.edges.len(),
+            realized_edges: 0,
+            planned_sites: record.roadside_sites.len(),
+            realized_sites: 0,
+            max_final_site_fill_m: 0.,
+            max_site_design_height_error_m: 0.,
+            max_final_roadbed_fill_m: 0.,
+            max_design_height_error_m: 0.,
+            failures: crossing_failures,
+        });
+    }
     let expected = if trusted_record {
         record.clone()
     } else if let Some(style) = style {
@@ -5283,7 +6461,17 @@ fn verify_impl(
                 } else {
                     (5, e.width_m as i32 / 2)
                 };
-                if (x - e.world_x).abs() <= paved_hw && (z - e.world_z).abs() <= paved_hd {
+                if (x - e.world_x).abs() <= paved_hw
+                    && (z - e.world_z).abs() <= paved_hd
+                    // A registered structure deck is not terrain: the pavement is
+                    // a span carried by a bridge/causeway, so there is no design
+                    // level to hold in the raster. What must hold instead is
+                    // audited by `audit_water_crossings` (no earthwork in the
+                    // water, deck clears the datum, take-off stays inside the
+                    // fill contract) and by the earthwork envelope below, which is
+                    // unchanged.
+                    && !planned.grounding.structure_deck
+                {
                     let target = planned
                         .grounding
                         .road_profile
@@ -5299,6 +6487,18 @@ fn verify_impl(
                 fill = fill.max(f - n);
                 cut = cut.max(n - f);
             }
+        }
+        // A structure deck places NO earthwork of its own: `plan_terrain_carves`
+        // refuses to carve it, so any fill or cut this loop reads inside its band
+        // belongs to NEIGHBOURING roads' transition rings (a fill-only carve's
+        // blend reaches far past its own graded band), not to the span. The span's
+        // own contract is both stricter and cell-exact - no earthwork anywhere in
+        // the water (`audit_water_crossings`), the deck at or above every dry cell,
+        // and no more than the roadbed fill contract above its take-off - so the
+        // earthwork maxima are not attributed to it.
+        if planned.grounding.structure_deck {
+            fill = 0.;
+            cut = 0.;
         }
         audit.max_final_roadbed_fill_m = audit.max_final_roadbed_fill_m.max(fill);
         audit.max_design_height_error_m = audit.max_design_height_error_m.max(error);
@@ -5377,6 +6577,13 @@ fn verify_impl(
         let mut cut = 0_f32;
         let (hw, hd) = super::spatial_half_extents(e.width_m, e.depth_m, e.rotation_y_deg);
         let (hw, hd) = (hw as i32, hd as i32);
+        // The pad's own carve is fill-only and its target is the declared top, so
+        // its contribution to any cell is bounded by `declared - natural`. In a
+        // waterfront block a legally higher lot can sit inside this pad's 2 m
+        // apron and be raised to ITS level; attributing that earthwork to this pad
+        // would charge it with fill it never placed. Opt-in only, so every existing
+        // audit keeps its numbers.
+        let own_cap_m = planned.ground_height_m() + 0.0005;
         for z in e.world_z - hd - 2..=e.world_z + hd + 2 {
             for x in e.world_x - hw - 2..=e.world_x + hw + 2 {
                 let n = natural
@@ -5388,7 +6595,13 @@ fn verify_impl(
                 if (x - e.world_x).abs() <= hw && (z - e.world_z).abs() <= hd {
                     error = error.max((f - planned.ground_height_m()).abs());
                 }
-                fill = fill.max(f - n);
+                // `water` is the opt-in authorization the whole waterfront path
+                // hangs from; every other world keeps the unbounded reading.
+                if water.road_water_crossings() {
+                    fill = fill.max((f - n).min(own_cap_m - n));
+                } else {
+                    fill = fill.max(f - n);
+                }
                 cut = cut.max(n - f);
             }
         }

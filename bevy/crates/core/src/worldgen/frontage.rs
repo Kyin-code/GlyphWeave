@@ -2247,6 +2247,7 @@ mod tests {
             terrain_origin_x: s.origin_x,
             terrain_origin_z: s.origin_z,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let mut wet = base.clone();
         append(&mut wet, &s, &n, lake, Some(&rural), &explicit_style).unwrap();

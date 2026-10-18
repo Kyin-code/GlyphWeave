@@ -85,6 +85,15 @@ pub struct WaterGeometry {
     /// Smooth-rolling terrain (steppe / prairie): soft rolling hills instead
     /// of sharp ridges, matching wgen's "Hills" hemispheric generator.
     smooth_rolling: bool,
+    /// Opt-in road-first over structured water
+    /// (`automaticRoadExtensions.allowStructuredWater = "bridge-or-causeway"`).
+    ///
+    /// When set, no earthwork may be placed inside the water body: the raster
+    /// keeps the natural bed, banks and surface exactly, because every road that
+    /// reaches the water is carried by a registered structure deck instead of by
+    /// fill. Off for every input that did not opt in, so the raster path is
+    /// byte-identical for them.
+    road_water_crossings: bool,
 }
 
 /// A terrain carve: a flat rectangular pad under a road or building footprint.
@@ -131,6 +140,16 @@ pub struct GroundingSpec {
     pub roadbed_offset_m: f32,
     #[serde(default = "default_grounding_tolerance_m")]
     pub tolerance_m: f32,
+    /// A STRUCTURE deck: this roadbed is carried by an engineering structure
+    /// (a registered bridge over water), not by an earthwork fill, so
+    /// `plan_terrain_carves` refuses to carve it and the ground under it stays
+    /// exactly as the natural raster holds it.
+    ///
+    /// Only ever true for a road that `road_network::WaterCrossing` registers,
+    /// and it is not serialized when false, so every existing entity keeps its
+    /// published bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub structure_deck: bool,
 }
 
 fn default_grounding_tolerance_m() -> f32 {
@@ -146,6 +165,7 @@ impl Default for GroundingSpec {
             bottom_offset_m: 0.0,
             roadbed_offset_m: 0.0,
             tolerance_m: default_grounding_tolerance_m(),
+            structure_deck: false,
         }
     }
 }
@@ -1464,6 +1484,10 @@ pub fn water_geometry(
         terrain_origin_x: domain.origin_x,
         terrain_origin_z: domain.origin_z,
         smooth_rolling,
+        // The raster-side half of the same authorization `road_network::enabled`
+        // reads from the style. Both come from the one string, so generation and
+        // audit cannot disagree about whether earthwork in the water is legal.
+        road_water_crossings: road_network::allows_structured_water(style),
     }
 }
 
@@ -1485,6 +1509,7 @@ fn legacy_water_geometry(
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         },
         WaterKind::River => WaterGeometry {
             kind,
@@ -1497,6 +1522,7 @@ fn legacy_water_geometry(
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         },
         WaterKind::None => WaterGeometry {
             kind,
@@ -1509,6 +1535,7 @@ fn legacy_water_geometry(
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         },
     }
 }
@@ -2459,7 +2486,33 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         trace.stage(&scene.scene_id,"final-entity-access-and-audit");
         baked_samples.require_complete()?;
         rebase_entities_to_baked_surface(&mut entities, &baked_samples);
-        rebase_generated_transport_to_baked_surface(&mut entities, &landmarks, &baked_samples);
+        if water.road_water_crossings() {
+            // Opt-in waterfront: a roadside pad's declared top is the plan's
+            // obligation, and the audit holds the entity to it exactly. In a
+            // waterfront block a legally higher neighbouring lot can raise the
+            // raster around the pad, and the raster-driven rebase would then move
+            // the pad off its own declaration - a plan/entity disagreement the
+            // audit can only refuse. Restore the planned transform instead. This
+            // is inert for every world that did not opt in, and inert in a correct
+            // world even here: a pad whose raster exceeds its declaration already
+            // fails the audit by name.
+            if let Some(plan) = &road_plan {
+                for source in plan.site_entities() {
+                    if let Some(entity) = entities
+                        .iter_mut()
+                        .find(|entity| entity.entity_id == source.entity_id)
+                    {
+                        *entity = source;
+                    }
+                }
+            }
+        }
+        rebase_generated_transport_to_baked_surface(
+            &mut entities,
+            &landmarks,
+            &baked_samples,
+            Some(water),
+        );
         // The graph and persisted access surfaces are derived from this final
         // entity slice. Fixed frontage is protected inside
         // `place_generated_entrances`; do not restore an entity after graph
@@ -4304,6 +4357,14 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         if !is_road && !is_building {
             continue;
         }
+        // A structure deck (a registered water crossing) is carried by an
+        // engineering structure, not by earthwork: it gets NO carve at all, so
+        // the ground under the span - banks and the water bed - is never raised
+        // and the water surface cannot move. Every other entity is carved exactly
+        // as before; the flag defaults to false.
+        if entity.grounding.structure_deck {
+            continue;
+        }
         // Roads are authored in local X/Z dimensions and may be rotated.
         // Convert that local footprint into world-space before carving: a
         // zero-degree road with width=1440 is long on X, while a road-ns with
@@ -4417,7 +4478,13 @@ fn terrain_height_zoned(
         return terrain_height_metres(seed, x, z, water, carves);
     };
     let natural = terrain_height_metres(seed, x, z, water, &[]);
-    if carves.is_empty() || mask.protected_at(x, z) {
+    // The zoning path composes the carve itself, so the waterfront exclusion has
+    // to be restated here; otherwise an opted-in scene would still fill its water
+    // wherever a land-use zone exists.
+    if carves.is_empty()
+        || mask.protected_at(x, z)
+        || water.forbids_earthwork(f64::from(x), f64::from(z))
+    {
         return natural;
     }
     let engineered = apply_terrain_carves(natural, x, z, carves);
@@ -4516,6 +4583,17 @@ fn terrain_height_metres(
     // Combine independent fill envelopes. Repeatedly blending the previous
     // result stacks unrelated ramps and makes the result order-dependent.
     // Raster clamping is part of the natural datum for engineering as well.
+    //
+    // Opt-in waterfront: NO earthwork may enter the water body. Carve blend
+    // rings reach well past their pads (6 m for a flat road, 18 m for a graded
+    // one), so a fill that merely starts on the bank would still raise the bed
+    // and shrink the water surface. The exclusion is therefore a property of the
+    // CELL, not of the carve: the natural raster is the final answer inside the
+    // water, and roads that reach it are structure decks. Off by default, and
+    // when off this branch is not even evaluated.
+    if water.forbids_earthwork(xf, zf) {
+        return terrain.clamp(-32., 256.);
+    }
     apply_terrain_carves(terrain, x, z, carves)
 }
 fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -> f64 {
@@ -4977,6 +5055,7 @@ fn generate_entities_with_profile_report(
                 append_modern_landuse_content(
                     seed,
                     scene,
+                    geometry,
                     &mut entities,
                     style,
                     road_plan,
@@ -4998,6 +5077,7 @@ fn generate_entities_with_profile_report(
                         append_modern_landuse_content(
                             seed,
                             scene,
+                            geometry,
                             &mut entities,
                             style,
                             road_plan,
@@ -5013,6 +5093,31 @@ fn generate_entities_with_profile_report(
                 }
             }
         }
+    } else if road_plan.is_some() {
+        // Waterfront road-first: the road network is the PARENT of the
+        // settlement, so the same land-use generator the waterless profile path
+        // uses has to run here too - it is the one that consumes
+        // `development_plan` (which the bake derived from this very road plan)
+        // and injects the planned roads and roadside sites. The water-aware
+        // generator below places a legacy shoreline settlement from its own
+        // fixture coordinates and never consumes a plan, which is why a
+        // waterfront scene used to come out with no planned roads at all.
+        //
+        // Reachable only for a scene whose manifest opted in
+        // (`allowStructuredWater`): without the opt-in `road_network::enabled` is
+        // false for a water scene, so `road_plan` is `None` and every existing
+        // waterfront world keeps the shoreline generator byte-for-byte.
+        append_modern_landuse_content(
+            seed,
+            scene,
+            geometry,
+            &mut entities,
+            style,
+            road_plan,
+            development_plan,
+            &mut development_proposals,
+            &ids,
+        )
     } else if matches!(explicit_settlement, Some("city" | "town")) {
         // Water geometry is already present in the template. Add the settlement
         // on its derived banks/shoreline rather than using fixture coordinates.
@@ -5123,6 +5228,19 @@ fn apply_rules_mode(
     for e in proposed {
         let is_authored = authored_ids.contains(e.entity_id.as_str());
         if is_authored {
+            passthrough.push(e);
+            continue;
+        }
+        // A structure deck is not a terrain-grounded object: its pavement is a
+        // span whose support is the registered bridge, and the rules engine's
+        // surface/grounding model has no way to describe one (the road descriptor
+        // forbids water by design). It is passed through instead of being
+        // force-placed or deleted, and its own contract -
+        // `road_network::audit_water_crossings`, which is stricter: no earthwork
+        // anywhere in the water, the deck must clear the datum, and the span must
+        // be registered - governs it. The flag is false for every other entity,
+        // so no existing placement decision changes.
+        if e.grounding.structure_deck {
             passthrough.push(e);
             continue;
         }
@@ -5739,6 +5857,7 @@ fn rebase_generated_transport_to_baked_surface(
     entities: &mut [EntityInstance],
     landmarks: &[LandmarkSpec],
     terrain: &BakedTerrain,
+    water: Option<WaterGeometry>,
 ) {
     for entity in entities.iter_mut().filter(|e| {
         e.entity_id.starts_with("generated.")
@@ -5758,6 +5877,17 @@ fn rebase_generated_transport_to_baked_surface(
             // the audit's own below-ground clause.
             && e.grounding.road_profile.is_none()
             && !landmarks.iter().any(|l| l.entity_id == e.entity_id)
+            // Opt-in waterfront: a road whose centre cell is inside the water
+            // body is a structure deck. Its published `world_y` IS its deck level
+            // (the plan's chosen level and the audit's `deckLevelMm`); re-deriving
+            // it from the raster would sink the deck to the natural BED and break
+            // the plan/entity agreement the audit checks. No existing input
+            // reaches this: without the opt-in no road plan can place a road over
+            // water at all.
+            && !water.is_some_and(|water| {
+                water.road_water_crossings()
+                    && water.contains_point(f64::from(e.world_x), f64::from(e.world_z))
+            })
     }) {
         if let Some(h) = terrain.height(entity.world_x, entity.world_z) {
             let offset = entity.ground_height_m() - entity.world_y as f32;
@@ -6144,6 +6274,7 @@ fn append_pastoral_intent_content(
         terrain_origin_x: scene.origin_x,
         terrain_origin_z: scene.origin_z,
         smooth_rolling: false,
+        road_water_crossings: false,
     };
     let mut serial = 750_000_u32;
     for z in (scene.origin_z + 140..scene.origin_z + scene.depth_m as i32 - 140).step_by(180) {
@@ -6469,6 +6600,7 @@ fn projected_road_corridor_intersects(
 fn append_modern_landuse_content(
     seed: u64,
     scene: &SceneSpec,
+    water: WaterGeometry,
     entities: &mut Vec<EntityInstance>,
     style: &serde_json::Value,
     road_plan: Option<&road_network::RoadNetworkPlan>,
@@ -6534,7 +6666,12 @@ fn append_modern_landuse_content(
     let source_zoning = source_zones
         .as_deref()
         .map(|z| zoning::ZoningMask::new(scene, z).expect("computed planning zones are valid"));
-    let source_water = water_geometry(water_kind(style), &[], scene, style);
+    // The scene's OWN water geometry, landmarks included. For a waterless scene
+    // this is the same empty body the old landmark-free derivation produced, so
+    // every existing world is byte-identical; for a waterfront road-first scene it
+    // is the river the plan was actually designed against, so this generator's
+    // water checks cannot read a different river than the planner did.
+    let source_water = water;
     let terrain_context = TerrainContext {
         seed,
         water: source_water,
@@ -6542,6 +6679,24 @@ fn append_modern_landuse_content(
             == HeightEncoding::Millimetre,
         zoning: source_zoning.as_ref(),
     };
+    if source_water.road_water_crossings() {
+        // A planned parcel's fill envelope must not flood an already designed
+        // roadside pad - the pads are flat surfaces whose top the road audit holds
+        // exactly, so a lot that needs a higher platform buries its neighbour and
+        // the pad then fails the baked audit. `building_fill_conflicts` is the
+        // same rule the land-use platform already applies to roads; this adds the
+        // plan's own pads as a protected target. Opt-in only: every existing world
+        // keeps the placements it already publishes.
+        let pads = road_plan.map(|plan| plan.site_entities()).unwrap_or_default();
+        if !pads.is_empty() {
+            let planned_ids: std::collections::BTreeSet<&str> =
+                planned_sites.iter().map(|e| e.entity_id.as_str()).collect();
+            entities.retain(|entity| {
+                !(planned_ids.contains(entity.entity_id.as_str())
+                    && road_network::building_fill_conflicts(&terrain_context, &pads, entity))
+            });
+        }
+    }
     let candidate_identity = std::cell::RefCell::new(None::<String>);
     // Optional planner-name override for fixed singleton placements that must
     // not share a stable-ID slot with a grid proposal of the same kind.
@@ -6735,10 +6890,24 @@ fn append_modern_landuse_content(
             );
             proposed.world_y = footprint_surface_ceiling_m(seed, &proposed, water);
             proposed.normalize_spatial_semantics();
+            // A roadside pad is an already designed flat surface, exactly like a
+            // planned parcel: a higher building whose fill envelope floods the
+            // pad would bury it in the final raster. Opt-in waterfront only, so
+            // every existing world keeps the placements it already publishes.
+            let planned_roadside = if source_water.road_water_crossings() {
+                road_plan.map(|plan| plan.site_entities()).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             if road_network::building_fill_conflicts(&terrain_context, &planned_roads, &proposed)
                 || road_network::building_fill_conflicts(
                     &terrain_context,
                     &planned_sites,
+                    &proposed,
+                )
+                || road_network::building_fill_conflicts(
+                    &terrain_context,
+                    &planned_roadside,
                     &proposed,
                 )
             {
@@ -7103,6 +7272,7 @@ fn append_modern_landuse_content(
                     terrain_origin_x: scene.origin_x,
                     terrain_origin_z: scene.origin_z,
                     smooth_rolling: false,
+                    road_water_crossings: false,
                 },
                 urban_scale,
             );
@@ -8177,6 +8347,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let registry = crate::rules::ObjectRegistry::load_dir(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"),
@@ -9202,6 +9373,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let entity = EntityInstance {
             entity_id: "edge-crossing".into(),
@@ -9351,6 +9523,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         with_rules_placement_context(42, &scene, water, |ctx| {
             assert!(ctx.water(500, 500).is_some());
@@ -10010,6 +10183,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let mut max_step = 0_i16;
         // Walk across a chunk seam at x=512 and confirm heights stay continuous.
@@ -10041,6 +10215,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let mut zones = BTreeSet::new();
         for z in (500..9_500).step_by(400) {
@@ -10104,6 +10279,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         };
         let mut farmland_on_mountain = 0_usize;
         let mut farmland_total = 0_usize;
@@ -10170,6 +10346,7 @@ mod tests {
             terrain_origin_x: 0,
             terrain_origin_z: 0,
             smooth_rolling: false,
+            road_water_crossings: false,
         }
     }
 

@@ -923,6 +923,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
             nodes: vec![RoadNode {
                 id: 0,
                 world_x: 32,

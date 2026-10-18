@@ -599,6 +599,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: vec![],
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
         }
     }
 

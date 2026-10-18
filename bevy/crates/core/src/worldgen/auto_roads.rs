@@ -107,6 +107,20 @@ impl RoadHierarchy {
 pub struct Program {
     pub version: u32,
     pub scenes: Vec<SceneProgram>,
+    /// Opt-in authorization for road-first planning in a scene that declares a
+    /// STRUCTURED water body (`style.water` with a level policy).
+    ///
+    /// Only one value is accepted, [`STRUCTURED_WATER_OPT_IN`]
+    /// (`"bridge-or-causeway"`), because the value is the engineering decision
+    /// itself: the author states that every road segment over the water is
+    /// carried by a registered bridge or causeway instead of by fill. Absent or
+    /// any other value keeps the historical rule - a structured water body
+    /// disables road-first entirely - so no existing input changes meaning.
+    ///
+    /// The string is validated in [`from_style`] and refused by name; it is not
+    /// silently reinterpreted as a boolean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_structured_water: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -223,6 +237,14 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
     let p: Program = serde_json::from_value(value.clone()).map_err(|e| err(e.to_string()))?;
     if !matches!(p.version, 1 | 2 | 3) || p.scenes.is_empty() {
         return Err(err("invalid automatic road program"));
+    }
+    if let Some(opt_in) = p.allow_structured_water.as_deref() {
+        if opt_in != super::road_network::STRUCTURED_WATER_OPT_IN {
+            return Err(err(format!(
+                "allowStructuredWater must be \"{}\" when stated, not {opt_in:?}",
+                super::road_network::STRUCTURED_WATER_OPT_IN
+            )));
+        }
     }
     let mut ids = BTreeSet::new();
     for s in &p.scenes {

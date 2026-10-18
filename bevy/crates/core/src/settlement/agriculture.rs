@@ -1658,6 +1658,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
             nodes: vec![],
             edges: vec![RoadEdge {
                 id: "road".into(),
@@ -1733,6 +1735,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
             nodes: vec![],
             edges: vec![RoadEdge {
                 id: "road".into(),
@@ -3259,6 +3263,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
             nodes: vec![],
             edges: vec![RoadEdge {
                 id: "road".into(),

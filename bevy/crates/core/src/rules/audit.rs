@@ -126,6 +126,16 @@ pub fn audit_entities(
     let all_placed = placed.clone();
 
     for (idx, e) in entities.iter().enumerate() {
+        // A structure deck is not a surface-grounded object: its pavement is a
+        // span carried by a registered bridge, so the rules engine's surface and
+        // grounding clauses do not describe it. It is governed instead by the
+        // road network's own water-crossing contract
+        // (`road_network::audit_water_crossings`: no earthwork in the water, the
+        // deck clears the datum, the span is registered). The flag is false for
+        // every other entity, so no existing audit changes.
+        if e.grounding.structure_deck {
+            continue;
+        }
         // Find a descriptor for this entity's kind string.
         let Some(desc) = descriptor_for(descriptors, e) else {
             // No rule governs this kind 鈥?record it as "unruled" so the report

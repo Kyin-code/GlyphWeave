@@ -1070,6 +1070,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
             nodes: vec![],
             edges: vec![RoadEdge {
                 id: "road".into(),
@@ -1266,6 +1268,8 @@ mod tests {
             zoning_rejections: vec![],
             service_outcomes: vec![],
             joint_layout: None,
+            water_crossings: Vec::new(),
+            water_crossing_rejections: Vec::new(),
         };
         let d = development::plan(&s, &[nature], &roads).unwrap();
         let p = development::plan_landcover(&s, &d).unwrap();

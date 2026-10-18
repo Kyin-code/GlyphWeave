@@ -58,6 +58,16 @@ impl BakedTerrain {
             == (scene.origin_x, scene.origin_z, scene.width_m, scene.depth_m)
     }
 
+    /// Raster origin `(x, z)`, for audits that have to walk the whole scene.
+    pub fn scene_origin(&self) -> (i32, i32) {
+        (self.origin_x, self.origin_z)
+    }
+
+    /// Raster size `(width, depth)` in metres.
+    pub fn scene_dimensions(&self) -> (u32, u32) {
+        (self.width, self.depth)
+    }
+
     /// Validate an entire chunk before writing anything. Reject overlaps, gaps,
     /// truncated payloads and dimensions inconsistent with the scene grid.
     pub fn insert_chunk(
