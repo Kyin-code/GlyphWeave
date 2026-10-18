@@ -28,6 +28,15 @@
 //!   and must still pass the building consumer and asset contracts.
 //! * `frontInsetM`/`sideInsetM`/`rearInsetM` are the parcel-to-footprint
 //!   insets that separate the two.
+//! * `frontInsetM` also bounds the **street setback**. A profile parcel's front
+//!   yard runs from the building to the parcel's front boundary, so when a
+//!   request states no `setbackM` the compiler derives
+//!   `frontInset + frontage::ROAD_PROTECTION_M`. That is the only setback at
+//!   which the parcel's front boundary sits exactly on the road's protected
+//!   line: the frontage preflight rejects any parcel that enters the band, so a
+//!   smaller derivation would be a default that can never place a building. A
+//!   stated setback is never overridden, and a derivation outside the frontage
+//!   request band is refused instead of clamped.
 //! * `publicSpaceRatio` is a public-space share. It is not a pasture share:
 //!   it may fill `urbanOpenSpaceRatio`, but `ruralPastureRatio` needs its own
 //!   explicit input, so no residual program is synthesised without one.
@@ -279,6 +288,11 @@ fn compile_frontage(
 
     let policy = ParcelPolicy::from_profile(profile)?;
     let height_default = even_midpoint(profile.height_m, "heightM")?;
+    // The single number the frontage preflight uses to protect a road corridor.
+    // Reading it from the consumer (instead of repeating 4 here) is what keeps a
+    // derived setback and the rejection rule from ever disagreeing.
+    let road_protection_m = u32::try_from(crate::worldgen::frontage::ROAD_PROTECTION_M)
+        .map_err(|_| err("frontage road-protection band is not a metre quantity"))?;
 
     let mut compiled = Vec::with_capacity(requests.len());
     for (index, request) in requests.iter().enumerate() {
@@ -404,23 +418,51 @@ fn compile_frontage(
                 format!("unstated; {derivation}"),
             ));
         }
-        // Setback and search budgets are engineering inputs of the request,
-        // not morphology of the source cases. The profile has no mapping.
-        for field in [
-            "stationSpacingM",
-            "setbackM",
-            "maxCandidateAttempts",
-        ] {
-            if !item.contains_key(field) {
+        // Search budgets are engineering inputs of the request, not morphology
+        // of the source cases, and the profile has no mapping for them. The one
+        // exception is the street setback: when it is unstated it is derived
+        // below. An AUTHORED setback keeps this exact entry, in this exact
+        // position, so a request that already states its setback compiles to the
+        // same effective bytes, field sources and world revision as before.
+        for field in ["stationSpacingM", "setbackM", "maxCandidateAttempts"] {
+            if item.contains_key(field) {
+                sources.push(FieldSource::new(
+                    format!("{path}.{field}"),
+                    SOURCE_ORIGINAL,
+                    "",
+                    "request search/engineering parameter outside the profile's morphology scope",
+                ));
+                continue;
+            }
+            if field != "setbackM" {
                 return Err(err(format!(
                     "{path}.{field} must be stated explicitly; the morphology profile has no consumer mapping for it"
                 )));
             }
+            // The street setback is morphology, and it is the only field derived
+            // from more than one quantity: the front yard runs from the building
+            // to the parcel's front boundary, and that boundary may not enter the
+            // road protection band. `frontInset + band` is therefore the one
+            // value that puts the parcel's front boundary exactly on the
+            // protected road line. The request's own effective front inset is
+            // used, so an authored inset policy is honoured, and an impossible
+            // derivation is refused instead of clamped.
+            let setback = inset_front
+                .checked_add(road_protection_m)
+                .ok_or_else(|| err(format!("{path}.setbackM: front inset overflow")))?;
+            if !(8..=32).contains(&setback) || setback % 2 != 0 {
+                return Err(err(format!(
+                    "{path}: the {inset_origin} front inset of {inset_front}m plus the {road_protection_m}m frontage road-protection band derives a {setback}m street setback from frontInsetM, outside the frontage request band 8..=32 even metres; state setbackM explicitly"
+                )));
+            }
+            item.insert("setbackM".into(), json!(setback));
             sources.push(FieldSource::new(
-                format!("{path}.{field}"),
-                SOURCE_ORIGINAL,
-                "",
-                "request search/engineering parameter outside the profile's morphology scope",
+                format!("{path}.setbackM"),
+                SOURCE_DERIVED,
+                "frontInsetM",
+                format!(
+                    "unstated; {inset_origin} front inset {inset_front}m + the frontage road-protection band {road_protection_m}m = {setback}m street setback, placing the parcel front boundary exactly on the protected road line"
+                ),
             ));
         }
         if authored_insets {
@@ -1100,6 +1142,78 @@ mod tests {
         );
     }
 
+    /// A profile manifest that already states its own street setback compiles to
+    /// the same effective document it produced before the derivation existed.
+    /// The digests were captured from the parent commit, so a change to the
+    /// compiled document for an authored setback (and with it the world revision
+    /// of every published profile world) is a hard failure instead of a silent
+    /// drift.
+    #[test]
+    fn authored_setback_documents_keep_their_pre_wiring_digests() {
+        for (profile_id, style_digest, report_digest) in [
+            (
+                "compact-mixed-block",
+                "7b2b48790a5338e64dad1549386aaf838191fa7f9b6c9f568c7cd5df4a96eaaa",
+                "67e91e156ee542a402add763ddd0da93e6ad0bc3701c12cd26b86d0f4a2cd17f",
+            ),
+            (
+                "village-field",
+                "75620dee9131ac7df0d72319c060df79e0ace7ccb4d5ba72bf8ccbe4f1b6a0b0",
+                "ae9037da890fe5005952759d906a07c8baa2af283602af80a688c8d030f3e440",
+            ),
+        ] {
+            let compiled = compile(&style(profile_id), &[scene()]).unwrap().unwrap();
+            assert_eq!(
+                blake3::hash(&serde_json::to_vec(&compiled.style).unwrap())
+                    .to_hex()
+                    .as_str(),
+                style_digest,
+                "{profile_id}: an authored setback must compile to its pre-wiring effective style"
+            );
+            assert_eq!(
+                blake3::hash(&serde_json::to_vec(&compiled.report).unwrap())
+                    .to_hex()
+                    .as_str(),
+                report_digest,
+                "{profile_id}: the published effective-programs document must not drift"
+            );
+        }
+    }
+
+    /// The legacy path must stay byte-identical, not merely equal. A manifest
+    /// without a morphology profile is passed through untouched, so its
+    /// serialized bytes keep this frozen blake3 digest. The derived street
+    /// setback lives inside the profile compiler, and the frontage consumer
+    /// still requires the field for a profile-free request, so the default can
+    /// never leak into an old input.
+    #[test]
+    fn legacy_style_bytes_and_blake3_are_frozen() {
+        let legacy = json!({
+            "landUseProfile": land_use(0.10),
+            "frontageProgram": {"version": 1, "requests": [home_request()]}
+        });
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        let digest = blake3::hash(&bytes).to_hex().to_string();
+        assert_eq!(
+            digest, "262c93c57cde77ab9968bc486f560078dbb2b0f00b66f5365e8161ddda7d1df4",
+            "the profile-free style bytes changed; no profile path may touch a legacy input"
+        );
+        assert!(compile(&legacy, &[scene()]).unwrap().is_none());
+        let effective = effective_style_or_original(&legacy, &[scene()]).unwrap();
+        assert_eq!(serde_json::to_vec(&effective).unwrap(), bytes);
+        // A profile-free request still has to state its own setback: the
+        // compiler's derivation is not a frontage default.
+        let mut missing = legacy.clone();
+        missing["frontageProgram"]["requests"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("setbackM");
+        assert!(
+            crate::worldgen::frontage::from_style(&missing).is_err(),
+            "the derived setback must never widen the legacy frontage contract"
+        );
+    }
+
     #[test]
     fn profile_type_and_unknown_id_are_rejected() {
         for value in [json!(42), json!(["village-field"]), Value::Null] {
@@ -1699,6 +1813,142 @@ mod tests {
         let error = compile(&value, &[scene()]).unwrap_err();
         assert!(error.contains("stationSpacingM"), "{error}");
         assert!(error.contains("no consumer mapping"), "{error}");
+    }
+
+    /// The profile's front yard bounds the street setback. A request that states
+    /// no `setbackM` gets the front inset plus the frontage road-protection band,
+    /// which is the one setback whose parcel front boundary sits exactly on the
+    /// protected road line (one metre less and the parcel preflight rejects every
+    /// candidate). A stated setback is never replaced, and a derivation outside
+    /// the frontage band is refused instead of clamped.
+    #[test]
+    fn unstated_street_setback_is_the_front_yard_plus_the_road_band() {
+        let band = u32::try_from(crate::worldgen::frontage::ROAD_PROTECTION_M).unwrap();
+        assert_eq!(band, 4, "the road-protection band is a frozen 4m contract");
+        // profile -> (front inset, derived setback)
+        for (profile_id, front, setback) in [
+            ("compact-mixed-block", 4, 8),
+            ("perimeter-block", 4, 8),
+            ("low-density-residential", 8, 12),
+            ("clustered-residential", 6, 10),
+            ("terrain-constrained-compact", 4, 8),
+            ("village-field", 6, 10),
+        ] {
+            let mut value = style(profile_id);
+            for request in value["frontageProgram"]["requests"].as_array_mut().unwrap() {
+                request.as_object_mut().unwrap().remove("setbackM");
+            }
+            let compiled = compile(&value, &[scene()]).unwrap().unwrap();
+            for index in 0..2 {
+                let request = &compiled.style["frontageProgram"]["requests"][index];
+                assert_eq!(
+                    request["parcelInsets"]["frontM"],
+                    json!(front),
+                    "{profile_id}[{index}]"
+                );
+                assert_eq!(request["setbackM"], json!(setback), "{profile_id}[{index}]");
+                // The gap between the road corridor and the parcel's front
+                // boundary is exactly the protection band, for every profile.
+                assert_eq!(setback - front, band, "{profile_id}[{index}]");
+            }
+            assert!(compiled.report.field_sources.iter().any(|entry| {
+                entry.path.ends_with("requests[0].setbackM")
+                    && entry.source == SOURCE_DERIVED
+                    && entry.profile_field == "frontInsetM"
+                    && entry.detail.contains("road-protection band 4m")
+            }));
+            // The frontage consumer accepts the derived value unchanged.
+            let program = crate::worldgen::frontage::from_style(&compiled.style)
+                .unwrap()
+                .unwrap();
+            assert!(program.requests.iter().all(|request| request.setback_m == setback));
+            assert!(program
+                .requests
+                .iter()
+                .all(|request| request.parcel_insets.unwrap().front_m < setback));
+        }
+
+        // An authored setback wins and is reported as authored truth.
+        let mut authored = style("compact-mixed-block");
+        for request in authored["frontageProgram"]["requests"].as_array_mut().unwrap() {
+            request["setbackM"] = json!(12);
+        }
+        let compiled = compile(&authored, &[scene()]).unwrap().unwrap();
+        for index in 0..2 {
+            assert_eq!(
+                compiled.style["frontageProgram"]["requests"][index]["setbackM"],
+                json!(12)
+            );
+        }
+        assert!(compiled.report.field_sources.iter().any(|entry| {
+            entry.path.ends_with("requests[0].setbackM")
+                && entry.source == SOURCE_ORIGINAL
+                && entry.profile_field.is_empty()
+                && entry.detail
+                    == "request search/engineering parameter outside the profile's morphology scope"
+        }));
+
+        // The request's own authored front inset drives the derivation, so an
+        // authored parcel policy is honoured rather than the profile's range.
+        let mut own_insets = style("compact-mixed-block");
+        for request in own_insets["frontageProgram"]["requests"]
+            .as_array_mut()
+            .unwrap()
+        {
+            request.as_object_mut().unwrap().remove("setbackM");
+            request["parcelInsets"] = json!({"frontM": 10, "sideM": 2, "rearM": 4});
+        }
+        let compiled = compile(&own_insets, &[scene()]).unwrap().unwrap();
+        assert_eq!(
+            compiled.style["frontageProgram"]["requests"][0]["setbackM"],
+            json!(14),
+            "10m authored front inset + 4m band"
+        );
+        assert!(compiled.report.field_sources.iter().any(|entry| {
+            entry.path.ends_with("requests[0].setbackM")
+                && entry.detail.contains("authored front inset 10m")
+        }));
+
+        // Outside the frontage request band: refuse, never clamp.
+        let mut too_far = style("compact-mixed-block");
+        for request in too_far["frontageProgram"]["requests"].as_array_mut().unwrap() {
+            request.as_object_mut().unwrap().remove("setbackM");
+            request["parcelInsets"] = json!({"frontM": 30, "sideM": 2, "rearM": 4});
+        }
+        let error = compile(&too_far, &[scene()]).unwrap_err();
+        assert!(error.contains("frontInsetM"), "{error}");
+        assert!(error.contains("34m street setback"), "{error}");
+    }
+
+    /// The published effective document is a claim about the derivation, so a
+    /// forged derived setback must be rejected by the independent audit exactly
+    /// like a forged footprint or inset.
+    #[test]
+    fn a_forged_derived_setback_is_rejected_by_the_audit() {
+        let mut value = style("compact-mixed-block");
+        for request in value["frontageProgram"]["requests"].as_array_mut().unwrap() {
+            request.as_object_mut().unwrap().remove("setbackM");
+        }
+        let compiled = compile(&value, &[scene()]).unwrap().unwrap();
+        assert_eq!(
+            compiled.style["frontageProgram"]["requests"][0]["setbackM"],
+            json!(8)
+        );
+        let published = serde_json::to_value(&compiled.report).unwrap();
+        assert!(audit_published(&published, &value, &[scene()])
+            .unwrap()
+            .is_some());
+        for (label, forged) in [
+            ("wider", json!(12)),
+            ("narrower", json!(6)),
+        ] {
+            let mut document = published.clone();
+            document["effectiveStyle"]["frontageProgram"]["requests"][0]["setbackM"] = forged;
+            assert!(
+                audit_published(&document, &value, &[scene()]).is_err(),
+                "a {label} forged street setback must not be accepted"
+            );
+        }
     }
 
     #[test]

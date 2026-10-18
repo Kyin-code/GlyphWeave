@@ -10917,6 +10917,135 @@ mod morphology_profile_integration {
         );
     }
 
+    /// The derived street setback is not only a published number: it moves the
+    /// real frontage candidate and puts the parcel's front boundary exactly on
+    /// the road's protected line. Same control, same road, same station, same
+    /// side; only the compiled setback differs, so the difference is the wiring.
+    #[test]
+    fn the_derived_street_setback_moves_the_real_frontage_candidate() {
+        let (scene, terrain, water, zones) = fixture();
+        let raw = control_style(Some("compact-mixed-block"));
+        let mut derived_style = raw.clone();
+        let mut authored_style = raw.clone();
+        for request in derived_style["frontageProgram"]["requests"]
+            .as_array_mut()
+            .unwrap()
+        {
+            request.as_object_mut().unwrap().remove("setbackM");
+        }
+        for request in authored_style["frontageProgram"]["requests"]
+            .as_array_mut()
+            .unwrap()
+        {
+            request["setbackM"] = serde_json::json!(12);
+        }
+        let compiled_derived =
+            morphology_compile::compile(&derived_style, std::slice::from_ref(&scene))
+                .unwrap()
+                .unwrap();
+        let compiled_authored =
+            morphology_compile::compile(&authored_style, std::slice::from_ref(&scene))
+                .unwrap()
+                .unwrap();
+        // compact-mixed-block: front inset 4m + 4m road band = 8m setback.
+        assert_eq!(
+            compiled_derived.style["frontageProgram"]["requests"][0]["setbackM"],
+            serde_json::json!(8)
+        );
+        assert_eq!(
+            compiled_authored.style["frontageProgram"]["requests"][0]["setbackM"],
+            serde_json::json!(12)
+        );
+
+        // A real planned road from the production network.
+        let mut plan = base_plan(&terrain.content_hash().unwrap());
+        road_extensions::append(
+            &mut plan,
+            &scene,
+            &terrain,
+            water,
+            &zones,
+            &compiled_derived.style,
+        )
+        .unwrap();
+        let road = plan
+            .entities()
+            .into_iter()
+            .find(|entity| {
+                entity.kind == "road"
+                    && entity.rotation_y_deg == 0.
+                    && entity.grounding.road_profile.is_some()
+            })
+            .expect("a real graded road entity");
+        let request = |style: &serde_json::Value| {
+            frontage::from_style(style).unwrap().unwrap().requests[0].clone()
+        };
+        let derived_request = request(&compiled_derived.style);
+        let authored_request = request(&compiled_authored.style);
+        let station = 18_usize;
+        let derived_site =
+            frontage::candidate_site(&road, &derived_request, SCENE, station, 1).unwrap();
+        let authored_site =
+            frontage::candidate_site(&road, &authored_request, SCENE, station, 1).unwrap();
+        assert_eq!(derived_site.rotation_y_deg, 0.);
+        assert_eq!(derived_site.world_x, authored_site.world_x);
+        assert_eq!(
+            authored_site.world_z - derived_site.world_z,
+            4,
+            "the 12m authored setback is 4m further from the road than the derived 8m one"
+        );
+        // The parcel's near boundary is exactly the road's protected edge: the
+        // corridor half width plus `ROAD_PROTECTION_M`, and not one metre less.
+        // The control's first graded road is the 16 m collector corridor, so the
+        // concrete numbers are 8 + 4 = 12 m (derived) and 8 + 4 + 4 = 16 m
+        // (authored 12 m setback).
+        assert_eq!(road.depth_m, 16., "control collector width");
+        let road_half = (road.depth_m / 2.) as i64;
+        let band = frontage::ROAD_PROTECTION_M;
+        assert_eq!(road_half, 8);
+        assert_eq!(band, 4);
+        let derived_parcel = frontage::parcel_boundary(&derived_site).unwrap();
+        let authored_parcel = frontage::parcel_boundary(&authored_site).unwrap();
+        let road_center_z = i64::from(road.world_z);
+        // Building centre from the road centreline: half collector 8 + setback
+        // 8 or 12 + half building depth 5.
+        assert_eq!(derived_site.world_z - road.world_z, 21);
+        assert_eq!(authored_site.world_z - road.world_z, 25);
+        assert_eq!(derived_parcel[1] - road_center_z, 12);
+        assert_eq!(authored_parcel[1] - road_center_z, 16);
+        assert_eq!(derived_parcel[1] - road_center_z, road_half + band);
+        assert_eq!(authored_parcel[1] - road_center_z, road_half + band + 4);
+        assert_eq!(
+            derived_parcel[3] - derived_parcel[1],
+            i64::from(derived_request.depth_m)
+                + i64::from(derived_request.parcel_insets.unwrap().front_m)
+                + i64::from(derived_request.parcel_insets.unwrap().rear_m)
+        );
+        // The production placement loop accepts the derived default: every
+        // authored home and shop is really placed, so the default is usable and
+        // not merely arithmetically valid.
+        let mut placed = base_plan(&terrain.content_hash().unwrap());
+        road_extensions::append(
+            &mut placed,
+            &scene,
+            &terrain,
+            water,
+            &zones,
+            &compiled_derived.style,
+        )
+        .unwrap();
+        frontage::append(
+            &mut placed,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &compiled_derived.style,
+        )
+        .unwrap();
+        assert_eq!(planned(&placed), HOMES + SHOPS);
+    }
+
     /// Planning-stage pre-flight of the two CLI controls. It runs the same
     /// production planning functions the bake uses (base network, automatic
     /// road extension, local frontage) on the authored 512m control scene and

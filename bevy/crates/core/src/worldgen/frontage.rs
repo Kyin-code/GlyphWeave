@@ -20,6 +20,15 @@ use std::collections::{BTreeMap, BTreeSet};
 /// rejecting one that mostly stands in another kind of zone.
 const MIN_PURPOSE_COVERAGE_PERCENT: i64 = 75;
 
+/// The frozen road-protection band of the parcel preflight: a parcel boundary
+/// must stay at least this many metres outside a road footprint, and the parcel
+/// is rejected as `occupied_or_road_support` when it does not. Named because the
+/// morphology compiler derives a default street setback from it
+/// (`settlement::morphology_compile`), so a profile default and this check can
+/// never disagree about the same number. This is an engineering contract: a
+/// profile may look at it, never widen it.
+pub const ROAD_PROTECTION_M: i64 = 4;
+
 /// The explicit along-road purpose-conversion policy of one request.
 ///
 /// The authored switch is `style.frontageProgram.ruralConversion`. Only the exact string
@@ -949,7 +958,16 @@ fn preflight(
             .find(|s| s.id == old.entity_id)
             .map(parcel_boundary)
             .transpose()?
-            .unwrap_or_else(|| bounds(old, if old.kind == "road" { 4 } else { 2 }));
+            .unwrap_or_else(|| {
+                bounds(
+                    old,
+                    if old.kind == "road" {
+                        ROAD_PROTECTION_M
+                    } else {
+                        2
+                    },
+                )
+            });
         if overlap(parcel, old_bounds) {
             *detail = Some(RejectDetail {
                 conflicting_entity: Some(old.entity_id.clone()),
