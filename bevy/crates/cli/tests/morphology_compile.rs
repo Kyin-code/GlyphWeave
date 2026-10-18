@@ -114,13 +114,15 @@ fn effective_programs_are_recompiled_from_the_authored_manifest() {
     // The profile fills the unstated parcel policy and the road hierarchy.
     assert!(requests[0]["parcelInsets"].is_object());
     assert_eq!(compiled.style["automaticRoadExtensions"]["version"], json!(2));
-    // Public space is not pasture: no residual program is invented.
-    assert!(compiled.style.get("residualLandProgram").is_none());
-    assert!(compiled
-        .report
-        .unsupported
-        .iter()
-        .any(|entry| entry.profile_field == "publicSpaceRatio"));
+    // Public space is not pasture: the profile fills the urban open-space share
+    // and the pasture share stays unstated, so the residual-land consumer's
+    // named default (0) applies to it.
+    assert_eq!(
+        compiled.style["residualLandProgram"],
+        json!({"version": 1, "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.10}}})
+    );
+    assert!(compiled.report.notes.iter().any(|note| note
+        .contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")));
 
     // Tampering with the published document is rejected.
     let mut tampered = published.clone();
@@ -135,6 +137,190 @@ fn effective_programs_are_recompiled_from_the_authored_manifest() {
     unknown["frontageProgram"]["unexpectedField"] = json!(true);
     let error = morphology_compile::compile(&unknown, &manifest.scenes).unwrap_err();
     assert!(error.contains("unknown field"), "{error}");
+}
+
+fn read(root: &std::path::Path, path: &str) -> Value {
+    serde_json::from_slice(&fs::read(root.join(path)).unwrap()).unwrap()
+}
+
+/// B-04 closeout: the profile's public-space share on its own now realizes
+/// urban public open space. The numbers are the published ones (512 m fixture),
+/// the ledger keeps both conservation identities, and the generation side can
+/// re-derive the same area from the plan and the terrain — a tampered
+/// publication is refused by the real binary.
+#[test]
+fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
+    let dir = TempDir::new("morphology-public-space");
+    let manifest = control_manifest("compact-mixed-block");
+    manifest.validate().expect("control manifest validates");
+    bake_world(&manifest, &dir.0).expect("control world bakes");
+
+    let report = |command: &str| {
+        Command::new(glyphweave())
+            .arg(command)
+            .arg(&dir.0)
+            .output()
+            .unwrap()
+    };
+    let quality = report("quality-report");
+    assert!(
+        quality.status.success(),
+        "{}",
+        String::from_utf8_lossy(&quality.stderr)
+    );
+    let quality: Value = serde_json::from_slice(&quality.stdout).unwrap();
+    let scene = &quality["scenes"][0];
+
+    // Before B-04: no residual program was compiled, so this scene realized
+    // 0 m2 of public open space. It now states only the profile's share.
+    let plan = read(&dir.0, "scenes/scene-0/landcover-plan.json");
+    assert_eq!(
+        plan["residualProgram"],
+        json!({"urbanOpenSpaceRatio": 0.1}),
+        "only the public-space share is derived from the profile"
+    );
+    let audit = &scene["landcoverAudit"];
+    assert_eq!(audit["publicOpenSpaceAreaM2"], json!(16387.0));
+    assert_eq!(audit["pastureAreaM2"], json!(0.0), "no pasture share was stated");
+    assert_eq!(
+        audit["residualDefaultedRatios"],
+        json!(["ruralPastureRatio"]),
+        "the applied default must be named in the report"
+    );
+    // The open space is real surface area in the urban row, and the row and the
+    // scene both conserve.
+    let urban = &scene["landUseLedger"]["byPurpose"]["urban"];
+    assert_eq!(urban["physical"]["publicOpenSpaceM2"], json!(16387.0));
+    assert_eq!(urban["plannedM2"], json!(180224.0));
+    assert_eq!(urban["realizedM2"], json!(22059.0));
+    assert_eq!(urban["unresolvedM2"], json!(158165.0));
+    assert_eq!(
+        urban["realizedM2"].as_f64().unwrap() + urban["unresolvedM2"].as_f64().unwrap(),
+        urban["plannedM2"].as_f64().unwrap(),
+        "urban realized + unresolved must equal the urban plan"
+    );
+    let ledger = &scene["landUseLedger"];
+    assert_eq!(ledger["sceneAreaM2"], json!(262144.0));
+    assert_eq!(ledger["realizedM2"], json!(54827.0));
+    assert_eq!(ledger["unresolvedM2"], json!(207317.0));
+    assert_eq!(
+        ledger["realizedM2"].as_f64().unwrap() + ledger["unresolvedM2"].as_f64().unwrap(),
+        ledger["sceneAreaM2"].as_f64().unwrap(),
+        "the whole scene area must be realized or explicitly unresolved"
+    );
+    // The generation side can rebuild the same area from plan + terrain; the
+    // audit's independent realization equals the published surface sum, and
+    // every open-space patch belongs to an urban future-development cell.
+    let surfaces = read(&dir.0, "scenes/scene-0/landcover-surfaces.json");
+    let cells: std::collections::BTreeMap<String, String> = plan["cells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|cell| {
+            (
+                cell["id"].as_str().unwrap().to_owned(),
+                cell["role"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let mut published_open_space = 0.0;
+    for patch in surfaces["patches"].as_array().unwrap() {
+        if patch["material"] != json!("public_open_space") {
+            continue;
+        }
+        published_open_space += patch["areaM2"].as_f64().unwrap();
+        assert_eq!(patch["zoneKind"], json!("urban"));
+        assert_eq!(
+            cells[patch["sourceCellId"].as_str().unwrap()],
+            "future_development"
+        );
+    }
+    assert_eq!(published_open_space, audit["publicOpenSpaceAreaM2"]);
+    assert_eq!(
+        audit["unresolvedAreaM2"], json!(207197.0),
+        "the public space moved area out of unresolved, it did not fake completion"
+    );
+    // The share is a per-cell target, not a claim: the realized area can never
+    // exceed the summed floor(cell area * share), and every metre it did not
+    // realize is a refusal recorded by name in the published document.
+    let target: f64 = plan["cells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|cell| cell["role"] == json!("future_development"))
+        .map(|cell| {
+            let boundary = &cell["boundary"];
+            let area = boundary["widthM"].as_f64().unwrap() * boundary["depthM"].as_f64().unwrap();
+            (area * 0.1).floor()
+        })
+        .sum();
+    assert_eq!(target, 17411.0, "the per-cell public-space target");
+    assert!(
+        published_open_space <= target,
+        "open space {published_open_space} m2 exceeds the {target} m2 target"
+    );
+    assert_eq!(
+        target - published_open_space,
+        1024.0,
+        "the part of the target with no flat, clear, unclaimed metre left stays unresolved"
+    );
+    // Whatever was scanned and refused is recorded by name; hillside squares are
+    // not silently dropped, and the refusals belong to the future districts.
+    let residual_refusals = surfaces["rejections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|rejection| {
+            cells.get(rejection["sourceCellId"].as_str().unwrap()).map(String::as_str)
+                == Some("future_development")
+        })
+        .count();
+    assert!(residual_refusals > 1_000, "{residual_refusals}");
+    assert!(surfaces["rejections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|rejection| rejection["reason"] == json!("residual_grade_exceeds_25_percent")));
+
+    // Tampering the published share, or deleting it, is refused.
+    let effective_path = dir.0.join("effective-programs.json");
+    let published: Value = read(&dir.0, "effective-programs.json");
+    let mut changed = published.clone();
+    changed["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]["urbanOpenSpaceRatio"] =
+        json!(0.05);
+    fs::write(&effective_path, serde_json::to_vec_pretty(&changed).unwrap()).unwrap();
+    let rejected = report("validate-world");
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("effective-programs.json differs from the recompiled manifest+profile"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    let mut removed = published.clone();
+    removed["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]
+        .as_object_mut()
+        .unwrap()
+        .remove("urbanOpenSpaceRatio");
+    fs::write(&effective_path, serde_json::to_vec_pretty(&removed).unwrap()).unwrap();
+    assert!(!report("validate-world").status.success());
+    fs::write(&effective_path, serde_json::to_vec_pretty(&published).unwrap()).unwrap();
+    let restored = report("validate-world");
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+
+    // The published *plan* is bound to the authoritative style too: editing the
+    // realized policy there is refused by the quality gate.
+    let plan_path = dir.0.join("scenes/scene-0/landcover-plan.json");
+    let mut forged_plan = plan.clone();
+    forged_plan["residualProgram"] = json!({"urbanOpenSpaceRatio": 0.2});
+    fs::write(&plan_path, serde_json::to_vec_pretty(&forged_plan).unwrap()).unwrap();
+    assert!(!report("quality-report").status.success());
+    fs::write(&plan_path, serde_json::to_vec_pretty(&plan).unwrap()).unwrap();
+    assert!(report("quality-report").status.success());
 }
 
 #[test]

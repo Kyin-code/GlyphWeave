@@ -92,6 +92,13 @@ pub struct SurfaceAudit {
     pub pasture_area_m2: f64,
     #[serde(default)]
     pub conservation_ground_area_m2: f64,
+    /// Residual ratios the source left unstated, named in a fixed order. The
+    /// residual-land consumer's default (`residual_land::ABSENT_RATIO_DEFAULT`,
+    /// zero) applied to each of them, so the effective policy is fully readable
+    /// from the report. Additive evidence only: documents written before this
+    /// field still deserialize, and no area above changes because of it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub residual_defaulted_ratios: Vec<String>,
     pub ecology_planned_plants: usize,
     pub ecology_realized_plants: usize,
     pub ecology_unfilled_plants: usize,
@@ -642,16 +649,20 @@ pub fn realize(
             }
         }
         let residual_obstacles: Vec<_> = entities.iter().filter(|e| solid(e)).collect();
+        // A ratio the source left unstated consumes nothing: the named default
+        // is `residual_land::ABSENT_RATIO_DEFAULT`, so a program that states
+        // only the public-space share realizes public open space and no pasture.
+        // Neither ratio is ever derived from the other.
         for (role, ratio, material, label) in [
             (
                 LandcoverRole::FutureDevelopment,
-                program.urban_open_space_ratio,
+                program.urban_open_space_ratio(),
                 Material::PublicOpenSpace,
                 "urban-open-space",
             ),
             (
                 LandcoverRole::AgricultureCandidate,
-                program.rural_pasture_ratio,
+                program.rural_pasture_ratio(),
                 Material::PastureGround,
                 "rural-pasture",
             ),
@@ -965,6 +976,17 @@ pub fn verify(
         public_open_space_area_m2: public_open_space,
         pasture_area_m2: pasture,
         conservation_ground_area_m2: conservation,
+        residual_defaulted_ratios: plan
+            .residual_program
+            .as_ref()
+            .map(|program| {
+                program
+                    .unstated_ratios()
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
         ecology_planned_plants: actual
             .ecology
             .communities
@@ -1585,8 +1607,8 @@ mod tests {
     fn residual_program_realizes_only_the_explicit_fraction() {
         let (s, d, mut p, t, w, e) = fixture();
         p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
-            urban_open_space_ratio: 0.1,
-            rural_pasture_ratio: 0.0,
+            urban_open_space_ratio: Some(0.1),
+            rural_pasture_ratio: None,
         });
         let out = realize(&s, &d, &p, &t, w, &e).unwrap();
         let open: f64 = out
@@ -1599,6 +1621,212 @@ mod tests {
         let audit = verify(&out, &s, &d, &p, &t, w, &e).unwrap();
         assert!((audit.public_open_space_area_m2 - open).abs() < 1e-7);
         assert!(audit.unresolved_area_m2 > 0.);
+    }
+
+    /// The public-space share on its own is enough: no pasture share is stated,
+    /// the named default (0) applies, and the realized public open space enters
+    /// the same area accounting as every other material.
+    #[test]
+    fn an_unstated_pasture_share_is_named_and_realizes_no_pasture() {
+        let (s, d, mut p, t, w, e) = fixture();
+        p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
+            urban_open_space_ratio: Some(0.1),
+            rural_pasture_ratio: None,
+        });
+        let out = realize(&s, &d, &p, &t, w, &e).unwrap();
+        let areas = |material: Material| -> f64 {
+            out.patches
+                .iter()
+                .filter(|patch| patch.material == material)
+                .map(|patch| patch.area_m2)
+                .sum()
+        };
+        let open = areas(Material::PublicOpenSpace);
+        assert!(open > 0., "the public-space share must realize open space");
+        assert!(
+            (open - open.floor()).abs() < 1e-7,
+            "residual squares are whole metres: {open}"
+        );
+        assert_eq!(areas(Material::PastureGround), 0., "no pasture was stated");
+        let audit = verify(&out, &s, &d, &p, &t, w, &e).unwrap();
+        assert_eq!(audit.public_open_space_area_m2, open);
+        assert_eq!(audit.pasture_area_m2, 0.);
+        assert_eq!(
+            audit.residual_defaulted_ratios,
+            vec!["ruralPastureRatio".to_string()],
+            "the applied default must be named in the report"
+        );
+        // The open space is public-ground mesh inside urban remainder, never
+        // inside the nature/conservation role or on top of water.
+        let cells: std::collections::BTreeMap<_, _> = p
+            .cells
+            .iter()
+            .map(|cell| (cell.id.as_str(), cell.role))
+            .collect();
+        for patch in out
+            .patches
+            .iter()
+            .filter(|patch| patch.material == Material::PublicOpenSpace)
+        {
+            assert_eq!(
+                cells[patch.source_cell_id.as_str()],
+                LandcoverRole::FutureDevelopment
+            );
+            assert_eq!(patch.zone_kind, "urban");
+            for square in patch.vertices.chunks_exact(4) {
+                let (x, z) = (square[0][0], square[0][2]);
+                assert!(
+                    !w.intersects_axis_aligned(x + 0.5, z + 0.5, 0.5, 0.5),
+                    "public open space may not enter water at {x},{z}"
+                );
+            }
+        }
+        // Conservation of the scene-level identity, not only the yard identity.
+        assert!(
+            (audit.realized_area_m2
+                + audit.conservation_ground_area_m2
+                + audit.unresolved_area_m2
+                - audit.planned_area_m2 as f64)
+                .abs()
+                < 1e-7
+        );
+        // The stated ratio is an upper bound on the target, cell by cell.
+        let target: u64 = p
+            .cells
+            .iter()
+            .filter(|cell| cell.role == LandcoverRole::FutureDevelopment)
+            .map(|cell| (cell.boundary.area() as f64 * 0.1).floor() as u64)
+            .sum();
+        assert_eq!(open, target as f64, "every targetable metre was realized");
+        // Omitting the whole policy leaves both shares at the named default.
+        let (s2, d2, p2, t2, w2, e2) = fixture();
+        let plain = realize(&s2, &d2, &p2, &t2, w2, &e2).unwrap();
+        assert!(plain.patches.iter().all(|patch| patch.material
+            != Material::PublicOpenSpace
+            && patch.material != Material::PastureGround));
+        let plain_audit = verify(&plain, &s2, &d2, &p2, &t2, w2, &e2).unwrap();
+        assert!(plain_audit.residual_defaulted_ratios.is_empty());
+    }
+
+    /// The public-space share is a surface, not a claim: it may not enter water,
+    /// a solid entity, a conservation cell or an already realized patch, and each
+    /// refusal is named. This is the negative case for the open-space path.
+    #[test]
+    fn public_open_space_refuses_water_solids_and_conservation() {
+        let (s, d, mut p, t, _old_water, mut e) = fixture();
+        p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
+            urban_open_space_ratio: Some(0.1),
+            rural_pasture_ratio: None,
+        });
+        // A lake over the west half of the scene. The first open-space square
+        // the generator would otherwise claim is then occupied by a solid tree,
+        // so both refusals are exercised on a location the scan really reaches.
+        let lake = crate::worldgen::LandmarkSpec {
+            entity_id: "lake".into(),
+            name: "lake".into(),
+            entity_type: "lake".into(),
+            purpose: "water".into(),
+            description: String::new(),
+            scene_id: s.scene_id.clone(),
+            world_x: 32,
+            world_z: 64,
+            world_y: 0,
+            width_m: 64,
+            depth_m: 128,
+            height_m: 0,
+            asset_id: "lake".into(),
+            rotation_y_deg: 0.,
+            grounding: Default::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        let water = crate::worldgen::water_geometry(
+            crate::worldgen::WaterKind::Lake,
+            &[lake],
+            &s,
+            &serde_json::Value::Null,
+        );
+        let control = realize(&s, &d, &p, &t, water, &e).unwrap();
+        let first = control
+            .patches
+            .iter()
+            .find(|patch| patch.material == Material::PublicOpenSpace)
+            .expect("open space must be realized on the control")
+            .vertices
+            .chunks_exact(4)
+            .next()
+            .unwrap();
+        let (tx, tz) = (first[0][0] as i32, first[0][2] as i32);
+        let mut tree = e[0].clone();
+        tree.entity_id = "tree".into();
+        tree.kind = "tree".into();
+        tree.world_x = tx + 4;
+        tree.world_z = tz + 4;
+        tree.width_m = 8.;
+        tree.depth_m = 8.;
+        tree.scale = 1.;
+        tree.rotation_y_deg = 0.;
+        e.push(tree);
+        let out = realize(&s, &d, &p, &t, water, &e).unwrap();
+        let open: Vec<_> = out
+            .patches
+            .iter()
+            .filter(|patch| patch.material == Material::PublicOpenSpace)
+            .collect();
+        assert!(!open.is_empty(), "open space must still be realized");
+        for patch in &open {
+            for square in patch.vertices.chunks_exact(4) {
+                let (x, z) = (square[0][0], square[0][2]);
+                assert!(
+                    !water.intersects_axis_aligned(x + 0.5, z + 0.5, 0.5, 0.5),
+                    "open space entered water at {x},{z}"
+                );
+                assert!(
+                    (x as i32 - tx).abs() >= 4 || (z as i32 - tz).abs() >= 4,
+                    "open space entered the solid tree at {x},{z}"
+                );
+            }
+        }
+        let reasons: Vec<&str> = out
+            .rejections
+            .iter()
+            .map(|rejection| rejection.reason.as_str())
+            .collect();
+        assert!(
+            reasons.contains(&"water_intersection"),
+            "the water refusal must be recorded: {reasons:?}"
+        );
+        let refused_square = out.rejections.iter().any(|rejection| {
+            rejection.reason == "solid_object_occupies_residual_land"
+                && rejection.x == i64::from(tx)
+                && rejection.z == i64::from(tz)
+        });
+        assert!(
+            refused_square,
+            "the square the tree occupies must be refused by name"
+        );
+        // Nowhere did the public-space share claim a conservation cell, and no
+        // square is owned by two realized patches at once.
+        let conservation_ids: std::collections::BTreeSet<&str> = p
+            .cells
+            .iter()
+            .filter(|cell| cell.role == LandcoverRole::ConservationCandidate)
+            .map(|cell| cell.id.as_str())
+            .collect();
+        let mut claimed = std::collections::BTreeSet::new();
+        for patch in &out.patches {
+            if patch.material == Material::PublicOpenSpace {
+                assert!(!conservation_ids.contains(patch.source_cell_id.as_str()));
+            }
+            for square in patch.vertices.chunks_exact(4) {
+                let cell = (square[0][0] as i64, square[0][2] as i64);
+                assert!(
+                    claimed.insert(cell),
+                    "a metre square is realized by two patches at once: {cell:?}"
+                );
+            }
+        }
+        verify(&out, &s, &d, &p, &t, water, &e).expect("the refused open space still audits");
     }
 }
 

@@ -38,8 +38,11 @@
 //!   stated setback is never overridden, and a derivation outside the frontage
 //!   request band is refused instead of clamped.
 //! * `publicSpaceRatio` is a public-space share. It is not a pasture share:
-//!   it may fill `urbanOpenSpaceRatio`, but `ruralPastureRatio` needs its own
-//!   explicit input, so no residual program is synthesised without one.
+//!   it fills `urbanOpenSpaceRatio` for the scenes that own an urban remainder,
+//!   and it never fills `ruralPastureRatio`. A program that states only the
+//!   public-space share is complete because the residual-land consumer's named
+//!   default for an unstated ratio is zero; the compile report records that
+//!   default per scene instead of the compiler inventing a pasture number.
 use super::morphology::{self, MorphologyProfile};
 use crate::worldgen::{LandUseProfile, SceneSpec, plan_landuse_zones};
 use serde::{Deserialize, Serialize};
@@ -47,8 +50,12 @@ use serde_json::{Map, Value, json};
 
 /// Version of the published effective-program document.
 pub const EFFECTIVE_PROGRAMS_VERSION: u32 = 1;
-/// Revision label recorded next to the effective programs.
-pub const EFFECTIVE_PROGRAMS_REVISION: &str = "b04-c1-r2c-effective-programs-v4";
+/// Revision label recorded next to the effective programs. Bumped because the
+/// compiled program set changed: a profile with `publicSpaceRatio` now also
+/// compiles `residualLandProgram.scenes[*].urbanOpenSpaceRatio`, so the same
+/// manifest produces a different effective document (and world identity) than
+/// it did under v4. Old documents are rejected, never reinterpreted.
+pub const EFFECTIVE_PROGRAMS_REVISION: &str = "b04-c1-r2c-effective-programs-v5";
 /// The value came from the manifest the user wrote.
 pub const SOURCE_ORIGINAL: &str = "original-input";
 /// The value came from a profile field the user did not override.
@@ -640,35 +647,51 @@ fn compile_auto_roads(
 
 /// Attach the profile public-space share to the residual-land consumer.
 ///
-/// `publicSpaceRatio` is a public-space share and nothing else. It may fill
-/// `urbanOpenSpaceRatio`, but `ruralPastureRatio` is a different quantity with
-/// no profile source: it is either authored, or the program is not completed.
-/// No program is synthesised from scratch, so legacy behaviour (no residual
-/// program at all) is preserved when the manifest declares none.
+/// `publicSpaceRatio` is a public-space share and nothing else. It fills
+/// `urbanOpenSpaceRatio` for every scene that can own urban remainder; it never
+/// fills `ruralPastureRatio`, which is a different quantity with no profile
+/// source. The two are independent statements, so a program that states only
+/// the public-space share is *complete*: an unstated ratio resolves to
+/// `residual_land::ABSENT_RATIO_DEFAULT` (zero) in the consumer, and the compile
+/// report names that default per scene instead of inventing a pasture number.
+///
+/// Scenes with no urban zoning are never given an entry, because the compiler
+/// does not state a policy a scene cannot use. Legacy behaviour (no morphology
+/// profile at all) is untouched: `compile` returns `None` before this runs.
 fn compile_residual(
     style: &Value,
     effective: &mut Value,
     profile: &MorphologyProfile,
+    scenes: &[SceneSpec],
     sources: &mut Vec<FieldSource>,
     unsupported: &mut Vec<FieldSource>,
+    notes: &mut Vec<String>,
 ) -> Result<(), String> {
     let path = "residualLandProgram";
     let share = ratio_midpoint(profile.public_space_ratio, "publicSpaceRatio")?;
-    let Some(program) = style.get(path) else {
-        unsupported.push(FieldSource::new(
-            format!("{path}.scenes[*].ruralPastureRatio"),
-            SOURCE_UNSUPPORTED,
-            "publicSpaceRatio",
-            "no independent pasture parameter exists in the profile, and a public-space share is not a pasture share, so no residualLandProgram is synthesised; declare the program explicitly to use the public-space mapping",
-        ));
-        return Ok(());
-    };
     if !(0. ..=0.25).contains(&share) {
         return Err(err(format!(
             "profile publicSpaceRatio midpoint {share} exceeds the residual-land urban bound 0.25; declare urbanOpenSpaceRatio explicitly"
         )));
     }
-    let mut object = as_object(program, path)?.clone();
+    let Some(land_use) = LandUseProfile::from_style(style) else {
+        unsupported.push(FieldSource::new(
+            format!("{path}.scenes[*].urbanOpenSpaceRatio"),
+            SOURCE_UNSUPPORTED,
+            "publicSpaceRatio",
+            "an open-space share needs an explicit landUseProfile to produce the urban remainder it subdivides",
+        ));
+        return Ok(());
+    };
+    let mut object = match style.get(path) {
+        Some(program) => as_object(program, path)?.clone(),
+        None => {
+            let mut object = Map::new();
+            object.insert("version".into(), json!(1));
+            object.insert("scenes".into(), json!({}));
+            object
+        }
+    };
     if object.get("version").and_then(Value::as_u64) != Some(1) {
         return Err(err(format!("{path}.version must be 1")));
     }
@@ -676,31 +699,21 @@ fn compile_residual(
         Some(value) => as_object(&value, &format!("{path}.scenes"))?.clone(),
         None => Map::new(),
     };
-    // Only authored scene entries are completed. A missing entry stays missing:
-    // adding one would require inventing the pasture share.
-    for (scene_id, entry) in scene_map.iter_mut() {
-        let scene_path = format!("{path}.scenes.{scene_id}");
+    for scene in scenes {
+        let zones = plan_landuse_zones(scene, &land_use);
+        let owns_urban_remainder = zones.iter().any(|zone| zone.kind == "urban");
+        // An authored entry always stays (and is checked for its own sake); a
+        // scene without urban remainder never gets a synthesised one.
+        if !owns_urban_remainder && !scene_map.contains_key(&scene.scene_id) {
+            continue;
+        }
+        let scene_path = format!("{path}.scenes.{}", scene.scene_id);
+        let entry = scene_map
+            .entry(scene.scene_id.clone())
+            .or_insert_with(|| json!({}));
         let entry = entry
             .as_object_mut()
             .ok_or_else(|| err(format!("{scene_path} must be a JSON object")))?;
-        if entry.contains_key("ruralPastureRatio") {
-            sources.push(FieldSource::new(
-                format!("{scene_path}.ruralPastureRatio"),
-                SOURCE_ORIGINAL,
-                "",
-                "explicit pasture share; the profile has no independent pasture parameter and never overrides it",
-            ));
-        } else {
-            unsupported.push(FieldSource::new(
-                format!("{scene_path}.ruralPastureRatio"),
-                SOURCE_UNSUPPORTED,
-                "publicSpaceRatio",
-                "unstated, and a public-space share is not a pasture share; the compiler refuses to invent one",
-            ));
-            return Err(err(format!(
-                "{scene_path}.ruralPastureRatio must be stated explicitly; the morphology profile has no independent pasture parameter"
-            )));
-        }
         if entry.contains_key("urbanOpenSpaceRatio") {
             sources.push(FieldSource::new(
                 format!("{scene_path}.urbanOpenSpaceRatio"),
@@ -708,7 +721,7 @@ fn compile_residual(
                 "publicSpaceRatio",
                 "explicit open-space share; the profile never overrides it",
             ));
-        } else {
+        } else if owns_urban_remainder {
             entry.insert("urbanOpenSpaceRatio".into(), json!(share));
             sources.push(FieldSource::new(
                 format!("{scene_path}.urbanOpenSpaceRatio"),
@@ -717,8 +730,34 @@ fn compile_residual(
                 format!("unstated; profile midpoint public-space share {share}"),
             ));
         }
+        if entry.contains_key("ruralPastureRatio") {
+            sources.push(FieldSource::new(
+                format!("{scene_path}.ruralPastureRatio"),
+                SOURCE_ORIGINAL,
+                "",
+                "explicit pasture share; the profile has no independent pasture parameter and never overrides it",
+            ));
+        } else {
+            notes.push(format!(
+                "{scene_path}.ruralPastureRatio is unstated; a public-space share is not a pasture share, so the compiler states nothing and the residual-land consumer applies its named default {default}",
+                default = super::residual_land::ABSENT_RATIO_DEFAULT
+            ));
+        }
     }
+    let declared_by_scene = !scene_map.is_empty();
     object.insert("scenes".into(), Value::Object(scene_map));
+    if style.get(path).is_none() && !declared_by_scene {
+        // No scene owns an urban remainder and the manifest declared no
+        // program: there is nothing to state, so nothing is added. A residual
+        // program with zero scenes would be a rejected document, not a default.
+        unsupported.push(FieldSource::new(
+            format!("{path}.scenes[*].urbanOpenSpaceRatio"),
+            SOURCE_UNSUPPORTED,
+            "publicSpaceRatio",
+            "no scene owns an urban remainder, so there is no open-space share to state",
+        ));
+        return Ok(());
+    }
     effective
         .as_object_mut()
         .ok_or_else(|| err("style must be a JSON object"))?
@@ -848,8 +887,10 @@ pub fn compile(style: &Value, scenes: &[SceneSpec]) -> Result<Option<CompiledSty
         style,
         &mut effective,
         &profile,
+        scenes,
         &mut field_sources,
         &mut unsupported,
+        &mut notes,
     )?;
     compile_agriculture(
         style,
@@ -1044,11 +1085,22 @@ mod tests {
 
     #[test]
     fn six_profiles_expand_with_sources_and_declared_unsupported_fields() {
-        let ids: Vec<String> = crate::settlement::morphology::builtins()
-            .into_iter()
-            .map(|profile| profile.profile_id)
+        let profiles = crate::settlement::morphology::builtins();
+        let ids: Vec<String> = profiles
+            .iter()
+            .map(|profile| profile.profile_id.clone())
             .collect();
         assert_eq!(ids.len(), 6);
+        // The same range-to-scalar rule the compiler uses, applied by the test
+        // so the expectation is a number rather than a restatement of code.
+        let share = |id: &str| {
+            let profile = profiles
+                .iter()
+                .find(|profile| profile.profile_id == id)
+                .unwrap();
+            ((profile.public_space_ratio[0] + profile.public_space_ratio[1]) * 0.5 * 1000.).round()
+                / 1000.
+        };
         let mut inset_table = Vec::new();
         for id in &ids {
             let compiled = compiled(id);
@@ -1079,21 +1131,31 @@ mod tests {
             let hierarchy = &compiled.style["automaticRoadExtensions"]["scenes"][0]["hierarchy"];
             assert_eq!(compiled.style["automaticRoadExtensions"]["version"], json!(2));
             assert!(hierarchy["tiers"].as_array().unwrap().len() >= 2);
-            // No residual program is declared, and the profile has no
-            // independent pasture parameter, so none is invented here.
+            // The profile's public-space share reaches the residual-land
+            // consumer as the urban open-space ratio and nothing else: no
+            // pasture share, no forest share, no other ratio is invented.
+            assert_eq!(
+                compiled.style["residualLandProgram"],
+                json!({"version": 1, "scenes": {"scene-0": {"urbanOpenSpaceRatio": share(id)}}}),
+                "{id} must compile exactly the profile public-space share"
+            );
             assert!(
-                compiled.style.get("residualLandProgram").is_none(),
-                "{id} must not synthesise a residual program from a public-space share"
+                compiled
+                    .report
+                    .field_sources
+                    .iter()
+                    .any(|entry| entry.path.ends_with("urbanOpenSpaceRatio")
+                        && entry.source == SOURCE_PROFILE
+                        && entry.profile_field == "publicSpaceRatio"),
+                "{id} must report the public-space source"
             );
             assert!(
                 compiled
                     .report
                     .unsupported
                     .iter()
-                    .any(|entry| entry.profile_field == "publicSpaceRatio"
-                        && entry.source == SOURCE_UNSUPPORTED
-                        && entry.path.contains("ruralPastureRatio")),
-                "{id} must declare the pasture mapping unsupported"
+                    .all(|entry| entry.profile_field != "publicSpaceRatio"),
+                "{id} must not declare a consumed field unsupported"
             );
             // Unsupported fields are declared, never silently claimed.
             for field in ["coverageRatio", "serviceRadiusM", "terrain"] {
@@ -1143,32 +1205,51 @@ mod tests {
     }
 
     /// A profile manifest that already states its own street setback compiles to
-    /// the same effective document it produced before the derivation existed.
-    /// The digests were captured from the parent commit, so a change to the
-    /// compiled document for an authored setback (and with it the world revision
-    /// of every published profile world) is a hard failure instead of a silent
-    /// drift.
+    /// the same effective document it produced before the derivation existed,
+    /// apart from the single block that B-04 deliberately added: the residual
+    /// land program carrying the profile's public-space share.
+    ///
+    /// The digests were captured from the parent commit. Removing
+    /// `residualLandProgram` from the compiled document must still reproduce the
+    /// pre-wiring style byte for byte (checked below), so a drift anywhere else
+    /// (an authored setback included) is a hard failure instead of a silent
+    /// world-revision change.
     #[test]
     fn authored_setback_documents_keep_their_pre_wiring_digests() {
-        for (profile_id, style_digest, report_digest) in [
+        for (profile_id, pre_wiring_style_digest, style_digest, report_digest) in [
             (
                 "compact-mixed-block",
                 "7b2b48790a5338e64dad1549386aaf838191fa7f9b6c9f568c7cd5df4a96eaaa",
-                "67e91e156ee542a402add763ddd0da93e6ad0bc3701c12cd26b86d0f4a2cd17f",
+                "98a6499ef8de3f2b54d34f0033e9a9b26ce0551b23441762f1b3ddf2f3eea96c",
+                "2a94cd27ff7e35e284c5c59975c90bec8c2f49d1d512a237aa0ce75de33e643a",
             ),
             (
                 "village-field",
                 "75620dee9131ac7df0d72319c060df79e0ace7ccb4d5ba72bf8ccbe4f1b6a0b0",
-                "ae9037da890fe5005952759d906a07c8baa2af283602af80a688c8d030f3e440",
+                "f921ae85a58e9a83dc0730cd525915d16c1e41e9390c7534814a5ca010ffc298",
+                "417b6214c2ea6f1ec03d5bac01808286d859a141ab4d6831234eb6b2d53afbe3",
             ),
         ] {
             let compiled = compile(&style(profile_id), &[scene()]).unwrap().unwrap();
+            let mut pre_wiring = compiled.style.clone();
+            let program = pre_wiring
+                .as_object_mut()
+                .unwrap()
+                .remove("residualLandProgram")
+                .expect("the public-space share is compiled for every urban scene");
+            assert_eq!(
+                blake3::hash(&serde_json::to_vec(&pre_wiring).unwrap())
+                    .to_hex()
+                    .as_str(),
+                pre_wiring_style_digest,
+                "{profile_id}: the pre-wiring document must be untouched apart from {program:?}"
+            );
             assert_eq!(
                 blake3::hash(&serde_json::to_vec(&compiled.style).unwrap())
                     .to_hex()
                     .as_str(),
                 style_digest,
-                "{profile_id}: an authored setback must compile to its pre-wiring effective style"
+                "{profile_id}: the effective style for an authored setback must not drift"
             );
             assert_eq!(
                 blake3::hash(&serde_json::to_vec(&compiled.report).unwrap())
@@ -2021,14 +2102,31 @@ mod tests {
         assert!(compiled.report.field_sources.iter().any(|entry| {
             entry.source == SOURCE_PROFILE && entry.profile_field == "villageFieldTemplate"
         }));
-        // No residual program was declared and the profile has no independent
-        // pasture parameter, so the residual mapping stays unsupported.
-        assert!(compiled.style.get("residualLandProgram").is_none());
+        // The public-space share now has a consumer: it compiles the urban
+        // open-space ratio for the urban scene and states no pasture share, so
+        // the consumer's named default (0) applies to the part it cannot know.
+        assert_eq!(
+            compiled.style["residualLandProgram"],
+            json!({"version": 1, "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.14}}})
+        );
         assert!(compiled
             .report
-            .unsupported
+            .field_sources
             .iter()
-            .any(|entry| entry.profile_field == "publicSpaceRatio"));
+            .any(|entry| entry.source == SOURCE_PROFILE
+                && entry.profile_field == "publicSpaceRatio"
+                && entry.path.ends_with("urbanOpenSpaceRatio")));
+        assert!(
+            compiled
+                .report
+                .unsupported
+                .iter()
+                .all(|entry| entry.profile_field != "publicSpaceRatio"),
+            "a field with a real consumer is not unsupported"
+        );
+        assert!(compiled.report.notes.iter().any(|note| note.contains(
+            "residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated"
+        )));
     }
 
     #[test]
@@ -2055,6 +2153,18 @@ mod tests {
         let mut forged = published.clone();
         forged["effectiveStyle"]["frontageProgram"]["requests"][0]["widthM"] = json!(30);
         assert!(audit_published(&forged, &value, &[scene()]).is_err());
+        // The residual public-space share is part of the published document:
+        // changing it, or deleting the field that states it, is rejected too.
+        let mut forged_ratio = published.clone();
+        forged_ratio["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]
+            ["urbanOpenSpaceRatio"] = json!(0.05);
+        assert!(audit_published(&forged_ratio, &value, &[scene()]).is_err());
+        let mut removed_ratio = published.clone();
+        removed_ratio["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]
+            .as_object_mut()
+            .unwrap()
+            .remove("urbanOpenSpaceRatio");
+        assert!(audit_published(&removed_ratio, &value, &[scene()]).is_err());
         // So is a recompiled document for a different profile version.
         let mut wrong_profile = value.clone();
         wrong_profile["morphologyProfile"] = json!("compact-mixed-block");
@@ -2246,17 +2356,62 @@ mod tests {
         );
         assert!(village.style["agricultureProgram"].is_object());
         assert!(compact.style.get("agricultureProgram").is_none());
-        // Neither control declares a residual program, and the profile has no
-        // independent pasture parameter, so neither invents one.
-        assert!(compact.style.get("residualLandProgram").is_none());
-        assert!(village.style.get("residualLandProgram").is_none());
+        // Neither control declares a residual program, so both receive exactly
+        // the profile's public-space share and no other ratio. The share still
+        // follows the profile: the two controls disagree on it.
         for compiled in [compact, village] {
-            assert!(compiled
-                .report
-                .unsupported
-                .iter()
-                .any(|entry| entry.profile_field == "publicSpaceRatio"));
+            let program = &compiled.style["residualLandProgram"];
+            let scene = &program["scenes"]["scene-0"];
+            assert_eq!(program["version"], json!(1));
+            assert!(scene["urbanOpenSpaceRatio"].is_number());
+            assert!(
+                scene.get("ruralPastureRatio").is_none(),
+                "a public-space share can never become a pasture share"
+            );
+            assert!(
+                compiled
+                    .report
+                    .unsupported
+                    .iter()
+                    .all(|entry| entry.profile_field != "publicSpaceRatio")
+            );
         }
+        assert_ne!(
+            compact.style["residualLandProgram"]["scenes"]["scene-0"]["urbanOpenSpaceRatio"],
+            village.style["residualLandProgram"]["scenes"]["scene-0"]["urbanOpenSpaceRatio"]
+        );
+    }
+
+    /// The legacy path must stay byte-identical, not merely equal, even when the
+    /// manifest already declares the residual program B-04 now also compiles for
+    /// profile manifests. A profile-free input is passed through untouched, so
+    /// its serialized bytes keep this frozen blake3 digest. The public-space
+    /// share a legacy manifest states works on its own, but no compiler default
+    /// may ever leak into an old input.
+    #[test]
+    fn legacy_residual_program_bytes_are_frozen_without_a_profile() {
+        let legacy = json!({
+            "landUseProfile": land_use(0.10),
+            "residualLandProgram": {
+                "version": 1,
+                "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.1, "ruralPastureRatio": 0.2}}
+            }
+        });
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            "d591f8430591aafa2145032080479bdc097f6a1e70130fd8aa701a4fa042acc6",
+            "the profile-free residual bytes changed; no profile path may touch a legacy input"
+        );
+        assert!(compile(&legacy, &[scene()]).unwrap().is_none());
+        let effective = effective_style_or_original(&legacy, &[scene()]).unwrap();
+        assert_eq!(serde_json::to_vec(&effective).unwrap(), bytes);
+        // The legacy document is still consumed exactly as written.
+        let program =
+            crate::settlement::residual_land::for_scene(&effective, &scene()).unwrap().unwrap();
+        assert_eq!(program.urban_open_space_ratio(), 0.1);
+        assert_eq!(program.rural_pasture_ratio(), 0.2);
+        assert!(program.unstated_ratios().is_empty());
     }
 
     /// T1: the compiler must not swallow keys the strict consumer rejects.
@@ -2374,7 +2529,9 @@ mod tests {
             .contains("never allocates buildings"));
     }
 
-    /// T3: a public-space share is not a pasture share.
+    /// T3: a public-space share is not a pasture share. The profile fills the
+    /// open-space share and nothing else; the pasture share stays unstated and
+    /// the residual-land consumer applies its named default of zero.
     #[test]
     fn public_space_share_never_becomes_a_pasture_share() {
         // An explicit pasture share is preserved verbatim for every profile.
@@ -2399,6 +2556,14 @@ mod tests {
                     && entry.source == SOURCE_PROFILE
                     && entry.profile_field == "publicSpaceRatio"
             }));
+            // The pasture share never appears as a profile-sourced value: no
+            // field source may claim publicSpaceRatio wrote it.
+            assert!(compiled
+                .report
+                .field_sources
+                .iter()
+                .filter(|entry| entry.path.ends_with("ruralPastureRatio"))
+                .all(|entry| entry.source == SOURCE_ORIGINAL));
             authored.push((
                 profile_id,
                 scene["ruralPastureRatio"].clone(),
@@ -2410,27 +2575,71 @@ mod tests {
         assert_eq!(authored[0].1, authored[1].1);
         assert_ne!(authored[0].2, authored[1].2);
 
-        // A declared program that omits the pasture share is refused, not
-        // completed with an invented number.
-        let mut missing_pasture = style("village-field");
-        missing_pasture["residualLandProgram"] = json!({
+        // A declared program that states only the open-space share is complete.
+        // The compiler states no pasture number; the consumer's named default
+        // (0) is recorded in the report instead.
+        let mut urban_only = style("village-field");
+        urban_only["residualLandProgram"] = json!({
             "version": 1,
             "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.1}}
         });
-        let error = compile(&missing_pasture, &[scene()]).unwrap_err();
+        let urban_compiled = compile(&urban_only, &[scene()]).unwrap().unwrap();
+        let entry = &urban_compiled.style["residualLandProgram"]["scenes"]["scene-0"];
+        assert_eq!(entry["urbanOpenSpaceRatio"], json!(0.1), "authored share wins");
         assert!(
-            error.contains("no independent pasture parameter"),
-            "{error}"
+            entry.get("ruralPastureRatio").is_none(),
+            "the compiler must not invent a pasture share"
         );
+        assert!(urban_compiled.report.notes.iter().any(|note| note
+            .contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")));
+        assert!(urban_compiled
+            .report
+            .unsupported
+            .iter()
+            .all(|entry| entry.profile_field != "publicSpaceRatio"));
 
-        // No program at all: nothing is synthesised, and the mapping is
-        // declared unsupported instead of quietly becoming "legacy default".
+        // No program at all: the profile supplies its public-space share and
+        // still no pasture share, so the same named default applies.
         let compiled = compiled("village-field");
+        let program = &compiled.style["residualLandProgram"];
+        assert_eq!(program["scenes"]["scene-0"], json!({"urbanOpenSpaceRatio": 0.14}));
+        assert!(program["scenes"]["scene-0"].get("ruralPastureRatio").is_none());
+        // Every scene that owns an urban remainder receives the same share, in
+        // manifest-independent key order and with no other ratio.
+        let second_scene = SceneSpec {
+            scene_id: "scene-1".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 1024,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let two_scenes = compile(&style("village-field"), &[scene(), second_scene])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            two_scenes.style["residualLandProgram"],
+            json!({
+                "version": 1,
+                "scenes": {
+                    "scene-0": {"urbanOpenSpaceRatio": 0.14},
+                    "scene-1": {"urbanOpenSpaceRatio": 0.14}
+                }
+            }),
+            "every urban scene receives exactly the open-space share"
+        );
+        // A profile whose land-use target leaves no urban zone gets no program:
+        // the compiler never states a policy a scene cannot use, and it never
+        // emits a document with zero scenes.
+        let mut no_urban = style("village-field");
+        no_urban["landUseProfile"]["urbanCoreRatio"] = json!(0.0);
+        no_urban["landUseProfile"]["suburbanRatio"] = json!(0.0);
+        let compiled = compile(&no_urban, &[scene()]).unwrap().unwrap();
         assert!(compiled.style.get("residualLandProgram").is_none());
         assert!(compiled.report.unsupported.iter().any(|entry| {
             entry.profile_field == "publicSpaceRatio"
                 && entry.source == SOURCE_UNSUPPORTED
-                && entry.path.ends_with("ruralPastureRatio")
+                && entry.detail.contains("no scene owns an urban remainder")
         }));
     }
 }
