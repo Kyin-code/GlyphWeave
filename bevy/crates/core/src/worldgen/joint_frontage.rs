@@ -63,20 +63,46 @@ pub(super) fn plan(
     // Discard only a clone's provisional selections. The original candidate
     // identities remain available below; no final entity exists at this point.
     joint.roadside_sites.clear();
+    // The shoreline row's outcome was published by `worldgen::shorefront` BEFORE this layout, and this
+    // layout does not re-plan it: it is not a service of the settlement programme and its refusals are
+    // the only record of why a quay station did not land. The service outcomes are cleared only to be
+    // re-derived below, so the row's own record is carried across and kept first, in plan order.
+    let shorefront_outcomes: Vec<super::services::ServiceOutcome> = joint
+        .service_outcomes
+        .iter()
+        .filter(|outcome| outcome.request.id == super::shorefront::SHOREFRONT_ROW)
+        .cloned()
+        .collect();
     joint.service_outcomes.clear();
+    // A baseline site that is NOT a dwelling is not part of this layout at all. The shoreline
+    // commercial row (`worldgen::shorefront`) plans its shops on the road network before the pad
+    // programme runs, and they are baseline sites too: they must keep their frontage through the
+    // service reservation (the services below then reserve AROUND them) and they must never be
+    // counted as dwellings, which is what `retained/displaced/retained_residential_ids` and the
+    // housing minimum account. Attaching them to this phase costs neither: they are simply already
+    // in place when the services and the baseline homes are considered.
+    let mut dwellings: Vec<RoadsideSite> = Vec::new();
+    for site in &baseline.roadside_sites {
+        if site.kind() == "residential_home" {
+            dwellings.push(site.clone());
+        } else {
+            joint.roadside_sites.push(site.clone());
+        }
+    }
     services::append(&mut joint, scene, natural, water, zones, program, pad_conversion)?;
+    joint.service_outcomes.splice(0..0, shorefront_outcomes);
     let service_sites = joint.roadside_sites.clone();
     let mut receipt = JointLayout {
         model: "service-reservation-and-housing-recovery-v1".into(),
         residential_minimum: minimum,
-        baseline_residential_count: baseline.roadside_sites.len(),
+        baseline_residential_count: dwellings.len(),
         retained_residential_ids: vec![],
         displaced_residential_ids: vec![],
         replacement_residential_ids: vec![],
         unfilled_residential: 0,
         recovery_rejections: BTreeMap::new(),
     };
-    for home in &baseline.roadside_sites {
+    for home in &dwellings {
         if service_sites
             .iter()
             .any(|s| incompatible(home, s, &baseline))

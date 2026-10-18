@@ -1664,6 +1664,26 @@ pub(super) fn append(
     *plan = staged;
     Ok(())
 }
+/// The authored street morphology a shoreline commercial row is planned from: its street setback,
+/// taken from the world's own first frontage request, or derived from `style.morphologyProfile`
+/// exactly as `settlement::morphology_compile` derives it for an unstated request
+/// (`frontInset + ROAD_PROTECTION_M`).
+///
+/// `None` means the world states no street morphology at all, and then there is no shoreline row
+/// (`worldgen::shorefront`): a row placed on a setback nobody authored would be this module inventing
+/// a street contract, which is the defect, not the fix. Such a world keeps the legacy bayfront band.
+pub fn shorefront_row_contract(style: &serde_json::Value) -> Option<u32> {
+    if let Ok(Some(program)) = from_style(style) {
+        if let Some(request) = program.requests.first() {
+            return Some(request.setback_m);
+        }
+    }
+    let profile = crate::settlement::morphology::resolve(style).ok().flatten()?;
+    let front =
+        crate::settlement::morphology_compile::even_midpoint(profile.front_inset_m, "frontInsetM")
+            .ok()?;
+    front.checked_add(ROAD_PROTECTION_M as u32)
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Audit {

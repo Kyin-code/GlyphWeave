@@ -119,14 +119,15 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .expect("the opt-in authorizes the road network");
 
     // ---------------------------------------------------------------------
-    // 1. THE CHURCH IS BACK. 28 pads planned, 28 realized, and the far end of
+    // 1. THE CHURCH IS BACK. 30 pads planned, 30 realized, and the far end of
     //    the pipeline (the independent road audit) says every declared top is
     //    held with a design error of 0 m.
     // ---------------------------------------------------------------------
     assert_eq!(
         plan.roadside_sites.len(),
-        28,
-        "23 retained dwellings + 4 services + the one converted frontage shop"
+        30,
+        "22 retained dwellings + 2 recovered replacements + 4 services + the shoreline row's 3 \
+         quay shops + the one converted frontage shop"
     );
     let rejections: BTreeMap<&str, u64> = plan
         .roadside_site_rejections
@@ -206,8 +207,8 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     //    and the church's own 468 m2 is one of them.
     // ---------------------------------------------------------------------
     let pad_converted: i64 = plan.pad_conversions.iter().map(|record| record.area_m2).sum();
-    assert_eq!(plan.pad_conversions.len(), 11);
-    assert_eq!(pad_converted, 5_080);
+    assert_eq!(plan.pad_conversions.len(), 13);
+    assert_eq!(pad_converted, 4_896);
     let church = plan
         .pad_conversions
         .iter()
@@ -224,12 +225,12 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     }
     let ledger = read_json(dir.0.join("scenes/scene-0/land-use-ledger.json"));
     let ledger_records = ledger["conversions"].as_array().expect("the ledger applied them");
-    assert_eq!(ledger_records.len(), 12);
+    assert_eq!(ledger_records.len(), 14);
     let ledger_converted: i64 = ledger_records
         .iter()
         .map(|record| record["areaM2"].as_i64().unwrap())
         .sum();
-    assert_eq!(ledger_converted, 5_160);
+    assert_eq!(ledger_converted, 4_976);
     assert!(
         ledger_records
             .iter()
@@ -268,8 +269,8 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     assert_eq!(row["roadNetworkAudit"]["status"], json!("pass"));
     assert_eq!(row["roadNetworkAudit"]["plannedEdges"], json!(60));
     assert_eq!(row["roadNetworkAudit"]["realizedEdges"], json!(60));
-    assert_eq!(row["roadNetworkAudit"]["plannedSites"], json!(28));
-    assert_eq!(row["roadNetworkAudit"]["realizedSites"], json!(28));
+    assert_eq!(row["roadNetworkAudit"]["plannedSites"], json!(30));
+    assert_eq!(row["roadNetworkAudit"]["realizedSites"], json!(30));
     assert_eq!(row["roadNetworkAudit"]["failures"], json!([]));
     assert_eq!(
         row["roadNetworkAudit"]["maxSiteDesignHeightErrorM"].as_f64(),
@@ -289,18 +290,18 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     // 4c. The joint layout keeps its housing minimum and reports no unfilled service.
     assert_eq!(row["jointLayoutAudit"]["status"], json!("pass"));
     assert_eq!(row["jointLayoutAudit"]["residentialMinimum"], json!(12));
-    assert_eq!(row["jointLayoutAudit"]["plannedResidential"], json!(23));
-    assert_eq!(row["jointLayoutAudit"]["realizedResidentialWithAccess"], json!(23));
+    assert_eq!(row["jointLayoutAudit"]["plannedResidential"], json!(22));
+    assert_eq!(row["jointLayoutAudit"]["realizedResidentialWithAccess"], json!(22));
     assert_eq!(row["jointLayoutAudit"]["missingResidential"], json!(0));
     assert_eq!(row["jointLayoutAudit"]["unfilledServices"], json!(0));
-    assert_eq!(count_kind(&scene, "residential_home"), 23);
+    assert_eq!(count_kind(&scene, "residential_home"), 22);
 
     // 4d. The conversion audit passes: the plan's 12 records ARE the ledger's, the
     //     refused-pad count is 0, and no record is booked for a pad that is not planned.
     assert_eq!(row["purposeConversionAudit"]["status"], json!("pass"));
-    assert_eq!(row["purposeConversionAudit"]["planned"], json!(12));
-    assert_eq!(row["purposeConversionAudit"]["applied"], json!(12));
-    assert_eq!(row["purposeConversionAudit"]["convertedM2"], json!(5_160));
+    assert_eq!(row["purposeConversionAudit"]["planned"], json!(14));
+    assert_eq!(row["purposeConversionAudit"]["applied"], json!(14));
+    assert_eq!(row["purposeConversionAudit"]["convertedM2"], json!(4_976));
     assert_eq!(row["purposeConversionAudit"]["refusedPads"], json!(0));
     assert_eq!(row["purposeConversionAudit"]["failures"], json!([]));
 
@@ -325,9 +326,9 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         "the purposes cover the scene"
     );
     let urban = &ledger_row["byPurpose"]["urban"];
-    assert_eq!(urban["realizedM2"].as_f64(), Some(34_306.0));
+    assert_eq!(urban["realizedM2"].as_f64(), Some(34_122.0));
     let rural = &ledger_row["byPurpose"]["rural"];
-    assert_eq!(rural["realizedM2"].as_f64(), Some(18_866.0));
+    assert_eq!(rural["realizedM2"].as_f64(), Some(19_242.0));
 
     // ---------------------------------------------------------------------
     // 5. The reconciliation publishes the pad triangle. Every planned pad is
@@ -336,13 +337,13 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     // ---------------------------------------------------------------------
     let placement = read_json(dir.0.join("engineering-placement.json"));
     let entry = &placement["scenes"][0];
-    assert_eq!(entry["inputItems"], json!(436));
-    assert_eq!(entry["outputItems"], json!(436));
-    assert_eq!(entry["removedItems"], json!(0));
-    assert_eq!(entry["skips"], json!([]));
+    assert_eq!(entry["inputItems"], json!(431));
+    assert_eq!(entry["outputItems"], json!(430));
+    assert_eq!(entry["removedItems"], json!(1));
+    assert_eq!(entry["skips"].as_array().map(Vec::len), Some(1));
     assert_eq!(
         entry["plannedPadIds"].as_array().unwrap().len(),
-        28,
+        30,
         "the report publishes the plan's pad list so the triangle is recomputable"
     );
     assert!(
@@ -358,9 +359,9 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .collect();
     let audit = verify_published_placement(entry, &published_ids, &authored, None)
         .expect("the published pad triangle must recompute");
-    assert_eq!(audit.plan_items, 436);
-    assert_eq!(audit.output_items, 436);
-    assert_eq!(audit.skipped_items, 0);
+    assert_eq!(audit.plan_items, 431);
+    assert_eq!(audit.output_items, 430);
+    assert_eq!(audit.skipped_items, 1);
 
     // ---------------------------------------------------------------------
     // 6. Two bakes of the same input publish identical bytes.

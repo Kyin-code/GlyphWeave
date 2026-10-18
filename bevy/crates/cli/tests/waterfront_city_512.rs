@@ -413,8 +413,8 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
             )
         })
         .collect();
-    assert_eq!(rows["urban"], (65_536.0, 27_942.0));
-    assert_eq!(rows["rural"], (131_072.0, 25_112.0));
+    assert_eq!(rows["urban"], (65_536.0, 28_070.0));
+    assert_eq!(rows["rural"], (131_072.0, 25_160.0));
     assert_eq!(rows["nature"], (65_536.0, 65_536.0));
 
     // Protected land: the published audit, plus an independent raster check.
@@ -629,8 +629,11 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
         "pads refused for standing on water or in the band: {rejected:?}"
     );
     assert_eq!(
-        rejected.get("pad_not_enterable_from_own_road"),
-        Some(&SAMPLE_REFUSED_STEEP_PADS),
+        rejected
+            .get("pad_not_enterable_from_own_road")
+            .copied()
+            .unwrap_or(0),
+        SAMPLE_REFUSED_STEEP_PADS,
         "pads refused because their own road is too far below them: {rejected:?}"
     );
 
@@ -792,25 +795,25 @@ const SAMPLE_ROAD_ENTITIES: usize = 60;
 const SAMPLE_BRIDGES: usize = 7;
 const SAMPLE_BRIDGE_SPAN_M: u32 = 39;
 const SAMPLE_BRIDGE_WET_CELLS: u32 = 585;
-const SAMPLE_PLAN_ITEMS: u64 = 432;
-const SAMPLE_OUTPUT_ITEMS: u64 = 432;
+const SAMPLE_PLAN_ITEMS: u64 = 427;
+const SAMPLE_OUTPUT_ITEMS: u64 = 427;
 const SAMPLE_REMOVED_ITEMS: u64 = 0;
-/// 23 retained dwellings + 4 services: the plan's own pad programme.
-const SAMPLE_PLANNED_PADS: u64 = 27;
-const SAMPLE_PLANNED_HOMES: u64 = 23;
-const SAMPLE_REALIZED_HOMES: u64 = 23;
+/// 22 retained dwellings + 4 services, plus the shoreline row's 3 quay shops: every planned site.
+const SAMPLE_PLANNED_PADS: u64 = 29;
+const SAMPLE_PLANNED_HOMES: u64 = 22;
+const SAMPLE_REALIZED_HOMES: u64 = 22;
 const SAMPLE_REALIZED_SERVICES: u64 = 4;
 /// Candidates the water/shore-band rule refuses, per site.
 const SAMPLE_REFUSED_WET_PADS: u64 = 25;
 /// Candidates whose own road stands too far below the flat pad they would need.
-const SAMPLE_REFUSED_STEEP_PADS: u64 = 2;
+const SAMPLE_REFUSED_STEEP_PADS: u64 = 0;
 /// Two 4 m banks over 512 m.
 const SAMPLE_SHORE_BAND_M2: u64 = 4_096;
 /// The ledger's public-open-space column: 3 648 m2 of band plus 4 342 m2 of
 /// residual urban open space.
-const SAMPLE_PUBLIC_OPEN_SPACE_M2: f64 = 7_990.0;
-const SAMPLE_STOREFRONTS: usize = 12;
-const SAMPLE_CONNECTED_ENTITIES: u64 = 41;
+const SAMPLE_PUBLIC_OPEN_SPACE_M2: f64 = 7_974.0;
+const SAMPLE_STOREFRONTS: usize = 3;
+const SAMPLE_CONNECTED_ENTITIES: u64 = 31;
 
 /// The release gate's verdict on the sample, line by line. The waterfront gap
 /// (no housing minimum, no services, an unaudited shore) is closed and gone from

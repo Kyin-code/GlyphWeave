@@ -143,6 +143,71 @@ pub(super) fn append(
     program: &ServiceProgram,
     pad_conversion: super::frontage::RuralConversion,
 ) -> Result<(), TerrainError> {
+    append_with(
+        result,
+        scene,
+        natural,
+        water,
+        zones,
+        program,
+        pad_conversion,
+        None,
+        false,
+        &[12_i64, 28, 44],
+    )
+}
+
+/// The shoreline commercial row's own entry point: the SAME pad programme, on the streets
+/// `worldgen::shorefront` assigned to the row, carrying the published shore clearance.
+///
+/// Two differences from the service programme, both of which would be wrong anywhere else: the
+/// candidate search walks only the row's own streets (a service may go anywhere in the city, a quay
+/// shop may not), and a candidate whose pad does not keep the 4 m shore clearance is refused by name
+/// (`shore_band`) instead of being placed in the public passage band. The service pads do not carry
+/// that gate because their candidate test already dilates the water by 2 m and they are not planned
+/// against a shoreline on purpose; the row is.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_shorefront(
+    result: &mut RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    zones: &[super::LandUseZone],
+    program: &ServiceProgram,
+    pad_conversion: super::frontage::RuralConversion,
+    only_roads: &std::collections::BTreeSet<String>,
+    setbacks: &[i64],
+) -> Result<(), TerrainError> {
+    append_with(
+        result,
+        scene,
+        natural,
+        water,
+        zones,
+        program,
+        pad_conversion,
+        Some(only_roads),
+        true,
+        setbacks,
+    )
+}
+
+/// The one pad placement loop. `only_roads` restricts the candidate search to a stated street set,
+/// and `enforce_shore_band` adds the shoreline public passage gate; both are inert for every caller
+/// that passes `None`/`false`, which is why the service programme's own placements are unchanged.
+#[allow(clippy::too_many_arguments)]
+fn append_with(
+    result: &mut RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    zones: &[super::LandUseZone],
+    program: &ServiceProgram,
+    pad_conversion: super::frontage::RuralConversion,
+    only_roads: Option<&std::collections::BTreeSet<String>>,
+    enforce_shore_band: bool,
+    setbacks: &[i64],
+) -> Result<(), TerrainError> {
     let mask = ZoningMask::new(scene, zones)?;
     for r in program
         .requests
@@ -190,7 +255,10 @@ pub(super) fn append(
         'instances: for serial in 0..r.count {
             let mut accepted = None;
             'candidates: for road in &result.edges {
-                for setback in [12_i64, 28, 44] {
+                if only_roads.is_some_and(|only| !only.contains(&road.id)) {
+                    continue;
+                }
+                for setback in setbacks.iter().copied() {
                     for side in [-1_i64, 1] {
                         for along in [0_i64, -24, 24, -16, 16, -8, 8] {
                             examined += 1;
@@ -280,6 +348,18 @@ pub(super) fn append(
                                 (hd + 2) as f64,
                             ) {
                                 reason = Some("water_intersection");
+                            } else if enforce_shore_band
+                                && !water.clears_shore(
+                                    x as f64,
+                                    z as f64,
+                                    hw as f64,
+                                    hd as f64,
+                                )
+                            {
+                                // The shoreline row may not stand in the public passage band. The
+                                // clearance is the frozen constant that DEFINES the band, so a pad
+                                // that keeps it owns no band cell (`water_query::shore_band_cell`).
+                                reason = Some("shore_band");
                             } else if result.edges.iter().any(|e| {
                                 let (w, d) = if e.rotation_y_deg == 0. {
                                     (35, 7)
@@ -579,17 +659,32 @@ pub fn audit(
     entities: &[EntityInstance],
     access: &AccessGraph,
 ) -> ServiceAudit {
-    let requested = plan.service_outcomes.iter().map(|o| o.request.count).sum();
+    // The shoreline commercial row publishes its outcome through this same list (it IS a pad
+    // programme, `worldgen::shorefront`), but it is not an authored service request: counting its
+    // demand here would report the settlement programme as owing 42 shopfronts it never asked for,
+    // and its unfilled candidates as a service failure. Its realization is held by the road-network
+    // audit instead, exactly like every other planned pad.
+    let outcomes: Vec<&ServiceOutcome> = plan
+        .service_outcomes
+        .iter()
+        .filter(|outcome| outcome.request.id != super::shorefront::SHOREFRONT_ROW)
+        .collect();
+    let requested = outcomes.iter().map(|o| o.request.count).sum();
     let mut audit = ServiceAudit {
         status: "pass".into(),
         requested,
         planned: 0,
         realized_with_access: 0,
-        unfilled: plan.service_outcomes.iter().map(|o| o.unfilled_count).sum(),
+        unfilled: outcomes.iter().map(|o| o.unfilled_count).sum(),
         failures: vec![],
     };
     for (s, mut expected) in plan.roadside_sites.iter().zip(plan.site_entities()) {
-        if s.program.is_none() || s.support_level_mm.is_some() {
+        if s.program.is_none()
+            || s.support_level_mm.is_some()
+            || s.program
+                .as_ref()
+                .is_some_and(|program| program.request_id == super::shorefront::SHOREFRONT_ROW)
+        {
             continue;
         }
         audit.planned += 1;

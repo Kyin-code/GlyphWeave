@@ -797,6 +797,7 @@ pub(super) fn plan_with_zones(
         zones,
         false,
         super::frontage::RuralConversion::Disabled,
+        None,
     )
 }
 
@@ -817,6 +818,9 @@ pub(super) fn plan_with_zones_demand(
     zones: Option<&[LandUseZone]>,
     settlement_demand: bool,
     pad_conversion: super::frontage::RuralConversion,
+    // The street setback the shoreline commercial row is planned at, or None when this world
+    // states no street morphology to plan one from (rontage::shorefront_row_contract).
+    shorefront_setback_m: Option<u32>,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let zoning = zones.map(|z| ZoningMask::new(scene, z)).transpose()?;
     terrain.require_complete()?;
@@ -1135,6 +1139,19 @@ pub(super) fn plan_with_zones_demand(
     }
     if !result.edges.is_empty() {
         result.status = "planned_connected_network".into();
+    }
+    // The shoreline commercial row, planned BEFORE the roadside pad programme below scans for
+    // its own stations. The order IS the urban-design claim: the quay street's frontage belongs
+    // to the commerce. Measured on the registered river-delta sample (Round 24), planning this
+    // row AFTER the pads left 2 of 28 urban stations free, because the dwellings had already
+    // taken the whole block behind the quay street in 24 m lots and `joint_frontage` keeps a
+    // parcel 2 m clear of its neighbour. Planned here, the pad scan reserves around it instead.
+    //
+    // `shorefront_setback_m` is `Some` only when the manifest states the street morphology the
+    // row is planned from (`frontage::shorefront_row_contract`), so a scene that states none
+    // keeps the plan - and the legacy bayfront band - it always published.
+    if shorefront_setback_m.is_some() {
+        super::shorefront::plan(&mut result, scene, terrain, water, zones, pad_conversion)?;
     }
 
     if let Some(level) = result.level_m {
@@ -1836,9 +1853,17 @@ pub(super) fn plan_with_program(
     zones: Option<&[LandUseZone]>,
     program: Option<&super::services::ServiceProgram>,
     pad_conversion: super::frontage::RuralConversion,
+    shorefront_setback_m: Option<u32>,
 ) -> Result<RoadNetworkPlan, TerrainError> {
-    let mut result =
-        plan_with_zones_demand(scene, terrain, water, zones, program.is_some(), pad_conversion)?;
+    let mut result = plan_with_zones_demand(
+        scene,
+        terrain,
+        water,
+        zones,
+        program.is_some(),
+        pad_conversion,
+        shorefront_setback_m,
+    )?;
     let Some(program) = program else {
         return Ok(result);
     };
@@ -2191,7 +2216,15 @@ pub(super) fn plan_with_style_declared(
             .get("frontageProgram")
             .and_then(|program| program.get("ruralConversion")),
     );
-    let mut result = plan_with_program(scene, terrain, water, zones, program, pad_conversion)?;
+    let mut result = plan_with_program(
+        scene,
+        terrain,
+        water,
+        zones,
+        program,
+        pad_conversion,
+        super::frontage::shorefront_row_contract(style),
+    )?;
     if super::road_extensions::from_style(style)?.is_some() {
         super::road_extensions::append(
             &mut result,
@@ -3228,9 +3261,16 @@ mod pad_purpose_tests {
 
     /// The blake3 locks above. They are fixtures, not published samples: if one of them changes the
     /// switch-off pad programme moved, which is exactly what this round may not do.
+    ///
+    /// `WATERFRONT_PLAN_OFF_BLAKE3` moved ONCE, in Round 24, and on purpose: this fixture states a
+    /// `frontageProgram`, which is the street morphology the shoreline commercial row is planned
+    /// from (`frontage::shorefront_row_contract`), so the waterfront plan now carries the row's own
+    /// outcome - including the stations it refused, BY NAME, which is the record that keeps a missing
+    /// quay frontage a measurement instead of a silence. Nothing about the pads moved with it: the
+    /// dry lock below is unchanged, and the switch-off pad programme still declares no purpose.
     const DRY_PLAN_OFF_BLAKE3: &str = "c007835a3b0fe905882b06a601de1219c9c182c2ad75afac61489d7a8b285b4c";
     const WATERFRONT_PLAN_OFF_BLAKE3: &str =
-        "9c9cc1d746e397a936a3a457e73634b947c21342003ea3b367313adcaf56181e";
+        "33718fc32c41a810e24abf60de587c04ae44b4ec496b0a88eafd141efe106a6e";
 }
 
 #[cfg(test)]
@@ -7143,6 +7183,10 @@ fn verify_impl(
             zones,
             program,
             super::frontage::RuralConversion::Disabled,
+            // No style, so no stated street morphology: the reconstruction this branch
+            // compares against is the morphology-free plan, which is exactly what a world
+            // that states none publishes.
+            None,
         )?
     };
 
@@ -8312,3 +8356,4 @@ mod pad_refusal_tests {
         assert!(plan.roadside_sites.is_empty());
     }
 }
+

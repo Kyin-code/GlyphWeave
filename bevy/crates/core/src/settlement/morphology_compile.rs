@@ -140,7 +140,12 @@ fn hash(value: &Value) -> Result<String, String> {
 }
 
 /// Midpoint of a profile metre range, floored to the previous even integer.
-fn even_midpoint(range: [u32; 2], field: &str) -> Result<u32, String> {
+///
+/// Shared with the shorefront row (`worldgen::frontage::shorefront_row_contract`), which has to
+/// derive the SAME street setback and parcel insets for a world that states only a morphology
+/// profile: a row placed on a second derivation could disagree with the authored parcels about the
+/// street it fronts.
+pub(crate) fn even_midpoint(range: [u32; 2], field: &str) -> Result<u32, String> {
     if range[0] > range[1] {
         return Err(err(format!("profile field {field} has an inverted range")));
     }

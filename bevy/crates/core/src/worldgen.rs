@@ -38,6 +38,7 @@ mod frontage_supply;
 pub mod parcel_geometry;
 pub mod road_parcel_feasibility;
 pub mod services;
+mod shorefront;
 mod terrain_context;
 mod water_query;
 pub mod shore_band;
@@ -4903,7 +4904,30 @@ fn generate_entities_with_profile_report(
 )> {
     let ids = CandidateIds::new(&scene.scene_id);
     let mut development_proposals = Vec::new();
-    let mut entities = generate_entities_template(seed, scene, landmarks, geometry, &ids);
+    // The bayfront fixture band may only be replaced by the plan's own shorefront row when both
+    // halves of that row's contract exist: a real road plan, a stated street morphology (a frontage
+    // programme or a morphology profile), AND a row the plan could actually realize. The last
+    // conjunct is what keeps this change non-regressive: where the quay frontage the blueprint
+    // offers cannot hold a single shop (see `worldgen::shorefront`, whose refusals are published by
+    // name), the world keeps the commerce it already had instead of trading it for nothing.
+    let shorefront_row = road_plan.is_some_and(|plan| {
+        frontage::shorefront_row_contract(style).is_some()
+            && plan
+                .service_outcomes
+                .iter()
+                .any(|outcome| {
+                    outcome.request.id == shorefront::SHOREFRONT_ROW
+                        && !outcome.planned_site_ids.is_empty()
+                })
+    });
+    let mut entities = generate_entities_template(
+        seed,
+        scene,
+        landmarks,
+        geometry,
+        &ids,
+        shorefront_row,
+    );
     ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
     // When a normalized settlement intent is present for a water scene, the
     // generic intent planner owns ordinary buildings. Remove only the legacy
@@ -7698,6 +7722,11 @@ fn generate_entities_template(
     landmarks: &[LandmarkSpec],
     geometry: WaterGeometry,
     ids: &CandidateIds,
+    // True when this world has a real road plan AND states the street morphology a
+    // shoreline commercial row is planned from (`frontage::shorefront_row_contract`).
+    // The bayfront fixture band then belongs to the plan's own shorefront row instead of
+    // to this generator; for every other world it stays exactly as it was.
+    shorefront_row: bool,
 ) -> Vec<EntityInstance> {
     let mut entities = Vec::new();
     for landmark in landmarks {
@@ -7968,34 +7997,44 @@ fn generate_entities_template(
             if frontage_x < 40 || frontage_x > scene.width_m as i32 - 40 {
                 continue;
             }
-            for z in (160..scene.depth_m.saturating_sub(120)).step_by(18) {
-                let world_z = scene.origin_z + z as i32;
-                let roll = signed_noise(seed.rotate_left(91), frontage_x, world_z);
-                if roll < -105 {
-                    continue;
+            // The fixed bayfront commercial band is a FIXTURE coordinate: `centre ±
+            // (half_width + 150)` is 150 m from the water, which in the registered
+            // river-delta sample is three blocks behind the quay and wholly inside the
+            // rural zoning. A road-first world plans its own streets, so its commerce is
+            // the shoreline row `frontage::append_shore_row` plans on the plan's first
+            // street landward of the shore (same stations, same gates, same conversion
+            // accounting). This band is kept ONLY for a world with no plan to plan
+            // against, which is why every such world is byte-identical.
+            if !shorefront_row {
+                for z in (160..scene.depth_m.saturating_sub(120)).step_by(18) {
+                    let world_z = scene.origin_z + z as i32;
+                    let roll = signed_noise(seed.rotate_left(91), frontage_x, world_z);
+                    if roll < -105 {
+                        continue;
+                    }
+                    let width = 12.0 + roll.rem_euclid(9) as f32;
+                    let height = 5.0 + roll.rem_euclid(7) as f32;
+                    let world_y = (i32::from(terrain_height_with_geometry(
+                        seed, frontage_x, world_z, geometry,
+                    )) / 4)
+                        .max(1);
+                    entities.push(EntityInstance {
+                        rotation_y_deg: 0.0,
+                        grounding: GroundingSpec::default(),
+                        anchors: Vec::new(),
+                        bounds: None,
+                        entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 0, i64::from(z)]),
+                        asset_id: "prop.storefront".to_owned(),
+                        kind: "storefront".to_owned(),
+                        world_x: frontage_x,
+                        world_z,
+                        world_y,
+                        scale: 1.0,
+                        width_m: width,
+                        depth_m: 12.0,
+                        height_m: height,
+                    });
                 }
-                let width = 12.0 + roll.rem_euclid(9) as f32;
-                let height = 5.0 + roll.rem_euclid(7) as f32;
-                let world_y = (i32::from(terrain_height_with_geometry(
-                    seed, frontage_x, world_z, geometry,
-                )) / 4)
-                    .max(1);
-                entities.push(EntityInstance {
-                    rotation_y_deg: 0.0,
-                    grounding: GroundingSpec::default(),
-                    anchors: Vec::new(),
-                    bounds: None,
-                    entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 0, i64::from(z)]),
-                    asset_id: "prop.storefront".to_owned(),
-                    kind: "storefront".to_owned(),
-                    world_x: frontage_x,
-                    world_z,
-                    world_y,
-                    scale: 1.0,
-                    width_m: width,
-                    depth_m: 12.0,
-                    height_m: height,
-                });
             }
             // Street trees line the sidewalk between the shopfront and the
             // road: a shop sits on the pavement inner edge, the tree row runs
@@ -8069,7 +8108,7 @@ fn generate_entities_template(
             // the scene side — in a narrow bayfront slice (like Shenzhen Bay)
             // the frontage may already sit near the scene edge, so pushing a
             // second row past it would place shops outside the world.
-            if second_row_x > 40 && second_row_x < scene.width_m as i32 - 40 {
+            if !shorefront_row && second_row_x > 40 && second_row_x < scene.width_m as i32 - 40 {
                 for z in (170..scene.depth_m.saturating_sub(130)).step_by(28) {
                     let world_z = scene.origin_z + z as i32;
                     let roll = signed_noise(seed.rotate_left(97), second_row_x, world_z);
