@@ -16,6 +16,10 @@ use crate::settlement::{
 };
 mod access;
 pub mod bounded_cut;
+/// OPT-IN `style.terrainPolicy.earthworkBlend`: derive each structure's
+/// fill-transition ring from its own footprint instead of the fixed envelope
+/// (see the module docs for the constants and their derivation).
+pub mod earthwork_blend;
 /// The entity-stage completion of a planned pad's declared platform: the loop
 /// between "the plan accepted a pad" and "the rule-engine earthwork stands on top
 /// of it" (see the module docs).
@@ -178,6 +182,18 @@ pub struct GroundingSpec {
     /// asked keeps its published bytes exactly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounded_cut_mm: Option<i32>,
+    /// OPT-IN, `style.terrainPolicy.earthworkBlend = "derived-from-footprint"`:
+    /// the width of this structure's own fill-transition ring, in metres, derived
+    /// from its footprint by [`earthwork_blend::derived_blend_m`].
+    ///
+    /// Only [`earthwork_blend::stamp`] ever sets it, once, for every structure of a
+    /// world that opted in. It is the ring `plan_terrain_carves` publishes, so the
+    /// carve, the raster, the completion pass and every audit read one number.
+    /// Absent (and therefore not serialized) for every other entity, so a world
+    /// that never asked - and every road of a world that did - keeps its
+    /// historical bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earthwork_blend_m: Option<f32>,
 }
 
 fn default_grounding_tolerance_m() -> f32 {
@@ -195,6 +211,7 @@ impl Default for GroundingSpec {
             tolerance_m: default_grounding_tolerance_m(),
             structure_deck: false,
             bounded_cut_mm: None,
+            earthwork_blend_m: None,
         }
     }
 }
@@ -2528,7 +2545,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         };
         validate_authored_landmarks_clear_water(&landmarks, scene, water)?;
         trace.stage(&scene.scene_id,"entity-generation-and-preflight");
-        let (entities, placement_outcome, development_proposals) =
+        let (mut entities, placement_outcome, development_proposals) =
             generate_entities_with_profile_report(
                 manifest.world.seed ^ scene.seed_offset,
                 scene,
@@ -2539,6 +2556,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 development_plan.as_ref(),
                 planned_zones.as_deref(),
             )?;
+        // OPT-IN `style.terrainPolicy.earthworkBlend = "derived-from-footprint"`:
+        // every structure of this scene gets the fill-transition ring its own
+        // footprint derives, once, before any carve is planned, so the carve list,
+        // the rasters, the completion pass and every audit read the same number.
+        // A world that never asked is untouched: `stamp` returns 0 and no entity
+        // gains the field, so its published bytes are the historical ones.
+        earthwork_blend::stamp(
+            &mut entities,
+            &manifest.style,
+            &earthwork_blend::planned_ids(development_plan.as_ref()),
+        );
         if let Some((proposed_count, outcome)) = placement_outcome {
             let mut by_reason = BTreeMap::<String, usize>::new();
             for reject in &outcome.rejected {
@@ -2768,6 +2796,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     }
                 }
             }
+            // The restored entity IS the plan's own record, which carries the
+            // derived earthwork ring this round publishes; the entity must carry
+            // the same number or the development audit reads a plan/entity split
+            // that the world does not have.
+            earthwork_blend::stamp(
+                &mut entities,
+                &manifest.style,
+                &earthwork_blend::planned_ids(development_plan.as_ref()),
+            );
         }
         rebase_generated_transport_to_baked_surface(
             &mut entities,
@@ -4814,6 +4851,37 @@ pub(crate) fn frontage_pad_carve_geometry(entity: &EntityInstance) -> (f64, f64,
     (half_w, half_d, blend)
 }
 
+/// Does `kind` get a building support carve from [`plan_terrain_carves`]?
+///
+/// One list, two readers: the carve planner and
+/// [`earthwork_blend::stamp`], so "this entity has a building ring" cannot mean
+/// two different sets of entities. A road (`road`, `sidewalk`, `canal`,
+/// `causeway`) is the other branch and keeps its graded corridor envelope.
+pub(crate) fn carves_as_building(kind: &str) -> bool {
+    matches!(
+        kind,
+        "building"
+            | "building_tower"
+            | "building_cluster"
+            | "urban_building"
+            | "residential_block"
+            | "residential_tower"
+            | "residential_home"
+            | "resort_lodge"
+            | "storefront"
+            | "commercial_center"
+            | "entertainment_center"
+            | "school"
+            | "town_hall"
+            | "market"
+            | "industrial"
+            | "temple"
+            | "church"
+            | "parking_lot"
+            | "convenience_store"
+    )
+}
+
 fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
     let mut carves = Vec::new();
     for entity in entities {
@@ -4821,28 +4889,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         let width = f64::from(entity.width_m);
         let depth = f64::from(entity.depth_m);
         let is_road = matches!(kind, "road" | "sidewalk" | "canal" | "causeway");
-        let is_building = matches!(
-            kind,
-            "building"
-                | "building_tower"
-                | "building_cluster"
-                | "urban_building"
-                | "residential_block"
-                | "residential_tower"
-                | "residential_home"
-                | "resort_lodge"
-                | "storefront"
-                | "commercial_center"
-                | "entertainment_center"
-                | "school"
-                | "town_hall"
-                | "market"
-                | "industrial"
-                | "temple"
-                | "church"
-                | "parking_lot"
-                | "convenience_store"
-        );
+        let is_building = carves_as_building(kind);
         if !is_road && !is_building {
             continue;
         }
@@ -4902,7 +4949,18 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             // representable raster floor (-32m) as a conservative fill bound
             // so this pad contributes at most a 1:2 transition gradient.
             // This does not certify the natural terrain or road longitudinal grade.
-            blend_m: blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0)),
+            //
+            // OPT-IN `style.terrainPolicy.earthworkBlend`: a stamped structure
+            // carries the ring its OWN footprint derived (one definition:
+            // `earthwork_blend::derived_blend_m`), still never wider than the
+            // fixed envelope above, so the opt-in can only narrow a ring. Every
+            // other carve - and every entity of a world that never asked - takes
+            // the historical expression unchanged, bit for bit.
+            blend_m: match entity.grounding.earthwork_blend_m {
+                Some(derived) => f64::from(derived)
+                    .min(blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0))),
+                None => blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0)),
+            },
             priority: if is_road { 10 } else { 1 },
             disturbance: if is_road { 255 } else { 160 },
             cut_cap_mm,
