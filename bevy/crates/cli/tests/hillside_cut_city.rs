@@ -464,6 +464,10 @@ fn published_digest(dir: &TestDir) -> String {
 /// for byte. The digest is frozen over the scene's own published files; a regression
 /// that lets either new rule move an off-state decision cannot pass by both sides
 /// drifting together, and two bakes of the same off input agree file for file.
+///
+/// Round 40 re-measured it: the off world no longer publishes the three trees its
+/// own `scale-audit` refused, because generation now reads the same 4 m shore
+/// clearance the audit uses. The cut ledger, the plan and both rasters are unchanged.
 #[test]
 fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
     let mut manifest = sample();
@@ -503,7 +507,7 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "two off-state bakes must publish the same bytes"
     );
     assert_eq!(
-        first_digest, "4d7d1304e4ee6dad6fd62782311c4d2a3e61780adcf3f55639071b8e47f82855",
+        first_digest, "b30adb1500f416ba23ccfb3609a2f16ff3806e9d90dac7860917d059f73535d3",
         "the frozen blake3 tree digest of the policy-off world"
     );
 }

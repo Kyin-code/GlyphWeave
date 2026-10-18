@@ -41,8 +41,12 @@ const SCENE_SIZE_M: u32 = 512;
 /// The frzoen digests of the two worlds the row may never reach. Measured on `6eeaf85` (the commit
 /// before this round) and again here: identical, because the whole row is gated on a road plan and a
 /// stated street morphology.
+///
+/// Round 40 re-measured the waterfront digest: the plan-less world no longer publishes what sat
+/// inside its own 4 m shore clearance (generation now reads the published constant). The row's
+/// gate is unchanged - the same scene, plan and rasters are otherwise byte-identical.
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "11f9a7179abde1fa480a41479db3ab5afaa446019df2bac39a69a31e8f3e2d7a";
+    "a9630499b3e5d6c5ecc32c6037de69d04cc0e89daad7a79307ac64f625c205b4";
 const FROZEN_WATERLESS_DIGEST: &str =
     "d95e8697be92f38bafa7eacd3b6550c1ece62e4034d6248f13f2b70b7770fb3d";
 

@@ -254,9 +254,11 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
     assert_eq!(entry["rounds"], json!(2));
     // Round 21: the roadside pad programme is no longer refused as a whole, so
     // this fixture's one legally enterable waterfront pad is published instead of
-    // being swallowed - the two named removals are unchanged.
-    assert_eq!(entry["inputItems"], json!(449));
-    assert_eq!(entry["outputItems"], json!(447));
+    // being swallowed - the two named removals are unchanged. Round 40 lowered the
+    // input by one: an object proposed inside the published 4 m shore clearance is
+    // no longer generated at all (the same rule the `scale-audit` refuses at).
+    assert_eq!(entry["inputItems"], json!(448));
+    assert_eq!(entry["outputItems"], json!(446));
     assert_eq!(entry["removedItems"], json!(2));
     let skips = entry["skips"].as_array().unwrap();
     assert_eq!(skips.len(), 2, "exactly the two refused storefronts");
@@ -307,8 +309,11 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         verify_published_placement(entry, &published, &authored, Some(&registry)).expect(
             "the published skips must recompute from the plan ids and the descriptors",
         );
-    assert_eq!(audit.plan_items, 449);
-    assert_eq!(audit.output_items, 447);
+    // Round 40: 448 inputs, because one object proposed inside the published 4 m
+    // shore clearance is no longer generated at all (the rule the `scale-audit`
+    // refuses at). The two storefronts are still the only refused ones.
+    assert_eq!(audit.plan_items, 448);
+    assert_eq!(audit.output_items, 446);
     assert_eq!(audit.skipped_items, 2);
     assert_eq!(audit.skipped_by_rule["storefront.object.toml"], 2);
     // The skipped features are really gone from the published scene.

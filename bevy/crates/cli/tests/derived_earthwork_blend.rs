@@ -102,10 +102,16 @@ const PLANNED_PADS: usize = 17;
 /// digest each over every published file except the path-bearing generation report.
 /// Both were taken from the HEAD binary's own output (`glyphweave-r36.exe`), and the
 /// round's binary reproduces them file for file.
+///
+/// Round 40 re-measured both: the hillside digest moves because the town no longer
+/// publishes the three trees its own `scale-audit` refused (generation now reads the
+/// published 4 m shore clearance), and the waterfront digest moves because its river
+/// is now CHECKED by `river.object.toml` instead of being disclosed as unruled - a
+/// report-only change, the 432 published entities are byte-identical.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "9603f6e5ba702575f0b2a251cb8a3f4151aa152f877bc0bd012fdf955b5d2fab";
+    "8c27761a249d87865477c1875cc5b56a4f97fceadfabb552138125c98845e94c";
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "cfd1185009ad5b783aa0aa88a6046ff9968ab90639776016d30152bebb42b917";
+    "5a43f6a08567a764c42b8cb82767a2de722ce276475d3a284c92133a428793b2";
 /// The ring every planned pad of the grown hillside town derives, by kind:
 /// `(width_m, depth_m, height_m, ring_m, count)`. A pad's ring reads its OWN
 /// published width and height - never its depth, never its elevation.

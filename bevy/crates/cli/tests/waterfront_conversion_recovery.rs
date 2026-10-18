@@ -250,9 +250,11 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     );
 
     // ---------------------------------------------------------------------
-    // 4. The release gate: the switched sample carries the SAME four pre-existing
-    //    failures as the unswitched one - no road-network, service or joint
-    //    failure, which is exactly what the deleted pad used to cause.
+    // 4. The release gate: the switched sample carries the SAME three
+    //    pre-existing failures as the unswitched one - no road-network, service
+    //    or joint failure, which is exactly what the deleted pad used to cause -
+    //    and Round 40 removed the fourth (`unruled entity kinds: river`) by
+    //    describing the channel in `river.object.toml`.
     // ---------------------------------------------------------------------
     let gate = quality_gate(&dir);
     assert_eq!(gate["status"], json!("fail"));
@@ -268,7 +270,6 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
             "\"scene-0\" local-height frontage demand or realization remains incomplete",
             "\"scene-0\" purpose-area allocation or realization remains incomplete",
             "\"scene-0\" landcover remains unrealized",
-            "strict profile has unruled entity kinds: river",
         ],
         "the conversion switch may not add a network, service or joint failure"
     );

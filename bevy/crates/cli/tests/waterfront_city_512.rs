@@ -818,11 +818,14 @@ const SAMPLE_CONNECTED_ENTITIES: u64 = 31;
 /// The release gate's verdict on the sample, line by line. The waterfront gap
 /// (no housing minimum, no services, an unaudited shore) is closed and gone from
 /// this list; what remains is the land-use realization backlog that every
-/// road-first 512 m scene carries, the authored frontage programme, and the
-/// authored river having no rules descriptor.
-const SAMPLE_GATE_FAILURES: [&str; 4] = [
+/// road-first 512 m scene carries and the authored frontage programme.
+///
+/// Round 40 removed the fourth line this constant used to carry,
+/// `strict profile has unruled entity kinds: river`: `assets/objects/river.object.toml`
+/// now describes the channel, so the rules engine CHECKS it (425 checked / 425 passed,
+/// 0 rejected) instead of reporting a coverage gap.
+const SAMPLE_GATE_FAILURES: [&str; 3] = [
     "\"scene-0\" local-height frontage demand or realization remains incomplete",
     "\"scene-0\" purpose-area allocation or realization remains incomplete",
     "\"scene-0\" landcover remains unrealized",
-    "strict profile has unruled entity kinds: river",
 ];

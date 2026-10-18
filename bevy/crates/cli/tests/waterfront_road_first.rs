@@ -18,8 +18,13 @@ use std::{fs, path::PathBuf};
 /// scene-index order. Measured on `11728e0` BEFORE the opt-in existed and again
 /// on the opt-in tree: identical, so the default-off waterfront world is
 /// byte-identical across the change.
+///
+/// Round 40 re-measured it: the plan-less world no longer publishes the objects
+/// that sat inside its own 4 m shore clearance (generation now reads the published
+/// constant, so the samples its `scale-audit` would refuse are never produced). No
+/// opt-in byte moved: the same entities, plans and rasters are otherwise identical.
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "11f9a7179abde1fa480a41479db3ab5afaa446019df2bac39a69a31e8f3e2d7a";
+    "a9630499b3e5d6c5ecc32c6037de69d04cc0e89daad7a79307ac64f625c205b4";
 
 /// The same freeze for a WATERLESS world: the round-21 waterfront pad rule, the
 /// shoreline public passage band and their audits are all gated on

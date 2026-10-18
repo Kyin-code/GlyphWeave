@@ -5839,9 +5839,13 @@ fn generate_entities_with_profile_report(
                 return false;
             }
         }
-        is_water_compatible_entity_kind(&entity.kind)
-            || !footprint_intersects_water(entity, geometry, 1.0)
+        // This pass only clears hard infrastructure. The water body is judged by
+        // `retain_shore_clearance` immediately below, with the audit's own constant.
+        true
     });
+    // The shore clearance is its own named filter so that the one constant, the
+    // one predicate and the published audit are visibly the same rule.
+    retain_shore_clearance(&mut entities, geometry);
     let explicit_settlement = generation_settlement(style);
     if geometry.kind == WaterKind::None {
         // An explicit intent selects a generic planner. Fixture-free generation
@@ -7084,7 +7088,7 @@ fn intent_candidate_is_free(
         depth_m,
         height_m: 1.0,
     };
-    if footprint_intersects_water(&candidate, water, 1.0) {
+    if !keeps_shore_clearance(&candidate, water) {
         return false;
     }
     if !is_building_kind(kind) {
@@ -8600,6 +8604,32 @@ fn is_water_compatible_entity_kind(kind: &str) -> bool {
     )
 }
 
+/// May this generated candidate be published at all, given the water body?
+///
+/// This is the GENERATION-side reader of the published shore clearance, and it
+/// reads the same constant the audit reads: [`WATER_SHORE_CLEARANCE_M`]. The
+/// two sides used to disagree (generation asked for 1.0 m, the published
+/// `scale-audit` refuses at 4.0 m), so a legal bake could publish objects the
+/// audit then refused - the hillside town published three trees on its banks
+/// that no bake may produce. One number, one distance: a candidate the audit
+/// would refuse is never generated.
+///
+/// Water-compatible kinds are exempt because they are the water's own
+/// furniture (a reed grows in it, a bridge spans it) and the audit exempts them
+/// through the same list; that is a stated kind rule, not a looser distance.
+fn keeps_shore_clearance(entity: &EntityInstance, water: WaterGeometry) -> bool {
+    is_water_compatible_entity_kind(&entity.kind)
+        || !footprint_intersects_water(entity, water, WATER_SHORE_CLEARANCE_M)
+}
+
+/// Drop every generated candidate that does not keep the published shore
+/// clearance. This is the filter every template/detail proposal passes through
+/// before the bake publishes it, so "the audit would refuse it" and "generation
+/// never produced it" are one statement.
+fn retain_shore_clearance(entities: &mut Vec<EntityInstance>, water: WaterGeometry) {
+    entities.retain(|entity| keeps_shore_clearance(entity, water));
+}
+
 fn landmark_requires_land(kind: &str) -> bool {
     !matches!(
         kind,
@@ -9324,6 +9354,62 @@ fn signed_noise(seed: u64, x: i32, z: i32) -> i32 {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    /// Round 40: generation and the published audit share ONE shore-clearance
+    /// number (`water_query::WATER_SHORE_CLEARANCE_M`).
+    ///
+    /// The two sides used to disagree - generation asked for 1.0 m while the
+    /// published `scale-audit` refuses at 4.0 m - so the hillside town could
+    /// publish three trees on its banks that no bake is allowed to produce. The
+    /// fixtures are two trees whose crowns stop 3.9 m and 4.1 m short of the
+    /// waterline: the first must NOT survive generation, the second must.
+    #[test]
+    fn the_generated_shore_clearance_is_the_published_constant() {
+        // A 40 m channel down the middle of a 512 m scene: the east waterline is
+        // x = 276, so a crown centred at 282 stops at 282 - width/2.
+        let water = WaterGeometry {
+            kind: WaterKind::River,
+            center_x: 256.,
+            center_z: 256.,
+            half_width: 20.,
+            half_depth: 256.,
+            scene_width_m: 512,
+            scene_depth_m: 512,
+            terrain_origin_x: 0,
+            terrain_origin_z: 0,
+            smooth_rolling: false,
+            road_water_crossings: false,
+        };
+        let tree = |id: &str, width_m: f32| -> EntityInstance {
+            serde_json::from_value(serde_json::json!({
+                "entityId": id, "assetId": "prop.tree", "kind": "tree",
+                "worldX": 282, "worldZ": 100, "worldY": 0, "scale": 1.0,
+                "widthM": width_m, "depthM": width_m, "heightM": 8.0
+            }))
+            .unwrap()
+        };
+        // 4.2 m crown -> 279.9: 3.9 m of dry ground from the waterline.
+        let three_point_nine = tree("tree-3.9", 4.2);
+        // 3.8 m crown -> 280.1: 4.1 m.
+        let four_point_one = tree("tree-4.1", 3.8);
+        assert_eq!(WATER_SHORE_CLEARANCE_M, 4.0);
+        // The published audit refuses the 3.9 m sample and keeps the 4.1 m one...
+        assert!(footprint_intersects_water(
+            &three_point_nine,
+            water,
+            WATER_SHORE_CLEARANCE_M
+        ));
+        assert!(!footprint_intersects_water(
+            &four_point_one,
+            water,
+            WATER_SHORE_CLEARANCE_M
+        ));
+        // ...and generation drops exactly the sample the audit would refuse.
+        let mut proposed = vec![three_point_nine, four_point_one];
+        retain_shore_clearance(&mut proposed, water);
+        assert_eq!(proposed.len(), 1, "only the 4.1 m tree may survive generation");
+        assert_eq!(proposed[0].entity_id, "tree-4.1");
+    }
 
     #[test]
     fn authored_identity_does_not_require_landmark_prefix() {

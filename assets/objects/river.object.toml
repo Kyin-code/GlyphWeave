@@ -1,0 +1,48 @@
+# River (channel) — the structured water body itself, as a rules descriptor.
+#
+# Round 40: `river` was the one entity kind a strict profile could publish with
+# no rule describing it, so the release gate refused the whole world with
+# "strict profile has unruled entity kinds: river". The body is not a candidate
+# the placer invents - it is the authored geometry every other rule measures
+# against - but it does have laws worth checking, and this file states them so
+# the audit CHECKS the body instead of merely reporting it as unruled:
+#
+#  * the published footprint must stay inside the scene (`inside_bounds`);
+#  * a channel is a surface at the water datum, not a grounded object, so
+#    `on_ground = false` (exactly why `canal.object.toml` says the same);
+#  * it IS the water, so `not_in_water = false`: the clause describes dry
+#    objects. Every land object opts out of the water through its own
+#    `not_in_water = true`; asking the water to keep out of itself would make
+#    every river fail its own audit;
+#  * `NoGeometryCollision` is compiled for every descriptor and treats water as
+#    a transport surface (`rules::validator`), so a channel may meet a road or a
+#    bridge at a registered crossing and still overlaps no solid;
+#  * `clearance = 0.0` is part of the contract, not a default: the audit dilates
+#    the footprint by the descriptor clearance, and a 40x512 m body touching the
+#    scene edge would leave the bounds on any positive margin.
+#
+# `fallback = "skip"` is the honest arm: a body that cannot keep its own bounds
+# is refused, never moved. Authored landmarks are passed through placement by
+# `worldgen::apply_rules_mode` in every case, so the placement block only states
+# the phase/priority this kind would take if a manifest ever asked for one.
+
+id = "river_waterway"
+kind = "water"
+applies_to = ["river"]
+tags = ["water", "river"]
+
+[geometry]
+footprint = [40.0, 512.0]   # nominal cross-section x sample length; the audit reads the entity's own
+height = 1.0
+clearance = 0.0
+
+[environment]
+on_ground = false
+not_in_water = false
+
+[placement]
+phase = "water_and_hazards"
+priority = 5
+attempts = 4
+allow_rotate = false
+fallback = "skip"
