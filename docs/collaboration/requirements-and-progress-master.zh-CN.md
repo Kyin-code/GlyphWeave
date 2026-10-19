@@ -367,22 +367,29 @@
 
 ## 5. 进度
 
+> **最近更新：2026-10-19**。依据 `git log 0edabb3..0d3be23`（**43 次提交**，2026-10-18～10-19）、`rk-x/` 四份文档，
+> 以及 `bevy/crates/cli/tests/` 里钉死的常量。上一版的 §5 记到 Round 4，本版覆盖 Round 5 起至 HEAD。
+>
+> - §1–§4 一字未改；**§3.2 的批次状态是 10-18 快照，以 5.5 为准**；§7 的两条 P0 已于 10-18 关闭，优先级待下一版重排。
+> - `rk-x/ROUND-LOG.zh-CN.md` 只记到 **Round 12**；Round 13 之后的证据只在提交正文与测试常量里，故本篇凡引提交均给 hash。
+> - 测试数是**单次**运行；偶发访问违例约 4%（6.1 第 3 项），单次全绿不等于签收。
+
 ### 5.1 A 里程碑（A-01～A-10）签收后的实际状态
 
 A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**，不是"今天源码仍然通过"。
 
 | 合同 | 当时的证据 | 今天是否仍成立 |
 |---|---|---|
-| A-01 源码/输入/runtime 对应 | R2/R3 构建来源 + U1 两 JS 增量 hash | ⚠️ 源码已改（T 系列重构），旧 runtime 不再对应当前源码 |
-| A-02 固定实体/入口/访问图 | frontage 144/144 有入口 | ⚠️ 重构动了 profile/entry 链，T-0013 正在修 |
-| A-03 确定性/稳定 ID/存量 | 已绑定 stable-v1 / inventory-preserving 回归；R2 权威世界与冻结世界字节等价 | ⚠️ r47 实测 96 ID 消失/117 新 ID；存量机制仍缺 |
-| A-04 6×10km + 独立 gate | 240 chunks、gate 退出 1、六类失败 | 结构成立；内容缺口仍在 |
+| A-01 源码/输入/runtime 对应 | R2/R3 构建来源 + U1 两 JS 增量 hash | ⚠️ 源码已改（T 系列重构 + 本轮 43 次提交），旧 runtime 不再对应当前源码 |
+| A-02 固定实体/入口/访问图 | frontage 144/144 有入口 | ⚠️ 需求仍是 144，实得 **44 pad**（其中 16 户、24 店）、入口未验证 3 → 0（`f641015`）；144/144 已不可复现 |
+| A-03 确定性/稳定 ID/存量 | 已绑定 stable-v1 / inventory-preserving 回归；R2 权威世界与冻结世界字节等价 | ⚠️ r47 实测 96 ID 消失/117 新 ID；存量机制仍缺，本轮无改进证据 |
+| A-04 6×10km + 独立 gate | 240 chunks、gate 退出 1、六类失败 | 结构成立；内容缺口仍在；r49 之后无新烘焙 |
 | A-05 性能等价 | 生态 linear/indexed blake3 相同（4,583,094,907 → 48,484 次检查） | ✅ 源码未动该路径 |
 | A-06 权威数据/投影闭包 | header/scene/auditInput 闭包修复 | ✅ |
 | A-07 240 块生命周期 | 240/240、3 warm、9 revisit、2 retry | ✅ 消费者侧；后续 r44 又加了 streaming |
 | A-08 自然/保护/最低需求 | 保护区高度改变样本 0 | ✅ |
 | A-09 许可库存 | Cargo/pnpm 清单 + Three LICENSE | ⚠️ 两项仍未解析（Quaternius 建筑包、workerd-windows-64） |
-| A-10 正负回归 | Rust 470、Vitest 170、Node 252 | ⚠️ 当前全库为 core lib 626 + 其余，见 §6 |
+| A-10 正负回归 | Rust 470、Vitest 170、Node 252 | ⚠️ 数量已变：workspace **993 passed / 35 ignored**（`0d3be23`）；且受 6.1 第 3 项影响 |
 
 ### 5.2 6×10km 最大世界的数字演进（同一类口径，逐轮可比）
 
@@ -403,68 +410,87 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | 独立 gate 耗时 s | 166.997 | 183.121 | 216.332 | 176.504 |
 | gate 结果 | fail | fail | fail | fail |
 
-> 读法：**城市建筑从 0 到 72,000m² 是 r48/r49 的真实增量**（120 户 + 24 铺），
-> 但未实现面积只从 50,535,332 降到 50,230,050（−0.6%）。这就是"生成了楼，但城市还没被填满"的量化形态。
+> r49 之后**没有**新的 6×10km 烘焙——A 例外 #4 正等这一次（见 6.1 第 1 项），所以本表停在 r49。
+> 城市建筑从 0 到 72,000m² 仍是真实增量（120 户 + 24 铺），未实现面积只降 0.6%。
 
 ### 5.3 A 的六条内容例外（至今未关闭，且明令不得继承）
 
 | # | 原文 | 现在 |
 |---|---|---|
-| 1 | `"scene-0" automatic road targets remain out of reach after "segment_budget_exhausted"` | r47 实测 882 目标 / 满足 69 / **813 未满足**；仍有 `segment_budget_exhausted` |
-| 2 | `purpose-area allocation or realization remains incomplete` | 未实现 50,230,050m² |
-| 3 | `landcover remains unrealized` | 农村/城市 remainder 未实现（自然保留地在小示例已闭合） |
-| 4 | `ecology density budget has 1 unfilled plants` | 仍缺 1 株 |
+| 1 | `"scene-0" automatic road targets remain out of reach after "segment_budget_exhausted"` | 最大图仍是 882 目标 / 满足 69；山城样本的同族失败措辞已变为 `…after "no_feasible_progress_candidate"`（`d40c2da`）→ 预算耗尽不再是唯一原因 |
+| 2 | `purpose-area allocation or realization remains incomplete` | 最大图未实现 50,230,050m²（未重算）；1 km 侧城市分配已用尽（40,395/40,898，`5cd21b2` 实测）但 landcover 仍未实现 |
+| 3 | `landcover remains unrealized` | 1 km、山城、滨水三份 gate 失败清单里逐行仍在（见 5.4） |
+| 4 | `ecology density budget has 1 unfilled plants` | 机制已修（`2eb5e78`），24 个 512m 世界前后逐字节 no-op（`1bce274`）；**未关闭**：唯一实例在 6×10km，需一次烘焙 |
 | 5 | `land-use planning or realization remains incomplete` | 同 2 |
-| 6 | `road-first land-use development remains incomplete` | 同 2 |
+| 6 | `road-first land-use development remains incomplete` | 同 2；1 km 临街已从 1 个 site 到 44 pad，但 120 户只落 16 |
 
-### 5.4 B 的实际状态
+### 5.4 三个固定世界的实测（HEAD `0d3be23`）
 
-- **道路**：骨架 + 自动生长 + 显式扩展 + 纵断面 + 独立审计，已是生产可用且跨尺度（1km 与 6×10km）验证。
-- **地块/建筑**：fixture 级闭合（18/18 住宅、4/4 设施、5 个沿路对象），真实 1km 世界只有 1 个 frontage site、21 栋实现建筑、0/120 住宅（b8）。
-- **用途/地表**：账本与守恒成立，内容大面积缺额。
-- **生态**：机制成立，配额缺 1。
-- **形态**：6 种城市形态已有代码，12 种聚落原型与 MorphologyProfile 仍是研究。
-- 结论：**B 整体 partial**，卡点在"基础路 profile → 站点 → 地块 → 建筑"这一段，不在账本、不在消费者、不在性能。
+| 世界 | 规模 | 关键数字 | 证据 |
+|---|---|---|---|
+| **1 km 探针** | 1000×1000m | **44 pad**（其中 16 户、24 店；需求 120 户 / 24 店）；自动路预算 24 段；gate **7 条**；烘焙 124.12s、gate 67.63s | `f641015`、`764ebde` |
+| **山城 hillside-town-512** | 512m | **22 pad**，其中 7 块带削方台地；**道路削方 675 格 / 150.657m³**；全场削方 2,237 格 / 907.597m³；路面填方 5.590m；gate **4 条** | `hillside_cut_city.rs`、`d40c2da`、`6038c33` |
+| **滨水 waterfront-city-512** | 512m | **22/22 户 + 4/4 设施**；60 条路 / **7 座桥**（273m 水面）；**岸线公共带 4,096m²**；湿面 19,968m² 逐格不变；gate **3 条** | `waterfront_city_512.rs`、`ecb174b`、`c8436b6` |
 
-### 5.5 C 的实际状态
+三条读法：
 
-C-N1（来源矩阵）未做、C-N2（真实地貌）只有近似、C-E1（工程实体）只有道路 profile 与填土、C-E2（工程后水文）未做、
-C-H1/H2（形态与账本）部分、C-L1（许可）两项未解析、C-V1（最终效果）未做、C-G1（最终 gate）未做。
-**C 尚未实质开工**，现有工程能力只构成 C-E1 的局部预支。
+1. **滨水 23 户是历史值**：`ecb174b` 首测 23/23，`90bd9b0` 把商业排上码头后计划改为 22，HEAD 测试钉住 22/22。写 23 会与测试矛盾。
+2. **山城的 675 格是道路削方**，与垫层削方分开计（全场 2,237 格 = 道路 675 + 垫层 1,562；`32356e1` 记 22 pad / 7 块台地）。
+3. **可复现范围不同**：山城、滨水的数字由入库样本 + `cargo test` 钉死；1 km 探针的开启态（`ruralConversion`、`bounded-cut` 等）**未入库**——仓内最接近的输入 `examples/b01-1km-probe.manifest.json` 里没有这些开关（其 `urbanCoreRatio` 为 0.02），所以 44/16/24 只能引提交正文，不能从仓库逐字节重放。
+
+### 5.5 B 的五个批次（当前状态）
+
+| 批次 | 状态 | 本轮（Round 5 起）的可核对增量 | 仍缺 |
+|---|---|---|---|
+| B-01 独立地块几何 | ⚠️ 部分 | 1 km 临街从 1 个 site → 44 pad（16 户、24 店），入口未验证 3 → 0（`f641015`） | `development::plan` 仍是 bbox+2m（D10.1）；120 户差 104 |
+| B-02 需求与道路容量 | ⚠️ 部分 | 分级路可削方、纵向解算削填（`d40c2da`），山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 24 段预算未动；山城 4 条 gate 含 `no_feasible_progress_candidate` 的自动路目标，1 km 的 7 条未逐条公开 |
+| B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`：64 条 / 22,492m²），按 64m 城市边缘收紧到 6,040m²（`9102d48`）；城市分配封顶 40,395/40,898（`5cd21b2`）；1 km `b8-conv` 世界农田 103 → 134、农村实现 +23,797m²（`4fa7234`） | 最大图 50,230,050m² 未实现（未重算）；三份世界 landcover 仍 fail |
+| B-04 形态与公共服务 | ⚠️ 部分 | 首次有生产增量：公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界由 profile 派生（`c052838`）、轴/节点城市生长（`b59da3e`）、共享农道 joins 0 → 29 / 车道 −1,778m（`a9744a5`） | 12 种聚落原型、`MorphologyProfile` 14 字段仍未落地；coverageRatio / serviceRadiusM / terrain 无消费者 |
+| B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；滨水注册样本入册（`c9db3e6`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`） | 最大图一次集成未做；A 例外 #4 未关；崩溃未修 |
+
+结论：**B 仍是 partial，但卡点已从"代码缺陷"移到"输入供给与作者分配"**——1 km 的城市天花板是 40,898m² 的分配额，
+山城的天花板是单机 10 个临街地块（`0d3be23`），两者都不是实现缺陷。
+
+### 5.6 C 的实际状态
+
+C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工程实体）本轮从"只有 fill + 道路 profile"扩到
+**fill + 有界 cut 的真实台账**（`3f6bb02`、`d40c2da`、`9d0cd79`：逐格复算、pad/road 分开记账、保护/水体/岸线 0 格），
+但仍**没有**边坡挡墙、排水、涵洞、竖曲线；C-E2（工程后水文）未做；C-H1/H2 部分；C-L1 两项未解析；C-V1、C-G1 未做。
+**C 仍未实质开工**，本轮只是把 C-E1 的局部预支做得更实。
 
 ---
 
-## 6. 当前卡点（2026-10-04～10-09 的 T 系列）
+## 6. 当前卡点与待决策项（更新于 2026-10-19）
 
-> **2026-10-18 更新（Round 1–4，证据见 `rk-x/ROUND-LOG.zh-CN.md`）**
->
-> - §6.1、§6.2 两条 P0 **已修并提交**（`0fe6ebd`、`7a713c2`）；`cargo test --workspace` **exit 0 全绿**
->   （baked_audit 26/26、core lib 626/626、morphology_compile 2/2，两条金标未动）。
-> - 真实 1 km 世界同输入对照：23 条基础边的分级被具名拒绝，临街实现 1 → 3，quality fail → warn。
-> - **瓶颈已转移**：`frontageAudit` 实测 `requested 144 / planned 3 / unfilled 141`，候选站点 96–98%
->   被 `wrong_purpose_or_protected` 拒绝——沿路用地不是 urban。B-01 现在卡在**沿路用途转换**，
->   不在垫层可进入性、不在几何、不在性能。§7 的 P1 顺序应据此调整（先供给，再垫层模型）。
+> **10-18 的两条 P0 已关闭**（`0fe6ebd`、`7a713c2`；`cargo test --workspace` exit 0，两条金标未动）。
+> 此后瓶颈转移了两次：沿路用途（Round 4 的 87–96% `wrong_purpose_or_protected`）→ 工程支撑/填方
+> （Round 9：233 例中 211 例需挖方）→ **作者输入上限**（1 km 的 4% 城市分配、山城的 24 vs 10）。
+> 现在**没有未修的已知代码缺陷卡住主线**；卡住主线的是下面 7 个需要拍板的事项。
 
-一次重构（让**基础边**也带 graded profile）把 `cargo test --workspace` 推红：`baked_audit` 9 条失败 → T-0010/T-0011/T-0012 收敛到 **25 ok / 1 fail**，另 `morphology_compile` 1 ok / 1 fail。**T-0013 已下任务书，但截至 2026-10-18 没有任何执行证据**（`bevy/work/collaboration/rk/T-0013/` 只有 `pm/`）。
+### 6.1 决策表
 
-### 6.1 卡点一：18 户的入口落差（baked_audit 第 7 条）
+| # | 事项 | 现状（可核对） | 影响 | 需要谁决定 |
+|---|---|---|---|---|
+| 1 | 授权一次 **6×10km 烘焙**，关闭 A 例外 #4 | 修复已入库（`2eb5e78`）；24 个真实世界前后逐字节 no-op，重排分支 0 次命中（`1bce274`）；预期 `342,380 / 342,380 / unfilled 0`；一次 **约 380–420s**，**未授权、未执行** | A 例外 #4 无法关闭；C-G1 无法启动 | 项目负责人（额度授权） |
+| 2 | 1 km 是否提高城市分配（`urbanCoreRatio`，现 0.02） | 规划城市 40,898m² ≈ 场景的 4%（`9102d48` 写的"4% urban land"即此）；已用 40,395 + 503 unresolved，**分配额已耗尽**（`5cd21b2`）；实测 16/120 户 | 120 户需求的**结构性上限**；不提高就长期停在 16 户量级 | 项目负责人 + 需求方（改输入还是改需求） |
+| 3 | 偶发访问违例（0xC0000005） | 未修；**~4%**（27 次中 1 次）；崩溃点在 road-network 计划 JSON 序列化；仓库**零 unsafe** → 疑依赖的 unsafe（blake3 SIMD / serde_json）或编译器；取证工具已入库 | 任何"套件全绿"都不能作为签收证据 | 项目负责人（继续取证 / 换工具链 / 接受随机红） |
+| 4 | 山城临街 **24 需求 vs standalone 上限 10** | 实现 7/24（17 未满足）；诊断工具修好后结论是"搜索已穷尽"：84 次尝试只用 0.66% 预算，拒绝 24 水 / 25 占用 / 6 改平台 / 4 削方环 / 1 走错路（`0d3be23`） | 若 24 是需求 → 必须改输入（更多分级路、窄河道、更小临街面、更密站点）；若是探针 → 接受 7 | 项目负责人（需求归属） |
+| 5 | 其余仍 fail 的 gate 项算不算 B 的验收阻塞 | 滨水 **3 条**（frontage demand / purpose-area / landcover）、山城 **4 条**（多一条自动路目标）；1 km **7 条**，提交只记"逐行未变"，未逐条列出 | 决定 B 能签收到什么程度；也决定要不要动 50.23km² | 项目负责人（验收口径） |
+| 6 | 有界削方是否默认开 | 现为 opt-in（`MAX_CUT_MM = 2000`），关闭态逐字节不变；山城 675 格道路削方、1 km 已有真实削方台账 | 默认开 = 把"只填不挖"改成"有界削填"：旧世界地形全变、须 bump revision | 项目负责人（数值合同） |
+| 7 | W1 供给基线 pins 要不要改 | `append`/`diagnose` 新序实测 (148,3)/(148,1)，冻结测试仍钉旧序的 (148,4)/(148,0)（`32330cb`） | 不改则两条实现长期不一致；改则是契约变更 | 项目负责人 |
 
-- 现象：`joint_program_recovers_housing_minimum_and_preserves_source_obligations` 期望 `realizedResidentialWithAccess = 18`，实际 **1**。
-- 机理：`examples/service-program-joint-plains.manifest.json`（`housingMinimum: {"scene-0": 18}`）在平坦示例上，基础边 profile 使路面在 24m 窗口内下沉约 **1.1m**；站点 pad 靠 **2m 引道**接不上，几何无解。
-- **一手核对**：`WALKABLE_GRADE = 0.25`（`bevy/crates/core/src/worldgen/access.rs:16`）、`ENTRANCE_APRON_RUN_M = 2.`（`bevy/crates/core/src/worldgen.rs:4258`），两处判据在 `worldgen/road_network.rs:400` 与 `:405`。故引道可承载落差 = 0.25 × 2 = **0.5m** < 1.1m → 无解，与 T-0012 的实测一致。
-- 已排除的三条 pad 侧路线（T-0012 实测）：(a)(b) 否决；(c) "pad 窗口内开挖"实现后让 `explicit_services` 的真实缺口消失（期望 `incomplete` 变 `pass`），按"真实缺陷更难被发现"判据回退。
-- T-0013 授权方向：**在基础边 profile 的生成/接受阶段加可行性闸门**——若某边 grading 使自己的 roadside pad 落差超出可行走包络，则拒绝该边 grading、保持平坦、走**具名 refusal**，不得静默压平；若牵动 `c3_base_identity`/`w4_chain_digest` 两条金标则停下报告。
-- 额度：cargo 再 60 次；不需要世界运行。
+### 6.2 两条纪律（不是决策）
 
-### 6.2 卡点二：`morphology_compile`（资产合同 vs 测试夹具）
+1. 崩溃未修前，`993 passed / 35 ignored`（`0d3be23`）是**单次**结果；验收须连续多次运行，不得把单次全绿当签收。
+2. 若改走"重放已发布世界"关 A 例外 #4，`real_world_dir_linear_indexed_ecology_equivalence`（`#[ignore]`）的断言必须随契约更新，不能保留旧的 342,379。
 
-- 根因已定位：`assets/objects/storefront.object.toml` 要求 `road distance = 8.0`（`distance_metric = footprint`，`fallback = "skip"`），而测试 fixture（`crates/cli/tests/morphology_compile.rs:83`）给的 `setbackM = 12` → 立面到路缘约 14m > 8m，对象合同必然不满足。
-- 放大器：`engineered_placement::reconcile` 把**任何**带 `frontage_road_point` 的实体当 fixed，命中规则拒绝直接 `Err`，**不读描述符自己声明的 `fallback = skip`** → 一个不合规小卖部就能让整张世界烘不出来。
-- T-0013 采纳：`reconcile` 遵守 `fallback`（skip 就跳过），硬要求具名 refusal + 计数，不改测试、不改 assets。
+### 6.3 已由"默认关"解决的旧决策
 
-### 6.3 卡点三：制度性（非技术）
-
-项目 2026-10-09 之后 9 天无新证据。当前状态是 **"1 条红 + 1 条未修的已知缺陷 + 一份未执行的授权"**，不是"已卡死"，随时可从 `T-0013/a/` 继续。
+`DECISION-COST-SHEET`（`11728e0`）里最贵的两项已落地，但**都没改默认语义**：1 有界挖方以
+`style.frontageProgram.terrainPolicy = "bounded-cut"`（`3f6bb02`）、2 road-first 水体以
+`allowStructuredWater = "bridge-or-causeway"`（`d72df65`）实现，默认关、旧世界逐字节不变。
+所以这两项现在不是"要不要做"，而是"要不要默认开"（6.1 第 6 项）。同表的 3 coverageRatio、4 serviceRadiusM、
+5 terrain、6 stationSpacingM 仍无消费者：6 代价最小，5 收益最低，建议顺序不变。
 
 ---
 
