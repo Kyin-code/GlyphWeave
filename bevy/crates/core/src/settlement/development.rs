@@ -1093,6 +1093,7 @@ mod tests {
                     natural_max_m: 0.,
                     // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
                     profile: None,
+                    earthwork_blend_m: None,
                 },
                 RoadEdge {
                     id: "road1".into(),
@@ -1106,6 +1107,7 @@ mod tests {
                     natural_max_m: 0.,
                     // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
                     profile: None,
+                    earthwork_blend_m: None,
                 },
             ],
             roadside_sites: vec![RoadsideSite {

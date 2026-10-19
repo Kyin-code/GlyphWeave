@@ -1684,6 +1684,7 @@ mod tests {
                 natural_max_m: 0.,
                 // B01-T2 mechanical sync: this fixture builds an unprofiled legacy base edge
                 profile: None,
+                earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
         };
@@ -1764,6 +1765,7 @@ mod tests {
                 natural_min_m: 0.,
                 natural_max_m: 0.,
                 profile: None,
+                earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
         };
@@ -3296,6 +3298,7 @@ mod tests {
                 natural_min_m: 0.,
                 natural_max_m: 0.,
                 profile: None,
+                earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
         };

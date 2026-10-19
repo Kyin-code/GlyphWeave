@@ -602,6 +602,7 @@ mod tests {
                 // B01-T2 mechanical sync: this fixture is an unprofiled legacy base edge. It stays
                 // unprofiled on purpose, because the trusted-base contract path is exercised separately.
                 profile: None,
+                earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
             pad_conversions: vec![],

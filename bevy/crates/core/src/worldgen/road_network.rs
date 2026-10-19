@@ -159,6 +159,25 @@ pub struct RoadEdge {
     /// it carries none and its rejection is retained.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<super::road_profile::RoadProfile>,
+    /// OPT-IN `style.terrainPolicy.earthworkBlend = "derived-from-fill"`: the width
+    /// of this roadbed's own fill-transition ring, in metres, derived from the fill
+    /// depth its roadbed places over its own flat top
+    /// ([`super::earthwork_blend::derived_fill_blend_m`], floored by the corridor's
+    /// own [`super::carve_base_ring_m`]).
+    ///
+    /// The record has to carry it for the same reason a pad's does: the published
+    /// road entity is rebuilt from this plan (`RoadNetworkPlan::entities`) and the
+    /// independent road audit compares that rebuild's `grounding`, byte for byte,
+    /// with the published one. A ring that only the published entity carried was a
+    /// plan/entity split - the audit refuses it by name as "road transform differs
+    /// from plan" - so the plan carries the ring, `entities()` publishes it, and the
+    /// audit's rebuild reads it back out of the same record.
+    ///
+    /// Only [`super::earthwork_blend::stamp_plan`] ever sets it, only under that
+    /// policy, and it is never serialized when absent, so a world that never asked
+    /// keeps its published bytes exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earthwork_blend_m: Option<f32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -194,10 +213,11 @@ pub struct RoadsideSite {
     /// byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounded_cut_mm: Option<i32>,
-    /// OPT-IN `style.terrainPolicy.earthworkBlend = "derived-from-footprint"`: the
-    /// width of the fill-transition ring this pad's OWN footprint derives, in
-    /// metres - the same number its realized entity carries in
-    /// `grounding.earthworkBlendM`.
+    /// OPT-IN `style.terrainPolicy.earthworkBlend`: the width of the
+    /// fill-transition ring this pad derives, in metres - the same number its
+    /// realized entity carries in `grounding.earthworkBlendM`.
+    /// `"derived-from-footprint"` reads the pad's own size, `"derived-from-fill"` its
+    /// own fill depth (`supportLevel` over `naturalMinM`).
     ///
     /// The PLAN RECORD has to carry it, not just the entity. A planned pad is
     /// rebuilt from this record by `settlement::development::plan` (three
@@ -207,12 +227,14 @@ pub struct RoadsideSite {
     /// split rather than an earthwork decision, so a planned pad used to keep the
     /// historical `3 x (ground + 32)` ring - the 114 m envelope on the hillside
     /// town's 6 m plate. Writing the derived ring into the record is what lets
-    /// the plan and the entity share ONE ring.
+    /// the plan and the entity share ONE ring, and it is why the record's ring is
+    /// AUTHORITATIVE: `earthwork_blend::stamp` never re-derives a ring an entity
+    /// already carries.
     ///
     /// Only [`super::earthwork_blend::stamp_plan`] ever sets it, only for a pad
     /// whose kind `plan_terrain_carves` actually carves as a building, and only
-    /// under that policy. Every other pad of every input publishes no such key,
-    /// which is what keeps the default output byte-identical.
+    /// under one of the two declared values. Every other pad of every input
+    /// publishes no such key, which is what keeps the default output byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earthwork_blend_m: Option<f32>,
     pub rotation_y_deg: f32,
@@ -384,6 +406,11 @@ impl RoadNetworkPlan {
                         // entity publishes no cap and `plan_terrain_carves` grants
                         // it no carve cap either.
                         bounded_cut_mm,
+                        // The road's own OPT-IN fill-transition ring, out of this
+                        // very record: the audit rebuilds the published road from
+                        // the plan and compares `grounding` byte for byte, so the
+                        // record is the one place the ring may live.
+                        earthwork_blend_m: e.earthwork_blend_m,
                         ..Default::default()
                     },
                     anchors: Vec::new(),
@@ -1122,6 +1149,7 @@ pub(super) fn plan_with_zones_demand(
                     // level is chosen. Left None here so a candidate that fails design never carries a
                     // stand-in profile.
                     profile: None,
+                    earthwork_blend_m: None,
                 });
             }
         }
@@ -2702,7 +2730,12 @@ pub(super) fn plan_with_style_declared(
     // `frontage::append` for the same reason in reverse: the acceptance gates of
     // the frontage programme keep reading the historical envelopes they were
     // calibrated on, so the pad list itself cannot move under this switch.
-    super::earthwork_blend::stamp_plan(&mut result, style);
+    //
+    // The natural raster is handed over for the FILL value only: a road's ring is
+    // the fill its own roadbed places, measured once here, because the independent
+    // road audit rebuilds the published road from this plan and compares the
+    // `grounding` byte for byte.
+    super::earthwork_blend::stamp_plan(&mut result, style, terrain);
     // The pad list is whole. A pad whose declared flat top the plan's own earthwork
     // cannot hold is refused BY NAME here and taken out of the plan, where it can
     // still be seen: publishing it and deleting it from the generated world later

@@ -439,6 +439,10 @@ pub(super) fn append_one(
         // through the legacy extensions lookup, which is priority 2. Writing a copy here would create two
         // sources of truth for the same road.
         profile: None,
+        // OPT-IN earthworkBlend: the fill-derived ring is written by
+        // earthwork_blend::stamp_plan once the whole pad list is final, so an
+        // extension road starts without one - exactly like every base edge.
+        earthwork_blend_m: None,
     });
     plan.extensions.push(RoadExtension {
         entity_id: id,
