@@ -89,13 +89,13 @@ const LEGACY_PAD_RING_M: f64 = 114.0;
 /// pad's entity had been deleted and its platform could not be published at all.
 const PAD_MM: i32 = 6_000;
 /// The excavation the derived scene holds, summed once from its two rasters.
-const DERIVED_CUT_PADS: usize = 5;
-const DERIVED_CUT_CELLS: u64 = 1_371;
-const DERIVED_CUT_DEPTH_SUM_MM: i64 = 848_789;
+const DERIVED_CUT_PADS: usize = 6;
+const DERIVED_CUT_CELLS: u64 = 1_505;
+const DERIVED_CUT_DEPTH_SUM_MM: i64 = 857_037;
 /// The excavation the fixed-envelope scene holds.
-const OFF_CUT_PADS: usize = 5;
-const OFF_CUT_CELLS: u64 = 990;
-const OFF_CUT_DEPTH_SUM_MM: i64 = 608_134;
+const OFF_CUT_PADS: usize = 6;
+const OFF_CUT_CELLS: u64 = 1_124;
+const OFF_CUT_DEPTH_SUM_MM: i64 = 616_382;
 /// The pads the grown plan keeps: every one of them.
 const PLANNED_PADS: usize = 19;
 /// The published bytes of the two fixtures THIS ROUND MUST NOT MOVE, as one blake3
@@ -117,7 +117,7 @@ const PLANNED_PADS: usize = 19;
 /// unchanged. The WATERFRONT fixture never opted into the policy and is byte-frozen:
 /// its constant does not move.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "856ce5f1ea80bd610f2aae2db55b5005a175a5ecce16094d26a20b725d42ad2b";
+    "ec4fa91f18ad94349959c72ca7f464020684a9ed63bd90ffcde7e1a80f0f4490";
 const FROZEN_WATERFRONT_DIGEST: &str =
     "5a43f6a08567a764c42b8cb82767a2de722ce276475d3a284c92133a428793b2";
 /// The ring every planned pad of the grown hillside town derives, by kind:
@@ -125,8 +125,8 @@ const FROZEN_WATERFRONT_DIGEST: &str =
 /// published width and height - never its depth, never its elevation.
 const GROWN_PAD_RINGS: [(u32, u32, u32, f64, usize); 4] = [
     (12, 12, 6, 20.0, 3),
-    (8, 8, 6, 16.0, 3),
-    (24, 24, 8, 32.0, 12),
+    (8, 8, 6, 16.0, 4),
+    (24, 24, 8, 32.0, 11),
     (40, 30, 10, 48.0, 1),
 ];
 
@@ -333,8 +333,8 @@ fn building_rings(dir: &TestDir) -> Vec<f64> {
 /// Every published road carve's ring, off the same ledger. The switch is about
 /// STRUCTURES, so this list is the same in both arms: road corridors keep their
 /// graded envelope and their own fill contract.
-const ROAD_RINGS: [f64; 7] = [
-    108.24, 109.2, 110.577, 112.485, 114.0, 121.071, 121.497,
+const ROAD_RINGS: [f64; 8] = [
+    108.24, 109.2, 110.577, 111.744, 112.485, 114.0, 121.071, 121.497,
 ];
 
 fn road_rings(dir: &TestDir) -> Vec<f64> {

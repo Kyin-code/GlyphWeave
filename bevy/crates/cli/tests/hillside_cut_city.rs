@@ -66,13 +66,13 @@ const MAX_CUT_MM: i32 = 2000;
 /// Pads the benched plan publishes: 15 homes, 6 storefronts and 1 school, of which
 /// seven carry a real excavation (four benched homes, two shops and the school).
 const PLANNED_PADS: usize = 23;
-const CUT_PADS: usize = 7;
+const CUT_PADS: usize = 8;
 /// The excavation the scene actually holds, summed ONCE from the two published
 /// rasters: the number the ledger must equal (Round 28 booked 2,160 cells /
 /// 1,099 m3 because 273 cells stood in two footprints at once).
-const SCENE_CUT_CELLS: u64 = 2274;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 979_729;
-const SCENE_CUT_VOLUME_M3: f64 = 979.729;
+const SCENE_CUT_CELLS: u64 = 2408;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 987_977;
+const SCENE_CUT_VOLUME_M3: f64 = 987.977;
 const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
 /// Candidates refused because their cut footprint intersected an accepted pad's:
 /// two homes and two storefronts.
@@ -82,7 +82,7 @@ const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
 /// to be refused earlier - as `occupied_or_road_support` - is now tried after the bench it would
 /// overlap and is named by the more precise `bounded_cut_footprint_overlaps_another_pad` instead. The
 /// 22 pads, the 7 benches and every excavation number below are unchanged.
-const FOOTPRINT_REFUSALS: u32 = 3;
+const FOOTPRINT_REFUSALS: u32 = 4;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -228,7 +228,7 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         "the benched lots carry a cap: {:?}",
         cut.iter().map(|s| (&s.id, s.bounded_cut_mm)).collect::<Vec<_>>()
     );
-    assert_eq!(PLANNED_PADS - CUT_PADS, 16, "the rest are fill-only pads");
+    assert_eq!(PLANNED_PADS - CUT_PADS, 15, "the rest are fill-only pads");
     for site in &cut {
         assert_eq!(site.bounded_cut_mm, Some(MAX_CUT_MM));
         assert!(
@@ -428,13 +428,13 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     // this plan's 33 roads carry a graded profile; a flat road has no authored
     // surface to cut to and keeps the historical fill-only contract, so it
     // publishes no record at all.
-    assert_eq!(ledger.roads.len(), 11, "the graded roads publish one record each");
+    assert_eq!(ledger.roads.len(), 12, "the graded roads publish one record each");
     assert!(
         plan.entities()
             .iter()
             .filter(|entity| entity.kind == "road" && entity.grounding.bounded_cut_mm.is_some())
             .count()
-            == 11,
+            == 12,
         "only a road with a longitudinal profile may carry the cap"
     );
     for record in &ledger.roads {

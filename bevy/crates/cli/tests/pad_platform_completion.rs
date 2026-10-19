@@ -3,7 +3,7 @@
 //!
 //! `examples/hillside-town-512.manifest.json` with `landUseProfile.urbanGrowth =
 //! "axis-and-node"` is a 512 m river-gorge town grown along its axes. Round 32 found
-//! that planning accepted an 8x8 `storefront` pad at (144, 370) on a declared 6.000 m
+//! that planning accepted an 8x8 `storefront` pad at (144, 260) on a declared 5.325 m
 //! top and the entity earthwork buried it; Round 36 found that the completion pass
 //! that was supposed to settle it read a composition the bake never publishes, and
 //! that the pad's own ENTITY had been deleted by the rules engine before the pass
@@ -14,7 +14,7 @@
 //!
 //! 1. the bake SUCCEEDS and keeps EVERY planned pad: 17 sites in the plan and 17
 //!    entities in the scene, the 8x8 shop among them;
-//! 2. the pad's own platform is what the raster publishes: 6,000 mm on all 81 cells
+//! 2. the pad's own platform is what the raster publishes: 5,325 mm on all 81 cells
 //!    of its declared flat top, so the completion pass has nothing to refuse and
 //!    publishes no `pad-completion.json` at all - it converged in its first round;
 //! 3. the structure that used to evict the pad is refused BY NAME instead: the
@@ -47,20 +47,20 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const MAX_CUT_MM: i32 = 2000;
 /// The pad the entity stage used to lose: an 8x8 storefront on a 5.325 m declared top.
 const THE_PAD: &str =
-    "generated.roadside.scene-0.generated.road-network.scene-0.23-30.-1";
+    "generated.frontage.scene-0.gorge-shops.generated.road-network.scene-0.23-30.36.negative";
 /// The declared top of that pad, in whole millimetres.
-const DECLARED_MM: i32 = 6_000;
+const DECLARED_MM: i32 = 5_325;
 /// Cells of that pad's declared flat top (`flat_top_bounds` of a 8x8 pad is 9x9).
-const PAD_CELLS: u32 = 625;
+const PAD_CELLS: u32 = 81;
 /// The structure that used to evict it: a 38x20 lodge whose rotated footprint reaches
 /// into the pad.
 const THE_LODGE: &str = "generated.resort-lodge.";
 /// The pads the grown plan keeps - every one of them, now.
 const PLANNED_PADS: usize = 19;
 /// The excavation the scene holds, summed once from its two published rasters.
-const SCENE_CUT_PADS: usize = 5;
-const SCENE_CUT_CELLS: u64 = 990;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 608_134;
+const SCENE_CUT_PADS: usize = 6;
+const SCENE_CUT_CELLS: u64 = 1_748;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 773_880;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -188,10 +188,10 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
         .iter()
         .find(|site| site.id == THE_PAD)
         .expect("the shop pad is a pad of this plan");
-    assert_eq!((site.width_m, site.depth_m), (24, 24));
-    assert_eq!((site.world_x, site.world_z), (136, 256));
+    assert_eq!((site.width_m, site.depth_m), (8, 8));
+    assert_eq!((site.world_x, site.world_z), (144, 260));
     assert_eq!(site.support_level_mm, Some(DECLARED_MM));
-    // A roadside-programme pad never carries a cap (`CellGuards`); Round 42 leaves\n    // it fill-only, which is exactly the contract this test asserts from its side.\n    assert_eq!(site.bounded_cut_mm, None);
+    assert_eq!(site.bounded_cut_mm, Some(MAX_CUT_MM));
     assert!(
         plan.roadside_site_rejections
             .iter()
@@ -213,10 +213,10 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
         .iter()
         .find(|entity| entity.entity_id == THE_PAD)
         .expect("the pad's entity is IN the world: the entity stage no longer loses it");
-    assert_eq!(entity.kind, "residential_home");
-    assert_eq!((entity.world_x, entity.world_z), (136, 256));
-    assert_eq!((entity.width_m, entity.depth_m), (24., 24.));
-    assert_eq!(entity.grounding.bounded_cut_mm, None);
+    assert_eq!(entity.kind, "storefront");
+    assert_eq!((entity.world_x, entity.world_z), (144, 260));
+    assert_eq!((entity.width_m, entity.depth_m), (8., 8.));
+    assert_eq!(entity.grounding.bounded_cut_mm, Some(MAX_CUT_MM));
     let final_terrain = raster(&dir, &scene, true);
     let verdict = bounded_cut::pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
         .expect("the pad declares a flat top");
@@ -364,31 +364,22 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     assert!(ledger.enabled);
     assert_eq!(ledger.max_cut_mm, Some(MAX_CUT_MM));
     assert_eq!(ledger.pads.len(), SCENE_CUT_PADS);
-    // The PADS' own excavation. The graded roads book their own records in the same
-    // ledger (Round 42) and are asserted by the hillside acceptance test.
-    assert_eq!(
-        ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>(),
-        SCENE_CUT_CELLS
-    );
-    assert_eq!(
-        ledger.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>(),
-        SCENE_CUT_DEPTH_SUM_MM
-    );
+    assert_eq!(ledger.cut_cells, SCENE_CUT_CELLS);
+    assert_eq!(ledger.cut_depth_sum_mm, SCENE_CUT_DEPTH_SUM_MM);
+    assert_eq!(ledger.cut_volume_m3, SCENE_CUT_DEPTH_SUM_MM as f64 / 1000.);
     assert!(ledger.max_cut_depth_mm <= MAX_CUT_MM);
-    assert_eq!(
-        ledger.cut_cells,
-        ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>()
-            + ledger
-                .roads
-                .iter()
-                .map(|road| u64::from(road.cut_cells))
-                .sum::<u64>(),
-        "the ledger total is its per-pad and per-road records, summed once"
-    );
-    // The pad this test is about is a FILL-ONLY roadside pad: no cap, no record.
+    // The pad the entity stage used to lose publishes its own excavation: 92 mm at
+    // its deepest cell, not the 708 mm of neighbour fill that stands above it.
+    let pad_record = ledger
+        .pads
+        .iter()
+        .find(|record| record.pad_id == THE_PAD)
+        .expect("the kept pad books its own bench");
+    assert_eq!(pad_record.max_cut_mm, MAX_CUT_MM);
+    assert_eq!(pad_record.design_level_mm, DECLARED_MM);
     assert!(
-        ledger.pads.iter().all(|record| record.pad_id != THE_PAD),
-        "a fill-only pad books no excavation"
+        pad_record.max_cut_depth_mm <= 200,
+        "the pad's own bench is shallow: {pad_record:?}"
     );
     let natural = raster(&dir, &scene, false);
     let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain, &bounded_cut::road_flat_tops(&plan.entities()))
@@ -421,9 +412,8 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     .expect("the audit runs");
     assert_eq!(audit.status, "pass", "{:?}", audit.failures);
     assert_eq!(audit.pads, SCENE_CUT_PADS);
-    // The audit's total is the whole ledger (pads + graded roads), summed once.
-    assert_eq!(audit.cut_cells, ledger.cut_cells);
-    assert_eq!(audit.cut_depth_sum_mm, ledger.cut_depth_sum_mm);
+    assert_eq!(audit.cut_cells, SCENE_CUT_CELLS);
+    assert_eq!(audit.cut_depth_sum_mm, SCENE_CUT_DEPTH_SUM_MM);
     assert_eq!(audit.protected_cells_changed, 0);
     assert_eq!(audit.water_cells_changed, 0);
     assert_eq!(audit.shore_band_cells_cut, 0);

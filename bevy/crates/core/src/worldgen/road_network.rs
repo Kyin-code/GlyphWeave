@@ -1322,6 +1322,22 @@ pub(super) fn plan_with_zones_demand(
         let (probe_audit_half, _) = super::support_pad_half_extents(24., 24., 0., true);
         let probe_audit_win: i32 = probe_audit_half.ceil() as i32;
         if settlement_demand {
+            // The fill-only context: `with_cut(0)` is the historical solver, i.e. the
+            // depth every frontage contract in this project was validated at. Read
+            // once, because a grading the cut strands is retried at that depth below -
+            // and only when the world opted into the cut at all, so a world without the
+            // policy takes exactly the same path (and the same work) it always took.
+            let fill_only = if profile_cut_mm > 0 {
+                match zones {
+                    Some(zones) => Some(
+                        super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?
+                            .with_cut(0),
+                    ),
+                    None => None,
+                }
+            } else {
+                None
+            };
             let probe_entities = result.entities();
             let probe_carves = super::plan_terrain_carves(&probe_entities);
             let mut downgraded: Vec<BaseProfileRejection> = Vec::new();
@@ -1400,7 +1416,79 @@ pub(super) fn plan_with_zones_demand(
                     });
                 }
             }
-            result.base_profile_rejections.extend(downgraded);
+            // ROUND 41 REPAIR: a cut may not strand the road's OWN frontage.
+            //
+            // The gate above measures the pad this edge's grading would carry - a flat,
+            // fill-only 24x24 platform whose declared top is the highest the composed
+            // fills require there - against the surface the world publishes. Under
+            // `bounded-cut` the longitudinal solver may place that surface BELOW the
+            // natural ground, so a grading that is sound at the fill-only depth can end
+            // up further beneath its own pad than the entrance apron can walk. Measured
+            // on the 1 km probe: two base edges that carried a graded profile lost it to
+            // a 627 mm / 631 mm step against the 500 mm apron, which mattered far beyond
+            // the two roads - `urban_growth` reads a run's pavement width from its
+            // profile, so a dropped grading also leaves the growth axes, and the world's
+            // urban zones were rewritten (pads 46 -> 36, shops 24 -> 15).
+            //
+            // So a grading is refused only when it cannot serve its own pad at ANY depth
+            // it is allowed to take. When the fill-only design carries the pad, the edge
+            // keeps its profile AT THAT SHALLOWER DEPTH: the excavation is bounded by the
+            // apron contract instead of the grading being thrown away. No contract moves
+            // - the same apron, the same `base_edge_profile` validation, the same cap -
+            // and a world without the policy (`profile_cut_mm == 0`) never enters here, so
+            // its decisions are exactly the ones it always took.
+            let mut refused: Vec<BaseProfileRejection> = Vec::new();
+            match (profile_cut_mm > 0, fill_only.as_ref()) {
+                (true, Some(fill_only)) => {
+                    let nodes = std::mem::take(&mut result.nodes);
+                    for rejection in downgraded {
+                        let Some(index) = result
+                            .edges
+                            .iter()
+                            .position(|edge| edge.id == rejection.edge_id)
+                        else {
+                            refused.push(rejection);
+                            continue;
+                        };
+                        let edge = result.edges[index].clone();
+                        let Ok(profile) = base_edge_profile(&edge, &nodes, fill_only, level) else {
+                            refused.push(rejection);
+                            continue;
+                        };
+                        result.edges[index].profile = Some(profile);
+                        let entities = result.entities();
+                        let carves = super::plan_terrain_carves(&entities);
+                        let rise = result.edges[index]
+                            .profile
+                            .as_ref()
+                            .and_then(|profile| {
+                                entities
+                                    .iter()
+                                    .find(|entity| entity.entity_id == rejection.edge_id)
+                                    .and_then(|entity| {
+                                        best_roadside_pad_rise(
+                                            profile,
+                                            entity,
+                                            &carves,
+                                            terrain,
+                                            &roadside_request,
+                                            probe_audit_win,
+                                        )
+                                    })
+                            });
+                        match rise {
+                            Some(rise) if rise <= apron_capacity_m => {}
+                            _ => {
+                                result.edges[index].profile = None;
+                                refused.push(rejection);
+                            }
+                        }
+                    }
+                    result.nodes = nodes;
+                }
+                _ => refused = downgraded,
+            }
+            result.base_profile_rejections.extend(refused);
         }
         // B01-T2 R7-1 (rule A'): the surface the ROADS require, computed with the
         // production carve implementation over the road entities only, plus each
@@ -2055,6 +2143,60 @@ pub(super) fn plan_with_style(
         style,
         super::NaturalSource::Undeclared,
     )
+}
+
+/// The best (lowest) rise a 24x24 roadside pad of `request` can achieve against
+/// `profile`, measured on the surface `carves` compose.
+///
+/// This is the enterability probe the grading gate runs, lifted into one place so
+/// the gate's refusal and the fill-only retry that may overturn it measure the
+/// SAME quantity on the SAME composed raster: the pad's declared top is the
+/// highest fill this cell window requires, and the rise is that top above the
+/// road's own authored surface at the station. `None` when no station of the edge
+/// can carry the pad at all (which is not a refusal: such an edge creates no site).
+fn best_roadside_pad_rise(
+    profile: &super::road_profile::RoadProfile,
+    entity: &super::EntityInstance,
+    carves: &[super::TerrainCarve],
+    terrain: &BakedTerrain,
+    request: &super::frontage::Request,
+    probe_audit_win: i32,
+) -> Option<f64> {
+    let stations = super::frontage::stations(entity, request).ok()??;
+    let dx = (profile.end[0] - profile.start[0]).signum();
+    let dz = (profile.end[1] - profile.start[1]).signum();
+    let mut best_rise = f64::INFINITY;
+    for &station in &stations {
+        let Some(own_mm) = profile.elevations_mm.get(station).copied() else {
+            continue;
+        };
+        let rx = profile.start[0] + dx * station as i32;
+        let rz = profile.start[1] + dz * station as i32;
+        for side in [-1, 1] {
+            let (px, pz) = if dx != 0 {
+                (rx, rz + 24 * side)
+            } else {
+                (rx + 24 * side, rz)
+            };
+            let mut required_max_mm = own_mm;
+            let mut complete = true;
+            'window: for zz in pz - probe_audit_win..=pz + probe_audit_win {
+                for xx in px - probe_audit_win..=px + probe_audit_win {
+                    let Some(h) = terrain.height(xx, zz) else {
+                        complete = false;
+                        break 'window;
+                    };
+                    let required = super::apply_terrain_carves(f64::from(h), xx, zz, carves);
+                    required_max_mm = required_max_mm.max((required * 1000.).round() as i64);
+                }
+            }
+            if !complete {
+                continue;
+            }
+            best_rise = best_rise.min((required_max_mm - own_mm) as f64 / 1000.);
+        }
+    }
+    best_rise.is_finite().then_some(best_rise)
 }
 
 /// B01-R1 T2 (OPT-B): one base edge -> CorridorRequest -> real solver -> validated RoadProfile.
