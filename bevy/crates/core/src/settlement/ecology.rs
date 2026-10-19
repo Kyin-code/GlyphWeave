@@ -299,7 +299,8 @@ fn realize_with_obstacles(
         // Preserve the full original geometry checks and all search attempts.
         let patch_obstacles = obstacles.query(patch_bounds);
         let mut local = vec![];
-        for (budget, layer) in c.layer_budgets.iter_mut().zip(p.layers) {
+        let mut rejected = vec![];
+        for (budget, layer) in c.layer_budgets.iter().zip(p.layers) {
             for ordinal in 0..budget.planned_count {
                 let id = format!("{}.{}.{ordinal}", patch.id, layer.name);
                 let seed = blake3::hash(format!("{}:{}", scene.seed_offset, id).as_bytes());
@@ -331,23 +332,52 @@ fn realize_with_obstacles(
                             height_m: layer.height,
                             width_m: layer.width,
                         });
-                        budget.realized_count += 1;
-                        c.realized_plant_count += 1;
                     }
                     Err(reason) => {
-                        result.rejections.push(EcologyRejection {
+                        rejected.push(EcologyRejection {
                             id,
                             source_patch_id: patch.id.clone(),
                             layer: layer.name.into(),
                             reason,
                         });
-                        budget.unfilled_count += 1;
-                        c.unfilled_plant_count += 1;
                     }
                 }
             }
         }
+        // A random anchor accepted early can close the patch for the instances
+        // that follow it, even when the planned quota is still satisfiable on
+        // the same land (A milestone exception #4: 342379/342380). Re-layout only
+        // the patch that actually fell short; a patch that met its quota is
+        // never touched, so every complete world keeps its exact bytes.
+        if !rejected.is_empty() {
+            let counts: Vec<usize> = c.layer_budgets.iter().map(|b| b.planned_count).collect();
+            let relaid = relayout_patch(
+                patch,
+                patch_bounds,
+                p.layers,
+                &counts,
+                terrain,
+                water,
+                &patch_obstacles,
+            )?;
+            if let Some((plants, relaid_rejected)) = relaid {
+                if plants.len() > local.len() {
+                    local = plants;
+                    rejected = relaid_rejected;
+                }
+            }
+        }
+        for (budget, layer) in c.layer_budgets.iter_mut().zip(p.layers) {
+            budget.realized_count = local.iter().filter(|plant| plant.layer == layer.name).count();
+            budget.unfilled_count = rejected
+                .iter()
+                .filter(|rejection| rejection.layer == layer.name)
+                .count();
+        }
+        c.realized_plant_count = local.len();
+        c.unfilled_plant_count = rejected.len();
         result.plants.extend(local);
+        result.rejections.extend(rejected);
     }
     result.classes = classes
         .into_iter()
@@ -376,6 +406,130 @@ fn realize_with_obstacles(
 pub(super) fn overlaps(a: &EcologyPlant, b: &EcologyPlant) -> bool {
     let r = (a.width_m + b.width_m) * 0.5;
     (a.world_x - b.world_x).abs() < r - 1e-9 && (a.world_z - b.world_z).abs() < r - 1e-9
+}
+
+// A footprint-sized lattice for one layer: consecutive centres are exactly one
+// footprint apart, so two instances of the same layer can never overlap, and
+// every centre keeps its full footprint inside the patch (including EPS). An
+// empty lattice means the patch is narrower than one footprint, which stays a
+// named capacity refusal rather than an error.
+fn width_lattice(bounds: [f64; 4], width: f64) -> Option<Vec<[f64; 2]>> {
+    if !(width > 0.) || !bounds.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let [min_x, max_x, min_z, max_z] = bounds;
+    let r = width * 0.5;
+    let axis = |min: f64, max: f64| {
+        let mut out = vec![];
+        let mut position = min + r;
+        while position + r <= max + 1e-9 {
+            out.push(position);
+            position += width;
+        }
+        out
+    };
+    let xs = axis(min_x, max_x);
+    let zs = axis(min_z, max_z);
+    let mut lattice = Vec::with_capacity(xs.len() * zs.len());
+    for &z in &zs {
+        for &x in &xs {
+            lattice.push([x, z]);
+        }
+    }
+    Some(lattice)
+}
+
+// Whole-patch re-layout used only after the anchor scan left the patch short.
+// Largest footprints are placed first (a small instance can never consume the
+// last cell a large one needs), each on its own footprint lattice, so the
+// planned quota is realized whenever the land can physically hold it. The
+// admission predicate is the same one the anchor scan and verify use; whatever
+// still cannot be placed stays an explicit, named rejection.
+fn relayout_patch(
+    patch: &SurfacePatch,
+    patch_bounds: [f64; 4],
+    layers: &[Layer],
+    counts: &[usize],
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    obstacles: &[&EntityInstance],
+) -> Result<Option<(Vec<EcologyPlant>, Vec<EcologyRejection>)>, String> {
+    // Out-of-domain patches keep exactly the anchor-scan outcome they had.
+    if patch_bounds[1] - patch_bounds[0] > 16. + 1e-9
+        || patch_bounds[3] - patch_bounds[2] > 16. + 1e-9
+    {
+        return Ok(None);
+    }
+    let mut planned: Vec<(usize, usize)> = vec![];
+    for (layer_index, &count) in counts.iter().enumerate() {
+        planned.extend((0..count).map(|ordinal| (layer_index, ordinal)));
+    }
+    planned.sort_by(|&(layer_a, ordinal_a), &(layer_b, ordinal_b)| {
+        layers[layer_b]
+            .width
+            .total_cmp(&layers[layer_a].width)
+            .then(layer_a.cmp(&layer_b))
+            .then(ordinal_a.cmp(&ordinal_b))
+    });
+    let mut plants = vec![];
+    let mut rejections = vec![];
+    for (layer_index, ordinal) in planned {
+        let layer = &layers[layer_index];
+        let id = format!("{}.{}.{ordinal}", patch.id, layer.name);
+        let Some(lattice) = width_lattice(patch_bounds, layer.width) else {
+            return Ok(None);
+        };
+        // The id only rotates the scan start, so equal layers still fill
+        // distinct cells while different instances do not stack in a row.
+        let start = if lattice.is_empty() {
+            0
+        } else {
+            let seed = blake3::hash(id.as_bytes());
+            (u32::from_le_bytes(seed.as_bytes()[8..12].try_into().unwrap()) as usize)
+                % lattice.len()
+        };
+        let mut anchor = None;
+        for step in 0..lattice.len() {
+            let [x, z] = lattice[(start + step) % lattice.len()];
+            if !landcover::anchor_is_clear(
+                patch_bounds,
+                layer.width,
+                x,
+                z,
+                water,
+                obstacles,
+                &plants,
+            ) {
+                continue;
+            }
+            // A sampled height that the greedy path would also refuse is not a
+            // new world-wide failure: skip the cell and keep searching.
+            if let Ok(y) = landcover::terrain_height(terrain, [x, z]) {
+                anchor = Some([x, z, y]);
+                break;
+            }
+        }
+        match anchor {
+            Some([x, z, y]) => plants.push(EcologyPlant {
+                id,
+                source_patch_id: patch.id.clone(),
+                kind: layer.kind.into(),
+                layer: layer.name.into(),
+                world_x: x,
+                world_z: z,
+                world_y: y,
+                height_m: layer.height,
+                width_m: layer.width,
+            }),
+            None => rejections.push(EcologyRejection {
+                id,
+                source_patch_id: patch.id.clone(),
+                layer: layer.name.into(),
+                reason: landcover::NO_ECOLOGY_ANCHOR.into(),
+            }),
+        }
+    }
+    Ok(Some((plants, rejections)))
 }
 #[cfg(test)]
 pub(super) fn verify_plant_clearance(
@@ -519,7 +673,7 @@ fn verify_contract_with_obstacles(
             .ok_or("duplicate or unplanned ecology rejection")?;
         if rejection.source_patch_id != source
             || rejection.layer != layer
-            || rejection.reason != "no clear full-size ecology anchor in source patch"
+            || rejection.reason != landcover::NO_ECOLOGY_ANCHOR
         {
             return Err("invalid ecology rejection".into());
         }
@@ -669,6 +823,141 @@ mod tests {
         assert_eq!(c[0].planned_plant_count, 0);
         assert_eq!(c[0].layer_budgets.len(), 3); // explicit zero budgets, no fake minimum
     }
+    /// A-milestone exception #4: one instance of a 342380 quota stayed unfilled
+    /// in the maximum world even though the patch could physically hold it. The
+    /// four canopy anchors below are the published anchors of
+    /// `scene-0.landcover.4563.conservation.208.32` (16x16 forest patch) from the
+    /// r49 maximum world, translated into this fixture's patch-1 (0..16, 32..48).
+    /// They cover every in-patch 1m anchor, so the anchor scan must refuse, and
+    /// the whole-patch re-layout must still realize the 5+3+3 quota.
+    #[test]
+    fn published_one_plant_shortfall_geometry_relayouts_to_the_full_quota() {
+        let (_, _, terrain, water) = fixture();
+        let bounds = [0., 16., 32., 48.];
+        let published = [
+            [3.090812887996, 3.915967516601],
+            [11.605730935931, 13.638830453157],
+            [4.857992429286, 10.034225314856],
+            [10.011684183031, 5.68160983175],
+        ];
+        let occupied: Vec<EcologyPlant> = published
+            .iter()
+            .map(|&[dx, dz]| EcologyPlant {
+                world_x: bounds[0] + dx,
+                world_z: bounds[2] + dz,
+                width_m: 4.,
+                height_m: 16.,
+                ..Default::default()
+            })
+            .collect();
+        // The observed proximate cause: every 1m anchor is already excluded by
+        // the four earlier canopy instances, so the fifth cannot be placed even
+        // though a 5-canopy layout exists on the same 16x16 land.
+        let mut clear_anchors = 0;
+        for iz in 0..=16 {
+            for ix in 0..=16 {
+                let x = bounds[0] + 2. + f64::from(ix);
+                let z = bounds[2] + 2. + f64::from(iz);
+                if landcover::anchor_is_clear(bounds, 4., x, z, water, &[], &occupied) {
+                    clear_anchors += 1;
+                }
+            }
+        }
+        assert_eq!(clear_anchors, 0, "published anchors must exhaust the 1m grid");
+        assert_eq!(
+            landcover::choose_ecology_position(
+                [8., 40.],
+                bounds,
+                4.,
+                water,
+                &[],
+                &occupied
+            )
+            .unwrap_err(),
+            landcover::NO_ECOLOGY_ANCHOR
+        );
+        let layers = profile(Material::ConservationForestFloor).unwrap().layers;
+        let (plants, rejections) = relayout_patch(
+            &patch("published", 0., 32., 16., 16., Material::ConservationForestFloor),
+            bounds,
+            layers,
+            &[5, 3, 3],
+            &terrain,
+            water,
+            &[],
+        )
+        .unwrap()
+        .expect("in-domain patch must be relaid out");
+        assert_eq!(rejections.len(), 0);
+        assert_eq!(plants.len(), 11);
+        for layer in ["canopy", "understory", "ground"] {
+            assert_eq!(
+                plants.iter().filter(|plant| plant.layer == layer).count(),
+                if layer == "canopy" { 5 } else { 3 },
+                "{layer}"
+            );
+        }
+        for (index, plant) in plants.iter().enumerate() {
+            assert!(plant.world_x - plant.width_m * 0.5 >= bounds[0] - 1e-9);
+            assert!(plant.world_x + plant.width_m * 0.5 <= bounds[1] + 1e-9);
+            assert!(plant.world_z - plant.width_m * 0.5 >= bounds[2] - 1e-9);
+            assert!(plant.world_z + plant.width_m * 0.5 <= bounds[3] + 1e-9);
+            assert!(!plants[index + 1..].iter().any(|other| overlaps(plant, other)));
+        }
+    }
+
+    /// A layer footprint wider than the patch itself is a real capacity refusal:
+    /// the re-layout must name it, not abort the world.
+    #[test]
+    fn footprint_wider_than_the_patch_stays_a_named_refusal() {
+        let (_, _, terrain, water) = fixture();
+        let layers = profile(Material::ConservationForestFloor).unwrap().layers;
+        let (plants, rejections) = relayout_patch(
+            &patch("tiny", 0., 32., 2., 2., Material::ConservationForestFloor),
+            [0., 2., 32., 34.],
+            layers,
+            &[1, 0, 0],
+            &terrain,
+            water,
+            &[],
+        )
+        .unwrap()
+        .expect("in-domain patch must be relaid out");
+        assert!(plants.is_empty());
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].layer, "canopy");
+        assert_eq!(rejections[0].reason, landcover::NO_ECOLOGY_ANCHOR);
+    }
+
+
+    /// Seeds that realized only 42 of 43 planned instances before the repair
+    /// existed (`patch-*.canopy.4` refused in a 16x16 patch with room to spare).
+    /// Each must now return the full quota with no named refusal left.
+    #[test]
+    fn seed_offsets_that_lost_the_fifth_canopy_now_realize_the_whole_quota() {
+        let (mut scene, patches, terrain, water) = fixture();
+        let mut seen = 0;
+        for seed in [13224u64, 19741, 29992, 30500, 34656, 38398] {
+            scene.seed_offset = seed;
+            let actual = realize(&scene, &patches, &terrain, water, &[]).unwrap();
+            assert_eq!(
+                actual
+                    .communities
+                    .iter()
+                    .map(|community| community.planned_plant_count)
+                    .sum::<usize>(),
+                43,
+                "seed {seed}"
+            );
+            assert_eq!(actual.plants.len(), 43, "seed {seed}");
+            assert!(actual.rejections.is_empty(), "seed {seed}");
+            assert_eq!(actual.status, "instances-realized", "seed {seed}");
+            verify_contract(&actual, &patches, water, &[]).unwrap();
+            seen += 1;
+        }
+        assert_eq!(seen, 6);
+    }
+
     #[test]
     fn density_generation_repeats_roundtrips_and_has_no_pair_overlap() {
         let (s, patches, t, w) = fixture();

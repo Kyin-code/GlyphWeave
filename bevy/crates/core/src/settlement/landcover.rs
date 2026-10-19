@@ -278,6 +278,36 @@ pub(super) fn ecology_obstacle(e: &EntityInstance) -> bool {
         )
 }
 
+pub(super) const NO_ECOLOGY_ANCHOR: &str = "no clear full-size ecology anchor in source patch";
+
+// The single admission predicate for one full-size instance anchor. Every
+// caller (anchor scan, whole-patch re-layout, independent verify) must use this
+// exact predicate so no path can admit a footprint the others would refuse.
+pub(super) fn anchor_is_clear(
+    bounds: [f64; 4],
+    width: f64,
+    x: f64,
+    z: f64,
+    water: WaterGeometry,
+    obstacles: &[&EntityInstance],
+    occupied: &[EcologyPlant],
+) -> bool {
+    let [min_x, max_x, min_z, max_z] = bounds;
+    let r = width * 0.5;
+    x - r >= min_x - EPS
+        && x + r <= max_x + EPS
+        && z - r >= min_z - EPS
+        && z + r <= max_z + EPS
+        && !water.intersects_axis_aligned(x, z, r, r)
+        && !obstacles
+            .iter()
+            .any(|e| footprint_intersects_entity(e, x, z, r, r))
+        && !occupied.iter().any(|p| {
+            let half = r + p.width_m * 0.5;
+            (x - p.world_x).abs() < half - EPS && (z - p.world_z).abs() < half - EPS
+        })
+}
+
 // Retain dimensions, ownership and all required layers. Prefer the original
 // anchor, then a bounded deterministic 1m search within the (<=16m) patch.
 // Exhaustion is an explicit error, never silent deletion or a smaller asset.
@@ -289,7 +319,7 @@ pub(super) fn choose_ecology_position(
     obstacles: &[&EntityInstance],
     occupied: &[EcologyPlant],
 ) -> Result<[f64; 2], String> {
-    let [min_x, max_x, min_z, max_z] = bounds;
+    let [min_x, _, min_z, _] = bounds;
     let r = width * 0.5;
     if !bounds
         .iter()
@@ -297,24 +327,13 @@ pub(super) fn choose_ecology_position(
         .chain([width].iter())
         .all(|v| v.is_finite())
         || width <= 0.
-        || max_x - min_x > 16. + EPS
-        || max_z - min_z > 16. + EPS
+        || bounds[1] - bounds[0] > 16. + EPS
+        || bounds[3] - bounds[2] > 16. + EPS
     {
         return Err("invalid ecology candidate domain".into());
     }
     let clear = |[x, z]: [f64; 2]| {
-        x - r >= min_x - EPS
-            && x + r <= max_x + EPS
-            && z - r >= min_z - EPS
-            && z + r <= max_z + EPS
-            && !water.intersects_axis_aligned(x, z, r, r)
-            && !obstacles
-                .iter()
-                .any(|e| footprint_intersects_entity(e, x, z, r, r))
-            && !occupied.iter().any(|p| {
-                let half = r + p.width_m * 0.5;
-                (x - p.world_x).abs() < half - EPS && (z - p.world_z).abs() < half - EPS
-            })
+        anchor_is_clear(bounds, width, x, z, water, obstacles, occupied)
     };
     if clear(preferred) {
         return Ok(preferred);
@@ -327,7 +346,7 @@ pub(super) fn choose_ecology_position(
             }
         }
     }
-    Err("no clear full-size ecology anchor in source patch".into())
+    Err(NO_ECOLOGY_ANCHOR.into())
 }
 
 // Exact separating-axis overlap for an axis-aligned footprint and rotated
