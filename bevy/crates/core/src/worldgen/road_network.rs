@@ -2757,6 +2757,14 @@ pub(super) fn plan_with_style_declared(
         result.pad_conversions = outcome.records;
         result.conversion_allocation = outcome.allocation;
     }
+    // THE PAD LIST IS WHOLE, and `result.road_cut_mm` now carries the graded-road
+    // allowance the bake will publish. The entrance contract is asked ONE more time,
+    // on this final earthwork: a pad an earlier generator accepted can be buried by
+    // a later one's fill ring, and the post-bake access audit would refuse it after
+    // it had already earned a slot, a conversion and an entity. The refusal happens
+    // here, by name, so the plan, the service outcomes, the joint receipt, the
+    // conversion records and the entity list withdraw together.
+    refuse_entrances_lost_after_pad_list(&mut result, scene, terrain, water, zones)?;
     // Opt-in waterfront: the roadside pad programme is NOT refused as a whole any
     // more, and the reason it used to be is worth recording because this used to
     // be the difference between a planned city and an empty quay.
@@ -8339,13 +8347,30 @@ pub const PAD_BELOW_SETTLED_ROAD_PLATFORM: &str = "pad_below_settled_road_platfo
 /// fit what the world planned as urban, so the pad may not stay planned for land
 /// the plan never allocated. The fourth is the entity-stage platform refusal and
 /// the fifth the settled-road-platform refusal above.
-pub const PAD_REFUSED_CATEGORIES: [&str; 5] = [
+pub const PAD_REFUSED_CATEGORIES: [&str; 6] = [
     PAD_FILL_CONFLICT_CATEGORY,
     PAD_UNREALIZABLE_CATEGORY,
     super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION,
     PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM,
     PAD_BELOW_SETTLED_ROAD_PLATFORM,
+    PAD_ENTRANCE_LOST_AFTER_PAD_LIST,
 ];
+
+/// The sixth way a pad that WAS planned may leave the world, and the one only a
+/// LATER pad's earthwork can cause: the pad passed `assigned_road_gate` on the
+/// street network it was accepted against, and a generator that ran afterwards
+/// (the frontage programme, which is last) raised the ground around its door above
+/// the pad's own declared flat top. The door still sits on its own apron; every
+/// route off that apron then climbs more than the 25% walkable contract, so the
+/// post-bake access audit finds no checked route to the assigned street within the
+/// 120 m budget and refuses the lot it had already published.
+///
+/// Measured on the 1 km probe at `1a85958`: `generated.residential-recovery.scene-0.3`
+/// (declared top -1.000 m on road `generated.road-network.scene-0.125-126`, 23.15 m
+/// away) was published, and the frontage programme's fill rings then put 0.72 m at
+/// one cell 2 m north of its door - a 106.7% step where the contract allows 25%.
+/// The refusal is named here, with the checked route's own verdict, instead.
+pub const PAD_ENTRANCE_LOST_AFTER_PAD_LIST: &str = "assigned_road_unreachable_after_pad_list_complete";
 
 /// The pad ids the plan refused by name out of an already planned pad list.
 ///
@@ -8824,6 +8849,120 @@ pub(super) fn refuse_unrealizable_pads(
         rejections.push(BaseProfileRejection {
             edge_id: pad_id.clone(),
             category: category.into(),
+            reason,
+        });
+        forget_refused_pad(plan, &pad_id);
+    }
+    plan.roadside_site_rejections.extend(rejections.clone());
+    Ok(rejections)
+}
+
+/// Ask the entrance contract again when the PAD LIST IS WHOLE.
+///
+/// Every pad generator refuses its own candidates on `assigned_road_gate`, but each
+/// of them asks the question against the earthwork that exists at THAT moment, and
+/// the pad list is not whole until the frontage programme has run. A pad accepted by
+/// an earlier generator can therefore be buried by a later one: a fill-only pad's
+/// declared flat top is the surface inside its own carve rectangle, and every cell
+/// outside it is the MAXIMUM of the neighbours' fills. A neighbour whose pad stands
+/// higher raises a wall around the earlier lot's door, and the post-bake access
+/// audit - which sees the finished world - refuses a lot the plan had published.
+/// No declaration inside the pad can bring that wall down: the plan never
+/// re-excavates a neighbour's fill to rescue a lot.
+///
+/// This is the same gate (`assigned_road_gate`), the same search
+/// (`access::plan_time_links`) and the same 120 m budget as acceptance; what changes
+/// is only WHEN it is asked. It runs where the plan's own earthwork is final for the
+/// purpose of the audit's independent rebuild - after `frontage::append`,
+/// `earthwork_blend::stamp_plan`, `refuse_unrealizable_pads` and `pad_conversions` -
+/// so the rebuild reproduces the decision from the manifest and the natural raster
+/// alone, with no entity list and no saved report to trust.
+///
+/// A pad that fails is refused BY NAME under
+/// [`PAD_ENTRANCE_LOST_AFTER_PAD_LIST`] and withdrawn from every record derived from
+/// the pad list by [`forget_refused_pad`], exactly like a pad whose flat top the
+/// earthwork cannot hold. The refused pad's own fill ring leaves with it, so the
+/// loop is a fixpoint: each round withdraws one pad and re-asks the rest.
+pub(super) fn refuse_entrances_lost_after_pad_list(
+    plan: &mut RoadNetworkPlan,
+    scene: &SceneSpec,
+    natural: &BakedTerrain,
+    water: WaterGeometry,
+    zones: Option<&[LandUseZone]>,
+) -> Result<Vec<BaseProfileRejection>, TerrainError> {
+    if plan.roadside_sites.is_empty() || plan.level_m.is_none() {
+        return Ok(Vec::new());
+    }
+    let mask = zones
+        .map(|zones| ZoningMask::new(scene, zones))
+        .transpose()?;
+    // The graded-road allowance the plan's own `entities()` stamps, so the surface
+    // this gate composes is the one the bake publishes.
+    let cut_mm = plan.road_cut_mm.unwrap_or(0);
+    let mut rejections: Vec<BaseProfileRejection> = Vec::new();
+    loop {
+        let roads = plan.entities();
+        let pads = plan.site_entities();
+        let mut lost: Option<(String, String)> = None;
+        for site in &plan.roadside_sites {
+            let measured = if roads.iter().any(|road| road.entity_id == site.road_id) {
+                // The gate's own words: the streets the checked route DID reach with
+                // their lengths, or the statuses it ended on when it reached none.
+                assigned_road_gate(site, &roads, &pads, natural, mask.as_ref(), cut_mm, water)?
+                    .map(|(_, reason)| reason)
+            } else {
+                // A road withdrawn after the pad was accepted (the graded road's
+                // own fill-contract probe is the one generator that does that, and
+                // it runs after the pad programme). The pad's street no longer
+                // exists, so it fronts nothing: named here rather than published
+                // with a dangling `roadId`.
+                Some(format!(
+                    "road {} is not published by the completed plan, so the lot fronts no \
+                     street it can enter",
+                    site.road_id
+                ))
+            };
+            if let Some(measured) = measured {
+                // The measured geometry the refusal is read from: how far the lot's
+                // door stands from the nearest pavement the walk could have used.
+                // The gate's own words already carry the route's verdict; this adds
+                // the one number `route` does not report when it reaches no street.
+                let door = super::access::entrance_start(&site.entity());
+                let detour = match door.and_then(|door| super::access::nearest_street(&roads, door)) {
+                    Some((street, metres)) => format!(
+                        "; its door is {metres:.2} m from the nearest street ({street}) and no \
+                         checked pedestrian route reaches any street within the {} m budget",
+                        super::access::MAX_LENGTH
+                    ),
+                    None => format!(
+                        "; no street stands within the {} m checked budget of its door",
+                        super::access::MAX_LENGTH
+                    ),
+                };
+                lost = Some((
+                    site.id.clone(),
+                    format!(
+                        "pad {} ({}x{}, declared top {:.3} m on road {}) is refused once the pad \
+                         list is whole - {measured}{detour}",
+                        site.id,
+                        site.width_m,
+                        site.depth_m,
+                        f64::from(
+                            site.support_level_mm
+                                .map_or(site.support_level_m, |mm| mm.div_euclid(1000))
+                        ),
+                        site.road_id,
+                    ),
+                ));
+                break;
+            }
+        }
+        let Some((pad_id, reason)) = lost else {
+            break;
+        };
+        rejections.push(BaseProfileRejection {
+            edge_id: pad_id.clone(),
+            category: PAD_ENTRANCE_LOST_AFTER_PAD_LIST.into(),
             reason,
         });
         forget_refused_pad(plan, &pad_id);

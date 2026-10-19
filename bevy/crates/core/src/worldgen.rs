@@ -61,6 +61,8 @@ pub mod urban_growth;
 pub mod zoning;
 #[cfg(test)]
 mod assigned_road_tests;
+#[cfg(test)]
+mod entrance_recheck_tests;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;

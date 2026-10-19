@@ -626,6 +626,25 @@ pub(super) fn plan_time_links(
     compose(MAX_LENGTH + 4.)
 }
 
+/// The point a checked route starts from: the first anchor's exit point, moved to
+/// the facade. `None` when the entity has no anchor the walk could start at.
+pub(super) fn entrance_start(e: &EntityInstance) -> Option<AccessPoint> {
+    e.anchors.first().and_then(|anchor| exit_point(e, anchor))
+}
+
+/// The nearest street to `from`, with its id, in metres.
+///
+/// The measurement a refusal quotes when the checked route reached NO street at all:
+/// `route` reports nothing in that case, so this is the distance the walk had to
+/// beat inside [`MAX_LENGTH`] - the one number that says how far the lot stands from
+/// the pavement it was assigned.
+pub(super) fn nearest_street(roads: &[EntityInstance], from: AccessPoint) -> Option<(String, f64)> {
+    roads
+        .iter()
+        .map(|road| (road.entity_id.clone(), distance(from, closest(road, from))))
+        .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+}
+
 pub fn build_access_graph(
     entities: &[EntityInstance],
     terrain: &BakedTerrain,
