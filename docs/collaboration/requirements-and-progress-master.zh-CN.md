@@ -12,7 +12,7 @@
 
 **口径声明（重要）**
 
-1. 本表的状态判定依据**文档所述的证据层级**（见 2.2），除特别标注外，我**没有**独立重跑世界、gate 或测试。
+1. 本表的状态判定依据**文档所述的证据层级**（见 2.2），除特别标注外，我**没有**独立重跑世界、gate 或测试（例外：Round 51 的 1 km 复现，见 5.4 读法 3）。
 2. 数字一律抄自原文，不做单位换算、不跨口径相加。凡原文未给的，写"文中未说明"。
 3. 需求条目保留原始文档的编号（R01–R16、A-01–A-10、B-G1–B-G8、C-N1–C-G1、FUT-01–06）；
    我新增的域编号 `D1.1` 只用于本文导航，不是新的验收 ID。
@@ -381,7 +381,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | 合同 | 当时的证据 | 今天是否仍成立 |
 |---|---|---|
 | A-01 源码/输入/runtime 对应 | R2/R3 构建来源 + U1 两 JS 增量 hash | ⚠️ 源码已改（T 系列重构 + 本轮 43 次提交），旧 runtime 不再对应当前源码 |
-| A-02 固定实体/入口/访问图 | frontage 144/144 有入口 | ⚠️ 需求仍是 144，实得 **44 pad**（其中 16 户、24 店）、入口未验证 3 → 0（`f641015`）；144/144 已不可复现 |
+| A-02 固定实体/入口/访问图 | frontage 144/144 有入口 | ⚠️ 需求仍是 144，实得 **44 pad**（其中 16 户、24 店）、入口未验证 3 → **1**（`f641015`；5.4 读法 3 实测）；144/144 已不可复现 |
 | A-03 确定性/稳定 ID/存量 | 已绑定 stable-v1 / inventory-preserving 回归；R2 权威世界与冻结世界字节等价 | ⚠️ r47 实测 96 ID 消失/117 新 ID；存量机制仍缺，本轮无改进证据 |
 | A-04 6×10km + 独立 gate | 240 chunks、gate 退出 1、六类失败 | 结构成立；内容缺口仍在；r49 之后无新烘焙 |
 | A-05 性能等价 | 生态 linear/indexed blake3 相同（4,583,094,907 → 48,484 次检查） | ✅ 源码未动该路径 |
@@ -428,7 +428,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 
 | 世界 | 规模 | 关键数字 | 证据 |
 |---|---|---|---|
-| **1 km 探针** | 1000×1000m | **44 pad**（其中 16 户、24 店；需求 120 户 / 24 店）；自动路预算 24 段；gate **7 条**；烘焙 124.12s、gate 67.63s | `f641015`、`764ebde` |
+| **1 km 探针** | 1000×1000m | **44 pad**（其中 16 户、24 店；需求 120 户 / 24 店）；自动路预算 24 段；入口未验证 **1**；gate **8 条**；由 `examples/b01-1km-probe-optin.manifest.json` 重放（Round 51：烘焙 17.1s、gate 9.0s；提交正文的 124.12s / 67.63s 保留原文不改） | `f641015`、`764ebde`、Round 51 复现 |
 | **山城 hillside-town-512** | 512m | **22 pad**，其中 7 块带削方台地；**道路削方 675 格 / 150.657m³**；全场削方 2,237 格 / 907.597m³；路面填方 5.590m；gate **4 条** | `hillside_cut_city.rs`、`d40c2da`、`6038c33` |
 | **滨水 waterfront-city-512** | 512m | **22/22 户 + 4/4 设施**；60 条路 / **7 座桥**（273m 水面）；**岸线公共带 4,096m²**；湿面 19,968m² 逐格不变；gate **3 条** | `waterfront_city_512.rs`、`ecb174b`、`c8436b6` |
 
@@ -436,14 +436,16 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 
 1. **滨水 23 户是历史值**：`ecb174b` 首测 23/23，`90bd9b0` 把商业排上码头后计划改为 22，HEAD 测试钉住 22/22。写 23 会与测试矛盾。
 2. **山城的 675 格是道路削方**，与垫层削方分开计（全场 2,237 格 = 道路 675 + 垫层 1,562；`32356e1` 记 22 pad / 7 块台地）。
-3. **可复现范围不同**：山城、滨水的数字由入库样本 + `cargo test` 钉死；1 km 探针的开启态（`ruralConversion`、`bounded-cut` 等）**未入库**——仓内最接近的输入 `examples/b01-1km-probe.manifest.json` 里没有这些开关（其 `urbanCoreRatio` 为 0.02），所以 44/16/24 只能引提交正文，不能从仓库逐字节重放。
+3. **1 km 探针现在可由仓库重放**：`examples/b01-1km-probe-optin.manifest.json` 是基础清单 `examples/b01-1km-probe.manifest.json` 的逐字节副本加四行声明——`frontageProgram.ruralConversion = "explicit"`、`frontageProgram.terrainPolicy = "bounded-cut"`、`frontageProgram.maxCutMm = 2000`、`landUseProfile.urbanGrowth = "axis-and-node"`；seed 7、origin、尺寸、zoning 与 demand 一字未动（`b01_1km_probe_optin` 的默认测试同时钉住"四个开关都在、且被生成器自己的解析器读成开"和"除开关外逐字段/逐字节相同"）。Round 51 用 release 二进制重放：**44 pad / 16 户 / 24 店 / 入口未验证 1 / gate 8 条**，两次 1 km 烘焙的 126 个文件中 125 个逐字节相同（只有 `generation-report.json` 记录的输出路径不同），烘焙 17.1s、gate 9.0s。跑法：`cargo test -p glyphweave-cli --test b01_1km_probe_optin`（默认两条，秒级），加 `-- --ignored` 会烘焙该清单并断言下列数字；已有烘焙世界时用 `GLYPHWEAVE_AUDIT_WORLD=<world>` 免烘焙。
+
+   **与 `f641015` 正文的两处差异，以实测为准**：正文记"入口未验证 3 → 0、gate 七条、审计 fail → incomplete"，实测为 **1 / 8 条 / fail**。差值全来自同一个地块 `generated.residential-recovery.scene-0.3`：它是 `joint_frontage` 的住宅恢复地块（`services::append` 的 `housing-recovery` 请求）；工作区旧烘焙 `bevy/work/r32/acc-1km-growth`（未入库）里它已是三条未验证之一（46 pad / 18 户 / 24 店 / 8 条），与该提交正文的"之前"列一致。该提交只关掉了两条路边地块（`…roadside…98-99`、`…125-126`），这一条在计划期通过 `assigned_road_gate`，烘焙后却从正面临街点在 120m 预算内走不到任何一条路：`access.links` 记 `connected:false`、`roadId:null`、`status:"no_walkable_route_within_budget"`，而它计划期被指派的道路正是 `generated.road-network.scene-0.125-126`（与那条被拒的路边地块同一条路）。于是开发审计记 `no_verified_assigned_road_access`、联合审计记 `housing missing, altered or without assigned access`，`accessGraph.disconnectedEntities` 仍为 1，gate 的 `"scene-0" has unverified building access routes` 一行随之保留。即 3 → **1**（不是 0）、gate **8 条**（不是 7）。
 
 ### 5.5 B 的五个批次（当前状态）
 
 | 批次 | 状态 | 本轮（Round 5 起）的可核对增量 | 仍缺 |
 |---|---|---|---|
-| B-01 独立地块几何 | ⚠️ 部分 | 1 km 临街从 1 个 site → 44 pad（16 户、24 店），入口未验证 3 → 0（`f641015`） | `development::plan` 仍是 bbox+2m（D10.1）；120 户差 104 |
-| B-02 需求与道路容量 | ⚠️ 部分 | 分级路可削方、纵向解算削填（`d40c2da`），山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 24 段预算未动；山城 4 条 gate 含 `no_feasible_progress_candidate` 的自动路目标，1 km 的 7 条未逐条公开 |
+| B-01 独立地块几何 | ⚠️ 部分 | 1 km 临街从 1 个 site → 44 pad（16 户、24 店），入口未验证 3 → 1（`f641015`；5.4 读法 3 实测） | `development::plan` 仍是 bbox+2m（D10.1）；120 户差 104 |
+| B-02 需求与道路容量 | ⚠️ 部分 | 分级路可削方、纵向解算削填（`d40c2da`），山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 24 段预算未动；山城 4 条 gate 含 `no_feasible_progress_candidate` 的自动路目标，1 km 的 8 条可由 opt-in 清单重放（5.4 读法 3） |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`：64 条 / 22,492m²），按 64m 城市边缘收紧到 6,040m²（`9102d48`）；城市分配封顶 40,395/40,898（`5cd21b2`）；1 km `b8-conv` 世界农田 103 → 134、农村实现 +23,797m²（`4fa7234`） | 最大图 50,230,050m² 未实现（未重算）；三份世界 landcover 仍 fail |
 | B-04 形态与公共服务 | ⚠️ 部分 | 首次有生产增量：公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界由 profile 派生（`c052838`）、轴/节点城市生长（`b59da3e`）、共享农道 joins 0 → 29 / 车道 −1,778m（`a9744a5`） | 12 种聚落原型、`MorphologyProfile` 14 字段仍未落地；coverageRatio / serviceRadiusM / terrain 无消费者 |
 | B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；滨水注册样本入册（`c9db3e6`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`） | 最大图一次集成未做；A 例外 #4 未关；崩溃未修 |
@@ -475,7 +477,7 @@ C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工�
 | 2 | 1 km 是否提高城市分配（`urbanCoreRatio`，现 0.02） | 规划城市 40,898m² ≈ 场景的 4%（`9102d48` 写的"4% urban land"即此）；已用 40,395 + 503 unresolved，**分配额已耗尽**（`5cd21b2`）；实测 16/120 户 | 120 户需求的**结构性上限**；不提高就长期停在 16 户量级 | 项目负责人 + 需求方（改输入还是改需求） |
 | 3 | 偶发访问违例（0xC0000005） | 未修；**~4%**（27 次中 1 次）；崩溃点在 road-network 计划 JSON 序列化；仓库**零 unsafe** → 疑依赖的 unsafe（blake3 SIMD / serde_json）或编译器；取证工具已入库 | 任何"套件全绿"都不能作为签收证据 | 项目负责人（继续取证 / 换工具链 / 接受随机红） |
 | 4 | 山城临街 **24 需求 vs standalone 上限 10** | 实现 7/24（17 未满足）；诊断工具修好后结论是"搜索已穷尽"：84 次尝试只用 0.66% 预算，拒绝 24 水 / 25 占用 / 6 改平台 / 4 削方环 / 1 走错路（`0d3be23`） | 若 24 是需求 → 必须改输入（更多分级路、窄河道、更小临街面、更密站点）；若是探针 → 接受 7 | 项目负责人（需求归属） |
-| 5 | 其余仍 fail 的 gate 项算不算 B 的验收阻塞 | 滨水 **3 条**（frontage demand / purpose-area / landcover）、山城 **4 条**（多一条自动路目标）；1 km **7 条**，提交只记"逐行未变"，未逐条列出 | 决定 B 能签收到什么程度；也决定要不要动 50.23km² | 项目负责人（验收口径） |
+| 5 | 其余仍 fail 的 gate 项算不算 B 的验收阻塞 | 滨水 **3 条**（frontage demand / purpose-area / landcover）、山城 **4 条**（多一条自动路目标）；1 km **8 条**，可由 `examples/b01-1km-probe-optin.manifest.json` 重放、并由 `b01_1km_probe_optin` 钉住条数（5.4 读法 3） | 决定 B 能签收到什么程度；也决定要不要动 50.23km² | 项目负责人（验收口径） |
 | 6 | 有界削方是否默认开 | 现为 opt-in（`MAX_CUT_MM = 2000`），关闭态逐字节不变；山城 675 格道路削方、1 km 已有真实削方台账 | 默认开 = 把"只填不挖"改成"有界削填"：旧世界地形全变、须 bump revision | 项目负责人（数值合同） |
 | 7 | W1 供给基线 pins 要不要改 | `append`/`diagnose` 新序实测 (148,3)/(148,1)，冻结测试仍钉旧序的 (148,4)/(148,0)（`32330cb`） | 不改则两条实现长期不一致；改则是契约变更 | 项目负责人 |
 
@@ -537,7 +539,8 @@ C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工�
 | R1～R11 轮次证据（含 1km 世界） | `bevy/work/collaboration/ds-b01-t2-production-chain-continuation-20260929/r{2..11}/` |
 | 当前 T 工单证据 | `bevy/work/collaboration/rk/T-0010/`～`T-0012/`（`T-0013/` 仅有 `pm/`） |
 | 最大图历史世界 | `bevy/work/r43-maximum-baseline`、`r46-maximum-extensions-v2`、`r47-maximum-auto-final`、`r49-frontage-maximum` |
-| 输入矩阵 | `examples/*.manifest.json`（31 份） |
+| 输入矩阵 | `examples/*.manifest.json`（32 份） |
+| 1 km 探针的开启态（唯一可重放入口） | `examples/b01-1km-probe-optin.manifest.json` + `bevy/crates/cli/tests/b01_1km_probe_optin.rs`（默认两条测试校验开关与"除开关外无差异"；`-- --ignored` 烘焙并断言数字） |
 | 独立检查脚本 | `scripts/check-*.mjs`（frontage/render-stream/automatic-roads/road-corridor/…） |
 
 ---
