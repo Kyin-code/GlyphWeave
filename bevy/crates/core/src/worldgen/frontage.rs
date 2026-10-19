@@ -1480,6 +1480,7 @@ fn connection_is_reserved(mask: &ZoningMask, e: &EntityInstance, x: i32, z: i32)
 /// rule: a cut ring that grades through a neighbour's setback is a legal bench
 /// beside a legal lot, and the cut's own per-cell guards already forbid it from
 /// reaching an occupied cell.
+#[cfg(test)]
 fn cut_moved_existing_support(
     old: &EntityInstance,
     claim: i64,
@@ -1488,6 +1489,41 @@ fn cut_moved_existing_support(
     water: WaterGeometry,
     base_carves: &[super::TerrainCarve],
     carves: &[super::TerrainCarve],
+) -> Result<Option<([i32; 2], i32, i32)>, TerrainError> {
+    // Standalone form: builds its own carve indexes. Production goes through
+    // `cut_moved_existing_support_with` with the indexes hoisted to the whole
+    // preflight, so both carve lists are indexed once per candidate rather than
+    // once per already-accepted entity.
+    let base_index = super::CarveIndex::new(base_carves);
+    let candidate_index = super::CarveIndex::new(carves);
+    cut_moved_existing_support_with(
+        old,
+        claim,
+        n,
+        mask,
+        water,
+        base_carves,
+        &base_index,
+        carves,
+        &candidate_index,
+    )
+}
+
+/// The published-surface comparison of one entity's claim window, over indexed
+/// carve lists. Every cell it reads is composed by
+/// `published_surface_from_raster_indexed`, the same function the world publishes
+/// through, so indexing cannot move the verdict.
+#[allow(clippy::too_many_arguments)]
+fn cut_moved_existing_support_with(
+    old: &EntityInstance,
+    claim: i64,
+    n: &BakedTerrain,
+    mask: &ZoningMask,
+    water: WaterGeometry,
+    base_carves: &[super::TerrainCarve],
+    base_index: &super::CarveIndex,
+    carves: &[super::TerrainCarve],
+    candidate_index: &super::CarveIndex,
 ) -> Result<Option<([i32; 2], i32, i32)>, TerrainError> {
     // `claim` is the window the PUBLISHED audit holds for this entity, passed in
     // from its plan record: a pad that publishes a precise declared top is checked
@@ -1504,16 +1540,19 @@ fn cut_moved_existing_support(
     // cap-carrying pad's own rectangle the published surface is that pad's declared
     // top, which the earthwork platform rule writes over a neighbour's fill. A guard
     // that read the fill-first answer would not see that override at all.
-    let published = |carves: &[super::TerrainCarve], x: i32, z: i32| {
-        super::published_surface_from_raster(n, Some(mask), water, carves, x, z)
+    let published = |carves: &[super::TerrainCarve],
+                     index: &super::CarveIndex,
+                     x: i32,
+                     z: i32| {
+        super::published_surface_from_raster_indexed(n, Some(mask), water, carves, index, x, z)
             .map(|h| (h * 1000.).round() as i32)
             .ok_or_else(|| err("missing frontage source sample"))
     };
     let area = bounds(old, claim);
     for z in area[1]..=area[3] {
         for x in area[0]..=area[2] {
-            let before = published(base_carves, x as i32, z as i32)?;
-            let after = published(carves, x as i32, z as i32)?;
+            let before = published(base_carves, base_index, x as i32, z as i32)?;
+            let after = published(carves, candidate_index, x as i32, z as i32)?;
             if before != after {
                 return Ok(Some(([x as i32, z as i32], before, after)));
             }
@@ -1655,6 +1694,12 @@ fn preflight(
     let mut carves = base_carves.to_vec();
     let proposed = super::plan_terrain_carves(std::slice::from_ref(&planned));
     carves.extend(proposed.iter().cloned());
+    // Both carve lists this candidate compares are FIXED for its whole preflight:
+    // the accepted world's earthwork, and the same list plus this candidate's own.
+    // One index per list therefore serves every already-accepted entity below, so a
+    // carve is filed into the grid once per candidate instead of once per entity.
+    let base_index = super::CarveIndex::new(base_carves);
+    let candidate_index = super::CarveIndex::new(&carves);
     // Adding a building must not alter any previously fixed hard support.
     for old in existing {
         // A pad that excavates answers the SAME question a fill-only pad answers:
@@ -1685,9 +1730,17 @@ fn preflight(
                         0
                     }
                 });
-            if let Some((at, before, after)) =
-                cut_moved_existing_support(old, claim, n, mask, water, base_carves, &carves)?
-            {
+            if let Some((at, before, after)) = cut_moved_existing_support_with(
+                old,
+                claim,
+                n,
+                mask,
+                water,
+                base_carves,
+                &base_index,
+                &carves,
+                &candidate_index,
+            )? {
                 *detail = Some(RejectDetail {
                     conflicting_entity: Some(old.entity_id.clone()),
                     at: Some(at),

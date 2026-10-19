@@ -513,6 +513,13 @@ pub(super) fn plan_time_links(
     entities.extend_from_slice(neighbours);
     entities.push(candidate.clone());
     let carves = super::plan_terrain_carves(&entities);
+    // ONE spatial index and ONE dense window memo serve both phases: the phase-2
+    // window is a superset of the phase-1 window, so every cell phase 1 already
+    // composed is a memo hit there and no cell of the window is composed twice.
+    // Both hold the SAME carve list (the candidate is part of it in either phase),
+    // so the memo's key never changes within this call.
+    let carve_index = super::CarveIndex::new(&carves);
+    let mut window_memo = super::WindowMemo::new();
     // The candidate footprint plus the street it is assigned to. Half extents
     // are rotated into world axes exactly as the carve does.
     let centre = point(f64::from(candidate.world_x), f64::from(candidate.world_z));
@@ -522,7 +529,7 @@ pub(super) fn plan_time_links(
     let extent_x = half_w * cos.abs() + half_d * sin.abs();
     let extent_z = half_w * sin.abs() + half_d * cos.abs();
     let near = closest(road, centre);
-    let compose = |margin: f64| -> Result<Vec<AccessLink>, TerrainError> {
+    let mut compose = |margin: f64| -> Result<Vec<AccessLink>, TerrainError> {
         // All window arithmetic is done in i64: a scene may sit at the very edge of
         // the i32 grid, and the clamp/extend steps must not overflow there.
         let mut x0 = (centre.x - extent_x - margin).floor().min(near.x.floor()) as i64;
@@ -543,6 +550,8 @@ pub(super) fn plan_time_links(
             return Err(TerrainError("plan-time access window is empty".into()));
         }
         let (x0, x1, z0, z1) = (x0 as i32, x1 as i32, z0 as i32, z1 as i32);
+        #[cfg(test)]
+        observation::plan_window(x0, z0, x1, z1);
         let local = SceneSpec {
             scene_id: "access-preflight".into(),
             width_m: (x1 - x0 + 1) as u32,
@@ -552,17 +561,36 @@ pub(super) fn plan_time_links(
             seed_offset: 0,
         };
         let mut values = Vec::with_capacity((x1 - x0 + 1) as usize * (z1 - z0 + 1) as usize);
+        if window_memo.is_empty() {
+            window_memo.reset(x0, z0, x1 - x0 + 1, z1 - z0 + 1);
+        }
         for z in z0..=z1 {
             for x in x0..=x1 {
                 // The PUBLISHED surface, composed by the function the bake's chunk
                 // encoder reads: the road's own cut and band, a cap-carrying pad's
-                // platform, the zoning fill taper and the water exclusions.
-                let h = super::published_surface_from_raster(natural, mask, water, &carves, x, z)
-                    .ok_or_else(|| {
-                        TerrainError(format!(
-                            "missing natural sample ({x},{z}) in plan-time access window"
-                        ))
-                    })?;
+                // platform, the zoning fill taper and the water exclusions. The
+                // memo holds the cells phase 1 already composed for this carve list.
+                let h = match window_memo.get(x, z) {
+                    Some(hit) => hit,
+                    None => {
+                        let composed = super::published_surface_from_raster_indexed(
+                            natural,
+                            mask,
+                            water,
+                            &carves,
+                            &carve_index,
+                            x,
+                            z,
+                        )
+                        .ok_or_else(|| {
+                            TerrainError(format!(
+                                "missing natural sample ({x},{z}) in plan-time access window"
+                            ))
+                        })?;
+                        window_memo.set(x, z, composed);
+                        composed
+                    }
+                };
                 values.push(h);
             }
         }
@@ -765,6 +793,24 @@ pub(crate) mod observation {
 
     thread_local! {
         static ACTIVE: RefCell<Option<State>> = const { RefCell::new(None) };
+        static PLAN_WINDOWS: RefCell<Vec<(i32, i32, i32, i32)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Forget the windows a previous plan-time check composed.
+    pub(crate) fn begin_plan_windows() {
+        PLAN_WINDOWS.with(|windows| windows.borrow_mut().clear());
+    }
+
+    /// Record one published-surface window a plan-time acceptance check composed,
+    /// as `(x0, z0, x1, z1)` inclusive. The early-exit test asserts on this count:
+    /// a candidate whose direct entrance works must return from the FIRST window.
+    pub(crate) fn plan_window(x0: i32, z0: i32, x1: i32, z1: i32) {
+        PLAN_WINDOWS.with(|windows| windows.borrow_mut().push((x0, z0, x1, z1)));
+    }
+
+    /// The windows composed since `begin_plan_windows`.
+    pub(crate) fn plan_windows() -> Vec<(i32, i32, i32, i32)> {
+        PLAN_WINDOWS.with(|windows| windows.borrow().clone())
     }
 
     /// Run `body` with the observer enabled for `target` on this thread only.

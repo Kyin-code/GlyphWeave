@@ -384,3 +384,350 @@ fn a_missing_natural_sample_is_an_error_not_a_guess() {
         road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water).unwrap_err();
     assert!(error.0.contains("missing natural sample"), "{}", error.0);
 }
+
+// ---------------------------------------------------------------------------
+// Round 46: the acceptance surface is composed per WINDOW, off a carve index, and
+// memoised per window. These three tests pin the three claims that make that
+// legitimate: the pruned composition is the full composition cell for cell, a memo
+// hit is the raster a miss produces, and a direct entrance never pays for the full
+// search window at all.
+// ---------------------------------------------------------------------------
+
+/// One scene with every kind of carve the published composition treats differently:
+/// a graded road (with a profile AND a cut cap: the road-cut/transport branches),
+/// a flat road, cap-carrying pads of two sizes (platform, cut floor, apron), a
+/// fill-only pad and a rotated pad. The natural ground is a slope with a hill and a
+/// hollow so fills, rings and cuts all fire somewhere.
+fn carve_composition_fixture() -> (SceneSpec, BakedTerrain, Vec<TerrainCarve>) {
+    let scene = SceneSpec {
+        scene_id: "carve-index".into(),
+        width_m: 256,
+        depth_m: 256,
+        origin_x: 0,
+        origin_z: 0,
+        seed_offset: 0,
+    };
+    let mut values = Vec::with_capacity(256 * 256);
+    for z in 0..256 {
+        for x in 0..256 {
+            let gx = f64::from(x) - 128.;
+            let gz = f64::from(z) - 128.;
+            let hill = 6.0 * (-(gx * gx + gz * gz) / 6_000.0).exp();
+            let hollow = -3.0 * (-((gx - 0.) * (gx - 0.) + (gz - 80.) * (gz - 80.)) / 3_000.0).exp();
+            values.push(1.5 + 0.006 * gx - 0.004 * gz + hill + hollow);
+        }
+    }
+    let mut natural = BakedTerrain::new(&scene).expect("scene raster");
+    natural
+        .insert_chunk(
+            0,
+            0,
+            256,
+            256,
+            &crate::height_payload::encode_millimetres(256, 256, values).expect("payload"),
+        )
+        .expect("chunk");
+
+    let road = |id: &str, x: i32, z: i32, w: f32, d: f32, profile: bool, cut: Option<i32>| {
+        let mut grounding = GroundingSpec::default();
+        grounding.bounded_cut_mm = cut;
+        if profile {
+            grounding.road_profile = Some(crate::worldgen::road_profile::RoadProfile {
+                version: 1,
+                road_width_m: 12,
+                start: [x - (w as i32) / 2, z],
+                end: [x + (w as i32) / 2, z],
+                elevations_mm: vec![2_000, 1_400, 900, 1_300, 2_100],
+                max_fill_mm: 6_000,
+            });
+        }
+        EntityInstance {
+            entity_id: id.into(),
+            asset_id: "prop.road".into(),
+            kind: "road".into(),
+            world_x: x,
+            world_z: z,
+            world_y: 0,
+            width_m: w,
+            depth_m: d,
+            height_m: 0.24,
+            rotation_y_deg: 0.,
+            scale: 1.,
+            grounding,
+            anchors: vec![],
+            bounds: None,
+        }
+    };
+    let pad = |id: &str, kind: &str, x: i32, z: i32, w: f32, d: f32, rot: f32, cut: Option<i32>, blend: Option<f32>| {
+        let mut grounding = GroundingSpec::default();
+        grounding.bounded_cut_mm = cut;
+        grounding.earthwork_blend_m = blend;
+        grounding.frontage_road_point = Some([x, z + 20]);
+        EntityInstance {
+            entity_id: id.into(),
+            asset_id: "prop.building".into(),
+            kind: kind.into(),
+            world_x: x,
+            world_z: z,
+            world_y: 0,
+            width_m: w,
+            depth_m: d,
+            height_m: 8.,
+            rotation_y_deg: rot,
+            scale: 1.,
+            grounding,
+            anchors: vec![crate::worldgen::SpatialAnchor {
+                id: "front".into(),
+                world_x: x,
+                world_z: z + (d as i32) / 2,
+                direction: "south".into(),
+                target: None,
+            }],
+            bounds: None,
+        }
+    };
+    let entities = vec![
+        road("graded", 128, 64, 224., 12., true, Some(2_000)),
+        road("flat", 128, 200, 200., 8., false, None),
+        pad("home-a", "residential_home", 64, 96, 24., 24., 0., Some(2_000), Some(32.0)),
+        pad("home-b", "residential_home", 176, 96, 24., 24., 15., Some(2_000), None),
+        pad("shop-a", "storefront", 96, 160, 12., 10., 0., None, Some(20.0)),
+        pad("shop-b", "storefront", 200, 160, 12., 10., 45., Some(1_000), Some(20.0)),
+    ];
+    let carves = plan_terrain_carves(&entities);
+    (scene, natural, carves)
+}
+
+fn pseudo_random(seed: &mut u64) -> u64 {
+    *seed = seed
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    *seed
+}
+
+/// 1. The indexed (windowed) composition equals the full-list composition CELL FOR
+///    CELL, bit for bit, on 200 pseudo-random windows - including windows that hold
+///    only natural ground, windows cut by the scene edge, and single-cell windows.
+///    Both the unzoned and the zoned published composition are checked, because the
+///    zoning path adds the protected-land and fill-taper branches.
+#[test]
+fn the_indexed_window_composes_every_cell_the_full_list_composes() {
+    let (scene, natural, carves) = carve_composition_fixture();
+    assert!(carves.len() > 12, "the fixture carries real carves: {}", carves.len());
+    let index = CarveIndex::new(&carves);
+    let water = water_geometry(WaterKind::River, &[], &scene, &json!({}));
+    let zones = plan_landuse_zones(
+        &scene,
+        &LandUseProfile {
+            theme: CityForm::TemperatePlain,
+            urban_core_ratio: 0.10,
+            suburban_ratio: 0.05,
+            green_ratio: 0.05,
+            farm_ratio: 0.60,
+            forest_ratio: 0.10,
+            pasture_ratio: 0.05,
+            reserve_ratio: 0.05,
+        },
+    );
+    let mask = zoning::ZoningMask::new(&scene, &zones).expect("zoning mask");
+
+    let mut seed = 0x5EED_2545_F491_4F6D_u64;
+    let mut compared = 0_u64;
+    for window in 0..200 {
+        let raw = pseudo_random(&mut seed);
+        let w = 1 + (raw % 40) as i32;
+        let h = 1 + ((raw >> 16) % 32) as i32;
+        let x0 = ((raw >> 24) % 256) as i32;
+        let z0 = ((raw >> 32) % 256) as i32;
+        let x1 = (x0 + w).min(255);
+        let z1 = (z0 + h).min(255);
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                let plain = published_surface_from_raster(&natural, None, water, &carves, x, z)
+                    .expect("natural sample");
+                let pruned = published_surface_from_raster_indexed(
+                    &natural, None, water, &carves, &index, x, z,
+                )
+                .expect("natural sample");
+                assert_eq!(
+                    plain.to_bits(),
+                    pruned.to_bits(),
+                    "window {window} cell ({x},{z}): the pruned list must compose the plain answer"
+                );
+                let zoned =
+                    published_surface_from_raster(&natural, Some(&mask), water, &carves, x, z)
+                        .expect("natural sample");
+                let zoned_pruned = published_surface_from_raster_indexed(
+                    &natural,
+                    Some(&mask),
+                    water,
+                    &carves,
+                    &index,
+                    x,
+                    z,
+                )
+                .expect("natural sample");
+                assert_eq!(
+                    zoned.to_bits(),
+                    zoned_pruned.to_bits(),
+                    "window {window} cell ({x},{z}): the zoned pruned list must compose the plain answer"
+                );
+                compared += 1;
+            }
+        }
+    }
+    assert!(compared > 20_000, "the windows cover real area: {compared} cells");
+}
+
+/// 2. A window memo HIT is the raster a MISS produces, byte for byte: the window is
+///    composed cold (every cell a miss), then composed again from the memo (every
+///    cell a hit), and the two encoded millimetre payloads are compared as bytes.
+#[test]
+fn a_window_memo_hit_is_the_same_raster_as_a_miss() {
+    let (_scene, natural, carves) = carve_composition_fixture();
+    let index = CarveIndex::new(&carves);
+    let water = water_geometry(WaterKind::None, &[], &_scene, &json!({}));
+    let (x0, z0, cols, rows) = (40_i32, 48_i32, 64_i32, 48_i32);
+    let mut memo = WindowMemo::new();
+    let mut compose = |memo: &mut WindowMemo| -> Vec<u8> {
+        if memo.is_empty() {
+            memo.reset(x0, z0, cols, rows);
+        }
+        let mut values = Vec::with_capacity((cols * rows) as usize);
+        for z in z0..z0 + rows {
+            for x in x0..x0 + cols {
+                let value = match memo.get(x, z) {
+                    Some(hit) => hit,
+                    None => {
+                        let composed = published_surface_from_raster_indexed(
+                            &natural, None, water, &carves, &index, x, z,
+                        )
+                        .expect("natural sample");
+                        memo.set(x, z, composed);
+                        composed
+                    }
+                };
+                values.push(value);
+            }
+        }
+        crate::height_payload::encode_millimetres(cols as u32, rows as u32, values)
+            .expect("payload")
+    };
+    let cold = compose(&mut memo);
+    // The whole window is now memoised: every read below is a HIT.
+    for z in z0..z0 + rows {
+        for x in x0..x0 + cols {
+            assert!(memo.get(x, z).is_some(), "cell ({x},{z}) was not memoised");
+        }
+    }
+    let warm = compose(&mut memo);
+    assert_eq!(
+        cold, warm,
+        "a memo hit must produce the very bytes a miss produced"
+    );
+    // And the memoised raster is the unmemoised one for the same window.
+    let mut direct = Vec::with_capacity((cols * rows) as usize);
+    for z in z0..z0 + rows {
+        for x in x0..x0 + cols {
+            direct.push(
+                published_surface_from_raster_indexed(&natural, None, water, &carves, &index, x, z)
+                    .expect("natural sample"),
+            );
+        }
+    }
+    assert_eq!(
+        crate::height_payload::encode_millimetres(cols as u32, rows as u32, direct)
+            .expect("payload"),
+        warm,
+        "the memo must hold the direct composition"
+    );
+}
+
+/// 3. A candidate whose DIRECT entrance works returns from the PHASE 1 window and
+///    never composes the full search window. The assertion is on the composed
+///    windows themselves: exactly one window, and it is the 24 m one (its extent is
+///    the lot plus two 24 m margins), not the 124 m search budget.
+#[test]
+fn a_direct_entrance_never_composes_the_full_window() {
+    let scene = SceneSpec {
+        scene_id: "early-exit".into(),
+        width_m: 128,
+        depth_m: 128,
+        origin_x: 0,
+        origin_z: 0,
+        seed_offset: 0,
+    };
+    let mut natural = BakedTerrain::new(&scene).expect("scene raster");
+    natural
+        .insert_chunk(
+            0,
+            0,
+            128,
+            128,
+            &crate::height_payload::encode_millimetres(128, 128, vec![0.0; 128 * 128])
+                .expect("payload"),
+        )
+        .expect("chunk");
+    let road = EntityInstance {
+        entity_id: "street".into(),
+        asset_id: "prop.road".into(),
+        kind: "road".into(),
+        world_x: 64,
+        // North of the lot: the generated door faces that way, so the straight
+        // entrance the acceptance check tries first is the real one.
+        world_z: 32,
+        world_y: 0,
+        width_m: 128.,
+        depth_m: 8.,
+        height_m: 0.24,
+        rotation_y_deg: 0.,
+        scale: 1.,
+        grounding: GroundingSpec::default(),
+        anchors: vec![],
+        bounds: None,
+    };
+    let site = RoadsideSite {
+        program: None,
+        purpose: None,
+        id: "lot".into(),
+        road_id: "street".into(),
+        world_x: 64,
+        world_z: 64,
+        width_m: 24,
+        depth_m: 24,
+        support_level_m: 0,
+        parcel_insets: None,
+        support_level_mm: Some(0),
+        frontage_road_point: None,
+        bounded_cut_mm: None,
+        earthwork_blend_m: None,
+        rotation_y_deg: 0.,
+        natural_min_m: 0.0,
+        natural_max_m: 0.0,
+    };
+    let water = water_geometry(WaterKind::None, &[], &scene, &json!({}));
+    super::access::observation::begin_plan_windows();
+    let verdict = road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water)
+        .expect("the gate composes a raster");
+    assert!(verdict.is_none(), "a lot level with its street is enterable");
+    let windows = super::access::observation::plan_windows();
+    assert_eq!(
+        windows.len(),
+        1,
+        "the direct entrance must be decided by the phase-1 window alone: {windows:?}"
+    );
+    let (x0, z0, x1, z1) = windows[0];
+    // Lot 24x24 at (64,64) plus the 24 m phase-1 margin, plus the assigned street's
+    // nearest point - and never the 124 m search budget of phase 2.
+    assert!(
+        x1 - x0 + 1 <= 24 + 2 * 24 + 2 && z1 - z0 + 1 <= 24 + 2 * 24 + 2,
+        "phase 1 must stay a small window, got {}x{}",
+        x1 - x0 + 1,
+        z1 - z0 + 1
+    );
+    assert!(
+        (x1 - x0 + 1) * (z1 - z0 + 1) < 76 * 76,
+        "the full window would be far larger"
+    );
+}
+

@@ -124,7 +124,7 @@ pub struct WaterGeometry {
 /// on a slope reads as standing on level ground instead of draping over the
 /// hillside (the approach used by symbios-ground-lab's terrain carving).
 /// `blend_m` is the width of the smooth transition ring around the pad.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct TerrainCarve {
     profile: Option<std::sync::Arc<road_profile::RoadProfile>>,
     cx: f64,
@@ -4236,11 +4236,23 @@ fn generate_chunk_encoded(
     let mut terrain = Vec::with_capacity(cell_count * TERRAIN_SEMANTIC_BYTES_PER_CELL);
     let mut lod2 = Vec::with_capacity((width.div_ceil(64) * depth.div_ceil(64)) as usize * 3);
     let mut samples = vec![0_f64; cell_count];
+    // ONE index for the whole chunk: the per-cell walk below visits only the
+    // carves whose own window can reach that cell, and answers exactly what the
+    // linear walk answered.
+    let carve_index = CarveIndex::new(carves);
     for z in 0..depth {
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let source = published_terrain_height_zoned(seed, world_x, world_z, water, carves, zoning);
+            let source = published_terrain_height_zoned_indexed(
+                seed,
+                world_x,
+                world_z,
+                water,
+                carves,
+                &carve_index,
+                zoning,
+            );
             let quarter_meters = (source * 4.).clamp(-128., 1024.) as i16;
             let index = (z * width + x) as usize;
             samples[index] = if precise {
@@ -4263,7 +4275,19 @@ fn generate_chunk_encoded(
     for z in 0..depth {
         for x in 0..width {
             terrain.extend_from_slice(&terrain_semantics_at(
-                seed, base_x, base_z, width, depth, x, z, &samples, water, carves, precise, zoning,
+                seed,
+                base_x,
+                base_z,
+                width,
+                depth,
+                x,
+                z,
+                &samples,
+                water,
+                carves,
+                &carve_index,
+                precise,
+                zoning,
             ));
         }
     }
@@ -4302,6 +4326,7 @@ fn generate_chunk_encoded(
 /// payload. This compact four-byte payload carries values that must be
 /// consistent across renderers, vegetation placement and later terrain-aware
 /// rules, without letting each consumer generate unrelated visual noise.
+#[allow(clippy::too_many_arguments)]
 fn terrain_semantics_at(
     seed: u64,
     base_x: i32,
@@ -4313,6 +4338,7 @@ fn terrain_semantics_at(
     samples: &[f64],
     water: WaterGeometry,
     carves: &[TerrainCarve],
+    carve_index: &CarveIndex,
     precise: bool,
     zoning: Option<&zoning::ZoningMask>,
 ) -> [u8; TERRAIN_SEMANTIC_BYTES_PER_CELL] {
@@ -4320,7 +4346,15 @@ fn terrain_semantics_at(
         if sx >= 0 && sx < width as i32 && sz >= 0 && sz < depth as i32 {
             samples[(sz as u32 * width + sx as u32) as usize]
         } else {
-            let h = published_terrain_height_zoned(seed, base_x + sx, base_z + sz, water, carves, zoning);
+            let h = published_terrain_height_zoned_indexed(
+                seed,
+                base_x + sx,
+                base_z + sz,
+                water,
+                carves,
+                carve_index,
+                zoning,
+            );
             if precise {
                 (h * 1000.).round() / 1000.
             } else {
@@ -5168,7 +5202,32 @@ fn published_terrain_height_zoned(
     carves: &[TerrainCarve],
     zoning: Option<&zoning::ZoningMask>,
 ) -> f64 {
-    terrain_height_zoned_with(seed, x, z, water, carves, zoning, PadPlatform::Active)
+    terrain_height_zoned_core(seed, x, z, water, carves, None, zoning, PadPlatform::Active)
+}
+
+/// [`published_terrain_height_zoned`] over an indexed carve list: the same cells,
+/// the same answers, only the carves that can reach each cell are visited. The
+/// bake's per-chunk encoder builds ONE index for the whole chunk and walks it cell
+/// by cell.
+fn published_terrain_height_zoned_indexed(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    index: &CarveIndex,
+    zoning: Option<&zoning::ZoningMask>,
+) -> f64 {
+    terrain_height_zoned_core(
+        seed,
+        x,
+        z,
+        water,
+        carves,
+        Some(index),
+        zoning,
+        PadPlatform::Active,
+    )
 }
 
 fn terrain_height_with_geometry_carved(
@@ -5228,8 +5287,21 @@ fn terrain_height_zoned_with(
     zoning: Option<&zoning::ZoningMask>,
     platform: PadPlatform,
 ) -> f64 {
+    terrain_height_zoned_core(seed, x, z, water, carves, None, zoning, platform)
+}
+
+fn terrain_height_zoned_core(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    index: Option<&CarveIndex>,
+    zoning: Option<&zoning::ZoningMask>,
+    platform: PadPlatform,
+) -> f64 {
     let Some(mask) = zoning else {
-        return terrain_height_metres_with(seed, x, z, water, carves, platform);
+        return terrain_height_metres_core(seed, x, z, water, carves, index, platform);
     };
     let natural = terrain_height_metres(seed, x, z, water, &[]);
     // The zoning path composes the carve itself, so the waterfront exclusion has
@@ -5241,7 +5313,7 @@ fn terrain_height_zoned_with(
     {
         return natural;
     }
-    let engineered = apply_terrain_carves_with(natural, x, z, carves, platform);
+    let engineered = apply_carves_select(natural, x, z, carves, index, platform);
     // The same two prohibitions `terrain_height_metres_with` states: a cut never
     // enters the structured water body or the shoreline public passage band.
     if engineered < natural
@@ -5279,10 +5351,39 @@ pub(super) fn published_surface_from_raster(
     x: i32,
     z: i32,
 ) -> Option<f64> {
+    published_surface_from_raster_core(natural, mask, water, carves, None, x, z)
+}
+
+/// [`published_surface_from_raster`] over an indexed carve list. The index is a
+/// candidate filter only: every answer is still decided by the same composition
+/// body.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn published_surface_from_raster_indexed(
+    natural: &BakedTerrain,
+    mask: Option<&zoning::ZoningMask>,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    index: &CarveIndex,
+    x: i32,
+    z: i32,
+) -> Option<f64> {
+    published_surface_from_raster_core(natural, mask, water, carves, Some(index), x, z)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn published_surface_from_raster_core(
+    natural: &BakedTerrain,
+    mask: Option<&zoning::ZoningMask>,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    index: Option<&CarveIndex>,
+    x: i32,
+    z: i32,
+) -> Option<f64> {
     let base = f64::from(natural.height_millimetres(x, z)?) / 1000.;
     let forbidden = water.contains_point(f64::from(x), f64::from(z)) || water.shore_band_cell(x, z);
     let Some(mask) = mask else {
-        let engineered = apply_terrain_carves_with(base, x, z, carves, PadPlatform::Active);
+        let engineered = apply_carves_select(base, x, z, carves, index, PadPlatform::Active);
         return Some(if engineered < base && forbidden {
             base
         } else {
@@ -5295,7 +5396,7 @@ pub(super) fn published_surface_from_raster(
     {
         return Some(base);
     }
-    let engineered = apply_terrain_carves_with(base, x, z, carves, PadPlatform::Active);
+    let engineered = apply_carves_select(base, x, z, carves, index, PadPlatform::Active);
     if engineered < base && forbidden {
         return Some(base);
     }
@@ -5303,6 +5404,23 @@ pub(super) fn published_surface_from_raster(
         return Some(engineered);
     }
     Some(engineered.min(base + mask.fill_capacity_at(x, z)))
+}
+
+/// Compose one cell through the plain or the indexed body. Both read the same
+/// `carves`; the index only chooses which of them are visited.
+#[inline]
+fn apply_carves_select(
+    terrain: f64,
+    x: i32,
+    z: i32,
+    carves: &[TerrainCarve],
+    index: Option<&CarveIndex>,
+    platform: PadPlatform,
+) -> f64 {
+    match index {
+        Some(index) => apply_terrain_carves_indexed(terrain, x, z, carves, index, platform),
+        None => apply_terrain_carves_with(terrain, x, z, carves, platform),
+    }
 }
 
 fn terrain_height_metres(
@@ -5321,6 +5439,18 @@ fn terrain_height_metres_with(
     z: i32,
     water: WaterGeometry,
     carves: &[TerrainCarve],
+    platform: PadPlatform,
+) -> f64 {
+    terrain_height_metres_core(seed, x, z, water, carves, None, platform)
+}
+
+fn terrain_height_metres_core(
+    seed: u64,
+    x: i32,
+    z: i32,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    index: Option<&CarveIndex>,
     platform: PadPlatform,
 ) -> f64 {
     let xf = f64::from(x);
@@ -5416,7 +5546,7 @@ fn terrain_height_metres_with(
     if water.forbids_earthwork(xf, zf) {
         return terrain.clamp(-32., 256.);
     }
-    let composed = apply_terrain_carves_with(terrain, x, z, carves, platform);
+    let composed = apply_carves_select(terrain, x, z, carves, index, platform);
     // The bounded-cut contract's two natural prohibitions, re-derived here for
     // EVERY carve that can excavate (a frontage pad's placement guards already
     // refuse them, a graded road has no placement step): no cut ever enters the
@@ -5433,6 +5563,229 @@ fn terrain_height_metres_with(
 fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -> f64 {
     apply_terrain_carves_with(terrain, x, z, carves, PadPlatform::Dormant)
 }
+
+/// Is `has_road_cut`'s question true of this list? A property of the LIST, not of
+/// a cell, so the indexed path answers it once per list instead of once per cell.
+fn carve_list_has_road_cut(carves: &[TerrainCarve]) -> bool {
+    carves
+        .iter()
+        .any(|carve| carve.priority == 10 && carve.cut_cap_mm.is_some() && carve.profile.is_some())
+}
+
+/// The metres around a carve's own rectangle within which it can still change any
+/// cell, so a spatial index may omit it everywhere else. Read off the composition
+/// body itself, whose every term is gated on one of
+///
+///  * `outside < blend_m` (the transition fill and the graded influence),
+///  * `outside < ring_width_m(cap)` (the bounded cut, which never leaves its ring),
+///  * `outside <= 2.0` (the audit window counts and the graded road's 2 m shoulder).
+///
+/// A carve further away than the widest of those enters no term, so leaving it out
+/// cannot change a single answer.
+fn carve_influence_m(carve: &TerrainCarve) -> f64 {
+    let ring = carve
+        .cut_cap_mm
+        .map_or(2.0, |cap| bounded_cut::ring_width_m(cap));
+    carve.blend_m.max(ring).max(2.0)
+}
+
+/// Bucket edge of the carve grid, in metres. A fixed coarse size: the grid is a
+/// candidate filter only, and the composition body still applies its own exact
+/// window test to every candidate it is handed.
+const CARVE_BUCKET_M: f64 = 32.0;
+/// Refuse to build a grid finer than this many buckets; such a list falls back to
+/// the plain linear walk, which is always correct.
+const MAX_CARVE_BUCKETS: f64 = 1_046_576.0;
+
+/// A uniform bucket grid over one carve list, so one composition cell visits the
+/// carves that can reach it instead of the whole list.
+///
+/// `active(x, z)` answers a SUPERSET of the carves whose own window holds the cell:
+/// a carve is filed in every bucket its rectangle expanded by `carve_influence_m`
+/// touches, so a cell it can affect always finds it. The composition body re-tests
+/// each candidate exactly as before, in the list's own order, which is why pruning
+/// cannot move an answer.
+pub(super) struct CarveIndex {
+    cell: f64,
+    min_x: f64,
+    min_z: f64,
+    cols: i32,
+    rows: i32,
+    buckets: Vec<Vec<u32>>,
+    /// Every index, in order, used when the grid is refused.
+    all: Vec<u32>,
+    has_road_cut: bool,
+    indexed: bool,
+}
+
+impl CarveIndex {
+    pub(super) fn new(carves: &[TerrainCarve]) -> Self {
+        let has_road_cut = carve_list_has_road_cut(carves);
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_z = f64::INFINITY;
+        let mut max_z = f64::NEG_INFINITY;
+        for carve in carves {
+            let reach = carve_influence_m(carve);
+            min_x = min_x.min(carve.cx - carve.half_w - reach);
+            max_x = max_x.max(carve.cx + carve.half_w + reach);
+            min_z = min_z.min(carve.cz - carve.half_d - reach);
+            max_z = max_z.max(carve.cz + carve.half_d + reach);
+        }
+        let refused = || Self {
+            cell: CARVE_BUCKET_M,
+            min_x: 0.,
+            min_z: 0.,
+            cols: 0,
+            rows: 0,
+            buckets: Vec::new(),
+            all: (0..carves.len() as u32).collect(),
+            has_road_cut,
+            indexed: false,
+        };
+        if carves.is_empty() || !min_x.is_finite() || !min_z.is_finite() {
+            return refused();
+        }
+        let cols = ((max_x - min_x) / CARVE_BUCKET_M).floor() + 1.;
+        let rows = ((max_z - min_z) / CARVE_BUCKET_M).floor() + 1.;
+        if cols <= 0. || rows <= 0. || cols * rows > MAX_CARVE_BUCKETS {
+            return refused();
+        }
+        let (cols, rows) = (cols as i32, rows as i32);
+        let mut buckets = vec![Vec::new(); (cols * rows) as usize];
+        let bucket_of = |v: f64, min: f64, n: i32| -> i32 {
+            (((v - min) / CARVE_BUCKET_M).floor() as i64).clamp(0, i64::from(n) - 1) as i32
+        };
+        for (i, carve) in carves.iter().enumerate() {
+            let reach = carve_influence_m(carve);
+            let x0 = bucket_of(carve.cx - carve.half_w - reach, min_x, cols);
+            let x1 = bucket_of(carve.cx + carve.half_w + reach, min_x, cols);
+            let z0 = bucket_of(carve.cz - carve.half_d - reach, min_z, rows);
+            let z1 = bucket_of(carve.cz + carve.half_d + reach, min_z, rows);
+            for bz in z0..=z1 {
+                for bx in x0..=x1 {
+                    buckets[(bz * cols + bx) as usize].push(i as u32);
+                }
+            }
+        }
+        Self {
+            cell: CARVE_BUCKET_M,
+            min_x,
+            min_z,
+            cols,
+            rows,
+            buckets,
+            all: Vec::new(),
+            has_road_cut,
+            indexed: true,
+        }
+    }
+
+    fn has_road_cut(&self) -> bool {
+        self.has_road_cut
+    }
+
+    /// Carves that can reach `(x, z)`, in the list's own order. A cell outside the
+    /// grid is reached by nothing (the grid covers every carve's whole reach).
+    #[inline]
+    fn active(&self, x: i32, z: i32) -> &[u32] {
+        if !self.indexed {
+            return &self.all;
+        }
+        let bx = ((f64::from(x) - self.min_x) / self.cell).floor();
+        let bz = ((f64::from(z) - self.min_z) / self.cell).floor();
+        if !(0.0..f64::from(self.cols)).contains(&bx) || !(0.0..f64::from(self.rows)).contains(&bz) {
+            return &[];
+        }
+        &self.buckets[bz as usize * self.cols as usize + bx as usize]
+    }
+}
+
+/// A dense memo of the PUBLISHED composition for the cells of ONE rectangle.
+///
+/// # Key
+///
+/// `(the rectangle, the carve set)`. The rectangle IS the storage - a row-major
+/// `Vec` addressed by the cell's own offset, so a hit is two subtractions and an
+/// array read, never a hash - and the owner fills it from ONE carve list, which it
+/// passes unchanged for the memo's whole life. `reset` is the only writer of the
+/// key and drops every value, so two different carve lists cannot share a memo.
+///
+/// # Why a window memo and not a per-cell hash map
+///
+/// Measured on the 1 km gate: a `HashMap<(i32, i32), f64>` memo keyed by carve set
+/// saved 1.0 M of 21.6 M compositions and still made the gate 89.2 s against 67.9 s
+/// without it - hashing, probing and rehashing ~20 M quiet cells in a debug build
+/// costs far more than the composition it replaces. A dense window costs one bounds
+/// check per cell, so this reuse is a win and not a tax.
+///
+/// # Exactness
+///
+/// A hit returns the value composed for the SAME rectangle and the SAME carve list
+/// by `published_surface_from_raster_indexed`; a miss composes with that same
+/// function. The memo cannot introduce a second definition of the surface.
+pub(super) struct WindowMemo {
+    x0: i32,
+    z0: i32,
+    cols: i32,
+    rows: i32,
+    values: Vec<f64>,
+}
+
+impl WindowMemo {
+    pub(super) fn new() -> Self {
+        Self {
+            x0: 0,
+            z0: 0,
+            cols: 0,
+            rows: 0,
+            values: Vec::new(),
+        }
+    }
+
+    /// Has any rectangle been taken yet?
+    pub(super) fn is_empty(&self) -> bool {
+        self.cols <= 0 || self.rows <= 0
+    }
+
+    /// Forget every value and take the rectangle of the next window. Every cell
+    /// starts UNCOMPOSED, marked by `f64::NAN` (a published surface is always a
+    /// finite metre value), so a read before the first write is a miss and can never
+    /// be answered with a made-up zero.
+    pub(super) fn reset(&mut self, x0: i32, z0: i32, cols: i32, rows: i32) {
+        self.x0 = x0;
+        self.z0 = z0;
+        self.cols = cols;
+        self.rows = rows;
+        self.values.clear();
+        self.values
+            .resize((i64::from(cols) * i64::from(rows)) as usize, f64::NAN);
+    }
+
+    #[inline]
+    fn index(&self, x: i32, z: i32) -> Option<usize> {
+        let dx = i64::from(x) - i64::from(self.x0);
+        let dz = i64::from(z) - i64::from(self.z0);
+        if dx < 0 || dz < 0 || dx >= i64::from(self.cols) || dz >= i64::from(self.rows) {
+            return None;
+        }
+        Some((dz * i64::from(self.cols) + dx) as usize)
+    }
+
+    #[inline]
+    pub(super) fn get(&self, x: i32, z: i32) -> Option<f64> {
+        let value = self.index(x, z).map(|i| self.values[i])?;
+        (!value.is_nan()).then_some(value)
+    }
+
+    #[inline]
+    pub(super) fn set(&mut self, x: i32, z: i32, value: f64) {
+        if let Some(i) = self.index(x, z) {
+            self.values[i] = value;
+        }
+    }
+}
+
 fn apply_terrain_carves_with(
     terrain: f64,
     x: i32,
@@ -5440,6 +5793,53 @@ fn apply_terrain_carves_with(
     carves: &[TerrainCarve],
     platform: PadPlatform,
 ) -> f64 {
+    apply_terrain_carves_generic(
+        terrain,
+        x,
+        z,
+        carves.len(),
+        |i| &carves[i],
+        platform,
+        carve_list_has_road_cut(carves),
+    )
+}
+
+fn apply_terrain_carves_indexed(
+    terrain: f64,
+    x: i32,
+    z: i32,
+    carves: &[TerrainCarve],
+    index: &CarveIndex,
+    platform: PadPlatform,
+) -> f64 {
+    let active = index.active(x, z);
+    apply_terrain_carves_generic(
+        terrain,
+        x,
+        z,
+        active.len(),
+        |i| &carves[active[i] as usize],
+        platform,
+        index.has_road_cut(),
+    )
+}
+
+/// The one composition body; `at` addresses the carves the caller wants visited.
+/// `has_road_cut` is a property of the WHOLE list (`carve_list_has_road_cut`), so a
+/// pruned list passes it in rather than answering it from its own members.
+#[allow(clippy::too_many_arguments)]
+fn apply_terrain_carves_generic<'a, F>(
+    terrain: f64,
+    x: i32,
+    z: i32,
+    count: usize,
+    at: F,
+    platform: PadPlatform,
+    has_road_cut: bool,
+) -> f64
+where
+    F: Fn(usize) -> &'a TerrainCarve,
+{
     let xf = f64::from(x);
     let zf = f64::from(z);
     let base_terrain = terrain.clamp(-32.0, 256.0);
@@ -5498,9 +5898,6 @@ fn apply_terrain_carves_with(
     // Both counts include the asking road's own window; it subtracts that one when
     // it asks, so a road is never blocked by itself. The pre-pass exists because a
     // blocking entity may sort after the road it blocks.
-    let has_road_cut = carves
-        .iter()
-        .any(|carve| carve.priority == 10 && carve.cut_cap_mm.is_some() && carve.profile.is_some());
     let mut cut_windows = 0_i32;
     let mut support_windows = 0_i32;
     // The same two counts restricted to OTHER ROADS' bands, which are the only
@@ -5516,16 +5913,15 @@ fn apply_terrain_carves_with(
     // that is its authored profile and one a neighbour's ring buries.
     let mut road_flat_here = false;
     if has_road_cut {
-        for other in carves {
+        // One pass answers both the flat-top question and the two blocking
+        // counts; the former used to be its own walk over the same list.
+        for i in 0..count {
+            let other = at(i);
             let out = ((xf - other.cx).abs() - other.half_w)
                 .max((zf - other.cz).abs() - other.half_d);
             if other.priority == 10 && out <= 0.0 {
                 road_flat_here = true;
             }
-        }
-        for other in carves {
-            let out = ((xf - other.cx).abs() - other.half_w)
-                .max((zf - other.cz).abs() - other.half_d);
             let margin = match (other.priority == 10, other.cut_cap_mm) {
                 (false, Some(cap)) => bounded_cut::ring_width_m(cap),
                 _ => 2.0,
@@ -5544,7 +5940,8 @@ fn apply_terrain_carves_with(
             }
         }
     }
-    for carve in carves {
+    for i in 0..count {
+        let carve = at(i);
         let dx = (xf - carve.cx).abs();
         let dz = (zf - carve.cz).abs();
         let outside_x = dx - carve.half_w;
