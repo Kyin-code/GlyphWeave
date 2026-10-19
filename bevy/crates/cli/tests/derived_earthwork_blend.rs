@@ -116,10 +116,22 @@ const PLANNED_PADS: usize = 19;
 /// graded roads by id. The pad ledger, the 22 pads, the 15 homes and the 6 shops are
 /// unchanged. The WATERFRONT fixture never opted into the policy and is byte-frozen:
 /// its constant does not move.
+///
+/// Round 44 moves BOTH, and moves no geometry by a byte: the scene now publishes the
+/// generator's own candidate keys for the buildings the RULE ENGINE placed
+/// (`ruleBuildingCandidates`), so the development audit can count them apart
+/// (`ruleGeneratedBuildings`) instead of reporting them as
+/// `buildings_without_development_plan`. Hillside: 2 rule buildings, 437 entities, the
+/// same 23 pads and the same 15 homes / 7 shops. Waterfront: 2 rule buildings, 432
+/// entities, the same 28 pads. Both scenes gain one provenance array and their
+/// `development-audit.json` loses the unplanned line; nothing else in either tree
+/// changes. The closed state is not this fixture but `development_provenance`'s
+/// ledger-less world, which publishes neither the array nor the count and is frozen
+/// to its own constant measured from the HEAD binary.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "ec4fa91f18ad94349959c72ca7f464020684a9ed63bd90ffcde7e1a80f0f4490";
+    "dc17409eead06d6e803de2696e6df9e374f36bd2f9f8216b72c3cda2397673d3";
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "5a43f6a08567a764c42b8cb82767a2de722ce276475d3a284c92133a428793b2";
+    "fb7d68d38580547bf81a21c09a97557d12c96f9a1ffee785e283d4a97b0aadbd";
 /// The ring every planned pad of the grown hillside town derives, by kind:
 /// `(width_m, depth_m, height_m, ring_m, count)`. A pad's ring reads its OWN
 /// published width and height - never its depth, never its elevation.

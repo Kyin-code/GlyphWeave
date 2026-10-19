@@ -642,7 +642,10 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "two off-state bakes must publish the same bytes"
     );
     assert_eq!(
-        first_digest, "b30adb1500f416ba23ccfb3609a2f16ff3806e9d90dac7860917d059f73535d3",
-        "the frozen blake3 tree digest of the policy-off world"
+        first_digest, "8fb373ef06a22b8efcfda386d4db4f3047a74f636ef3c5f3dd4190b02abcdf68",
+        "the frozen blake3 tree digest of the policy-off world (Round 44 re-took it: the \
+         scene now publishes the generator's candidate keys for its two rule buildings, so \
+         `development-audit.json` counts them apart instead of calling them unplanned; no \
+         terrain, road, pad or entity byte moved)"
     );
 }

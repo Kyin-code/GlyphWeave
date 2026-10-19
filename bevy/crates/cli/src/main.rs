@@ -1832,6 +1832,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 roads,
                 &scene.entities,
                 &access,
+                &scene.rule_building_candidates,
             )?;
             let graph =
                 glyphweave_core::settlement::development::settlement_graph(plan, &scene.entities);

@@ -550,7 +550,7 @@ pub(super) fn realize_candidate(
         match crate::settlement::development::plan(scene, zones, plan) {
             Ok(development) => {
                 match crate::settlement::development::verify(
-                    &development, scene, zones, plan, &entities, &access,
+                    &development, scene, zones, plan, &entities, &access, &[],
                 ) {
                     Ok(audit) => (
                         audit.status.clone(),

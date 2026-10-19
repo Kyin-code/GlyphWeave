@@ -5924,6 +5924,7 @@ mod tests {
                         &plan,
                         &entities,
                         &access,
+                        &[],
                     );
                     let landcover_plan =
                         crate::settlement::development::plan_landcover(scene, &development_plan);

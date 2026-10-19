@@ -2,7 +2,7 @@
 //! zone-sized building proxies. Half-open integer rectangles conserve area;
 //! zoning targets, building footprint and unfinished yard are distinct facts.
 use crate::worldgen::{
-    AccessGraph, EntityInstance, LandUseZone, SceneSpec,
+    AccessGraph, EntityCandidateKey, EntityInstance, LandUseZone, SceneSpec,
     parcel_geometry::{self, ParcelInsets},
     road_network::RoadNetworkPlan,
 };
@@ -367,6 +367,54 @@ impl DevelopmentPlan {
     pub fn building_entities(&self) -> Vec<EntityInstance> {
         self.buildings.iter().map(|p| p.entity.clone()).collect()
     }
+}
+
+/// The rule-generated buildings a scene publishes provenance for.
+///
+/// A development plan owns PARCELS, and every building behind a parcel is its
+/// product. The buildings the rule engine places for itself - the urban band's
+/// `urban_building`, a `resort_lodge`, a template structure - stand behind no
+/// parcel and never will: generation proposes them and the placement rules
+/// accept them, so no lot exists for the plan to name. The only authority that
+/// knows they are not stray land is the generator's own candidate identity, the
+/// `stable-v1` scheme the scene already uses for every generated id.
+///
+/// So the scene publishes those candidate keys, and the audit recomputes each
+/// entity id from them. Only a candidate whose entity survived to the final
+/// scene, with the same kind, and which no parcel owns is kept: the record can
+/// never credit an entity that is not published, or relabel one the plan already
+/// accounts for.
+pub fn rule_building_candidates(
+    scene: &SceneSpec,
+    plan: &DevelopmentPlan,
+    entities: &[EntityInstance],
+    claims: &[EntityCandidateKey],
+) -> Vec<EntityCandidateKey> {
+    let planned: BTreeSet<&str> = plan
+        .buildings
+        .iter()
+        .map(|b| b.entity.entity_id.as_str())
+        .collect();
+    let published: BTreeMap<&str, &str> = entities
+        .iter()
+        .map(|e| (e.entity_id.as_str(), e.kind.as_str()))
+        .collect();
+    let mut kept = Vec::new();
+    for claim in claims {
+        if claim.scene_id != scene.scene_id || !super::is_building(&claim.kind) {
+            continue;
+        }
+        let Ok(id) = claim.stable_id() else {
+            continue;
+        };
+        if planned.contains(id.as_str())
+            || published.get(id.as_str()) != Some(&claim.kind.as_str())
+        {
+            continue;
+        }
+        kept.push(claim.clone());
+    }
+    kept
 }
 fn bounds(scene: &SceneSpec) -> Rect {
     Rect {
@@ -776,13 +824,28 @@ pub struct DevelopmentAudit {
     pub unplanned_m2: u64,
     pub planned_buildings: usize,
     pub realized_buildings: usize,
+    /// Buildings the RULE ENGINE placed, counted from the scene's own provenance
+    /// record. These carry no parcel by construction, so they are a separate
+    /// fact - never a pass, never a hole: a building with neither a parcel nor a
+    /// valid origin is still refused by name.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rule_generated_buildings: usize,
     pub zone_conflict_m2: u64,
     pub unplanned_building_ids: Vec<String>,
     pub failures: Vec<String>,
     pub incomplete_reasons: Vec<String>,
 }
+fn is_zero(count: &usize) -> bool {
+    *count == 0
+}
 /// Independent reconstruction: persisted plan/status/area never supplies an
 /// acceptance fact. Roads, foundations and pavement require their own audits.
+///
+/// `rule_origins` is the scene's published provenance for the buildings
+/// generation placed itself (`rule_building_candidates`). It is evidence of a
+/// DIFFERENT fact from plan ownership, so it is checked, not trusted: every
+/// origin must recompute the entity id it claims, agree with that entity's kind,
+/// and own nothing the plan already accounts for.
 pub fn verify(
     record: &DevelopmentPlan,
     scene: &SceneSpec,
@@ -790,6 +853,7 @@ pub fn verify(
     roads: &RoadNetworkPlan,
     entities: &[EntityInstance],
     access: &AccessGraph,
+    rule_origins: &[EntityCandidateKey],
 ) -> Result<DevelopmentAudit, String> {
     let expected = plan(scene, zones, roads)?;
     if serde_json::to_value(record).map_err(|e| e.to_string())?
@@ -807,6 +871,7 @@ pub fn verify(
         unplanned_m2: 0,
         planned_buildings: expected.buildings.len(),
         realized_buildings: 0,
+        rule_generated_buildings: 0,
         zone_conflict_m2: 0,
         unplanned_building_ids: vec![],
         failures: vec![],
@@ -869,9 +934,62 @@ pub fn verify(
         .iter()
         .map(|b| b.entity.entity_id.as_str())
         .collect();
+    // A rule-generated building is a fact of its OWN, carried by the scene's
+    // provenance record and recomputed here id by id. It is not a pass: every
+    // claim is checked against the generator's identity scheme, the published
+    // entity and the plan, and anything that disagrees is refused by name.
+    let mut rule_generated: BTreeSet<String> = BTreeSet::new();
+    for claim in rule_origins {
+        let kind = claim.kind.as_str();
+        let Ok(id) = claim.stable_id() else {
+            a.failures
+                .push("rule_building_origin_is_unrecomputable".into());
+            continue;
+        };
+        if claim.scene_id != scene.scene_id {
+            a.failures
+                .push(format!("{id}: rule_building_origin_names_another_scene"));
+            continue;
+        }
+        if !super::is_building(kind) {
+            a.failures
+                .push(format!("{id}: rule_building_origin_is_not_a_building"));
+            continue;
+        }
+        if planned_ids.contains(id.as_str()) {
+            // The plan already owns this building: no parcel product may be
+            // relabelled as the rule engine's, least of all to excuse it.
+            a.failures
+                .push(format!("{id}: rule_building_origin_owns_a_plan_building"));
+            continue;
+        }
+        match actual.get(id.as_str()).map(Vec::as_slice) {
+            Some([entity]) if entity.kind == kind => {
+                if !rule_generated.insert(id) {
+                    a.failures
+                        .push("duplicate_rule_building_origin".into());
+                }
+            }
+            Some([entity]) => a.failures.push(format!(
+                "{id}: rule_building_origin_kind_differs_from_published_entity (origin says {kind}, scene says {})",
+                entity.kind
+            )),
+            Some(_) => a
+                .failures
+                .push(format!("{id}: ambiguous_rule_building_origin")),
+            None => a
+                .failures
+                .push(format!("{id}: rule_building_origin_names_no_published_entity")),
+        }
+    }
+    a.rule_generated_buildings = rule_generated.len();
     a.unplanned_building_ids = entities
         .iter()
-        .filter(|e| super::is_building(&e.kind) && !planned_ids.contains(e.entity_id.as_str()))
+        .filter(|e| {
+            super::is_building(&e.kind)
+                && !planned_ids.contains(e.entity_id.as_str())
+                && !rule_generated.contains(e.entity_id.as_str())
+        })
         .map(|e| e.entity_id.clone())
         .collect();
     if !a.unplanned_building_ids.is_empty() {
@@ -1037,7 +1155,7 @@ mod tests {
     fn full_ownership_conserves_area_without_double_counting_intersections() {
         let (s, z, r) = fixture();
         let p = plan(&s, &z, &r).unwrap();
-        let a = verify(&p, &s, &z, &r, &p.building_entities(), &access(&p)).unwrap();
+        let a = verify(&p, &s, &z, &r, &p.building_entities(), &access(&p), &[]).unwrap();
         assert_eq!(a.status, "incomplete");
         assert!(a.failures.is_empty());
         assert_eq!(a.partition_area_m2, 128 * 128);
@@ -1092,7 +1210,8 @@ mod tests {
             &z,
             &r,
             &forged.building_entities(),
-            &access(&forged)
+            &access(&forged),
+            &[]
         )
         .is_err());
     }
@@ -1162,33 +1281,33 @@ mod tests {
         let a = access(&p);
         let mut bad = p.clone();
         bad.buildings[0].parcel_id = "forged".into();
-        assert!(verify(&bad, &s, &z, &r, &entities, &a).is_err());
+        assert!(verify(&bad, &s, &z, &r, &entities, &a, &[]).is_err());
         let mut bad = p.clone();
         bad.cells.retain(|c| c.role != LandRole::Unplanned);
         assert!(validate(&bad, &s, &z).is_err());
-        assert!(verify(&bad, &s, &z, &r, &entities, &a).is_err());
+        assert!(verify(&bad, &s, &z, &r, &entities, &a, &[]).is_err());
         let mut bad = entities.clone();
         bad[0].anchors.clear();
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a).unwrap().status, "fail");
+        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
         let mut bad = entities.clone();
         bad[0].world_x += 1;
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a).unwrap().status, "fail");
+        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
         assert_eq!(
-            verify(&p, &s, &z, &r, &[], &a).unwrap().realized_buildings,
+            verify(&p, &s, &z, &r, &[], &a, &[]).unwrap().realized_buildings,
             0
         );
         let mut bad = entities.clone();
         bad.push(entities[0].clone());
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a).unwrap().status, "fail");
+        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
         let mut bad = a.clone();
         bad.links[0].road_id = Some("road1".into());
         assert_eq!(
-            verify(&p, &s, &z, &r, &entities, &bad).unwrap().status,
+            verify(&p, &s, &z, &r, &entities, &bad, &[]).unwrap().status,
             "fail"
         );
         let mut bad = entities.clone();
         bad[0].entity_id = "unplanned-house".into();
-        let audit = verify(&p, &s, &z, &r, &bad, &a).unwrap();
+        let audit = verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap();
         assert_eq!(audit.unplanned_building_ids, vec!["unplanned-house"]);
     }
     #[test]
@@ -1196,9 +1315,326 @@ mod tests {
         let (s, mut z, r) = fixture();
         z[0].kind = "nature".into();
         let p = plan(&s, &z, &r).unwrap();
-        let a = verify(&p, &s, &z, &r, &p.building_entities(), &access(&p)).unwrap();
+        let a = verify(&p, &s, &z, &r, &p.building_entities(), &access(&p), &[]).unwrap();
         assert_eq!(a.zone_conflict_m2, 392);
         assert_eq!(a.status, "fail");
+    }
+    /// A rule building is a building the generator placed for itself: its id IS
+    /// the stable-v1 id of its own candidate key.
+    fn rule_building(
+        scene: &SceneSpec,
+        planner: &str,
+        kind: &str,
+        slot: Vec<i64>,
+    ) -> (EntityCandidateKey, EntityInstance) {
+        let key = EntityCandidateKey {
+            scene_id: scene.scene_id.clone(),
+            planner: planner.into(),
+            kind: kind.into(),
+            slot,
+        };
+        let entity_id = key.stable_id().unwrap();
+        let entity = EntityInstance {
+            entity_id,
+            asset_id: "prop.building".into(),
+            kind: kind.into(),
+            world_x: 10,
+            world_z: 10,
+            world_y: 0,
+            scale: 1.,
+            width_m: 8.,
+            depth_m: 8.,
+            height_m: 6.,
+            rotation_y_deg: 0.,
+            grounding: Default::default(),
+            anchors: vec![],
+            bounds: None,
+        };
+        (key, entity)
+    }
+    #[test]
+    fn a_rule_building_with_its_own_origin_is_counted_apart_from_the_parcels() {
+        let (s, z, r) = fixture();
+        let p = plan(&s, &z, &r).unwrap();
+        let (key, rule) = rule_building(&s, "urban-building", "urban_building", vec![1, 436, 220]);
+        let mut entities = p.building_entities();
+        entities.push(rule);
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            std::slice::from_ref(&key),
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 1);
+        assert!(audit.unplanned_building_ids.is_empty());
+        assert!(
+            !audit
+                .failures
+                .iter()
+                .any(|f| f == "buildings_without_development_plan"),
+            "{audit:?}"
+        );
+        assert_eq!(
+            rule_building_candidates(&s, &p, &entities, std::slice::from_ref(&key)),
+            vec![key.clone()],
+            "the scene publishes exactly the candidates whose entity survived"
+        );
+    }
+    #[test]
+    fn a_building_with_neither_a_parcel_nor_an_origin_is_still_refused() {
+        let (s, z, r) = fixture();
+        let p = plan(&s, &z, &r).unwrap();
+        let (key, rule) = rule_building(&s, "urban-building", "urban_building", vec![2, 12, 34]);
+        let mut entities = p.building_entities();
+        entities.push(rule.clone());
+        // No origin published at all: the same entity is stray land again.
+        let audit = verify(&p, &s, &z, &r, &entities, &access(&p), &[]).unwrap();
+        assert_eq!(audit.rule_generated_buildings, 0);
+        assert_eq!(audit.unplanned_building_ids, vec![rule.entity_id.clone()]);
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f == "buildings_without_development_plan"),
+            "{audit:?}"
+        );
+        // An origin for a DIFFERENT candidate does not excuse it either.
+        let (other, _) = rule_building(&s, "urban-building", "urban_building", vec![3, 0, 0]);
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            std::slice::from_ref(&other),
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 0);
+        assert_eq!(audit.unplanned_building_ids, vec![rule.entity_id.clone()]);
+        assert_eq!(
+            rule_building_candidates(&s, &p, &entities, std::slice::from_ref(&other)),
+            vec![],
+            "an origin whose id is not published is never written"
+        );
+        let _ = key;
+    }
+    #[test]
+    fn a_forged_origin_is_refused_by_name_and_credits_nothing() {
+        let (s, z, r) = fixture();
+        let p = plan(&s, &z, &r).unwrap();
+        let (key, rule) = rule_building(&s, "urban-building", "urban_building", vec![4, 5, 6]);
+        let mut entities = p.building_entities();
+        entities.push(rule.clone());
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            std::slice::from_ref(&key),
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 1);
+        assert!(audit.failures.is_empty(), "{audit:?}");
+
+        // 1. A key that does not recompute any published id.
+        let mut fabricated = key.clone();
+        fabricated.slot = vec![9, 9, 9];
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            &[fabricated],
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 0);
+        assert_eq!(audit.unplanned_building_ids, vec![rule.entity_id.clone()]);
+        assert!(
+            audit.failures.iter().any(|f| f
+                == &format!(
+                    "{}: rule_building_origin_names_no_published_entity",
+                    {
+                        let mut k = key.clone();
+                        k.slot = vec![9, 9, 9];
+                        k.stable_id().unwrap()
+                    }
+                )),
+            "{audit:?}"
+        );
+
+        // 2. The same key relabelled to another kind: the id embeds the kind.
+        let mut relabelled = key.clone();
+        relabelled.kind = "storefront".into();
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            &[relabelled.clone()],
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 0);
+        assert!(
+            audit.failures.iter().any(|f| f
+                == &format!(
+                    "{}: rule_building_origin_names_no_published_entity",
+                    relabelled.stable_id().unwrap()
+                )),
+            "{audit:?}"
+        );
+
+        // 3. A claim naming an entity whose published kind disagrees with it.
+        let mut swapped_entities = entities.clone();
+        let last = swapped_entities.len() - 1;
+        swapped_entities[last].kind = "storefront".into();
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &swapped_entities,
+            &access(&p),
+            std::slice::from_ref(&key),
+        )
+        .unwrap();
+        assert_eq!(audit.rule_generated_buildings, 0);
+        assert!(
+            audit.failures.iter().any(|f| f
+                == &format!(
+                    "{}: rule_building_origin_kind_differs_from_published_entity (origin says urban_building, scene says storefront)",
+                    key.stable_id().unwrap()
+                )),
+            "{audit:?}"
+        );
+
+        // 4. A claim that is not a building kind at all.
+        let (_, tree) = rule_building(&s, "natural", "tree", vec![7, 7]);
+        let mut with_tree = entities.clone();
+        with_tree.push(tree);
+        let tree_key = EntityCandidateKey {
+            scene_id: s.scene_id.clone(),
+            planner: "natural".into(),
+            kind: "tree".into(),
+            slot: vec![7, 7],
+        };
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &with_tree,
+            &access(&p),
+            std::slice::from_ref(&tree_key),
+        )
+        .unwrap();
+        assert!(
+            audit.failures.iter().any(|f| f
+                == &format!(
+                    "{}: rule_building_origin_is_not_a_building",
+                    tree_key.stable_id().unwrap()
+                )),
+            "{audit:?}"
+        );
+
+        // 5. A claim from another scene, and a duplicate claim.
+        let mut foreign = key.clone();
+        foreign.scene_id = "somewhere-else".into();
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            &[foreign],
+        )
+        .unwrap();
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f.ends_with("rule_building_origin_names_another_scene")),
+            "{audit:?}"
+        );
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            &[key.clone(), key.clone()],
+        )
+        .unwrap();
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f == "duplicate_rule_building_origin"),
+            "{audit:?}"
+        );
+        assert_eq!(audit.rule_generated_buildings, 1);
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f == "duplicate_rule_building_origin"),
+            "a duplicated claim is refused even though it resolves: {audit:?}"
+        );
+
+        // 6. An unreadable key (illegal planner charset) is refused, not skipped.
+        let mut illegal = key.clone();
+        illegal.planner = "urban building".into();
+        let audit = verify(
+            &p,
+            &s,
+            &z,
+            &r,
+            &entities,
+            &access(&p),
+            &[illegal],
+        )
+        .unwrap();
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f == "rule_building_origin_is_unrecomputable"),
+            "{audit:?}"
+        );
+    }
+    #[test]
+    fn the_published_origin_record_never_names_a_parcel_product_or_an_absent_entity() {
+        let (s, z, r) = fixture();
+        let p = plan(&s, &z, &r).unwrap();
+        let (key, rule) = rule_building(&s, "urban-building", "urban_building", vec![8, 1, 1]);
+        let mut claims = vec![key.clone()];
+        // A candidate whose entity was rejected is not published.
+        claims.push(EntityCandidateKey {
+            scene_id: s.scene_id.clone(),
+            planner: "urban-building".into(),
+            kind: "urban_building".into(),
+            slot: vec![8, 2, 2],
+        });
+        let mut entities = p.building_entities();
+        entities.push(rule.clone());
+        let published = rule_building_candidates(&s, &p, &entities, &claims);
+        assert_eq!(published, vec![key]);
+        // No origin is published for a scene that has no ledger at all: the
+        // caller never asks for the record, and a world without a plan keeps its
+        // historical bytes (`bake_world` publishes the vector only when it has a
+        // development plan).
     }
     #[test]
     fn ownership_validation_rejects_forged_cells_and_extreme_coordinates() {
@@ -1332,7 +1768,7 @@ mod tests {
         r.edges.clear();
         r.roadside_sites.clear();
         let p = plan(&s, &z, &r).unwrap();
-        let a = verify(&p, &s, &z, &r, &[], &AccessGraph::default()).unwrap();
+        let a = verify(&p, &s, &z, &r, &[], &AccessGraph::default(), &[]).unwrap();
         assert_eq!(a.unplanned_m2, 128 * 128);
         assert_eq!(a.status, "incomplete");
     }

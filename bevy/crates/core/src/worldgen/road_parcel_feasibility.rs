@@ -396,7 +396,7 @@ pub fn audit_joint_plan_with_fixed_nodes(
     let access = super::build_access_graph(&entities, final_terrain, water);
     let development_plan = development::plan(scene, zones, plan)?;
     let development_audit =
-        development::verify(&development_plan, scene, zones, plan, &entities, &access)?;
+        development::verify(&development_plan, scene, zones, plan, &entities, &access, &[])?;
     let landcover_plan = development::plan_landcover(scene, &development_plan)?;
     let surfaces = landcover::realize(
         scene,
@@ -846,6 +846,7 @@ mod tests {
             &plan,
             &entities,
             &access,
+            &[],
         )
         .is_err());
 

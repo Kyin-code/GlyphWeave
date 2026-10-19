@@ -52,6 +52,12 @@ impl CandidateIds {
         if !self.errors.borrow().is_empty() {return Err(self.errors.borrow().join("; "));}
         unique_entities(entities).map(|_| ())
     }
+    /// Every key this scene claimed, in the scheme's own deterministic order,
+    /// including candidates whose proposal was rejected. A caller that publishes
+    /// provenance keeps only the keys whose entity reached the final scene.
+    pub(super) fn keys(&self) -> Vec<EntityCandidateKey> {
+        self.keys.borrow().iter().cloned().collect()
+    }
 }
 
 fn unique_entities(entities: &[EntityInstance]) -> Result<BTreeMap<&str, &EntityInstance>, String> {

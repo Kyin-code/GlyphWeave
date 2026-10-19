@@ -494,6 +494,16 @@ pub struct SceneIndex {
     pub chunks: Vec<ChunkDescriptor>,
     pub landmarks: Vec<LandmarkSpec>,
     pub entities: Vec<EntityInstance>,
+    /// Provenance for the buildings the RULE ENGINE placed for itself: the
+    /// generator's own candidate keys, recomputable into the very entity ids in
+    /// `entities`. Source authority, not a report - the development audit needs
+    /// it to tell a rule structure from a stray one, and nothing else knows.
+    ///
+    /// Published only for a scene that also publishes a development plan, so a
+    /// world without a road-first ledger keeps its historical bytes, and only
+    /// when there is something to say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_building_candidates: Vec<EntityCandidateKey>,
     #[serde(default)]
     pub access_graph: AccessGraph,
     #[serde(default)]
@@ -2565,7 +2575,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         };
         validate_authored_landmarks_clear_water(&landmarks, scene, water)?;
         trace.stage(&scene.scene_id,"entity-generation-and-preflight");
-        let (mut entities, placement_outcome, development_proposals) =
+        let (mut entities, placement_outcome, development_proposals, candidate_claims) =
             generate_entities_with_profile_report(
                 manifest.world.seed ^ scene.seed_offset,
                 scene,
@@ -3026,6 +3036,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             snapshot
         };
+        // The rule engine's own provenance for the buildings it placed. Kept out
+        // of every world that publishes no development plan: with no ledger to
+        // audit there is no rule building to distinguish, and those worlds keep
+        // their historical bytes.
+        let rule_building_candidates = development_plan
+            .as_ref()
+            .map(|plan| {
+                development::rule_building_candidates(
+                    scene,
+                    plan,
+                    &entities,
+                    &candidate_claims,
+                )
+            })
+            .unwrap_or_default();
         let mut index = SceneIndex {
             natural_terrain,
             engineered_terrain,
@@ -3042,6 +3067,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             access_surfaces,
             landmarks,
             entities,
+            rule_building_candidates,
             land_use_budget: None,
             land_use_zones: Vec::new(),
             settlement_graph: None,
@@ -3113,6 +3139,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         .expect("development has road source"),
                     &index.entities,
                     &index.access_graph,
+                    &index.rule_building_candidates,
                 )
                 .map_err(WorldgenError::InvalidRules)?;
                 landcover::apply_evidence(&mut audit, &landcover_audit);
@@ -5914,6 +5941,7 @@ fn generate_entities_with_profile_report(
     Vec<EntityInstance>,
     Option<(usize, crate::rules::PlacementOutcome)>,
     Vec<DevelopmentProposal>,
+    Vec<EntityCandidateKey>,
 )> {
     let ids = CandidateIds::new(&scene.scene_id);
     let mut development_proposals = Vec::new();
@@ -6263,7 +6291,12 @@ fn generate_entities_with_profile_report(
         }
     }
     ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
-    Ok((entities, placement_outcome, development_proposals))
+    Ok((
+        entities,
+        placement_outcome,
+        development_proposals,
+        ids.keys(),
+    ))
 }
 
 /// Re-validate / re-place the template-generated entities through the rules
@@ -11479,6 +11512,7 @@ mod tests {
                 access_graph: AccessGraph::default(),
                 access_surfaces: Vec::new(),
                 entities,
+                rule_building_candidates: Vec::new(),
             }
         };
         let first = analyze_landuse_areas(&make_index(42));
