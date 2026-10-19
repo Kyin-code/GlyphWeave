@@ -1208,8 +1208,12 @@ mod tests {
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,
-            }],
-        };
+            
+                entry_corridor: None,
+}],
+        
+            entry_corridor_policy: Default::default(),
+};
         let development = development::plan(&scene, &zones, &road).unwrap();
         let plan = development::plan_landcover(&scene, &development).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
@@ -1381,7 +1385,9 @@ mod tests {
             joint_layout: None,
             water_crossings: Vec::new(),
             water_crossing_rejections: Vec::new(),
-        };
+        
+            entry_corridor_policy: Default::default(),
+};
         let d = development::plan(&s, &[nature], &roads).unwrap();
         let p = development::plan_landcover(&s, &d).unwrap();
         let mut t = BakedTerrain::new(&s).unwrap();

@@ -10015,6 +10015,8 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
+        
+            ramp: None,
         }
     }
 
@@ -10036,6 +10038,8 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
+        
+            ramp: None,
         }
     }
 
@@ -10075,6 +10079,8 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
+        
+            ramp: None,
         }
     }
 
@@ -12045,7 +12051,9 @@ mod tests {
                 priority,
                 disturbance: 160,
                 cut_cap_mm: None,
-            },
+            
+                ramp: None,
+},
             CarveTag {
                 owner_entity_id: owner.into(),
                 owner_kind: "road".into(),
@@ -14254,7 +14262,9 @@ mod tests {
             priority: original.priority,
             disturbance: original.disturbance,
             cut_cap_mm: original.cut_cap_mm,
-        })
+        
+            ramp: None,
+})
     }
 
     /// Test-only: every component other than `removed` keeps its full signature.
@@ -19018,7 +19028,9 @@ mod tests {
                 priority,
                 disturbance,
                 cut_cap_mm: None,
-            };
+            
+                ramp: None,
+};
             let influence = g11_carve_box(&carve);
             let mut cells: Vec<serde_json::Value> = vec![];
             let mut change_cells = 0_u64;
@@ -19207,7 +19219,9 @@ mod tests {
                 priority: 10,
                 disturbance: 255,
                 cut_cap_mm: None,
-            }];
+            
+                ramp: None,
+}];
             carves.extend((0..terraces)
                 .map(|index| super::super::TerrainCarve {
                     profile: None,
@@ -19220,7 +19234,9 @@ mod tests {
                     priority: 2,
                     disturbance: 160,
                     cut_cap_mm: None,
-                })
+                
+                    ramp: None,
+})
                 .collect::<Vec<_>>());
             carves
         };
@@ -19328,7 +19344,9 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            },
+            
+                ramp: None,
+},
             super::super::TerrainCarve {
                 profile: None,
                 cx: 16.0,
@@ -19340,7 +19358,9 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            },
+            
+                ramp: None,
+},
         ];
         let overlap_high = super::super::apply_terrain_carves(0.0, 19, 16, &overlapping);
         let overlap_low = super::super::apply_terrain_carves(0.0, 12, 16, &overlapping);
@@ -19359,7 +19379,9 @@ mod tests {
                 priority: 10,
                 disturbance: 255,
                 cut_cap_mm: None,
-            },
+            
+                ramp: None,
+},
             super::super::TerrainCarve {
                 profile: None,
                 cx: 20.0,
@@ -19371,7 +19393,9 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            },
+            
+                ramp: None,
+},
         ];
         assert!(
             (super::super::apply_terrain_carves(0.0, 20, 16, &priority_pair) - 7.06).abs() < 1e-9,
@@ -20907,7 +20931,9 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            };
+            
+                ramp: None,
+};
             blocks.push(json_map(vec![
                 ("block", serde_json::json!(format!("R{}-row{}", k, z))),
                 ("cx", serde_json::json!(carve.cx)),
@@ -20933,7 +20959,9 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         blocks.push(json_map(vec![
             ("block", serde_json::json!("N-flatNorth")),
             ("cx", serde_json::json!(north_flat.cx)),
@@ -23425,7 +23453,9 @@ mod tests {
                         priority: *priority,
                         disturbance: *disturbance,
                         cut_cap_mm: None,
-                    }
+                    
+                        ramp: None,
+}
                 },
             )
             .collect()
@@ -23618,7 +23648,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let graded = super::super::TerrainCarve {
             profile: Some(std::sync::Arc::new(super::super::road_profile::RoadProfile {
                 version: 1,
@@ -23637,7 +23669,9 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let w1 = blocks
             .iter()
             .find(|carve| carve.cx == 210. && carve.priority == 2 && carve.target_h_m < 0.)
@@ -23665,7 +23699,9 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let w1_under_p10 = apply(&[old_fill.clone(), graded.clone(), higher_priority.clone(), w1.clone()]);
         let peer_high = super::super::TerrainCarve {
             profile: None,
@@ -23678,7 +23714,9 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let peer_low = super::super::TerrainCarve {
             profile: None,
             cx: 210.,
@@ -23690,7 +23728,9 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let peer_overlap_high = apply(&[old_fill.clone(), graded.clone(), peer_high.clone(), w1.clone()]);
         let peer_overlap_low = apply(&[old_fill.clone(), graded.clone(), peer_low.clone(), w1.clone()]);
         assert_eq!(without_w1, 8000, "the old high fill holds the cell");
@@ -23763,7 +23803,9 @@ mod tests {
             rotation_y_deg: site_entity.rotation_y_deg,
             natural_min_m: f32::INFINITY,
             natural_max_m: f32::NEG_INFINITY,
-        };
+        
+            entry_corridor: None,
+};
         let pad_scene = SceneSpec {
             scene_id: "g17-pad".into(),
             width_m: 40,
@@ -23877,7 +23919,9 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let (sy_protected_before, sy_protected_flag, _) =
             g11_sample_mm(&zone_terrain, &zone_mask, &base_carves, 220, 160).unwrap();
         let (sy_protected_after, _, _) = g11_sample_mm(

@@ -1075,6 +1075,14 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
+            if scene["entryCorridorAudit"].is_object()
+                && scene["entryCorridorAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} graded entry corridor failed its independent audit",
+                    scene["sceneId"]
+                ));
+            }
             if scene["jointLayoutAudit"].is_object()
                 && scene["jointLayoutAudit"]["status"] != "pass"
             {
@@ -1775,6 +1783,36 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         } else {
             None
         };
+        // OPT-IN `style.terrainPolicy.entryCorridor`: one independent recomputation
+        // of every published graded entry corridor, from the plan's own pad records,
+        // the natural raster and the published raster. Absent for a world without a
+        // corridor, so its report shape is unchanged.
+        let entry_corridor_audit = scene.road_network_plan.as_ref().and_then(|plan| {
+            if !plan.entry_corridor_policy.enabled()
+                && !plan
+                    .roadside_sites
+                    .iter()
+                    .any(|site| site.entry_corridor.is_some())
+            {
+                return None;
+            }
+            let audit = glyphweave_core::worldgen::entry_corridor::verify(
+                &plan.roadside_sites,
+                &natural_terrain,
+                &terrain,
+                spec,
+                Some(&scene.land_use_zones),
+                water,
+                plan.max_roadbed_fill_m,
+            );
+            if audit.status != "pass" {
+                warnings.push(format!(
+                    "{} graded entry corridor differs from its plan: {:?}",
+                    scene.scene_id, audit.failures
+                ));
+            }
+            Some(audit)
+        });
         let protection_audit = if scene.road_network_plan.is_some() {
             let a = glyphweave_core::worldgen::zoning::audit_protection(
                 spec,
@@ -2159,6 +2197,11 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             "landUseArea": area_reports.last(),
             "engineeringPlacement": engineering_placement_audit,
         });
+        // Only worlds that actually planned a corridor carry the key, so a world
+        // without the switch keeps the exact report shape it always had.
+        if let Some(audit) = &entry_corridor_audit {
+            scene_report["entryCorridorAudit"] = serde_json::json!(audit);
+        }
         // Only worlds that actually converted land carry the key, so a manifest without the explicit
         // switch keeps the exact report shape it always had.
         if let Some(audit) = &conversion_audit {

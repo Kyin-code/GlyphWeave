@@ -280,7 +280,9 @@ fn a_lot_above_its_own_street_is_refused_at_acceptance_by_name() {
         rotation_y_deg: 0.,
         natural_min_m: -1.0,
         natural_max_m: 0.0,
-    };
+    
+        entry_corridor: None,
+};
     let step = raster(true);
     // The honest record: a plateau at 0.000 m, one metre above its street.
     let high = site(0);
@@ -362,7 +364,9 @@ fn a_missing_natural_sample_is_an_error_not_a_guess() {
         rotation_y_deg: 0.,
         natural_min_m: 0.,
         natural_max_m: 0.,
-    };
+    
+        entry_corridor: None,
+};
     let road = EntityInstance {
         entity_id: "street".into(),
         asset_id: "prop.road".into(),
@@ -704,7 +708,9 @@ fn a_direct_entrance_never_composes_the_full_window() {
         rotation_y_deg: 0.,
         natural_min_m: 0.0,
         natural_max_m: 0.0,
-    };
+    
+        entry_corridor: None,
+};
     let water = water_geometry(WaterKind::None, &[], &scene, &json!({}));
     super::access::observation::begin_plan_windows();
     let verdict = road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water)

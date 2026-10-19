@@ -1967,7 +1967,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 2.,
             natural_max_m: 2.,
-        };
+        
+            entry_corridor: None,
+};
         let water = super::super::water_geometry(
             super::super::WaterKind::None,
             &[],

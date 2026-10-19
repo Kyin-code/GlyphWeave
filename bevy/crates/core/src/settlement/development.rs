@@ -1128,8 +1128,12 @@ mod tests {
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,
-            }],
-        };
+            
+                entry_corridor: None,
+}],
+        
+            entry_corridor_policy: Default::default(),
+};
         (scene, zones, roads)
     }
     fn access(p: &DevelopmentPlan) -> AccessGraph {

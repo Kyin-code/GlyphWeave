@@ -614,8 +614,10 @@ mod tests {
             joint_layout: None,
             water_crossings: Vec::new(),
             water_crossing_rejections: Vec::new(),
-        }
-    }
+        
+            entry_corridor_policy: Default::default(),
+}
+}
 
     fn append_network(
         plan: &mut super::super::road_network::RoadNetworkPlan,

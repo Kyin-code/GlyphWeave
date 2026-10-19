@@ -1687,7 +1687,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        };
+        
+            entry_corridor_policy: Default::default(),
+};
         let development = development::plan(&scene, &zones, &roads).unwrap();
         let plan = development::plan_landcover(&scene, &development).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
@@ -1768,7 +1770,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        };
+        
+            entry_corridor_policy: Default::default(),
+};
         let development_plan = development::plan(&scene, &zones, &roads).unwrap();
         let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
         let template = plan.cells[0].clone();
@@ -3301,7 +3305,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        };
+        
+            entry_corridor_policy: Default::default(),
+};
         let development_plan = development::plan(&scene, &zones, &roads).unwrap();
         let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
         let template = plan.cells[0].clone();

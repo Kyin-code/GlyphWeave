@@ -598,6 +598,8 @@ fn pad(id: &str, x: i32, z: i32, level_mm: i32, cap: Option<i32>) -> RoadsideSit
         rotation_y_deg: 0.,
         natural_min_m: 5.,
         natural_max_m: 5.4,
+    
+        entry_corridor: None,
     }
 }
 

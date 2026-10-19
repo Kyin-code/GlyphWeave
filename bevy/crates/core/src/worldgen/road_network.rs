@@ -46,6 +46,12 @@ pub struct RoadNetworkPlan {
     pub road_cut_mm: Option<i32>,
     #[serde(default)]
     pub zoning_hash: Option<String>,
+    /// OPT-IN `style.terrainPolicy.entryCorridor`: the policy this plan was
+    /// planned under. `off` (absent) for every world that did not declare the key,
+    /// so its published bytes are unchanged; `graded` names the one capability the
+    /// pad records below may carry.
+    #[serde(default, skip_serializing_if = "super::entry_corridor::Policy::is_off")]
+    pub entry_corridor_policy: super::entry_corridor::Policy,
     #[serde(default)]
     pub zoning_rejections: Vec<ZoningRejection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -237,6 +243,19 @@ pub struct RoadsideSite {
     /// publishes no such key, which is what keeps the default output byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earthwork_blend_m: Option<f32>,
+    /// OPT-IN `style.terrainPolicy.entryCorridor = "graded"`: this pad's own
+    /// graded, fill-only walking corridor toward the street it is assigned to,
+    /// published only when the acceptance gate failed on the historical surface
+    /// and passed on the surface the corridor makes the bake publish.
+    ///
+    /// The record has to live HERE, not only on the published entity: the pad is
+    /// rebuilt from this record by `settlement::development::plan`, the bake
+    /// composes its carve from `site.entity()`, and the independent audit
+    /// recomputes every cell from `plan + natural`. Absent (and therefore not
+    /// serialized) for every pad of every input that did not opt in, so their
+    /// published bytes are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_corridor: Option<super::entry_corridor::EntryCorridor>,
     pub rotation_y_deg: f32,
     pub natural_min_m: f32,
     pub natural_max_m: f32,
@@ -289,6 +308,10 @@ impl RoadsideSite {
                 // of the record, so "the plan's pad" and "the world's entity"
                 // cannot carry two different rings.
                 earthwork_blend_m: s.earthwork_blend_m,
+                // The OPT-IN graded entry corridor, one-for-one out of this very
+                // record: the bake's carve, the published entity and the plan's
+                // pad all describe the same strip.
+                entry_corridor: s.entry_corridor.clone(),
                 ..Default::default()
             },
             anchors: vec![s.front_anchor()],
@@ -933,6 +956,8 @@ pub(super) fn plan_with_zones(
         None,
         // A bare zoned plan never opts into the bounded cut: no style reaches it.
         0,
+        // ... and never opts into the graded entry corridor either.
+        super::entry_corridor::Policy::Off,
     )
 }
 
@@ -959,6 +984,9 @@ pub(super) fn plan_with_zones_demand(
     // The bounded-cut allowance of the longitudinal road profile, in whole millimetres: `0` for a
     // world that never opted in, which keeps the fill-only solver byte for byte.
     profile_cut_mm: i32,
+    // OPT-IN `style.terrainPolicy.entryCorridor`: `off` for every world that did not declare it,
+    // in which case no pad is ever offered a corridor and every gate below is the historical one.
+    entry_corridor: super::entry_corridor::Policy,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let zoning = zones.map(|z| ZoningMask::new(scene, z)).transpose()?;
     terrain.require_complete()?;
@@ -969,6 +997,7 @@ pub(super) fn plan_with_zones_demand(
     let max_fill = 6.;
     let mut result = RoadNetworkPlan {
         road_cut_mm: None,
+        entry_corridor_policy: entry_corridor,
         automatic_extensions: None,
         frontage: None,
         // B01-T2 C2: filled once base-edge profiles are attempted and their refusals are known
@@ -1950,19 +1979,28 @@ pub(super) fn plan_with_zones_demand(
                         },
                         natural_min_m: min,
                         natural_max_m: max,
-                    };
+                    
+                        entry_corridor: None,
+};
                     // A pad whose own street cannot be walked to is not a lot. The
                     // refusal is named and the candidate is withdrawn BEFORE the
                     // purposes are declared, so no conversion, service outcome or
                     // entity can outlive it; the station scan moves on.
-                    if let Some((category, reason)) = assigned_road_gate(
-                        &site,
+                    //
+                    // OPT-IN `style.terrainPolicy.entryCorridor`: before the
+                    // candidate is withdrawn, ONE graded walking corridor is offered
+                    // to it. It is accepted only when THIS SAME gate then passes on
+                    // the surface the corridor makes the bake publish.
+                    if let Some((category, reason)) = super::entry_corridor::gate_or_corridor(
+                        &mut site,
                         &road_entities,
                         &result.site_entities(),
                         terrain,
                         zoning.as_ref(),
                         profile_cut_mm,
                         water,
+                        result.entry_corridor_policy,
+                        max_fill,
                     )? {
                         site_rejections.push(BaseProfileRejection {
                             edge_id: site.id.clone(),
@@ -2089,18 +2127,23 @@ pub(super) fn plan_with_zones_demand(
                     },
                     natural_min_m: min,
                     natural_max_m: max,
-                };
+                
+                    entry_corridor: None,
+};
                 // Same acceptance gate on the profiled path: the pad must be enterable
                 // from the street it is assigned, on the surface the bake composes
-                // (including this plan's graded cut).
-                if let Some((category, reason)) = assigned_road_gate(
-                    &site,
+                // (including this plan's graded cut) - with ONE graded corridor
+                // offered first when the world opted into one.
+                if let Some((category, reason)) = super::entry_corridor::gate_or_corridor(
+                    &mut site,
                     &road_entities,
                     &result.site_entities(),
                     terrain,
                     zoning.as_ref(),
                     profile_cut_mm,
                     water,
+                    result.entry_corridor_policy,
+                    max_fill,
                 )? {
                     site_rejections.push(BaseProfileRejection {
                         edge_id: site.id.clone(),
@@ -2237,6 +2280,7 @@ pub(super) fn plan_with_program(
     pad_conversion: super::frontage::RuralConversion,
     shorefront_setback_m: Option<u32>,
     profile_cut_mm: i32,
+    entry_corridor: super::entry_corridor::Policy,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let mut result = plan_with_zones_demand(
         scene,
@@ -2247,6 +2291,7 @@ pub(super) fn plan_with_program(
         pad_conversion,
         shorefront_setback_m,
         profile_cut_mm,
+        entry_corridor,
     )?;
     let Some(program) = program else {
         return Ok(result);
@@ -2665,6 +2710,10 @@ pub(super) fn plan_with_style_declared(
     // opts in) keeps the historical fill-only solver byte for byte.
     let (profile_cut_policy, _) = super::bounded_cut::CutPolicy::from_style(style);
     let profile_cut_mm = profile_cut_policy.cap_mm();
+    // The OPT-IN graded entry corridor, read once. `Off` (the default) is inert
+    // everywhere below: no pad is offered a corridor, no gate changes its verdict
+    // and no record, carve or published byte moves.
+    let (entry_corridor, _) = super::entry_corridor::Policy::from_style(style);
     let mut result = plan_with_program(
         scene,
         terrain,
@@ -2674,6 +2723,7 @@ pub(super) fn plan_with_style_declared(
         pad_conversion,
         super::frontage::shorefront_row_contract(style),
         profile_cut_mm,
+        entry_corridor,
     )?;
     if super::road_extensions::from_style(style)?.is_some() {
         super::road_extensions::append(
@@ -7797,6 +7847,8 @@ fn verify_impl(
             None,
             // ...and no style means no bounded-cut policy either.
             0,
+            // ...and no style means no graded entry corridor either.
+            super::entry_corridor::Policy::Off,
         )?
     };
     let mut expected = expected;
@@ -8932,17 +8984,32 @@ pub(super) fn refuse_entrances_lost_after_pad_list(
     // The graded-road allowance the plan's own `entities()` stamps, so the surface
     // this gate composes is the one the bake publishes.
     let cut_mm = plan.road_cut_mm.unwrap_or(0);
+    let corridor_policy = plan.entry_corridor_policy;
     let mut rejections: Vec<BaseProfileRejection> = Vec::new();
     loop {
         let roads = plan.entities();
         let pads = plan.site_entities();
         let mut lost: Option<(String, String)> = None;
-        for site in &plan.roadside_sites {
+        for index in 0..plan.roadside_sites.len() {
+            let site = &mut plan.roadside_sites[index];
             let measured = if roads.iter().any(|road| road.entity_id == site.road_id) {
                 // The gate's own words: the streets the checked route DID reach with
                 // their lengths, or the statuses it ended on when it reached none.
-                assigned_road_gate(site, &roads, &pads, natural, mask.as_ref(), cut_mm, water)?
-                    .map(|(_, reason)| reason)
+                // OPT-IN `style.terrainPolicy.entryCorridor`: a pad buried by a later
+                // generator is offered ONE graded corridor here too - this is exactly
+                // the moment the burial is understood.
+                super::entry_corridor::gate_or_corridor(
+                    site,
+                    &roads,
+                    &pads,
+                    natural,
+                    mask.as_ref(),
+                    cut_mm,
+                    water,
+                    corridor_policy,
+                    plan.max_roadbed_fill_m,
+                )?
+                .map(|(_, reason)| reason)
             } else {
                 // A road withdrawn after the pad was accepted (the graded road's
                 // own fill-contract probe is the one generator that does that, and
@@ -8955,6 +9022,7 @@ pub(super) fn refuse_entrances_lost_after_pad_list(
                     site.road_id
                 ))
             };
+            let site = &plan.roadside_sites[index];
             if let Some(measured) = measured {
                 // The measured geometry the refusal is read from: how far the lot's
                 // door stands from the nearest pavement the walk could have used.

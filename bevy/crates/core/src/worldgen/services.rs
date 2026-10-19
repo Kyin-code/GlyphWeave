@@ -609,19 +609,27 @@ fn append_with(
                                     height_m: r.height_m,
                                 }),
                                 purpose: None,
-                            };
+                            
+                                entry_corridor: None,
+};
                             // The checked entrance is judged BEFORE the purpose verdict, so a pad whose
                             // own street cannot be walked to never converts land, never books a service
                             // outcome and never publishes an entity. The verdict comes from the same
                             // search the post-bake access audit runs, on the surface the bake composes.
-                            if let Some((category, _)) = super::road_network::assigned_road_gate(
-                                &site,
+                            //
+                            // OPT-IN `style.terrainPolicy.entryCorridor`: before the candidate is
+                            // withdrawn, ONE graded walking corridor is offered to it - accepted only
+                            // when this SAME gate then passes on the surface the corridor publishes.
+                            if let Some((category, _)) = super::entry_corridor::gate_or_corridor(
+                                &mut site,
                                 &road_entities,
                                 &result.site_entities(),
                                 natural,
                                 Some(&mask),
                                 road_cut_mm,
                                 water,
+                                result.entry_corridor_policy,
+                                result.max_roadbed_fill_m,
                             )? {
                                 // The service outcome publishes refusal COUNTS, one per named
                                 // category: the pad is withdrawn here, before any conversion, so

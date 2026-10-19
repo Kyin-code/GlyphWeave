@@ -776,7 +776,9 @@ pub(super) fn candidate_site(
         rotation_y_deg: yaw,
         natural_min_m: f32::INFINITY,
         natural_max_m: f32::NEG_INFINITY,
-    })
+    
+        entry_corridor: None,
+})
 }
 /// Scene envelope and purpose gate, applied before any engineering preflight.
 ///
@@ -2929,7 +2931,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 2.,
             natural_max_m: 2.,
-        };
+        
+            entry_corridor: None,
+};
         let bank_fits = make(1500);
         let bank_too_deep = make(2500);
         let off = super::super::bounded_cut::CutPolicy::Disabled;
@@ -3005,7 +3009,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 1.5,
             natural_max_m: 1.5,
-        };
+        
+            entry_corridor: None,
+};
         let policy = CutPolicy::Bounded { max_cut_mm: 2000 };
         // The accepted pad is a REAL bench: its published record carries the cap, and
         // that is what the candidate is measured against.
@@ -3164,7 +3170,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        };
+        
+            entry_corridor: None,
+};
         let bench = |level_mm: i32| RoadsideSite {
             program: None,
             purpose: None,
@@ -3183,7 +3191,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        };
+        
+            entry_corridor: None,
+};
         let contains = |area: [i64; 4], x: i32, z: i32| {
             area[0] <= i64::from(x)
                 && i64::from(x) <= area[2]
@@ -3310,7 +3320,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        };
+        
+            entry_corridor: None,
+};
         let mut detail = None;
         let prospective = cut_cap_for_site(&site, &flat, forged);
         let reason = support_check(
@@ -4271,7 +4283,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let mut before = e.clone();
         before.grounding.frontage_road_point = None;
         let mut old = super::super::plan_terrain_carves(&[before]);
@@ -4618,7 +4632,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 0.,
             natural_max_m: 0.,
-        };
+        
+            entry_corridor: None,
+};
         assert_eq!(pad_conversion_area(&site, &rural), Some(484));
         let urban_site = RoadsideSite { world_z: 112, ..site.clone() };
         assert_eq!(pad_conversion_area(&urban_site, &rural), None);

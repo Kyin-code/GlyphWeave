@@ -16,6 +16,11 @@ use crate::settlement::{
 };
 mod access;
 pub mod bounded_cut;
+/// OPT-IN `style.terrainPolicy.entryCorridor = "graded"`: the graded, fill-only
+/// walking corridor a pad needs when the street it is assigned to stands above it
+/// and only the street's own fill slope lies between the door and the pavement
+/// (see the module docs for the contract and the ledger).
+pub mod entry_corridor;
 /// The graded road's bounded-cut support contract: the plan-stage probe that
 /// refuses a road BY NAME when its own cut still cannot bring the roadbed inside
 /// the 6 m fill contract (see the module docs).
@@ -145,6 +150,17 @@ struct TerrainCarve {
     /// that did not opt in - is the historical fill-only contract, and
     /// `apply_terrain_carves` never lowers the ground for it.
     cut_cap_mm: Option<i32>,
+    /// OPT-IN `style.terrainPolicy.entryCorridor`: this carve is a graded walking
+    /// ramp (see [`entry_corridor`]). Its target height varies along one axis, and
+    /// inside its own pavement it OWNS the published surface - it replaces the
+    /// pad's own fill rather than competing with it - because the whole point of
+    /// the ramp is to remove a fill bulge the pad's ring placed. It never lowers
+    /// the natural ground (the target is always `>= natural`), so it is not an
+    /// excavation, and a road's flat top still wins over it.
+    ///
+    /// `None` for every other carve of every other input, so the historical
+    /// composition is bit-for-bit unchanged when the policy is off.
+    ramp: Option<std::sync::Arc<entry_corridor::EntryRamp>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -208,6 +224,17 @@ pub struct GroundingSpec {
     /// footprint value, which is about structures - keeps its historical bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earthwork_blend_m: Option<f32>,
+    /// OPT-IN `style.terrainPolicy.entryCorridor = "graded"`: this pad's own
+    /// graded walking corridor toward the street it is assigned to, when the
+    /// checked entrance needed one.
+    ///
+    /// Only [`entry_corridor::gate_or_corridor`] ever sets it, and only after the
+    /// SAME acceptance gate failed on the surface the bake would have published
+    /// and then passed on the surface the corridor makes it publish. Absent (and
+    /// therefore not serialized) for every other entity of every other input, so
+    /// a world that never asked keeps its published bytes exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_corridor: Option<entry_corridor::EntryCorridor>,
 }
 
 fn default_grounding_tolerance_m() -> f32 {
@@ -226,6 +253,7 @@ impl Default for GroundingSpec {
             structure_deck: false,
             bounded_cut_mm: None,
             earthwork_blend_m: None,
+            entry_corridor: None,
         }
     }
 }
@@ -5182,7 +5210,9 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             priority: if is_road { 10 } else { 1 },
             disturbance: if is_road { 255 } else { 160 },
             cut_cap_mm,
-        });
+        
+            ramp: None,
+});
         if is_building {
             if let Some([rx,rz]) = entity.grounding.frontage_road_point {
                 if let Some(anchor) = entity.anchors.first() {
@@ -5201,7 +5231,9 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                         // walkable 25% approach over the 20 m setback carries the
                         // same rise the cut takes out of the platform.
                         cut_cap_mm: None,
-                    });
+                    
+                        ramp: None,
+});
                 }
             }
             // Generated entrance aprons are part of the engineered support
@@ -5219,6 +5251,42 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
+                    ramp: None,
+                });
+            }
+            // OPT-IN `style.terrainPolicy.entryCorridor`: the pad's own graded
+            // walking corridor, when the acceptance gate needed one. It is the
+            // pad's OWN earthwork re-graded - a notch through this pad's fill -
+            // and its carve box covers the strip plus its 2 m side ring so the
+            // spatial index visits every cell it can claim.
+            if let Some(corridor) = &entity.grounding.entry_corridor {
+                let (across_lo, across_hi) = corridor.across_range();
+                let (near, far) = corridor.axis_range();
+                let (across_c, along_c) = (
+                    (f64::from(across_lo) + f64::from(across_hi)) * 0.5,
+                    (f64::from(near) + f64::from(far)) * 0.5,
+                );
+                let half_across = (f64::from(across_hi) - f64::from(across_lo)) * 0.5
+                    + entry_corridor::RING_M;
+                let half_along =
+                    (f64::from(far) - f64::from(near)).abs() * 0.5 + entry_corridor::RING_M;
+                let (cx, cz, half_w, half_d) = if corridor.along_x() {
+                    (along_c, across_c, half_along, half_across)
+                } else {
+                    (across_c, along_c, half_across, half_along)
+                };
+                carves.push(TerrainCarve {
+                    profile: None,
+                    cx,
+                    cz,
+                    half_w,
+                    half_d,
+                    target_h_m: f64::from(entity.ground_height_m()),
+                    blend_m: entry_corridor::RING_M,
+                    priority: entry_corridor::PRIORITY,
+                    disturbance: 160,
+                    cut_cap_mm: None,
+                    ramp: Some(std::sync::Arc::new(corridor.ramp())),
                 });
             }
         }
@@ -5925,6 +5993,16 @@ where
     // "declared top is the surface, cell for cell" obligation; every other carve
     // stays fill-first.
     let mut pad_platform: Option<f64> = None;
+    // OPT-IN `style.terrainPolicy.entryCorridor`: the graded walking ramp whose
+    // pavement or side ring holds this cell. A ramp is the pad's own fill re-graded,
+    // so inside its pavement it owns the published surface (it replaces the pad's
+    // ring instead of competing with it - a `max` would keep the very bulge the ramp
+    // exists to remove), and in its side band it replaces blended fill for the same
+    // reason: the bank of a graded ramp is a shape, not a competing pad. It is always
+    // at or above the natural ground, so it is never an excavation; a road's own
+    // band, a road cut and a cap-carrying pad's platform still win over it. `None`
+    // for every cell of every input that did not opt in.
+    let mut ramp_claim: Option<f64> = None;
     // The support surface of a GRADED ROAD whose transport band (graded flat top +
     // the corridor's shoulder) holds this cell, and which no other entity's
     // support window claims. Inside that band the road's own surface - its
@@ -6001,6 +6079,29 @@ where
     }
     for i in 0..count {
         let carve = at(i);
+        // OPT-IN `style.terrainPolicy.entryCorridor`: a graded walking ramp has
+        // no flat top and no blend ring of its own. Its pavement claims the cell
+        // (see `ramp_claim`), and its 2 m side ring is ordinary FILL, exactly the
+        // shape a pad's ring has - so a ramp never excavates and never competes
+        // with a road's band.
+        if let Some(ramp) = &carve.ramp {
+            let along = ramp.along(xf, zf);
+            if along >= -0.5 && along <= ramp.stations() + 0.5 {
+                let across = ramp.across(xf, zf);
+                let target = ramp.target_m(xf, zf);
+                if across <= ramp.half_width {
+                    ramp_claim =
+                        Some(ramp_claim.map_or(target, |known: f64| known.max(target)));
+                } else if across <= ramp.half_width + carve.blend_m && target > base_terrain {
+                    let t =
+                        ((across - ramp.half_width) / carve.blend_m).clamp(0.0, 1.0);
+                    let smooth_t = t * t * (3.0 - 2.0 * t);
+                    let bank = target + (base_terrain - target) * smooth_t;
+                    ramp_claim = Some(ramp_claim.map_or(bank, |known: f64| known.max(bank)));
+                }
+            }
+            continue;
+        }
         let dx = (xf - carve.cx).abs();
         let dz = (zf - carve.cz).abs();
         let outside_x = dx - carve.half_w;
@@ -6146,6 +6247,11 @@ where
         terrain
     } else if let Some(platform) = pad_platform {
         platform
+    } else if let Some(claim) = ramp_claim {
+        // The graded entry corridor's own pavement. It replaces the pad's fill
+        // here (that is what makes the walk 25 % instead of the ring's 37 %), and
+        // it can never publish below the natural ground.
+        claim.max(base_terrain)
     } else if terrain > base_terrain {
         terrain
     } else {
@@ -10874,7 +10980,9 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let (height, surface, lod2, terrain) =
             generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, std::slice::from_ref(&carve));
         assert_eq!(height.len(), 64 * 64 * 2);
@@ -10943,7 +11051,9 @@ mod tests {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
-                },
+                
+                    ramp: None,
+},
                 TerrainCarve {
                     profile: None,
                     cx: f64::from(base_x) - 2000.,
@@ -10955,7 +11065,9 @@ mod tests {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
-                },
+                
+                    ramp: None,
+},
             ];
             let filtered: Vec<_> = carves
                 .iter()
@@ -10983,7 +11095,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let far = TerrainCarve {
             profile: None,
             cx: 2_000.,
@@ -10995,7 +11109,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         assert!(carve_intersects_chunk(&near, 0, 0, 512, 512));
         assert!(!carve_intersects_chunk(&far, 0, 0, 512, 512));
         assert!(carve_intersects_chunk(&near, 512, 512, 16, 16));
@@ -11041,7 +11157,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         let b = TerrainCarve {
             profile: None,
             cx: 410.,
@@ -11074,7 +11192,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         assert_eq!(
             terrain_height_with_geometry_carved(20260829, 400, 400, water, std::slice::from_ref(&carve)),
             natural,
@@ -11096,7 +11216,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        };
+        
+            ramp: None,
+};
         // Inside the pad the height is the flat target, independent of the
         // underlying natural terrain (which varies with position).
         for (x, z) in [(350, 360), (400, 400), (449, 439), (370, 425)] {

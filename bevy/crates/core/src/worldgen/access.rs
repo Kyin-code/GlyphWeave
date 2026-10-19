@@ -1631,7 +1631,9 @@ mod tests {
             rotation_y_deg: yaw as f32,
             natural_min_m: support_mm as f32 / 1000.,
             natural_max_m: support_mm as f32 / 1000.,
-        };
+        
+            entry_corridor: None,
+};
         let house = site.entity();
         assert_eq!((house.world_x, house.world_z), (x, z));
         assert_eq!(house.rotation_y_deg, yaw as f32);
