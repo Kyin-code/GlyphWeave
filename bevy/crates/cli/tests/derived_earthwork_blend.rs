@@ -117,7 +117,13 @@ const PLANNED_PADS: usize = 19;
 /// unchanged. The WATERFRONT fixture never opted into the policy and is byte-frozen:
 /// its constant does not move.
 ///
-/// Round 44 moves BOTH, and moves no geometry by a byte: the scene now publishes the
+/// Round 45 moves the HILLSIDE digest only, and moves exactly one lot: the
+/// gorge shop whose own street stood a step below its plateau
+/// (...gorge-shops...0.2.64.positive) is now refused at ACCEPTANCE by the
+/// walkable-entrance gate, so the scene loses that one entity (437 -> 436) and
+/// its 23rd pad (22 pads, 15 homes, 6 shops). The WATERFRONT fixture is
+/// untouched: its constant does not move.
+/// Round 44 moved BOTH, and moved no geometry by a byte: the scene now publishes the
 /// generator's own candidate keys for the buildings the RULE ENGINE placed
 /// (`ruleBuildingCandidates`), so the development audit can count them apart
 /// (`ruleGeneratedBuildings`) instead of reporting them as
@@ -129,7 +135,7 @@ const PLANNED_PADS: usize = 19;
 /// ledger-less world, which publishes neither the array nor the count and is frozen
 /// to its own constant measured from the HEAD binary.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "dc17409eead06d6e803de2696e6df9e374f36bd2f9f8216b72c3cda2397673d3";
+    "730746dbd335467defe5f1398581d27e4b9acc12e910c7f9e78748ff70985cea";
 const FROZEN_WATERFRONT_DIGEST: &str =
     "fb7d68d38580547bf81a21c09a97557d12c96f9a1ffee785e283d4a97b0aadbd";
 /// The ring every planned pad of the grown hillside town derives, by kind:

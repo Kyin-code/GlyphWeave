@@ -2,6 +2,7 @@
 //! A road-distance hint is not connectivity. Each accepted route carries its
 //! checked polyline; absence of a route is reported, never deferred by origin.
 use super::*;
+use crate::baked_terrain::TerrainError;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap},
@@ -449,6 +450,152 @@ pub(super) fn access_for_entity(
         observation::leave();
     }
     links
+}
+
+/// Plan-time entrance contract: the checked links of a candidate pad against the
+/// surface the bake will publish, on the streets the plan has already fixed.
+///
+/// The published `AccessGraph` is only rebuilt AFTER the bake, so a pad whose
+/// entrance the final raster does not carry can no longer be refused without
+/// leaving a planned lot, a service outcome, a conversion and an entity behind.
+/// Acceptance therefore has to ask the same question in advance: this composes
+/// the plan's own carves (`plan_terrain_carves` + `apply_terrain_carves`, the
+/// functions the baked raster reads) over a local window and then runs the very
+/// same search the audit runs (`access_for_entity` -> `route` ->
+/// `segment_clear`). No second rule, threshold or route predicate is introduced.
+///
+/// `road_cut_mm` is the plan's graded-road allowance. The bake cuts a profiled
+/// road down to its authored surface; a gate that omits that cut judges the
+/// UN-CUT hillside, which is precisely how a lot can pass acceptance and then be
+/// found unreachable after the bake (measured: the 512 m hillside gorge shop,
+/// where the street edge stands 0.6 m below the natural bank the pad's door
+/// looks across).
+///
+/// The window is two-phase, because composing a whole-kilometre raster for every
+/// candidate is far too expensive to run inside a planning loop:
+///
+///  * PHASE 1 is the candidate, the assigned road's nearest point and a 24 m
+///    margin. It is enough to decide the common case, because `route` tries every
+///    street's DIRECT segment before it searches: a street nearer than the
+///    assigned one has its nearest point inside the pad+street box, and the
+///    straight segment between two points inside a box stays inside it.
+///  * PHASE 2 is the search's own length budget (`MAX_LENGTH`): a checked route
+///    never exceeds it, so every node a route could use lies inside that box. It
+///    is only composed when PHASE 1 found no route at all - i.e. for exactly the
+///    candidates that then have to be judged on a detour.
+///
+/// Edges are clamped to the source raster so a window stays complete and the
+/// search cannot walk off-map.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn plan_time_links(
+    candidate: &EntityInstance,
+    assigned_road: &str,
+    roads: &[EntityInstance],
+    neighbours: &[EntityInstance],
+    natural: &BakedTerrain,
+    mask: Option<&zoning::ZoningMask>,
+    road_cut_mm: Option<i32>,
+    water: WaterGeometry,
+) -> Result<Vec<AccessLink>, TerrainError> {
+    let Some(road) = roads.iter().find(|r| r.entity_id == assigned_road) else {
+        return Err(TerrainError(format!(
+            "assigned road {assigned_road} is not in the plan"
+        )));
+    };
+    let mut entities: Vec<EntityInstance> = roads.to_vec();
+    if let Some(cap) = road_cut_mm {
+        for road in &mut entities {
+            if road.grounding.road_profile.is_some() {
+                road.grounding.bounded_cut_mm = Some(cap);
+            }
+        }
+    }
+    entities.extend_from_slice(neighbours);
+    entities.push(candidate.clone());
+    let carves = super::plan_terrain_carves(&entities);
+    // The candidate footprint plus the street it is assigned to. Half extents
+    // are rotated into world axes exactly as the carve does.
+    let centre = point(f64::from(candidate.world_x), f64::from(candidate.world_z));
+    let (sin, cos) = f64::from(candidate.rotation_y_deg).to_radians().sin_cos();
+    let half_w = f64::from(candidate.width_m) * 0.5;
+    let half_d = f64::from(candidate.depth_m) * 0.5;
+    let extent_x = half_w * cos.abs() + half_d * sin.abs();
+    let extent_z = half_w * sin.abs() + half_d * cos.abs();
+    let near = closest(road, centre);
+    let compose = |margin: f64| -> Result<Vec<AccessLink>, TerrainError> {
+        // All window arithmetic is done in i64: a scene may sit at the very edge of
+        // the i32 grid, and the clamp/extend steps must not overflow there.
+        let mut x0 = (centre.x - extent_x - margin).floor().min(near.x.floor()) as i64;
+        let mut x1 = (centre.x + extent_x + margin).ceil().max(near.x.ceil()) as i64;
+        let mut z0 = (centre.z - extent_z - margin).floor().min(near.z.floor()) as i64;
+        let mut z1 = (centre.z + extent_z + margin).ceil().max(near.z.ceil()) as i64;
+        let (origin_x, origin_z) = natural.scene_origin();
+        let (width, depth) = natural.scene_dimensions();
+        let (origin_x, origin_z) = (i64::from(origin_x), i64::from(origin_z));
+        x0 = x0.max(origin_x);
+        z0 = z0.max(origin_z);
+        x1 = x1.min(origin_x + i64::from(width) - 1);
+        z1 = z1.min(origin_z + i64::from(depth) - 1);
+        // A window wider than one chunk cannot be inserted; keep the street side.
+        x0 = x0.max(x1 - 511);
+        z0 = z0.max(z1 - 511);
+        if x1 < x0 || z1 < z0 {
+            return Err(TerrainError("plan-time access window is empty".into()));
+        }
+        let (x0, x1, z0, z1) = (x0 as i32, x1 as i32, z0 as i32, z1 as i32);
+        let local = SceneSpec {
+            scene_id: "access-preflight".into(),
+            width_m: (x1 - x0 + 1) as u32,
+            depth_m: (z1 - z0 + 1) as u32,
+            origin_x: x0,
+            origin_z: z0,
+            seed_offset: 0,
+        };
+        let mut values = Vec::with_capacity((x1 - x0 + 1) as usize * (z1 - z0 + 1) as usize);
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                // The PUBLISHED surface, composed by the function the bake's chunk
+                // encoder reads: the road's own cut and band, a cap-carrying pad's
+                // platform, the zoning fill taper and the water exclusions.
+                let h = super::published_surface_from_raster(natural, mask, water, &carves, x, z)
+                    .ok_or_else(|| {
+                        TerrainError(format!(
+                            "missing natural sample ({x},{z}) in plan-time access window"
+                        ))
+                    })?;
+                values.push(h);
+            }
+        }
+        let mut raster = BakedTerrain::new(&local)?;
+        raster.insert_chunk(
+            x0,
+            z0,
+            local.width_m,
+            local.depth_m,
+            &crate::height_payload::encode_millimetres(local.width_m, local.depth_m, values)?,
+        )?;
+        Ok(access_for_entity(candidate, &entities, &raster, water))
+    };
+    let first = compose(24.)?;
+    // Only a DIRECT route decides anything in the short window: `route` tries the
+    // straight segment to every street before it searches, the segment between two
+    // points of the box stays inside the box, and a street nearer than the assigned
+    // one has its nearest point inside it - so the ordered direct attempts, and
+    // therefore their verdict, are the ones the full raster would take. A route
+    // that needed the A* search may be a DETOUR whose end depends on how far the
+    // walker may wander (measured: the hillside shop enters its own street through
+    // a dip 20 m along when the search is boxed, while the published search - free
+    // to walk 120 m - ends on the next street), so it is always decided on the full
+    // budget below.
+    let direct_to_assigned = first.iter().any(|link| {
+        link.connected
+            && link.road_id.as_deref() == Some(assigned_road)
+            && link.path.len() <= 3
+    });
+    if direct_to_assigned {
+        return Ok(first);
+    }
+    compose(MAX_LENGTH + 4.)
 }
 
 pub fn build_access_graph(

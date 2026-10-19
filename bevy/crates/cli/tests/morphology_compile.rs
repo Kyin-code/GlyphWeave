@@ -180,7 +180,7 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
         "only the public-space share is derived from the profile"
     );
     let audit = &scene["landcoverAudit"];
-    assert_eq!(audit["publicOpenSpaceAreaM2"], json!(16387.0));
+    assert_eq!(audit["publicOpenSpaceAreaM2"], json!(16443.0));
     assert_eq!(audit["pastureAreaM2"], json!(0.0), "no pasture share was stated");
     assert_eq!(
         audit["residualDefaultedRatios"],
@@ -190,10 +190,10 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     // The open space is real surface area in the urban row, and the row and the
     // scene both conserve.
     let urban = &scene["landUseLedger"]["byPurpose"]["urban"];
-    assert_eq!(urban["physical"]["publicOpenSpaceM2"], json!(16387.0));
+    assert_eq!(urban["physical"]["publicOpenSpaceM2"], json!(16443.0));
     assert_eq!(urban["plannedM2"], json!(180224.0));
-    assert_eq!(urban["realizedM2"], json!(22059.0));
-    assert_eq!(urban["unresolvedM2"], json!(158165.0));
+    assert_eq!(urban["realizedM2"], json!(20963.0));
+    assert_eq!(urban["unresolvedM2"], json!(159261.0));
     assert_eq!(
         urban["realizedM2"].as_f64().unwrap() + urban["unresolvedM2"].as_f64().unwrap(),
         urban["plannedM2"].as_f64().unwrap(),
@@ -201,8 +201,8 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     );
     let ledger = &scene["landUseLedger"];
     assert_eq!(ledger["sceneAreaM2"], json!(262144.0));
-    assert_eq!(ledger["realizedM2"], json!(54827.0));
-    assert_eq!(ledger["unresolvedM2"], json!(207317.0));
+    assert_eq!(ledger["realizedM2"], json!(53731.0));
+    assert_eq!(ledger["unresolvedM2"], json!(208413.0));
     assert_eq!(
         ledger["realizedM2"].as_f64().unwrap() + ledger["unresolvedM2"].as_f64().unwrap(),
         ledger["sceneAreaM2"].as_f64().unwrap(),
@@ -237,7 +237,7 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     }
     assert_eq!(published_open_space, audit["publicOpenSpaceAreaM2"]);
     assert_eq!(
-        audit["unresolvedAreaM2"], json!(207197.0),
+        audit["unresolvedAreaM2"], json!(208053.0),
         "the public space moved area out of unresolved, it did not fake completion"
     );
     // The share is a per-cell target, not a claim: the realized area can never
@@ -254,7 +254,7 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
             (area * 0.1).floor()
         })
         .sum();
-    assert_eq!(target, 17411.0, "the per-cell public-space target");
+    assert_eq!(target, 17467.0, "the per-cell public-space target");
     assert!(
         published_open_space <= target,
         "open space {published_open_space} m2 exceeds the {target} m2 target"

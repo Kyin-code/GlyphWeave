@@ -142,6 +142,7 @@ pub(super) fn append(
     zones: &[super::LandUseZone],
     program: &ServiceProgram,
     pad_conversion: super::frontage::RuralConversion,
+    road_cut_mm: i32,
 ) -> Result<(), TerrainError> {
     append_with(
         result,
@@ -154,6 +155,7 @@ pub(super) fn append(
         None,
         false,
         &[12_i64, 28, 44],
+        road_cut_mm,
     )
 }
 
@@ -177,6 +179,7 @@ pub(super) fn append_shorefront(
     pad_conversion: super::frontage::RuralConversion,
     only_roads: &std::collections::BTreeSet<String>,
     setbacks: &[i64],
+    road_cut_mm: i32,
 ) -> Result<(), TerrainError> {
     append_with(
         result,
@@ -189,6 +192,7 @@ pub(super) fn append_shorefront(
         Some(only_roads),
         true,
         setbacks,
+        road_cut_mm,
     )
 }
 
@@ -207,6 +211,10 @@ fn append_with(
     only_roads: Option<&std::collections::BTreeSet<String>>,
     enforce_shore_band: bool,
     setbacks: &[i64],
+    // The plan's graded-road cut allowance in millimetres (`0` = none). The
+    // acceptance gate below composes the surface the bake publishes, so it must
+    // know the street's own excavation.
+    road_cut_mm: i32,
 ) -> Result<(), TerrainError> {
     let mask = ZoningMask::new(scene, zones)?;
     for r in program
@@ -602,6 +610,28 @@ fn append_with(
                                 }),
                                 purpose: None,
                             };
+                            // The checked entrance is judged BEFORE the purpose verdict, so a pad whose
+                            // own street cannot be walked to never converts land, never books a service
+                            // outcome and never publishes an entity. The verdict comes from the same
+                            // search the post-bake access audit runs, on the surface the bake composes.
+                            if let Some((category, _)) = super::road_network::assigned_road_gate(
+                                &site,
+                                &road_entities,
+                                &result.site_entities(),
+                                natural,
+                                Some(&mask),
+                                road_cut_mm,
+                                water,
+                            )? {
+                                // The service outcome publishes refusal COUNTS, one per named
+                                // category: the pad is withdrawn here, before any conversion, so
+                                // plan, service record, joint layout and entity list all agree.
+                                *outcome
+                                    .rejected_candidates
+                                    .entry(category.into())
+                                    .or_default() += 1;
+                                continue;
+                            }
                             // The pad declares a purpose BEFORE it lands (explicit policy only). It
                             // is applied last, after every engineering gate above, so a refused
                             // water, shore-band, reserved-land or fill candidate keeps its own
@@ -791,6 +821,7 @@ mod tests {
             &z,
             &request("school", 40, 30),
             super::super::frontage::RuralConversion::Disabled,
+            0,
         )
         .unwrap();
         assert_eq!(p.roadside_sites.len(), 2);
@@ -836,6 +867,7 @@ mod tests {
             &z,
             &request("school", 80, 60),
             super::super::frontage::RuralConversion::Disabled,
+            0,
         )
         .unwrap();
         assert_eq!(p.roadside_sites.len(), 1);
@@ -862,6 +894,7 @@ mod tests {
             &z,
             &request("church", 20, 28),
             super::super::frontage::RuralConversion::Disabled,
+            0,
         )
         .unwrap();
         let mut e = p.site_entities();

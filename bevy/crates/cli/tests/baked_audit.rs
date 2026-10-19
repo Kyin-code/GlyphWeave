@@ -1310,7 +1310,13 @@ fn zoned_bake_preserves_reserved_samples_and_rejects_forged_evidence() {
         serde_json::json!([])
     );
     assert!(q["roadNetworkAudit"]["plannedEdges"].as_u64().unwrap() > 0);
-    assert!(q["roadNetworkAudit"]["plannedSites"].as_u64().unwrap() > 0);
+    // Round 45: this world's graded streets were cut below the network level the
+    // roadside pads declare, so every centre placement is a lot standing a step
+    // above its own street. The walkable-entrance gate refuses those at
+    // acceptance (the same rule R13 already applies to a demanded settlement), so
+    // this scene publishes no roadside lot at all. The audit must still hold its
+    // own arithmetic on an empty set.
+    assert_eq!(q["roadNetworkAudit"]["plannedSites"].as_u64().unwrap(), 0);
     assert_eq!(
         q["roadNetworkAudit"]["plannedSites"],
         q["roadNetworkAudit"]["realizedSites"]

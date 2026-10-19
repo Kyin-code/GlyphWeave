@@ -48,7 +48,7 @@ const SCENE_SIZE_M: u32 = 512;
 const FROZEN_WATERFRONT_DIGEST: &str =
     "a9630499b3e5d6c5ecc32c6037de69d04cc0e89daad7a79307ac64f625c205b4";
 const FROZEN_WATERLESS_DIGEST: &str =
-    "d95e8697be92f38bafa7eacd3b6550c1ece62e4034d6248f13f2b70b7770fb3d";
+    "841ae2537cab5a74cc5b9732dec598a303e0e862e606eea9263319be12548da0";
 
 struct TestDir(PathBuf);
 impl TestDir {

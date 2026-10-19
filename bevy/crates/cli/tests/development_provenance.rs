@@ -24,9 +24,9 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const PLAINS: &str = include_str!("../../../../examples/service-program-plains.manifest.json");
 
 /// The committed hillside town's own numbers, measured from the published world.
-const HILLSIDE_ENTITIES: usize = 437;
+const HILLSIDE_ENTITIES: usize = 436;
 const HILLSIDE_URBAN_BUILDINGS: usize = 2;
-const HILLSIDE_PLANNED: usize = 23;
+const HILLSIDE_PLANNED: usize = 22;
 const HILLSIDE_REALIZED: usize = 22;
 const HILLSIDE_RULE_GENERATED: usize = 2;
 
@@ -199,10 +199,12 @@ fn the_rule_generated_buildings_are_counted_apart_and_leave_the_failure_list() {
             .any(|failure| failure == "buildings_without_development_plan"),
         "the rule structures no longer masquerade as stray buildings: {audit}"
     );
-    // One real gap remains - a shop pad with no verified assigned road access -
-    // and the audit still reports it by name.
-    assert_eq!(audit["failures"].as_array().unwrap().len(), 1);
-    assert_eq!(audit["status"], "fail");
+    // Round 45: the one real gap this test used to pin - a shop pad with no
+    // verified assigned road access - is now refused at acceptance, so the audit
+    // has no failure left and the world is merely incomplete (the remaining land
+    // and the yard surface are ordinary open work, not a refusal).
+    assert_eq!(audit["failures"], json!([]));
+    assert_eq!(audit["status"], "incomplete");
 
     // The CLI rebuilds the same audit from the published scene, so the count is
     // not a bake-only artefact.

@@ -65,14 +65,16 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const MAX_CUT_MM: i32 = 2000;
 /// Pads the benched plan publishes: 15 homes, 6 storefronts and 1 school, of which
 /// seven carry a real excavation (four benched homes, two shops and the school).
-const PLANNED_PADS: usize = 23;
-const CUT_PADS: usize = 8;
+/// Round 45 refused the gorge shop whose own street stood a step below its
+/// plateau, so the plan is 22 lots and 7 excavations instead of 23 and 8.
+const PLANNED_PADS: usize = 22;
+const CUT_PADS: usize = 7;
 /// The excavation the scene actually holds, summed ONCE from the two published
 /// rasters: the number the ledger must equal (Round 28 booked 2,160 cells /
 /// 1,099 m3 because 273 cells stood in two footprints at once).
-const SCENE_CUT_CELLS: u64 = 2408;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 987_977;
-const SCENE_CUT_VOLUME_M3: f64 = 987.977;
+const SCENE_CUT_CELLS: u64 = 2237;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 907_597;
+const SCENE_CUT_VOLUME_M3: f64 = 907.597;
 const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
 /// Candidates refused because their cut footprint intersected an accepted pad's:
 /// two homes and two storefronts.
@@ -405,10 +407,11 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     // The dwellings and the one facility the programme asks for are all there.
     let development = read_json(scene_dir(&dir).join("development-audit.json"));
     assert_eq!(development["plannedBuildings"], json!(PLANNED_PADS));
-    // Round 42: one accepted shop of the new plan has no verified assigned road
-    // access yet (the release gate names it by id), so the world realizes one
-    // building fewer than it plans. That is a GAP, recorded instead of hidden.
-    assert_eq!(development["realizedBuildings"], json!(PLANNED_PADS - 1));
+    // Round 45: the shop Round 42 recorded as "planned but without verified
+    // assigned access" is now refused at ACCEPTANCE, so the plan no longer
+    // contains a lot the world cannot realize and realized == planned.
+    assert_eq!(development["realizedBuildings"], json!(PLANNED_PADS));
+    assert_eq!(development["failures"], json!([]));
     let services = read_json(scene_dir(&dir).join("service-program-audit.json"));
     assert_eq!(services["status"], json!("pass"), "{services}");
     assert_eq!(services["realizedWithAccess"], services["requested"]);

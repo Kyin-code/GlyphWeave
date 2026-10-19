@@ -1482,16 +1482,38 @@ fn connection_is_reserved(mask: &ZoningMask, e: &EntityInstance, x: i32, z: i32)
 /// reaching an occupied cell.
 fn cut_moved_existing_support(
     old: &EntityInstance,
+    claim: i64,
     n: &BakedTerrain,
     mask: &ZoningMask,
+    water: WaterGeometry,
     base_carves: &[super::TerrainCarve],
     carves: &[super::TerrainCarve],
 ) -> Result<Option<([i32; 2], i32, i32)>, TerrainError> {
-    let area = bounds(old, 0);
+    // `claim` is the window the PUBLISHED audit holds for this entity, passed in
+    // from its plan record: a pad that publishes a precise declared top is checked
+    // over its footprint and, when it does not excavate, the 2 m ring it also owns;
+    // a pad that excavates claims its platform only; a legacy site with no precise
+    // top is checked with a tolerance over its own footprint. A later cut whose
+    // graded ring reaches into a claim window changes a surface the world already
+    // published. Measured: the 1 km probe accepted a shop whose platform stood 4 m
+    // from its neighbour, whose 2 m ring the neighbour's cut ring then lowered by
+    // 287 mm, and the road-network audit refused the pair as "changed after
+    // planning".
+    //
+    // The comparison is the PUBLISHED composition, not the fill-first one: inside a
+    // cap-carrying pad's own rectangle the published surface is that pad's declared
+    // top, which the earthwork platform rule writes over a neighbour's fill. A guard
+    // that read the fill-first answer would not see that override at all.
+    let published = |carves: &[super::TerrainCarve], x: i32, z: i32| {
+        super::published_surface_from_raster(n, Some(mask), water, carves, x, z)
+            .map(|h| (h * 1000.).round() as i32)
+            .ok_or_else(|| err("missing frontage source sample"))
+    };
+    let area = bounds(old, claim);
     for z in area[1]..=area[3] {
         for x in area[0]..=area[2] {
-            let before = sample(n, mask, base_carves, x as i32, z as i32)?;
-            let after = sample(n, mask, carves, x as i32, z as i32)?;
+            let before = published(base_carves, x as i32, z as i32)?;
+            let after = published(carves, x as i32, z as i32)?;
             if before != after {
                 return Ok(Some(([x as i32, z as i32], before, after)));
             }
@@ -1567,6 +1589,33 @@ fn preflight(
             });
             return Ok(Some("occupied_or_road_support"));
         }
+        // A published declared top is a claim, not a hint. The road-network audit
+        // requires every cell of a precise pad's window to hold that pad's
+        // millimetre level, so a neighbour whose own platform stands on such a cell
+        // at a DIFFERENT level breaks the claim even when the two parcels never
+        // overlap (a one-cell touch is enough: both windows are inclusive). Equal
+        // levels may share a cell - that is an ordinary shared bench, not a
+        // conflict - so this refuses only a genuinely different top.
+        if let Some(old_site) = plan
+            .roadside_sites
+            .iter()
+            .find(|s| s.id == old.entity_id && s.support_level_mm.is_some())
+        {
+            let their_claim = if old_site.bounded_cut_mm.is_some() { 0 } else { 2 };
+            if let (Some(mine), Some(theirs)) = (site.support_level_mm, old_site.support_level_mm)
+                && mine != theirs
+                && overlap(bounds(&e, 0), bounds(old, their_claim))
+            {
+                *detail = Some(RejectDetail {
+                    conflicting_entity: Some(old.entity_id.clone()),
+                    note: Some(format!(
+                        "declared top {theirs} mm contested by this pad's {mine} mm"
+                    )),
+                    ..RejectDetail::of("contested_declared_top")
+                });
+                return Ok(Some("contested_declared_top"));
+            }
+        }
     }
     if let Some(other) = plan
         .roadside_sites
@@ -1620,8 +1669,24 @@ fn preflight(
         // historical window (and its margins) is kept verbatim for a pad that does
         // not cut, so the fill-only contract cannot move a single rejection.
         if prospective_cut_cap.is_some() {
+            // The window the published audit holds, read from the same plan record
+            // the audit reads: a precise declared top is held over the footprint and
+            // - for a pad that does not excavate - its 2 m ring; a cutting pad's ring
+            // is outside its own claim; a legacy site with no precise top keeps the
+            // footprint the historical guard always used.
+            let claim = plan
+                .roadside_sites
+                .iter()
+                .find(|s| s.id == old.entity_id)
+                .map_or(0, |s| {
+                    if s.support_level_mm.is_some() && s.bounded_cut_mm.is_none() {
+                        2
+                    } else {
+                        0
+                    }
+                });
             if let Some((at, before, after)) =
-                cut_moved_existing_support(old, n, mask, base_carves, &carves)?
+                cut_moved_existing_support(old, claim, n, mask, water, base_carves, &carves)?
             {
                 *detail = Some(RejectDetail {
                     conflicting_entity: Some(old.entity_id.clone()),
@@ -1800,9 +1865,37 @@ fn preflight(
             }
         }
     }
-    let mut entities = existing.to_vec();
-    entities.push(e.clone());
-    let links = super::access::access_for_entity(&e, &entities, &raster, water);
+    // The connection is judged on the surface the bake will publish, including
+    // the graded road's own cut: `plan_time_links` composes the plan's carves
+    // exactly as the baked raster does. The raster above keeps its historical
+    // (un-cut) envelope for the platform claim, whose cells no street touches.
+    let roads: Vec<EntityInstance> = existing
+        .iter()
+        .filter(|e| e.kind == "road")
+        .cloned()
+        .collect();
+    let neighbours: Vec<EntityInstance> = existing
+        .iter()
+        .filter(|e| e.kind != "road")
+        .cloned()
+        .collect();
+    let road_cut_mm = policy.enabled().then(|| policy.cap_mm());
+    // The candidate entered the gates with the cap it would PUBLISH, so the access
+    // gate must see the same platform the rail above already judged: a benched
+    // lot whose cap is dropped here would be composed as fill-only, its bench
+    // would vanish from the raster and its own door would read as a step.
+    let mut planned_candidate = e.clone();
+    planned_candidate.grounding.bounded_cut_mm = prospective_cut_cap;
+    let links = super::access::plan_time_links(
+        &planned_candidate,
+        &site.road_id,
+        &roads,
+        &neighbours,
+        n,
+        Some(mask),
+        road_cut_mm,
+        water,
+    )?;
     if !links
         .iter()
         .any(|l| l.connected && l.road_id.as_deref() == Some(&site.road_id))
@@ -3052,7 +3145,13 @@ mod tests {
             (entity, base, with)
         };
 
-        // Negative: a cutting pad's ring grades the setback, not the lot.
+        let water =
+            super::super::water_geometry(super::super::WaterKind::None, &[], &s, &serde_json::json!({}));
+
+        // Negative: a graded ring through the setback of a pad that excavates.
+        // That pad's published claim is its own platform (the road audit checks a
+        // cut pad's flat top over its footprint only), so the ring is a legal
+        // bench beside a legal lot.
         let cutting = bench(1500);
         assert!(cutting.bounded_cut_mm.is_some());
         let (old, base, with) = support_of(&lot(100), &cutting);
@@ -3061,10 +3160,22 @@ mod tests {
         assert_eq!(sample(&n, &mask, &base, 103, 100).unwrap(), 3500);
         assert_eq!(sample(&n, &mask, &with, 103, 100).unwrap(), 3250);
         assert_eq!(
-            cut_moved_existing_support(&old, &n, &mask, &base, &with).unwrap(),
+            cut_moved_existing_support(&old, 0, &n, &mask, water, &base, &with).unwrap(),
             None,
-            "a graded ring through the setback must not be a support change"
+            "a ring outside a cutting pad's own claim is a legal bench"
         );
+
+        // Positive (the 1 km defect): the SAME ring through the 2 m ring of a
+        // fill-only pad that publishes a precise top. That ring is part of the
+        // published claim, so the cut changed a surface the world already
+        // promised; measured on the probe as a 287 mm cut into a neighbour's
+        // claim window, refused by the road audit as "changed after planning".
+        let (at, before, after) =
+            cut_moved_existing_support(&old, 2, &n, &mask, water, &base, &with)
+                .unwrap()
+                .expect("a cut into a published claim window is a support change");
+        assert!(contains(bounds(&old, 2), at[0], at[1]), "at {at:?}");
+        assert_eq!((before, after), (3500, 3250));
 
         // Positive: the same kind of pad FILLS the ground under the footprint.
         let filling = bench(3800);
@@ -3081,10 +3192,10 @@ mod tests {
             Some(2000)
         );
         let (old, base, with) = support_of(&lot(104), &filling);
-        let (at, before, after) = cut_moved_existing_support(&old, &n, &mask, &base, &with)
+        let (at, before, after) = cut_moved_existing_support(&old, 2, &n, &mask, water, &base, &with)
             .unwrap()
             .expect("a fill under the footprint is a support change");
-        assert!(contains(bounds(&old, 0), at[0], at[1]), "at {at:?}");
+        assert!(contains(bounds(&old, 2), at[0], at[1]), "at {at:?}");
         assert_eq!(before, 3500);
         assert!(after > before, "the fill must raise the support: {after}");
     }

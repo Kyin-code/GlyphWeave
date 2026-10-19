@@ -1274,7 +1274,15 @@ pub(super) fn plan_with_zones_demand(
     // row is planned from (`frontage::shorefront_row_contract`), so a scene that states none
     // keeps the plan - and the legacy bayfront band - it always published.
     if shorefront_setback_m.is_some() {
-        super::shorefront::plan(&mut result, scene, terrain, water, zones, pad_conversion)?;
+        super::shorefront::plan(
+            &mut result,
+            scene,
+            terrain,
+            water,
+            zones,
+            pad_conversion,
+            profile_cut_mm,
+        )?;
     }
 
     if let Some(level) = result.level_m {
@@ -1915,6 +1923,26 @@ pub(super) fn plan_with_zones_demand(
                         natural_min_m: min,
                         natural_max_m: max,
                     };
+                    // A pad whose own street cannot be walked to is not a lot. The
+                    // refusal is named and the candidate is withdrawn BEFORE the
+                    // purposes are declared, so no conversion, service outcome or
+                    // entity can outlive it; the station scan moves on.
+                    if let Some((category, reason)) = assigned_road_gate(
+                        &site,
+                        &road_entities,
+                        &result.site_entities(),
+                        terrain,
+                        zoning.as_ref(),
+                        profile_cut_mm,
+                        water,
+                    )? {
+                        site_rejections.push(BaseProfileRejection {
+                            edge_id: site.id.clone(),
+                            category: category.into(),
+                            reason,
+                        });
+                        continue;
+                    }
                     let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
                     if let Some(reason) = verdict.reason {
                         // The urban-edge refusal carries the measured distance in the prose (the
@@ -2034,6 +2062,25 @@ pub(super) fn plan_with_zones_demand(
                     natural_min_m: min,
                     natural_max_m: max,
                 };
+                // Same acceptance gate on the profiled path: the pad must be enterable
+                // from the street it is assigned, on the surface the bake composes
+                // (including this plan's graded cut).
+                if let Some((category, reason)) = assigned_road_gate(
+                    &site,
+                    &road_entities,
+                    &result.site_entities(),
+                    terrain,
+                    zoning.as_ref(),
+                    profile_cut_mm,
+                    water,
+                )? {
+                    site_rejections.push(BaseProfileRejection {
+                        edge_id: site.id.clone(),
+                        category: category.into(),
+                        reason,
+                    });
+                    continue;
+                }
                 let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
                 if let Some(reason) = verdict.reason {
                     let detail = zones.map_or(String::new(), |zones| {
@@ -2058,6 +2105,80 @@ pub(super) fn plan_with_zones_demand(
         result.roadside_site_rejections = site_rejections;
     }
     Ok(result)
+}
+
+/// Acceptance gate: the street a pad is ASSIGNED to has to be walkable from the
+/// pad's own door on the surface this plan will bake.
+///
+/// This is the plan-time half of `settlement::development::verify`'s
+/// `no_verified_assigned_road_access`: the audit rebuilds the access graph after
+/// the bake and refuses a lot whose checked route ends on a different street, but
+/// by then the pad is a parcel, a service outcome, a conversion and an entity.
+/// The gate runs the same search (`access::plan_time_links`, which is
+/// `access_for_entity` over the plan's own composed carves) and refuses the
+/// CANDIDATE here, so the placement loop moves on to the next station and the
+/// rejected candidate is published under its own category.
+///
+/// `road_cut_mm` is the plan's graded-road allowance: the bake cuts a profiled
+/// road to its authored surface, and the acceptance surface must include that cut
+/// or the lot is judged against the un-cut hillside beside an excavation.
+pub(super) fn assigned_road_gate(
+    site: &RoadsideSite,
+    roads: &[EntityInstance],
+    neighbours: &[EntityInstance],
+    natural: &BakedTerrain,
+    mask: Option<&ZoningMask>,
+    road_cut_mm: i32,
+    water: WaterGeometry,
+) -> Result<Option<(&'static str, String)>, TerrainError> {
+    let candidate = site.entity();
+    let links = super::access::plan_time_links(
+        &candidate,
+        &site.road_id,
+        roads,
+        neighbours,
+        natural,
+        mask,
+        (road_cut_mm > 0).then_some(road_cut_mm),
+        water,
+    )?;
+    if links
+        .iter()
+        .any(|link| link.connected && link.road_id.as_deref() == Some(site.road_id.as_str()))
+    {
+        return Ok(None);
+    }
+    let reached: Vec<String> = links
+        .iter()
+        .filter(|link| link.connected)
+        .map(|link| {
+            format!(
+                "{} ({:.1} m)",
+                link.road_id.as_deref().unwrap_or("?"),
+                link.distance_m.unwrap_or(0.)
+            )
+        })
+        .collect();
+    let statuses: Vec<&str> = links.iter().map(|link| link.status.as_str()).collect();
+    let reason = if reached.is_empty() {
+        format!(
+            "pad at ({},{}) on road {}: no checked pedestrian route to its own street ({})",
+            site.world_x,
+            site.world_z,
+            site.road_id,
+            statuses.join(", ")
+        )
+    } else {
+        format!(
+            "pad at ({},{}) on road {}: the checked route ends on {} instead, so the lot fronts no street it can enter ({})",
+            site.world_x,
+            site.world_z,
+            site.road_id,
+            reached.join(", "),
+            statuses.join(", ")
+        )
+    };
+    Ok(Some(("assigned_road_not_reachable_at_acceptance", reason)))
 }
 
 /// The purpose gate of one roadside pad, as the pad would land.
@@ -2112,6 +2233,7 @@ pub(super) fn plan_with_program(
             zones,
             program,
             pad_conversion,
+            profile_cut_mm,
         );
     }
     super::services::append(
@@ -2122,6 +2244,7 @@ pub(super) fn plan_with_program(
         zones,
         program,
         pad_conversion,
+        profile_cut_mm,
     )?;
     Ok(result)
 }
@@ -6141,9 +6264,22 @@ mod tests {
         );
 
         let (scene, natural, water, _zones, graded) = graded_full_plan();
+        // Round 45: this fixture's graded edges offer no enterable station, so every
+        // pad they could carry is a legacy CENTRE placement at the network level
+        // while the street itself was cut below it - a step no entrance apron can
+        // carry. The acceptance gate refuses those, exactly as R13 already refused
+        // the grading when a settlement programme asked for a real pad, so the
+        // graded plan carries no roadside pad at all. What remains true, and is
+        // asserted here, is the rule itself: a graded pad declares its parcel
+        // explicitly with the zero ring (see the frontage samples' own pads).
         assert!(
-            !graded.roadside_sites.is_empty(),
-            "the graded plan carries roadside pads"
+            graded.roadside_sites.is_empty(),
+            "the graded plan's centre placements are unenterable and refused: {:?}",
+            graded
+                .roadside_sites
+                .iter()
+                .map(|site| &site.id)
+                .collect::<Vec<_>>()
         );
         for site in &graded.roadside_sites {
             let insets = site

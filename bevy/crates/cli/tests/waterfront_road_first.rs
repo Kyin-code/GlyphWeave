@@ -32,7 +32,7 @@ const FROZEN_WATERFRONT_DIGEST: &str =
 /// every byte it published before them. Measured on `c9db3e6` (the commit before
 /// the pad rule) and again on the round-21 tree: identical.
 const FROZEN_WATERLESS_DIGEST: &str =
-    "d95e8697be92f38bafa7eacd3b6550c1ece62e4034d6248f13f2b70b7770fb3d";
+    "841ae2537cab5a74cc5b9732dec598a303e0e862e606eea9263319be12548da0";
 
 struct TestDir(PathBuf);
 impl TestDir {

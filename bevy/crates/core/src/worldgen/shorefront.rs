@@ -64,6 +64,7 @@ pub(super) fn plan(
     water: WaterGeometry,
     zones: Option<&[LandUseZone]>,
     conversion: RuralConversion,
+    road_cut_mm: i32,
 ) -> Result<(), TerrainError> {
     if water.kind != super::WaterKind::River || !water.shore_band() {
         return Ok(());
@@ -111,6 +112,7 @@ pub(super) fn plan(
         // instead of the parallel one 32 m away. The second rung is the fallback for a frontage
         // the first row cannot take.
         &SHOREFRONT_SETBACKS,
+        road_cut_mm,
     )
 }
 

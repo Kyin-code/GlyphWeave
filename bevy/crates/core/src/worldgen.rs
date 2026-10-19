@@ -59,6 +59,8 @@ mod water_query;
 pub mod shore_band;
 pub mod urban_growth;
 pub mod zoning;
+#[cfg(test)]
+mod assigned_road_tests;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
