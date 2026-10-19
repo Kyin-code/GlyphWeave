@@ -71,9 +71,9 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const WATERFRONT: &str = include_str!("../../../../examples/waterfront-city-512.manifest.json");
 /// The pad the entity earthwork used to bury, by name.
 const THE_PAD: &str =
-    "generated.frontage.scene-0.gorge-shops.generated.road-network.scene-0.23-30.36.negative";
+    "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.1.16.positive";
 /// The cell of that pad's window the round reads its published top on.
-const PAD_CELL: (i32, i32) = (140, 259);
+const PAD_CELL: (i32, i32) = (144, 370);
 /// The plate the round is about: a 25x23 `urban_building` on a 16 m platform.
 const PLATE_GROUND_M: f64 = 16.0;
 const PLATE_WIDTH_M: f64 = 25.0;
@@ -87,17 +87,17 @@ const LEGACY_PAD_RING_M: f64 = 114.0;
 /// What the pad's window publishes in BOTH arms now: its own declared top. Before
 /// Round 39 the same cell published 9,105 mm (off) and 6,016 mm (derived), because the
 /// pad's entity had been deleted and its platform could not be published at all.
-const PAD_MM: i32 = 5_325;
+const PAD_MM: i32 = 6_000;
 /// The excavation the derived scene holds, summed once from its two rasters.
-const DERIVED_CUT_PADS: usize = 4;
-const DERIVED_CUT_CELLS: u64 = 1_231;
-const DERIVED_CUT_DEPTH_SUM_MM: i64 = 737_286;
+const DERIVED_CUT_PADS: usize = 5;
+const DERIVED_CUT_CELLS: u64 = 1_371;
+const DERIVED_CUT_DEPTH_SUM_MM: i64 = 848_789;
 /// The excavation the fixed-envelope scene holds.
-const OFF_CUT_PADS: usize = 4;
-const OFF_CUT_CELLS: u64 = 911;
-const OFF_CUT_DEPTH_SUM_MM: i64 = 530_566;
+const OFF_CUT_PADS: usize = 5;
+const OFF_CUT_CELLS: u64 = 990;
+const OFF_CUT_DEPTH_SUM_MM: i64 = 608_134;
 /// The pads the grown plan keeps: every one of them.
-const PLANNED_PADS: usize = 17;
+const PLANNED_PADS: usize = 19;
 /// The published bytes of the two fixtures THIS ROUND MUST NOT MOVE, as one blake3
 /// digest each over every published file except the path-bearing generation report.
 /// Both were taken from the HEAD binary's own output (`glyphweave-r36.exe`), and the
@@ -117,7 +117,7 @@ const PLANNED_PADS: usize = 17;
 /// unchanged. The WATERFRONT fixture never opted into the policy and is byte-frozen:
 /// its constant does not move.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "3db90edbd5a8fc2fc8aa8937dfc2318a1c5f246022783b5a70acbf3ffe797c2b";
+    "856ce5f1ea80bd610f2aae2db55b5005a175a5ecce16094d26a20b725d42ad2b";
 const FROZEN_WATERFRONT_DIGEST: &str =
     "5a43f6a08567a764c42b8cb82767a2de722ce276475d3a284c92133a428793b2";
 /// The ring every planned pad of the grown hillside town derives, by kind:
@@ -126,7 +126,7 @@ const FROZEN_WATERFRONT_DIGEST: &str =
 const GROWN_PAD_RINGS: [(u32, u32, u32, f64, usize); 4] = [
     (12, 12, 6, 20.0, 3),
     (8, 8, 6, 16.0, 3),
-    (24, 24, 8, 32.0, 10),
+    (24, 24, 8, 32.0, 12),
     (40, 30, 10, 48.0, 1),
 ];
 
@@ -333,8 +333,8 @@ fn building_rings(dir: &TestDir) -> Vec<f64> {
 /// Every published road carve's ring, off the same ledger. The switch is about
 /// STRUCTURES, so this list is the same in both arms: road corridors keep their
 /// graded envelope and their own fill contract.
-const ROAD_RINGS: [f64; 9] = [
-    108.24, 109.2, 109.29, 111.28, 111.74, 114.0, 114.28, 121.07, 121.5,
+const ROAD_RINGS: [f64; 7] = [
+    108.24, 109.2, 110.577, 112.485, 114.0, 121.071, 121.497,
 ];
 
 fn road_rings(dir: &TestDir) -> Vec<f64> {
@@ -406,7 +406,7 @@ fn the_default_envelope_is_still_the_fixed_ring() {
 
     // The published carve list carries that 144 m ring, and nothing wider.
     let rings = building_rings(&dir);
-    assert_eq!(rings.len(), 53, "one carve per structure and per apron");
+    assert_eq!(rings.len(), 59, "one carve per structure and per apron");
     assert_eq!(
         rings.iter().cloned().fold(0.0_f64, f64::max),
         LEGACY_RING_M
@@ -464,7 +464,7 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     // 17 planned pads + the plate and two more urban blocks. The 38x20 lodge that
     // used to stand 3.5 m inside the shop pad is refused by name, so the pad it
     // displaced carries the 16 m ring instead of the lodge's 46 m.
-    assert_eq!(stamped.len(), 20, "every structure of this scene, planned pads included");
+    assert_eq!(stamped.len(), 22, "every structure of this scene, planned pads included");
     let mut values: Vec<f64> = stamped.values().cloned().collect();
     values.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mut want = vec![30.0, 30.0, DERIVED_RING_M];
@@ -492,7 +492,7 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     // 114 m ring, and every ring is one the formula could produce. Roads are
     // untouched: the same 29 carves with the same rings as the fixed-envelope world.
     let rings = building_rings(&dir);
-    assert_eq!(rings.len(), 53, "one carve per structure and per apron");
+    assert_eq!(rings.len(), 59, "one carve per structure and per apron");
     assert!(
         rings.iter().all(|ring| *ring < LEGACY_PAD_RING_M),
         "the 144 m and 114 m rings must be gone: {rings:?}"
@@ -550,14 +550,22 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     .expect("the world publishes its bounded-cut ledger");
     assert!(ledger.enabled);
     assert_eq!(ledger.pads.len(), DERIVED_CUT_PADS);
-    assert_eq!(ledger.cut_cells, DERIVED_CUT_CELLS);
-    assert_eq!(ledger.cut_depth_sum_mm, DERIVED_CUT_DEPTH_SUM_MM);
+    // The PADS' own excavation: the graded roads book their own records in the same
+    // ledger (Round 42) and are asserted by the hillside acceptance test.
+    assert_eq!(
+        ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>(),
+        DERIVED_CUT_CELLS
+    );
+    assert_eq!(
+        ledger.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>(),
+        DERIVED_CUT_DEPTH_SUM_MM
+    );
     assert!(ledger.max_cut_depth_mm <= bounded_cut::MAX_CUT_MM);
     let natural = raster(&dir, &scene, false);
     let final_terrain = raster(&dir, &scene, true);
     let plan: glyphweave_core::worldgen::road_network::RoadNetworkPlan =
         serde_json::from_value(read_json(scene_dir(&dir).join("road-network-plan.json"))).unwrap();
-    let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain)
+    let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain, &bounded_cut::road_flat_tops(&plan.entities()))
         .expect("the two published rasters measure");
     assert_eq!(ledger.pads, measured, "the ledger IS the rasters' own measurement");
     let zones: Vec<LandUseZone> =
@@ -965,8 +973,11 @@ fn the_derived_ring_narrows_the_envelope_and_the_pad_top_holds_in_both_arms() {
             dir.0.join("pad-completion.json").exists(),
             (
                 ledger.pads.len(),
-                ledger.cut_cells,
-                ledger.cut_depth_sum_mm,
+                // The PADS' own excavation, not the ledger total: the graded roads
+                // book their own records in the same ledger and are asserted by the
+                // hillside acceptance test instead.
+                ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>(),
+                ledger.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum(),
             ),
         )
     };

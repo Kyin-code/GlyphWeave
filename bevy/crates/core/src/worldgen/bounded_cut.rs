@@ -703,6 +703,52 @@ impl CutLedger {
     }
 }
 
+/// The cells of ONE graded road's own flat top, in world axes.
+///
+/// A road's graded flat top is the road's: the raster publishes the road's own
+/// profile there, and the ledger books that excavation under the road's id. A
+/// pad's cut footprint therefore STOPS at a graded band - the pad was never
+/// allowed to claim a cell the road owns, and once the road may excavate, a
+/// shared cell would be counted twice and re-derived against the wrong formula.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoadFlatTop {
+    center_x: f64,
+    center_z: f64,
+    half_w: f64,
+    half_d: f64,
+}
+
+impl RoadFlatTop {
+    /// Does this road's graded flat top hold the cell? The predicate is the one
+    /// [`RoadCutFootprint::outside_m`] uses, so "the road's flat top" means the
+    /// same cells here, in the composition and in the audit.
+    pub fn holds(&self, x: i32, z: i32) -> bool {
+        (f64::from(x) - self.center_x).abs() <= self.half_w
+            && (f64::from(z) - self.center_z).abs() <= self.half_d
+    }
+}
+
+/// Every graded road's own flat top of one entity list, in published geometry.
+pub fn road_flat_tops(entities: &[EntityInstance]) -> Vec<RoadFlatTop> {
+    entities
+        .iter()
+        .filter(|entity| entity.kind == "road" && entity.grounding.road_profile.is_some())
+        .map(|entity| {
+            let (half_w, half_d) = super::graded_flat_top_half_extents(entity);
+            RoadFlatTop {
+                center_x: f64::from(entity.world_x),
+                center_z: f64::from(entity.world_z),
+                half_w: f64::from(half_w),
+                half_d: f64::from(half_d),
+            }
+        })
+        .collect()
+}
+
+/// Does any graded road's flat top hold this cell?
+fn in_road_flat_top(tops: &[RoadFlatTop], x: i32, z: i32) -> bool {
+    tops.iter().any(|top| top.holds(x, z))
+}
 /// The pad records the PLAN and the NATURAL raster alone predict.
 ///
 /// This is the independent view requirement 3 asks for: it never reads the final
@@ -712,6 +758,7 @@ impl CutLedger {
 pub fn recompute_from_plan(
     plan: &[RoadsideSite],
     natural: &BakedTerrain,
+    road_tops: &[RoadFlatTop],
 ) -> Result<Vec<CutPad>, String> {
     let mut pads = vec![];
     for site in plan {
@@ -727,6 +774,12 @@ pub fn recompute_from_plan(
         for z in footprint.top..=footprint.bottom {
             for x in footprint.left..=footprint.right {
                 if !footprint.contains(x, z) {
+                    continue;
+                }
+                // A graded road's own flat top is the road's: the pad's
+                // footprint stops there, so no cell is booked twice and the
+                // road's excavation is re-derived against the road's formula.
+                if in_road_flat_top(road_tops, x, z) {
                     continue;
                 }
                 let Some(base) = natural.height_millimetres(x, z) else {
@@ -769,6 +822,7 @@ pub fn measure_from_rasters(
     plan: &[RoadsideSite],
     natural: &BakedTerrain,
     final_terrain: &BakedTerrain,
+    road_tops: &[RoadFlatTop],
 ) -> Result<Vec<CutPad>, String> {
     let mut pads = vec![];
     for site in plan {
@@ -784,6 +838,9 @@ pub fn measure_from_rasters(
         for z in footprint.top..=footprint.bottom {
             for x in footprint.left..=footprint.right {
                 if !footprint.contains(x, z) {
+                    continue;
+                }
+                if in_road_flat_top(road_tops, x, z) {
                     continue;
                 }
                 let (Some(base), Some(final_mm)) = (
@@ -1002,9 +1059,20 @@ impl RoadCutPlan {
 
     /// True when the cell is claimed by another entity's support window and may
     /// therefore not be cut by `slot` (the road's own window never blocks it).
+    ///
+    /// Inside `slot`'s OWN graded flat top only another road's band can take the
+    /// cell away, exactly as in the composition and in [`road_cut_plan`]: a pad's
+    /// carve rectangle, entrance apron or 8 m graded ring may not decide what the
+    /// roadbed is.
     pub fn blocked_for(&self, slot: usize, x: i32, z: i32) -> Option<&'static str> {
+        let inside_flat_top = self
+            .footprints
+            .get(slot)
+            .is_none_or(|footprint| footprint.outside_m(x, z) <= 0.);
         if self.windows.iter().any(|window| {
-            window.road_slot != Some(slot) && window.blocks(x, z)
+            window.road_slot != Some(slot)
+                && window.blocks(x, z)
+                && !(inside_flat_top && window.road_slot.is_none())
         }) {
             return Some(ON_OCCUPIED);
         }
@@ -1060,8 +1128,16 @@ pub fn road_cut_plan(
                 if dx < 0 || dz < 0 || dx >= width || dz >= depth {
                     continue;
                 }
+                // Inside the road's OWN graded flat top only another road's band
+                // can take the cell away: a pad's carve rectangle, entrance apron
+                // and 8 m graded ring may not decide what the roadbed is (the
+                // composition states the same rule). Outside the flat top every
+                // window still clips the excavation.
+                let inside_flat_top = footprint.outside_m(x, z) <= 0.;
                 if windows.iter().any(|window| {
-                    window.road_slot != Some(slot) && window.blocks(x, z)
+                    window.road_slot != Some(slot)
+                        && window.blocks(x, z)
+                        && !(inside_flat_top && window.road_slot.is_none())
                 }) {
                     continue;
                 }
@@ -1307,6 +1383,13 @@ pub fn verify(
     }
     // 4. Per cell: the cut is exactly the declared one, inside a pad, legal.
     let mask = ZoningMask::new(scene, zones).map_err(|e| e.0)?;
+    // Every graded road's own flat top: those cells belong to the road's ledger
+    // and no pad's footprint may book them (see [RoadFlatTop]).
+    let road_tops = plan.map_or_else(Vec::new, |plan| {
+        let mut entities = plan.entities();
+        entities.extend(plan.site_entities());
+        road_flat_tops(&entities)
+    });
     // 4a-pre. No two pads may share a cut footprint. The per-pad measurement below
     //     is what the ledger TOTAL is made of, so a shared cell would be booked once
     //     per pad and the total would exceed the excavation the published rasters
@@ -1361,6 +1444,9 @@ pub fn verify(
                 if !footprint.contains(x, z) {
                     continue;
                 }
+                if in_road_flat_top(&road_tops, x, z) {
+                    continue;
+                }
                 let Some(at) = index(x, z) else { continue };
                 let Some(base) = natural.height_millimetres(x, z) else {
                     continue;
@@ -1374,7 +1460,7 @@ pub fn verify(
         }
     }
     // The measured per-pad record, straight from the two rasters.
-    let measured = measure_from_rasters(sites, natural, final_terrain)?;
+    let measured = measure_from_rasters(sites, natural, final_terrain, &road_tops)?;
     // The road cut owners and the measured road records, from the plan and the
     // two rasters. A road's ring is clipped by every pad window and every other
     // road's graded band, and a shared road cell is owned by the deeper cut, so
@@ -1917,7 +2003,7 @@ mod tests {
             .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, final_values).unwrap())
             .unwrap();
         let plan = vec![site.clone()];
-        let pads = measure_from_rasters(&plan, &natural, &final_terrain).unwrap();
+        let pads = measure_from_rasters(&plan, &natural, &final_terrain, &[]).unwrap();
         let mut ledger = CutLedger {
             requested: Some(POLICY_VALUE.into()),
             enabled: true,
@@ -1997,7 +2083,7 @@ mod tests {
         assert_eq!(audit.water_cells_changed, 0);
         assert_eq!(audit.shore_band_cells_cut, 0);
         // The plan + natural recomputation reproduces the measured record exactly.
-        let predicted = recompute_from_plan(&[site], &natural).unwrap();
+        let predicted = recompute_from_plan(&[site], &natural, &[]).unwrap();
         assert_eq!(predicted, ledger.pads);
         // Two runs, identical bytes (the ledger is derived, not accumulated).
         let (.., again, _) = {
@@ -2186,7 +2272,13 @@ mod tests {
             }))
             .unwrap()
         };
-        let pads = measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain).unwrap();
+        let pads = measure_from_rasters(
+            &plan.roadside_sites,
+            &natural,
+            &final_terrain,
+            &[],
+        )
+        .unwrap();
         let mut ledger = CutLedger {
             requested: Some(POLICY_VALUE.into()),
             enabled: true,
@@ -2413,7 +2505,13 @@ mod tests {
         final_terrain: &BakedTerrain,
         policy: CutPolicy,
     ) -> CutLedger {
-        let pads = measure_from_rasters(&plan.roadside_sites, natural, final_terrain).unwrap();
+        let pads = measure_from_rasters(
+            &plan.roadside_sites,
+            natural,
+            final_terrain,
+            &[],
+        )
+        .unwrap();
         let roads = measure_road_cuts(scene, plan, natural, final_terrain, policy).unwrap();
         let mut ledger = CutLedger {
             requested: Some(POLICY_VALUE.into()),

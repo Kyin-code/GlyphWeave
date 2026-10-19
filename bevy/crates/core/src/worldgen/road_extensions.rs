@@ -258,6 +258,11 @@ pub(super) fn append_one(
     {
         return Err(err("extension end support crosses protected zoning"));
     }
+    // The fill envelope this corridor must hold, per cell: at most the roadbed
+    // fill contract above the natural ground, and at most the design's OWN
+    // bounded-cut allowance below it.   - every world that never opted into
+    // the policy - keeps the historical `fill >= 0` rule exactly.
+    let cut_allowance_m = f64::from(context.cut_mm()) / 1000.;
     let mut min = f32::INFINITY;
     let mut max = f32::NEG_INFINITY;
     for zz in z - hd..=z + hd {
@@ -269,7 +274,7 @@ pub(super) fn append_one(
                 .height_at(f64::from(xx), f64::from(zz))
                 .ok_or_else(|| err("missing extension height"))?;
             let fill = target - f64::from(h) / 1000.;
-            if fill < -1e-9
+            if fill < -cut_allowance_m - 1e-9
                 || fill > f64::from(r.max_fill_mm) / 1000. + 1e-9
                 || fill > mask.fill_capacity_at(xx, zz) + 1e-9
             {

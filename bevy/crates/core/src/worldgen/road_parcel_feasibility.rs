@@ -298,7 +298,15 @@ fn audit_final_road_support(
                     .and_then(|profile| profile.height_at(f64::from(x), f64::from(z)))
                     .unwrap_or_else(|| f64::from(entity.ground_height_m()));
                 let fill = target - f64::from(natural_height);
-                if fill < -1e-9
+                // A graded road that publishes a bounded-cut cap may stand below the
+                // natural ground by at most that cap (its own entity states it, exactly
+                // as `road_network::verify_impl` reads it). Without a cap this is the
+                // historical `fill >= 0` rule, cell for cell.
+                let cut_allowance_m = entity
+                    .grounding
+                    .bounded_cut_mm
+                    .map_or(0_f64, |cap| f64::from(super::bounded_cut::clamp_cap(cap)) / 1000.);
+                if fill < -cut_allowance_m - 1e-9
                     || fill > f64::from(plan.max_roadbed_fill_m) + 1e-9
                     || fill > mask.fill_capacity_at(x, z) + 1e-9
                 {

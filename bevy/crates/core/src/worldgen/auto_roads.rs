@@ -588,6 +588,9 @@ pub(super) fn append_declared(
     let Some(all) = from_style(style)? else {
         return Ok(());
     };
+    // The bounded-cut allowance of this world's longitudinal road profile, read
+    // once:   is a world that never opted in and keeps the fill-only solver.
+    let profile_cut_mm = super::bounded_cut::CutPolicy::from_style(style).0.cap_mm();
     let version = all.version;
     let Some(program) = all
         .scenes
@@ -614,7 +617,7 @@ pub(super) fn append_declared(
         if mode == SupplyMode::Append {
             // The authored v1/v2 automatic stage runs first and becomes the
             // trusted baseline this demand-led phase appends to.
-            append_legacy(plan, scene, t, water, zones, &program)?;
+            append_legacy(plan, scene, t, water, zones, &program, profile_cut_mm)?;
         }
         let clock = WallClock::start();
         return append_supply_aware(
@@ -630,7 +633,7 @@ pub(super) fn append_declared(
             source,
         );
     }
-    append_legacy(plan, scene, t, water, zones, &program)
+    append_legacy(plan, scene, t, water, zones, &program, profile_cut_mm)
 }
 
 /// The authored v1/v2 automatic road stage. Version 3 `append` mode runs this
@@ -642,6 +645,9 @@ fn append_legacy(
     water: WaterGeometry,
     zones: &[LandUseZone],
     program: &SceneProgram,
+    // The bounded-cut allowance of the longitudinal profile;   keeps the
+    // historical fill-only solver and the historical bytes.
+    profile_cut_mm: i32,
 ) -> Result<(), TerrainError> {
     let original = plan.entities();
     let program = program.clone();
@@ -674,7 +680,7 @@ fn append_legacy(
         })
         .collect();
     targets.sort_by(|a, b| a.zone_id.cmp(&b.zone_id));
-    let ctx = AlignmentContext::new(scene, t, water, zones)?;
+    let ctx = AlignmentContext::new(scene, t, water, zones)?.with_cut(profile_cut_mm);
     let mut report = Report {
         version: 1,
         model: "bounded-purpose-centre-and-zone-growth-v2".into(),
@@ -1126,7 +1132,8 @@ fn run_supply_phase(
         .as_ref()
         .ok_or_else(|| err("version 3 requires a road hierarchy"))?;
     let budget_ms = policy.preflight_budget_ms;
-    let ctx = AlignmentContext::new(scene, t, water, zones)?;
+    let ctx = AlignmentContext::new(scene, t, water, zones)?
+        .with_cut(super::bounded_cut::CutPolicy::from_style(style).0.cap_mm());
     let mask = ZoningMask::new(scene, zones)?;
     let supply = SupplyContext {
         scene,
@@ -3294,7 +3301,7 @@ mod tests {
         styled["frontageProgram"]["requests"][0]["count"] = serde_json::json!(4);
         let program = from_style(&styled).unwrap().unwrap().scenes[0].clone();
         let mut baseline = p.clone();
-        append_legacy(&mut baseline, &s, &t, w, &z, &program).unwrap();
+        append_legacy(&mut baseline, &s, &t, w, &z, &program, 0).unwrap();
         let baseline_json = serde_json::to_value(&baseline).unwrap();
         let mut outcomes = std::collections::BTreeMap::new();
         let mut discarded_after_commit = 0_usize;
@@ -3718,7 +3725,7 @@ mod tests {
         v3["frontageProgram"]["requests"][0]["count"] = serde_json::json!(4);
         let program = from_style(&v3).unwrap().unwrap().scenes[0].clone();
         let mut baseline = p.clone();
-        append_legacy(&mut baseline, &s, &t, w, &z, &program).unwrap();
+        append_legacy(&mut baseline, &s, &t, w, &z, &program, 0).unwrap();
         let baseline_json = serde_json::to_value(&baseline).unwrap();
         let corruption = super::super::frontage_supply::TEST_CORRUPT_SCENE
             .lock()

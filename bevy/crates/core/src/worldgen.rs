@@ -2294,8 +2294,18 @@ fn bounded_cut_ledger_for(
             not_enabled.unwrap_or(bounded_cut::NotEnabled::NotDeclared),
         )));
     }
-    let pads = bounded_cut::measure_from_rasters(&plan.roadside_sites, natural, final_terrain)
-        .map_err(WorldgenError::InvalidRules)?;
+    // A graded road's own flat top belongs to the road's ledger, so the pad
+    // records are measured with those cells excluded (see `RoadFlatTop`).
+    let mut cut_entities = plan.entities();
+    cut_entities.extend(plan.site_entities());
+    let road_tops = bounded_cut::road_flat_tops(&cut_entities);
+    let pads = bounded_cut::measure_from_rasters(
+        &plan.roadside_sites,
+        natural,
+        final_terrain,
+        &road_tops,
+    )
+    .map_err(WorldgenError::InvalidRules)?;
     let mut ledger = bounded_cut::CutLedger {
         requested: Some(
             manifest
@@ -5464,7 +5474,26 @@ fn apply_terrain_carves_with(
         .any(|carve| carve.priority == 10 && carve.cut_cap_mm.is_some() && carve.profile.is_some());
     let mut cut_windows = 0_i32;
     let mut support_windows = 0_i32;
+    // The same two counts restricted to OTHER ROADS' bands, which are the only
+    // claims that can take a cell away from a graded road's own flat top.
+    let mut road_cut_windows = 0_i32;
+    let mut road_support_windows = 0_i32;
+    // Is this cell inside SOME graded road's own flat top? When it is, the road
+    // OWNS the surface there: a building's carve rectangle, its entrance apron or
+    // its 8 m graded ring may not decide what the roadbed is. That is not a new
+    // claim - the pad's platform stands at least its own half width away from the
+    // band, and a pad whose bench would reach into the band is refused by
+    // `frontage::support_check` - but it is now the difference between a roadbed
+    // that is its authored profile and one a neighbour's ring buries.
+    let mut road_flat_here = false;
     if has_road_cut {
+        for other in carves {
+            let out = ((xf - other.cx).abs() - other.half_w)
+                .max((zf - other.cz).abs() - other.half_d);
+            if other.priority == 10 && out <= 0.0 {
+                road_flat_here = true;
+            }
+        }
         for other in carves {
             let out = ((xf - other.cx).abs() - other.half_w)
                 .max((zf - other.cz).abs() - other.half_d);
@@ -5474,9 +5503,15 @@ fn apply_terrain_carves_with(
             };
             if out < margin {
                 cut_windows += 1;
+                if other.priority == 10 {
+                    road_cut_windows += 1;
+                }
             }
             if out <= 0.0 {
                 support_windows += 1;
+                if other.priority == 10 {
+                    road_support_windows += 1;
+                }
             }
         }
     }
@@ -5521,7 +5556,20 @@ fn apply_terrain_carves_with(
         if carve.priority == 10 && carve.cut_cap_mm.is_some() {
             if let (Some(cap), Some(profile)) = (carve.cut_cap_mm, carve.profile.as_deref()) {
                 let own_cut_window = outside < 2.0;
-                if cut_windows - i32::from(own_cut_window) <= 0 {
+                // Inside the road's own graded flat top only ANOTHER ROAD can take
+                // the cell away; outside it every entity's support window still
+                // clips the excavation exactly as before.
+                let blocking_cut = if road_flat_here {
+                    road_cut_windows
+                } else {
+                    cut_windows
+                };
+                let blocking_support = if road_flat_here {
+                    road_support_windows
+                } else {
+                    support_windows
+                };
+                if blocking_cut - i32::from(own_cut_window) <= 0 {
                     let cut =
                         bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
                     if cut < base_terrain {
@@ -5530,7 +5578,7 @@ fn apply_terrain_carves_with(
                     }
                 }
                 let own_support = outside <= 0.0;
-                if support_windows - i32::from(own_support) <= 0 {
+                if blocking_support - i32::from(own_support) <= 0 {
                     let cut =
                         bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
                     let margin_m = road_transport_margin_m(profile);
@@ -5542,12 +5590,27 @@ fn apply_terrain_carves_with(
                     };
                     if support_outside <= 0.0 {
                         let fill = target.min(limit);
-                        if fill > base_terrain || cut < base_terrain {
-                            let surface = fill.max(cut);
-                            road_support = Some(
-                                road_support.map_or(surface, |known: f64| known.min(surface)),
-                            );
-                        }
+                        // Inside its own graded flat top the road's authored
+                        // surface IS the answer - cut, fill, or exactly the natural
+                        // ground. The boundary case used to fall through to the
+                        // fill-first resolution and let a neighbour's transition
+                        // ring stand in the roadbed (measured as 5.788 m of fill on
+                        // a road whose own surface was the natural ground).
+                        //
+                        // Outside the flat top - the transport band's shoulder
+                        // margin - the road is a FILL authority only: it keeps its
+                        // own band from being buried, and never excavates there
+                        // because the graded ring beyond the flat top is what the
+                        // ledger's per-cell rule reserves for the neighbouring
+                        // pads.
+                        let authored = fill.max(cut);
+                        let surface = if own_support {
+                            authored
+                        } else {
+                            authored.max(base_terrain)
+                        };
+                        road_support =
+                            Some(road_support.map_or(surface, |known: f64| known.min(surface)));
                     }
                 }
             }

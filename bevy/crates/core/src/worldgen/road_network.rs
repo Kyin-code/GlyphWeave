@@ -904,6 +904,8 @@ pub(super) fn plan_with_zones(
         false,
         super::frontage::RuralConversion::Disabled,
         None,
+        // A bare zoned plan never opts into the bounded cut: no style reaches it.
+        0,
     )
 }
 
@@ -927,6 +929,9 @@ pub(super) fn plan_with_zones_demand(
     // The street setback the shoreline commercial row is planned at, or None when this world
     // states no street morphology to plan one from (rontage::shorefront_row_contract).
     shorefront_setback_m: Option<u32>,
+    // The bounded-cut allowance of the longitudinal road profile, in whole millimetres: `0` for a
+    // world that never opted in, which keeps the fill-only solver byte for byte.
+    profile_cut_mm: i32,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let zoning = zones.map(|z| ZoningMask::new(scene, z)).transpose()?;
     terrain.require_complete()?;
@@ -1240,7 +1245,16 @@ pub(super) fn plan_with_zones_demand(
         // helper error propagates only AFTER the plan is whole again, so a failure cannot leave a
         // half-updated public plan with its nodes missing.
         let nodes = std::mem::take(&mut result.nodes);
-        let attached = attach_base_edge_profiles(&mut result, scene, terrain, water, &nodes, level, zones);
+        let attached = attach_base_edge_profiles(
+            &mut result,
+            scene,
+            terrain,
+            water,
+            &nodes,
+            level,
+            zones,
+            profile_cut_mm,
+        );
         result.nodes = nodes;
         // B01-T2 C2: PERSIST the refusals instead of discarding them. A refused edge keeps
         // profile: None and therefore has no frontage eligibility; the reason now travels with the plan.
@@ -1985,6 +1999,7 @@ pub(super) fn plan_with_program(
     program: Option<&super::services::ServiceProgram>,
     pad_conversion: super::frontage::RuralConversion,
     shorefront_setback_m: Option<u32>,
+    profile_cut_mm: i32,
 ) -> Result<RoadNetworkPlan, TerrainError> {
     let mut result = plan_with_zones_demand(
         scene,
@@ -1994,6 +2009,7 @@ pub(super) fn plan_with_program(
         program.is_some(),
         pad_conversion,
         shorefront_setback_m,
+        profile_cut_mm,
     )?;
     let Some(program) = program else {
         return Ok(result);
@@ -2217,6 +2233,7 @@ pub(super) fn attach_base_edge_profiles(
     nodes: &[RoadNode],
     level: i32,
     zones: Option<&[LandUseZone]>,
+    cut_mm: i32,
 ) -> Result<Vec<BaseProfileRejection>, TerrainError> {
     let Some(zones) = zones else {
         // with no land-use zones there is no legal corridor to check against. The task forbids inventing
@@ -2229,7 +2246,10 @@ pub(super) fn attach_base_edge_profiles(
                 .into(),
         }]);
     };
-    let context = super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?;
+    // The bounded-cut policy, read once by the caller from the world's own style:
+    // `0` is a world that never opted in and keeps the fill-only solver.
+    let context =
+        super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?.with_cut(cut_mm);
     // Structural guard (I5): a plan whose edges do not have unique ids, or whose
     // edges do not map onto the node table, is damaged rather than merely
     // unprofiled. That must fail closed so no half-updated public plan escapes.
@@ -2347,6 +2367,11 @@ pub(super) fn plan_with_style_declared(
             .get("frontageProgram")
             .and_then(|program| program.get("ruralConversion")),
     );
+    // The bounded-cut policy, read once: the ONE cap the longitudinal road
+    // profile may excavate under. `0` (the default, and every world that never
+    // opts in) keeps the historical fill-only solver byte for byte.
+    let (profile_cut_policy, _) = super::bounded_cut::CutPolicy::from_style(style);
+    let profile_cut_mm = profile_cut_policy.cap_mm();
     let mut result = plan_with_program(
         scene,
         terrain,
@@ -2355,6 +2380,7 @@ pub(super) fn plan_with_style_declared(
         program,
         pad_conversion,
         super::frontage::shorefront_row_contract(style),
+        profile_cut_mm,
     )?;
     if super::road_extensions::from_style(style)?.is_some() {
         super::road_extensions::append(
@@ -5523,6 +5549,8 @@ mod tests {
             &nodes,
             1,
             Some(&zones),
+            // No bounded-cut policy in this fixture: the profile stays fill-only.
+            0,
         )
         .unwrap();
         assert!(
@@ -6607,6 +6635,7 @@ mod tests {
             &nodes,
             level,
             Some(&zones),
+            0,
         )
         .unwrap();
         assert!(
@@ -6665,6 +6694,7 @@ mod tests {
             &nodes,
             level,
             Some(&zones),
+            0,
         )
         .unwrap_err();
         assert!(error.0.contains("structural damage"), "{error:?}");
@@ -6681,6 +6711,7 @@ mod tests {
             &nodes,
             level,
             Some(&zones),
+            0,
         )
         .unwrap_err();
         assert!(error.0.contains("structural damage"), "{error:?}");
@@ -7444,6 +7475,8 @@ fn verify_impl(
             // compares against is the morphology-free plan, which is exactly what a world
             // that states none publishes.
             None,
+            // ...and no style means no bounded-cut policy either.
+            0,
         )?
     };
     let mut expected = expected;
