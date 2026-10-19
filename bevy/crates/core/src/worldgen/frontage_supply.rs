@@ -2893,7 +2893,8 @@ mod tests {
             &scene,
             &manifest.style,
         );
-        let requests: Vec<Request> = frontage::from_style(&manifest.style)
+        let style = baked_style(&manifest.style, &scene);
+        let requests: Vec<Request> = frontage::from_style(&style)
             .expect("frontage program")
             .expect("frontage program present")
             .requests
@@ -2917,8 +2918,7 @@ mod tests {
         // style may bench is accepted by the bake and refused by a replay that assumed no cut. The
         // policy is therefore read from the SAME style the world was baked from, exactly as `append`
         // reads it, so the replay cannot disagree with the bake about which lots are buildable.
-        let (policy, _not_enabled) =
-            super::super::bounded_cut::CutPolicy::from_style(&manifest.style);
+        let (policy, _not_enabled) = super::super::bounded_cut::CutPolicy::from_style(&style);
         let diagnosis = diagnose(
             &scene, &natural, &mask, water, &zones, &stripped, &requests, 0, policy,
         )
@@ -3064,6 +3064,7 @@ mod tests {
             &scene,
             &manifest.style,
         );
+        let baked = baked_style(&manifest.style, &scene);
         let published = plan.frontage.as_ref().expect("published frontage report");
         let placed: BTreeSet<String> = published
             .outcomes
@@ -3086,12 +3087,21 @@ mod tests {
                 },
             ),
         ] {
-            let mut style = manifest.style.clone();
+            let mut style = baked.clone();
             if policy.enabled() {
                 style["frontageProgram"]["terrainPolicy"] =
                     serde_json::json!(super::super::bounded_cut::POLICY_VALUE);
                 style["frontageProgram"]["maxCutMm"] =
                     serde_json::json!(super::super::bounded_cut::MAX_CUT_MM);
+            } else if let Some(program) = style["frontageProgram"].as_object_mut() {
+                // The OFF arm must actually BE off: the compiled style carries the
+                // authored `terrainPolicy`/`maxCutMm` pair, so merely leaving it alone
+                // ran the bounded-cut policy in both arms and reported a delta of zero
+                // for every request - a measurement that could never show the policy's
+                // effect. The pair is removed here, exactly as an author removes it from
+                // the manifest to switch the capability off.
+                program.remove("terrainPolicy");
+                program.remove("maxCutMm");
             }
             let mut produced = stripped.clone();
             frontage::append(&mut produced, &scene, &natural, water, Some(&zones), &style)
@@ -3228,7 +3238,8 @@ mod tests {
             &scene,
             &manifest.style,
         );
-        let requests: Vec<Request> = frontage::from_style(&manifest.style)
+        let style = baked_style(&manifest.style, &scene);
+        let requests: Vec<Request> = frontage::from_style(&style)
             .expect("frontage program")
             .expect("frontage program present")
             .requests
@@ -3268,7 +3279,7 @@ mod tests {
             &natural,
             water,
             Some(&zones),
-            &manifest.style,
+            &style,
         )
         .expect("production frontage append");
         let produced_report = produced.frontage.as_ref().expect("replayed report");
@@ -3337,7 +3348,7 @@ mod tests {
                 existing.extend(stripped.site_entities());
                 existing
             },
-            super::super::bounded_cut::CutPolicy::from_style(&manifest.style).0,
+            super::super::bounded_cut::CutPolicy::from_style(&style).0,
         );
         let mut staged = stripped.clone();
         let mut budgets: Vec<RequestBudget> = requests.iter().map(RequestBudget::new).collect();
@@ -3346,61 +3357,61 @@ mod tests {
         let apron_rise_mm =
             (super::super::access::WALKABLE_GRADE * super::super::ENTRANCE_APRON_RUN_M * 1000.)
                 .round() as i64;
-        for road in &roads {
-            let mut samples: Vec<Option<Vec<usize>>> = Vec::with_capacity(requests.len());
-            for r in &requests {
-                samples.push(frontage::stations(road, r).expect("station list"));
-            }
-            let station_count = samples
-                .iter()
-                .filter_map(|s| s.as_ref().map(|v| v.len()))
-                .max()
-                .unwrap_or(0);
-            for position in 0..station_count {
-                for side in [-1_i32, 1] {
-                    let offset = ((position as i64) * 2 + (if side < 0 { 0 } else { 1 })) as usize
-                        % requests.len();
-                    for step in 0..requests.len() {
-                        let index = (offset + step) % requests.len();
-                        let budget = &mut budgets[index];
-                        if budget.satisfied() || !budget.budget_left() {
-                            continue;
-                        }
-                        let Some(Some(list)) = samples.get(index) else {
-                            continue;
-                        };
-                        let Some(&station) = list.get(position) else {
-                            continue;
-                        };
-                        if !budget.claim_attempt() {
-                            continue;
-                        }
-                        let r = &requests[index];
-                        let mut site =
-                            frontage::candidate_site(road, r, &scene.scene_id, station, side)
-                                .expect("candidate site");
-                        let parcel = frontage::parcel_boundary(&site).expect("parcel");
-                        let (mut reason, _converted) = frontage::envelope_verdict(
-                            parcel,
-                            r.parcel_insets.unwrap_or_default(),
-                            site.rotation_y_deg,
-                            &scene,
-                            &zones,
-                            &r.purpose,
-                            r.rural_conversion,
-                        );
-                        let mut detail = None;
-                        if reason.is_none() {
-                            let (found, evidence) =
-                                state.assess_detailed(&site, &staged).expect("preflight");
-                            reason = found;
-                            detail = evidence;
-                        }
-                        if let Some(reason) = reason {
-                            budget.reject(reason);
-                            let level = i64::from(site.support_level_mm.expect("precise"));
-                            let (half_w, half_d) = crate::worldgen::support_pad_half_extents(
-                                site.width_m as f32,
+        // The ORDER is the bake's own, taken from the function `append` walks rather
+        // than re-derived here. With an explicit rural conversion `append` re-sorts
+        // both the roads and the turns inside each road nearest-the-city first
+        // (`frontage::candidate_order`), and a shadow pass that rebuilt the historical
+        // schedule would measure a search the bake never performs. Measured on the
+        // hillside town before this used `candidate_order`: the shadow pass planned
+        // 5 homes + 2 shops against the published 4 + 3, and this audit's own
+        // "the shadow replay must reproduce the production selection" assertion
+        // failed on every world that states the conversion policy.
+        let nearest_first = requests.iter().any(|r| r.rural_conversion.is_explicit());
+        let ordered = frontage::candidate_order(
+            &roads.iter().collect::<Vec<_>>(),
+            &requests,
+            &scene.scene_id,
+            nearest_first.then_some(zones.as_slice()),
+        )
+        .expect("candidate order");
+        for (road_index, turns) in ordered {
+            let road = &roads[road_index];
+            for turn in turns {
+                let index = turn.request;
+                let (station, side) = (turn.station, turn.side);
+                let budget = &mut budgets[index];
+                if budget.satisfied() || !budget.budget_left() {
+                    continue;
+                }
+                if !budget.claim_attempt() {
+                    continue;
+                }
+                let r = &requests[index];
+                let mut site =
+                    frontage::candidate_site(road, r, &scene.scene_id, station, side)
+                        .expect("candidate site");
+                let parcel = frontage::parcel_boundary(&site).expect("parcel");
+                let (mut reason, _converted) = frontage::envelope_verdict(
+                    parcel,
+                    r.parcel_insets.unwrap_or_default(),
+                    site.rotation_y_deg,
+                    &scene,
+                    &zones,
+                    &r.purpose,
+                    r.rural_conversion,
+                );
+                let mut detail = None;
+                if reason.is_none() {
+                    let (found, evidence) =
+                        state.assess_detailed(&site, &staged).expect("preflight");
+                    reason = found;
+                    detail = evidence;
+                }
+                if let Some(reason) = reason {
+                    budget.reject(reason);
+                    let level = i64::from(site.support_level_mm.expect("precise"));
+                    let (half_w, half_d) = crate::worldgen::support_pad_half_extents(
+                        site.width_m as f32,
                                 site.depth_m as f32,
                                 site.rotation_y_deg,
                                 site.frontage_road_point.is_some(),
@@ -3488,6 +3499,14 @@ mod tests {
                                 truth,
                             });
                         } else {
+                            // The cap the pad will PUBLISH has to be on the parcel before it
+                            // is committed: it is the footprint every later candidate is
+                            // measured against (`frontage::append` does the same, and
+                            // `attempt_turn` above says why). A shadow pass that committed
+                            // the parcel without it silently stopped applying the bench
+                            // overlap gate, and its selection diverged from production on
+                            // every world whose pads excavate.
+                            site.bounded_cut_mm = state.cut_cap_for(&site);
                             state
                                 .sample_natural(&mut site, parcel)
                                 .expect("natural range");
@@ -3495,8 +3514,6 @@ mod tests {
                             budget.accept(&site.id);
                             staged.roadside_sites.push(site);
                         }
-                    }
-                }
             }
         }
         let mut shadow_matches = true;
@@ -3719,6 +3736,212 @@ mod tests {
         assert!(
             shadow_matches,
             "the shadow replay must reproduce the production selection exactly"
+        );
+    }
+
+    /// The style a published world was actually baked from.
+    ///
+    /// The bake runs the MORPHOLOGY-COMPILED programme, not the authored one: a
+    /// frontage request's `parcelInsets` and its derived `setbackM` only exist
+    /// after `morphology_compile::compile` has filled them in from
+    /// `style.morphologyProfile`. A read-only replay that reads `manifest.style`
+    /// therefore searches a DIFFERENT parcel than the published plan did - no side
+    /// inset, no rear inset - and it is the replay, not the bake, that is wrong.
+    /// Measured on the hillside town before this helper existed: the replay planned
+    /// 5 homes + 2 shops against the published 4 + 3, so
+    /// `support_gate_audit_of_a_published_world` failed its own
+    /// "the replay must reproduce the published report" assertion and the
+    /// per-subcondition support census was computed over the wrong rectangles.
+    ///
+    /// A style that states no `morphologyProfile` compiles to `None` and is
+    /// returned verbatim, so a world that never used a profile replays exactly as
+    /// before.
+    fn baked_style(style: &serde_json::Value, scene: &SceneSpec) -> serde_json::Value {
+        match crate::settlement::morphology_compile::compile(style, std::slice::from_ref(scene)) {
+            Ok(Some(compiled)) => compiled.style,
+            _ => style.clone(),
+        }
+    }
+
+    /// One published world, reloaded from its own bytes for a read-only replay:
+    /// the published natural chunk set, the published zoning and the published
+    /// road plan. Nothing is regenerated, so a census can never describe a field
+    /// (or a network) the bake did not use.
+    struct PublishedWorld {
+        scene: SceneSpec,
+        natural: BakedTerrain,
+        water: WaterGeometry,
+        zones: Vec<LandUseZone>,
+        plan: RoadNetworkPlan,
+        requests: Vec<Request>,
+        style: serde_json::Value,
+    }
+
+    fn load_published_world(root: &std::path::Path) -> PublishedWorld {
+        let manifest: super::super::WorldManifest = serde_json::from_slice(
+            &std::fs::read(root.join("glyphweave.manifest.json")).expect("published manifest"),
+        )
+        .expect("manifest json");
+        let scene = manifest.scenes[0].clone();
+        let dir = root.join("scenes").join(&scene.scene_id);
+        let plan: RoadNetworkPlan = serde_json::from_slice(
+            &std::fs::read(dir.join("road-network-plan.json")).expect("published road plan"),
+        )
+        .expect("plan json");
+        let zones: Vec<LandUseZone> = serde_json::from_slice(
+            &std::fs::read(dir.join("land-use-zones.json")).expect("published zoning"),
+        )
+        .expect("zoning json");
+        let mut natural = BakedTerrain::new(&scene).expect("raster");
+        for chunk_z in 0..scene.depth_m.div_ceil(512) {
+            for chunk_x in 0..scene.width_m.div_ceil(512) {
+                let dx = chunk_x * 512;
+                let dz = chunk_z * 512;
+                let width = (scene.width_m - dx).min(512);
+                let depth = (scene.depth_m - dz).min(512);
+                let bytes = std::fs::read(
+                    dir.join(format!("chunk-{chunk_x}-{chunk_z}.natural.height.bin")),
+                )
+                .expect("published natural chunk");
+                natural
+                    .insert_chunk(
+                        scene.origin_x + dx as i32,
+                        scene.origin_z + dz as i32,
+                        width,
+                        depth,
+                        &bytes,
+                    )
+                    .expect("chunk insert");
+            }
+        }
+        natural.require_complete().expect("complete raster");
+        let water = water_geometry(
+            water_kind(&manifest.style),
+            &manifest.landmarks,
+            &scene,
+            &manifest.style,
+        );
+        // The bake runs the MORPHOLOGY-COMPILED programme, not the authored one:
+        // `parcelInsets` in a published request is derived from `style.morphologyProfile`,
+        // so a replay from the raw manifest would search a different parcel than the
+        // published plan did. The compiled style is what both the gates and the policy
+        // must be read from.
+        let effective = baked_style(&manifest.style, &scene);
+        let requests: Vec<Request> = frontage::from_style(&effective)
+            .expect("frontage program")
+            .expect("frontage program present")
+            .requests
+            .into_iter()
+            .filter(|r| r.scene_id == scene.scene_id)
+            .collect();
+        PublishedWorld {
+            scene,
+            natural,
+            water,
+            zones,
+            plan,
+            requests,
+            style: effective,
+        }
+    }
+
+    /// Read-only per-CANDIDATE census of one published world's frontage search.
+    ///
+    /// `diagnose` shares every candidate constructor, every gate and the exact
+    /// production order (`frontage::candidate_order`) with `frontage::append`, so
+    /// what it reports is the search the bake performs, attempt by attempt: the
+    /// road, station and side, the verdict, and the structured `RejectDetail` the
+    /// refusing gate recorded (which entity it collided with, at which cell).
+    /// The census also carries the `standalone` pass, the same per-road search run
+    /// against the committed state WITHOUT any competing frontage parcel, so the
+    /// failed demand can be split into "no such frontage exists" and "another lot
+    /// took it".
+    ///
+    /// Prints one `FRONTAGE-CENSUS-JSON:` line. Nothing is regenerated or written.
+    #[test]
+    #[ignore = "reads one published world from GLYPHWEAVE_SUPPORT_AUDIT_WORLD; writes nothing"]
+    fn frontage_candidate_census_of_a_published_world() {
+        let Ok(root) = std::env::var("GLYPHWEAVE_SUPPORT_AUDIT_WORLD") else {
+            eprintln!("SKIP: set GLYPHWEAVE_SUPPORT_AUDIT_WORLD to a published world directory");
+            return;
+        };
+        let world = load_published_world(std::path::Path::new(&root));
+        let mask = ZoningMask::new(&world.scene, &world.zones).expect("zoning mask");
+        let policy = super::super::bounded_cut::CutPolicy::from_style(&world.style).0;
+        let published = world
+            .plan
+            .frontage
+            .as_ref()
+            .expect("published frontage report");
+        let diagnosis = diagnose(
+            &world.scene,
+            &world.natural,
+            &mask,
+            world.water,
+            &world.zones,
+            &world.plan,
+            &world.requests,
+            512,
+            policy,
+        )
+        .expect("census");
+        // The census must be the published search, not a similar one.
+        let production_matches = published.outcomes.len() == diagnosis.requests.len()
+            && published
+                .outcomes
+                .iter()
+                .zip(&diagnosis.requests)
+                .all(|(outcome, summary)| {
+                    summary.request_id == outcome.request.id
+                        && summary.joint_accepted == outcome.site_ids.len()
+                        && summary.joint_attempted == outcome.attempted
+                        && summary.rejected == outcome.rejected
+                });
+        let standalone: Vec<serde_json::Value> = diagnosis
+            .requests
+            .iter()
+            .map(|summary| {
+                let traces: Vec<&RoadSupply> = diagnosis
+                    .standalone
+                    .iter()
+                    .filter(|trace| trace.request_id == summary.request_id)
+                    .collect();
+                let mut rejected: BTreeMap<String, u32> = BTreeMap::new();
+                for trace in &traces {
+                    for (reason, count) in &trace.rejected {
+                        *rejected.entry(reason.clone()).or_default() += *count;
+                    }
+                }
+                serde_json::json!({
+                    "requestId": summary.request_id,
+                    "acceptedWithoutCompetingLots": traces.iter().map(|t| t.accepted).sum::<usize>(),
+                    "attemptedWithoutCompetingLots": traces.iter().map(|t| t.attempted).sum::<u32>(),
+                    "rejectedWithoutCompetingLots": rejected,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "world": root,
+            "scene": world.scene.scene_id,
+            "maxCutMm": policy.cap_mm(),
+            "productionMatches": production_matches,
+            "totals": {
+                "attempted": diagnosis.joint_station_attempts,
+                "accepted": diagnosis.joint_accepted,
+                "rejected": diagnosis.joint_rejected,
+                "stopReason": diagnosis.stop_reason,
+            },
+            "requests": diagnosis.requests,
+            "standalone": standalone,
+            "joint": diagnosis.joint,
+        });
+        println!(
+            "FRONTAGE-CENSUS-JSON: {}",
+            serde_json::to_string(&report).unwrap()
+        );
+        assert!(
+            production_matches,
+            "the census must reproduce the published frontage report attempt for attempt"
         );
     }
 }

@@ -497,6 +497,204 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     );
 }
 
+/// The authored frontage demand this world cannot meet, MEASURED - and the proof
+/// that the shortfall is not a candidate search the planner failed to run.
+///
+/// The quality gate has been failing this world on `frontage demand remains
+/// unfilled` while its development, road and service audits pass. Round 52 took
+/// that apart attempt by attempt (the per-attempt census lives in
+/// `glyphweave_core::worldgen::frontage_supply::tests::
+/// frontage_candidate_census_of_a_published_world`, which replays this exact
+/// search and keeps each refusing gate's own `RejectDetail`). What it establishes,
+/// and what this test pins:
+///
+///  * the station pitch offers 15 home stations and 27 shop stations on 12 of the
+///    33 roads (9 contour roads with a 64 m profile and 3 auto roads with 96 m; the
+///    other 21 roads carry no longitudinal profile, so a lot cannot be benched
+///    against a level that does not exist). Both sides of every one of them is
+///    tried, so `attempted` is exactly twice the station count: 30 and 54. Nothing
+///    the authored pitch can produce is left unvisited;
+///  * the candidate budgets are 8192 and the search spent 0.37 % and 0.66 % of
+///    them, and both requests stop with `no_feasible_frontage`, never
+///    `candidate_budget_exhausted`: the budget is not what refuses a lot;
+///  * every one of the 84 attempts is accounted for - a placed lot or one named
+///    refusal - so `planned + Σ rejected == attempted` for each request;
+///  * the refusals are the world's own, split by what the gate actually measured:
+///    24 are the river (the gorge channel runs between the two banks, so one side
+///    of every contour street is water), 25 are ground another entity really holds
+///    (base roadside pads, the shorefront row, the school, the other request's
+///    lot), 17 are a parcel that would stand inside a NEIGHBOURING street's 4 m
+///    protection band and never on its carriageway, 6 are the earthwork contract
+///    (a pad's grading would move a published platform by 160-1229 mm), 4 are the
+///    bounded-cut ring contract and 1 is the Round-45 entrance rule.
+///
+/// A counterfactual was measured before this test was written, and it is recorded
+/// because it is the reason the generator is NOT changed here: moving every station
+/// `parcelInsets.sideM` metres away from the junction - so the parcel's own side
+/// boundary, and not just the building's, clears the neighbouring band - re-plans
+/// this world to 6 lots instead of 7 (shops 3 -> 2, and a new `reserved_entrance`
+/// refusal). The 2 m the parcel loses at a junction is ground the plan does not
+/// have anyway: the shop's own street then rises a step its entrance cannot climb.
+/// The shortfall is local capacity, not a skipped candidate.
+#[test]
+fn the_hillside_frontage_shortfall_is_measured_and_the_search_is_exhausted() {
+    let dir = TestDir::new("hillside-frontage-shortfall");
+    let manifest = sample();
+    bake_world(&manifest, &dir.0).expect("the benched hillside bakes");
+
+    // 1. The station space, counted from the published roads rather than from the
+    //    station list, so the number below is an independent cross-check of
+    //    `frontage::stations` and not a copy of it.
+    let plan: RoadNetworkPlan =
+        serde_json::from_slice(&fs::read(scene_dir(&dir).join("road-network-plan.json")).unwrap())
+            .expect("the published plan round-trips");
+    let mut profile_lengths: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut profiled = 0_usize;
+    let mut roads = 0_usize;
+    for entity in plan.entities() {
+        if entity.kind != "road" {
+            continue;
+        }
+        roads += 1;
+        let Some(profile) = &entity.grounding.road_profile else {
+            continue;
+        };
+        profiled += 1;
+        *profile_lengths
+            .entry(profile.elevations_mm.len() - 1)
+            .or_default() += 1;
+    }
+    assert_eq!(roads, 33, "the plan publishes its whole network");
+    assert_eq!(profiled, 12, "12 of the 33 roads carry a longitudinal profile");
+    assert_eq!(
+        profile_lengths,
+        BTreeMap::from([(64, 9), (96, 3)]),
+        "9 contour stubs at 64 m and 3 auto roads at 96 m"
+    );
+    // The documented station contract, arithmetic only: stations run from
+    // `widthM/2 + 8` (+ the road's own extra half-width) to `length - widthM/2 - 8`
+    // in `stationSpacingM` steps. Written out here so the counts below are checked
+    // from the published geometry instead of being taken from the plan.
+    let stations_on = |length: usize, width_m: usize, spacing: usize, extra: usize| -> usize {
+        let margin = width_m / 2 + 8;
+        if length <= 2 * margin {
+            return 0;
+        }
+        let start = margin + extra;
+        let end = length - margin;
+        if start > end {
+            return 0;
+        }
+        (start..=end).step_by(spacing).count()
+    };
+    // 9 roads of 64 m at 8 m wide (extra 0) and 3 roads of 96 m at 12 m wide (extra 4).
+    let home_stations = 9 * stations_on(64, 24, 32, 0) + 3 * stations_on(96, 24, 32, 4);
+    let shop_stations = 9 * stations_on(64, 8, 24, 0) + 3 * stations_on(96, 8, 24, 4);
+    assert_eq!((home_stations, shop_stations), (15, 27));
+    assert_eq!(
+        (home_stations * 2, shop_stations * 2),
+        (30, 54),
+        "both sides of every station, which is what `attempted` must equal"
+    );
+
+    // 2. The published report: demand, placement, and the reason table, request by
+    //    request. `planned + Σ rejected == attempted` is the statement that no
+    //    attempt is unaccounted for.
+    let report = plan
+        .frontage
+        .as_ref()
+        .expect("the world publishes its frontage report");
+    let outcome = |id: &str| {
+        report
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.request.id == id)
+            .expect("the world publishes both requests")
+    };
+    let homes = outcome("gorge-homes");
+    let shops = outcome("gorge-shops");
+    assert_eq!((homes.request.count, homes.site_ids.len()), (10, 4));
+    assert_eq!(
+        (homes.unfilled, homes.attempted, homes.stop_reason.as_str()),
+        (6, 30, "no_feasible_frontage")
+    );
+    assert_eq!(
+        homes.rejected,
+        BTreeMap::from([
+            ("bounded_cut_footprint_overlaps_another_pad".to_string(), 2),
+            ("existing_support_changed".to_string(), 1),
+            ("occupied_or_road_support".to_string(), 15),
+            ("water".to_string(), 8),
+        ])
+    );
+    assert_eq!((shops.request.count, shops.site_ids.len()), (14, 3));
+    assert_eq!(
+        (shops.unfilled, shops.attempted, shops.stop_reason.as_str()),
+        (11, 54, "no_feasible_frontage")
+    );
+    assert_eq!(
+        shops.rejected,
+        BTreeMap::from([
+            ("access_to_different_road".to_string(), 1),
+            ("bounded_cut_footprint_overlaps_another_pad".to_string(), 2),
+            ("existing_support_changed".to_string(), 5),
+            ("occupied_or_road_support".to_string(), 27),
+            ("water".to_string(), 16),
+        ])
+    );
+    for outcome in [homes, shops] {
+        let refused: u32 = outcome.rejected.values().sum();
+        assert_eq!(
+            outcome.site_ids.len() as u32 + refused,
+            outcome.attempted,
+            "{}: every attempt is a lot or a named refusal",
+            outcome.request.id
+        );
+        // The budget is not the limiter: this is a geometry the world does not have,
+        // not a search that ran out of attempts.
+        assert!(
+            outcome.attempted * 10 < outcome.request.max_candidate_attempts,
+            "{}: attempted {} of {}",
+            outcome.request.id,
+            outcome.attempted,
+            outcome.request.max_candidate_attempts
+        );
+    }
+    // The family the bounded-cut capability exists to relieve is EMPTY here: with
+    // the 2 m cap on, not one lot is refused for terrain. That is what makes the
+    // remaining 17 a frontage-capacity question and not an earthwork one.
+    assert!(!homes.rejected.contains_key("natural_support_or_fill_limit"));
+    assert!(!shops.rejected.contains_key("natural_support_or_fill_limit"));
+    assert!(!homes.rejected.contains_key("bounded_cut_exceeds_cap"));
+    assert!(!shops.rejected.contains_key("bounded_cut_exceeds_cap"));
+
+    // 3. The published audit is those numbers, and its only complaint is the
+    //    unfilled demand: no lot is missing, changed or disconnected.
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+        .arg("quality-report")
+        .arg(&dir.0)
+        .output()
+        .expect("the quality report runs");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let quality = read_json(dir.0.join("quality-report.json"));
+    let audit = &quality["scenes"][0]["frontageAudit"];
+    assert_eq!(audit["requested"], json!(24));
+    assert_eq!(audit["planned"], json!(7));
+    assert_eq!(audit["realizedWithAccess"], json!(7));
+    assert_eq!(audit["unfilled"], json!(17));
+    assert_eq!(audit["status"], json!("fail"));
+    assert_eq!(
+        audit["failures"],
+        json!(["frontage demand remains unfilled"]),
+        "the shortfall is the only failure: {audit}"
+    );
+    assert_eq!(audit["realizedIds"].as_array().unwrap().len(), 7);
+}
+
 /// The worst fill and the worst cut over one graded road's transport band, in
 /// whole millimetres, from the two published rasters.
 fn road_band_fill_cut(
