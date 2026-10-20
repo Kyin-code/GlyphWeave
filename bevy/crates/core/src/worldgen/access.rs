@@ -395,14 +395,7 @@ pub(super) fn access_for_entity(
                 .filter(|o| o.entity_id != e.entity_id)
                 .collect();
             #[cfg(test)]
-            observation::entrance(
-                e,
-                start,
-                facade_point,
-                &entrance_obstacles,
-                terrain,
-                water,
-            );
+            observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
             if terrain.require_complete().is_err() {
                 link.status = "incomplete_terrain".into();
             } else if [start, facade_point].into_iter().any(|p| {
@@ -616,9 +609,7 @@ pub(super) fn plan_time_links(
     // to walk 120 m - ends on the next street), so it is always decided on the full
     // budget below.
     let direct_to_assigned = first.iter().any(|link| {
-        link.connected
-            && link.road_id.as_deref() == Some(assigned_road)
-            && link.path.len() <= 3
+        link.connected && link.road_id.as_deref() == Some(assigned_road) && link.path.len() <= 3
     });
     if direct_to_assigned {
         return Ok(first);
@@ -705,7 +696,11 @@ pub(super) fn place_generated_entrances(
                 let dx = at.x - f64::from(original.world_x);
                 let dz = at.z - f64::from(original.world_z);
                 let direction = if dx.abs() > dz.abs() {
-                    if dx > 0. { "east" } else { "west" }
+                    if dx > 0. {
+                        "east"
+                    } else {
+                        "west"
+                    }
                 } else if dz > 0. {
                     "south"
                 } else {
@@ -972,7 +967,11 @@ pub(crate) mod observation {
             }
         });
         let _ = recording(|state| {
-            *state.trace.counters.entry("routes.started".into()).or_default() += 1;
+            *state
+                .trace
+                .counters
+                .entry("routes.started".into())
+                .or_default() += 1;
             let _ = start;
         });
     }
@@ -1228,30 +1227,19 @@ pub(crate) mod observation {
                     if (h - old).abs() > GRADE_LIMIT * step + 1e-6 {
                         let mut value = segment("grade");
                         if let Some(object) = value.as_object_mut() {
-                            object.insert(
-                                "sampleFrom".into(),
-                                serde_json::json!([old_p.x, old_p.z]),
-                            );
+                            object
+                                .insert("sampleFrom".into(), serde_json::json!([old_p.x, old_p.z]));
                             object.insert("sampleTo".into(), serde_json::json!([p.x, p.z]));
-                            object.insert(
-                                "sampleIndex".into(),
-                                serde_json::json!(old_index),
-                            );
+                            object.insert("sampleIndex".into(), serde_json::json!(old_index));
                             object.insert("sampleIndexTo".into(), serde_json::json!(i));
                             object.insert("sampleCount".into(), serde_json::json!(n));
                             object.insert("heightFromM".into(), serde_json::json!(old));
                             object.insert("heightToM".into(), serde_json::json!(h));
                             object.insert("stepM".into(), serde_json::json!(step));
                             object.insert("deltaM".into(), serde_json::json!((h - old).abs()));
-                            object.insert(
-                                "limitM".into(),
-                                serde_json::json!(GRADE_LIMIT * step),
-                            );
+                            object.insert("limitM".into(), serde_json::json!(GRADE_LIMIT * step));
                             object.insert("lateralM".into(), serde_json::json!(lateral));
-                            object.insert(
-                                "segmentLengthM".into(),
-                                serde_json::json!(length),
-                            );
+                            object.insert("segmentLengthM".into(), serde_json::json!(length));
                         }
                         return Some(value);
                     }
@@ -1265,11 +1253,7 @@ pub(crate) mod observation {
     /// Test-only: the full three-line sampling profile of one segment, using the same
     /// bilinear lookup and 0.5m spacing as the production predicate. It reads only;
     /// it cannot change a decision.
-    pub(crate) fn sample_profile(
-        terrain: &BakedTerrain,
-        a: P,
-        b: P,
-    ) -> serde_json::Value {
+    pub(crate) fn sample_profile(terrain: &BakedTerrain, a: P, b: P) -> serde_json::Value {
         let length = distance(a, b);
         let n = (length / SAMPLE_STEP_M).ceil().max(1.) as usize;
         let (nx, nz) = if length > 0. {
@@ -1300,10 +1284,7 @@ pub(crate) mod observation {
                     if let Some(object) = entry.as_object_mut() {
                         object.insert("previousHeightM".into(), serde_json::json!(previous_h));
                         object.insert("deltaM".into(), serde_json::json!(delta));
-                        object.insert(
-                            "limitM".into(),
-                            serde_json::json!(GRADE_LIMIT * step),
-                        );
+                        object.insert("limitM".into(), serde_json::json!(GRADE_LIMIT * step));
                         object.insert(
                             "gradeClear".into(),
                             serde_json::json!(delta <= GRADE_LIMIT * step + 1e-6),
@@ -1324,7 +1305,10 @@ pub(crate) mod observation {
                 ("lateralM", serde_json::json!(lateral)),
                 ("stepM", serde_json::json!(step)),
                 ("sampleCount", serde_json::json!(n + 1)),
-                ("firstFailure", first_failure.unwrap_or(serde_json::Value::Null)),
+                (
+                    "firstFailure",
+                    first_failure.unwrap_or(serde_json::Value::Null),
+                ),
                 ("samples", serde_json::json!(samples)),
             ]));
         }
@@ -1402,12 +1386,10 @@ mod tests {
         assert_eq!(link.path[0], point(64., 59.)); // Actual 10m building facade.
         assert!((link.distance_m.unwrap() - 30.).abs() < 1e-8);
         let surfaces = bake_access_surfaces(&graph, &terrain).unwrap();
-        assert!(
-            surfaces[0]
-                .vertices
-                .iter()
-                .any(|v| (v[2] - 59.).abs() < 1e-8)
-        );
+        assert!(surfaces[0]
+            .vertices
+            .iter()
+            .any(|v| (v[2] - 59.).abs() < 1e-8));
     }
 
     #[test]
@@ -1432,18 +1414,14 @@ mod tests {
         let surfaces = bake_access_surfaces(&graph, &terrain).unwrap();
         assert_eq!(surfaces.len(), 1);
         assert!(!surfaces[0].triangles.is_empty());
-        assert!(
-            surfaces[0]
-                .vertices
-                .iter()
-                .any(|v| v[0].fract().abs() > 1e-6 || v[2].fract().abs() > 1e-6)
-        );
-        assert!(
-            surfaces[0]
-                .vertices
-                .iter()
-                .all(|v| (v[1] - 0.04).abs() < 1e-9)
-        );
+        assert!(surfaces[0]
+            .vertices
+            .iter()
+            .any(|v| v[0].fract().abs() > 1e-6 || v[2].fract().abs() > 1e-6));
+        assert!(surfaces[0]
+            .vertices
+            .iter()
+            .all(|v| (v[1] - 0.04).abs() < 1e-9));
         for tri in &surfaces[0].triangles {
             let [a, b, c] = tri.map(|i| surfaces[0].vertices[i as usize]);
             assert!(
@@ -1463,11 +1441,9 @@ mod tests {
         entities.retain(|e| e.kind != "road");
         let disconnected = build_access_graph(&entities, &terrain, water);
         assert_eq!(disconnected.connected_entities, 0);
-        assert!(
-            bake_access_surfaces(&disconnected, &terrain)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(bake_access_surfaces(&disconnected, &terrain)
+            .unwrap()
+            .is_empty());
         assert!(validate_access_surfaces(&disconnected, &terrain, &surfaces).is_err());
     }
 
@@ -1631,9 +1607,9 @@ mod tests {
             rotation_y_deg: yaw as f32,
             natural_min_m: support_mm as f32 / 1000.,
             natural_max_m: support_mm as f32 / 1000.,
-        
+
             entry_corridor: None,
-};
+        };
         let house = site.entity();
         assert_eq!((house.world_x, house.world_z), (x, z));
         assert_eq!(house.rotation_y_deg, yaw as f32);
@@ -1652,25 +1628,38 @@ mod tests {
         assert_eq!(anchor.target.as_deref(), Some("road"));
 
         let mut road = generated_intent_entity(
-            site.road_id.clone(), "road", road_point[0], road_point[1],
-            house.world_y, 100., 8., 0.2,
+            site.road_id.clone(),
+            "road",
+            road_point[0],
+            road_point[1],
+            house.world_y,
+            100.,
+            8.,
+            0.2,
         );
         road.rotation_y_deg = yaw as f32;
         road.grounding.bottom_offset_m = house.grounding.bottom_offset_m;
         let mut entities = vec![house, road];
         if blocked {
             let mut wall = generated_intent_entity(
-                "wall.cardinal".into(), "wall", x + nx * 7, z + nz * 7,
-                support_mm.div_euclid(1000), 18., 1., 3.,
+                "wall.cardinal".into(),
+                "wall",
+                x + nx * 7,
+                z + nz * 7,
+                support_mm.div_euclid(1000),
+                18.,
+                1.,
+                3.,
             );
             wall.rotation_y_deg = yaw as f32;
             entities.push(wall);
         }
-        let payload = encode_millimetres(
-            128, 128, vec![f64::from(support_mm) / 1000.; 128 * 128],
-        ).unwrap();
+        let payload =
+            encode_millimetres(128, 128, vec![f64::from(support_mm) / 1000.; 128 * 128]).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
-        terrain.insert_chunk(origin.0, origin.1, 128, 128, &payload).unwrap();
+        terrain
+            .insert_chunk(origin.0, origin.1, 128, 128, &payload)
+            .unwrap();
         assert_eq!(terrain.encoding(), Some(HeightEncoding::Millimetre));
         let water = water_geometry(WaterKind::None, &[], &scene, &serde_json::json!({}));
         (entities, terrain, water)
@@ -1713,7 +1702,11 @@ mod tests {
                     let terrain_hash = terrain.content_hash().unwrap();
                     let graph = place_generated_entrances(&mut entities, &[], &terrain, water);
                     assert_eq!(serde_json::to_value(&entities).unwrap(), before, "{case}");
-                    assert_eq!((graph.connected_entities, graph.disconnected_entities), (1, 0), "{case}");
+                    assert_eq!(
+                        (graph.connected_entities, graph.disconnected_entities),
+                        (1, 0),
+                        "{case}"
+                    );
                     assert_eq!(graph.links.len(), 1, "{case}");
                     let link = &graph.links[0];
                     assert!(link.connected && link.required, "{case}");
@@ -1722,13 +1715,25 @@ mod tests {
                     assert_eq!(link.anchor_id, "front", "{case}");
                     assert_eq!(link.road_id.as_deref(), Some("road.cardinal"), "{case}");
                     let (nx, nz) = match yaw {
-                        0 => (0., -1.), 90 => (-1., 0.),
-                        180 => (0., 1.), 270 => (1., 0.), _ => unreachable!(),
+                        0 => (0., -1.),
+                        90 => (-1., 0.),
+                        180 => (0., 1.),
+                        270 => (1., 0.),
+                        _ => unreachable!(),
                     };
-                    let facade = point(f64::from(origin.0 + 64) + nx * 5., f64::from(origin.1 + 64) + nz * 5.);
-                    let road_edge = point(f64::from(origin.0 + 64) + nx * 35., f64::from(origin.1 + 64) + nz * 35.);
+                    let facade = point(
+                        f64::from(origin.0 + 64) + nx * 5.,
+                        f64::from(origin.1 + 64) + nz * 5.,
+                    );
+                    let road_edge = point(
+                        f64::from(origin.0 + 64) + nx * 35.,
+                        f64::from(origin.1 + 64) + nz * 35.,
+                    );
                     assert!(distance(link.path[0], facade) < 1e-8, "{case}");
-                    assert!(distance(*link.path.last().unwrap(), road_edge) < 1e-8, "{case}");
+                    assert!(
+                        distance(*link.path.last().unwrap(), road_edge) < 1e-8,
+                        "{case}"
+                    );
                     assert!((link.distance_m.unwrap() - 30.).abs() < 1e-8, "{case}");
                     assert_fixed_frontage_final_graph(&entities, &graph, &terrain, water, &case);
                     // This covers only the complete 128m fixture raster, not global natural/protected land.
@@ -1754,38 +1759,83 @@ mod tests {
                     let mut generic = entities.clone();
                     generic[0].grounding.frontage_road_point = None;
                     let generic_before = serde_json::to_value(&generic).unwrap();
-                    let generic_graph = place_generated_entrances(&mut generic, &[], &terrain, water);
-                    assert_eq!((generic_graph.connected_entities, generic_graph.disconnected_entities), (1, 0), "{case}: alternate facade must be reachable");
+                    let generic_graph =
+                        place_generated_entrances(&mut generic, &[], &terrain, water);
+                    assert_eq!(
+                        (
+                            generic_graph.connected_entities,
+                            generic_graph.disconnected_entities
+                        ),
+                        (1, 0),
+                        "{case}: alternate facade must be reachable"
+                    );
                     assert_ne!(
                         (generic[0].anchors[0].world_x, generic[0].anchors[0].world_z),
-                        (entities[0].anchors[0].world_x, entities[0].anchors[0].world_z),
+                        (
+                            entities[0].anchors[0].world_x,
+                            entities[0].anchors[0].world_z
+                        ),
                         "{case}: generic control must really exercise fallback"
                     );
                     let mut generic_after = serde_json::to_value(&generic).unwrap();
                     generic_after[0]["anchors"] = generic_before[0]["anchors"].clone();
-                    assert_eq!(generic_after, generic_before, "{case}: fallback changes only anchors");
-                    assert_fixed_frontage_final_graph(&generic, &generic_graph, &terrain, water, &case);
+                    assert_eq!(
+                        generic_after, generic_before,
+                        "{case}: fallback changes only anchors"
+                    );
+                    assert_fixed_frontage_final_graph(
+                        &generic,
+                        &generic_graph,
+                        &terrain,
+                        water,
+                        &case,
+                    );
 
                     let graph = place_generated_entrances(&mut entities, &[], &terrain, water);
-                    assert_eq!(entities.len(), 3, "{case}: keep house, road and blocking wall");
-                    assert_eq!(serde_json::to_value(&entities).unwrap(), before, "{case}: keep anchors, position, yaw, roadPoint and all grounding fields");
-                    assert_eq!((graph.connected_entities, graph.disconnected_entities), (0, 1), "{case}");
+                    assert_eq!(
+                        entities.len(),
+                        3,
+                        "{case}: keep house, road and blocking wall"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(&entities).unwrap(),
+                        before,
+                        "{case}: keep anchors, position, yaw, roadPoint and all grounding fields"
+                    );
+                    assert_eq!(
+                        (graph.connected_entities, graph.disconnected_entities),
+                        (0, 1),
+                        "{case}"
+                    );
                     assert_eq!(graph.links.len(), 1, "{case}: keep the failed obligation");
                     let link = &graph.links[0];
                     assert!(!link.connected && link.required, "{case}");
                     assert_eq!(link.entity_id, entities[0].entity_id, "{case}");
                     assert_eq!(link.anchor_id, "front", "{case}");
-                    assert_eq!(link.status, "entrance_clearance_blocked", "{case}: not an arbitrary routing failure");
-                    assert!(link.road_id.is_none() && link.distance_m.is_none() && link.path.is_empty(), "{case}");
+                    assert_eq!(
+                        link.status, "entrance_clearance_blocked",
+                        "{case}: not an arbitrary routing failure"
+                    );
+                    assert!(
+                        link.road_id.is_none() && link.distance_m.is_none() && link.path.is_empty(),
+                        "{case}"
+                    );
                     assert_fixed_frontage_final_graph(&entities, &graph, &terrain, water, &case);
-                    assert!(bake_access_surfaces(&graph, &terrain).unwrap().is_empty(), "{case}");
+                    assert!(
+                        bake_access_surfaces(&graph, &terrain).unwrap().is_empty(),
+                        "{case}"
+                    );
 
                     // A stale graph for a substituted, reachable doorway is observably different.
                     let mut changed_door = entities.clone();
                     changed_door[0].anchors = generic[0].anchors.clone();
                     let changed_graph = build_access_graph(&changed_door, &terrain, water);
                     assert_eq!(changed_graph.connected_entities, 1, "{case}");
-                    assert_ne!(serde_json::to_value(&graph).unwrap(), serde_json::to_value(&changed_graph).unwrap(), "{case}: reconstruction must notice a changed doorway");
+                    assert_ne!(
+                        serde_json::to_value(&graph).unwrap(),
+                        serde_json::to_value(&changed_graph).unwrap(),
+                        "{case}: reconstruction must notice a changed doorway"
+                    );
                     assert_eq!(terrain.content_hash().unwrap(), terrain_hash, "{case}");
                 }
             }
@@ -2091,8 +2141,7 @@ mod tests {
         let mut steep_bytes = vec![];
         for z in 0..128 {
             for _x in 0..128 {
-                steep_bytes
-                    .extend_from_slice(&(if z < 44 { 80_i16 } else { 0_i16 }).to_le_bytes());
+                steep_bytes.extend_from_slice(&(if z < 44 { 80_i16 } else { 0_i16 }).to_le_bytes());
             }
         }
         let mut steep = BakedTerrain::new(&scene).unwrap();
@@ -2124,7 +2173,9 @@ mod tests {
                 classes.insert(
                     classified
                         .and_then(|value| {
-                            value["class"].as_str().map(std::string::ToString::to_string)
+                            value["class"]
+                                .as_str()
+                                .map(std::string::ToString::to_string)
                         })
                         .unwrap_or_else(|| "pass".to_string()),
                 );
@@ -2154,7 +2205,9 @@ mod tests {
             }
         }
         let mut stepped = BakedTerrain::new(&scene).unwrap();
-        stepped.insert_chunk(0, 0, 128, 128, &stepped_bytes).unwrap();
+        stepped
+            .insert_chunk(0, 0, 128, 128, &stepped_bytes)
+            .unwrap();
         let target = entities[0].entity_id.clone();
         let (graph, trace) =
             observation::observe(&target, || build_access_graph(&entities, &stepped, water));
@@ -2297,7 +2350,8 @@ mod tests {
         big.insert_chunk(0, 0, 512, 512, &[0; 512 * 512 * 2])
             .unwrap();
         let mut pocket_entities = vec![];
-        let mut house = generated_intent_entity("house.big".into(), "building", 256, 256, 0, 10., 10., 8.);
+        let mut house =
+            generated_intent_entity("house.big".into(), "building", 256, 256, 0, 10., 10., 8.);
         house.anchors.push(SpatialAnchor {
             id: "door".into(),
             world_x: 256,
@@ -2316,7 +2370,11 @@ mod tests {
             ("road.n".to_string(), 256, 152, 260.0, 4.0),
             ("road.s".to_string(), 256, 360, 260.0, 4.0),
         ] {
-            let kind = if id.starts_with("wall") { "wall" } else { "road" };
+            let kind = if id.starts_with("wall") {
+                "wall"
+            } else {
+                "road"
+            };
             pocket_entities.push(generated_intent_entity(id, kind, x, z, 0, w, d, 2.));
         }
         let target = "house.big".to_string();
@@ -2367,7 +2425,11 @@ mod tests {
         let mut bytes = vec![];
         for z in 0..128 {
             for x in 0..128 {
-                let value: i16 = if (62..66).contains(&z) && x < 64 { 8 } else { 0 };
+                let value: i16 = if (62..66).contains(&z) && x < 64 {
+                    8
+                } else {
+                    0
+                };
                 bytes.extend_from_slice(&value.to_le_bytes());
             }
         }
@@ -2395,17 +2457,17 @@ mod tests {
         // the production normal turns "lateral +0.75" into the x = 63.25 band here
         assert_eq!(record["lateralM"].as_f64().unwrap(), 0.75);
         let at = |value: &serde_json::Value| {
-            point(
-                value[0].as_f64().unwrap(),
-                value[1].as_f64().unwrap(),
-            )
+            point(value[0].as_f64().unwrap(), value[1].as_f64().unwrap())
         };
         let h_from = height(&terrain, at(&record["sampleFrom"])).unwrap();
         let h_to = height(&terrain, at(&record["sampleTo"])).unwrap();
         assert!((h_from - record["heightFromM"].as_f64().unwrap()).abs() < 1e-9);
         assert!((h_to - record["heightToM"].as_f64().unwrap()).abs() < 1e-9);
         assert!(record["deltaM"].as_f64().unwrap() > record["limitM"].as_f64().unwrap());
-        assert_eq!(record["sampleIndex"].as_i64().unwrap() + 1, record["sampleIndexTo"].as_i64().unwrap());
+        assert_eq!(
+            record["sampleIndex"].as_i64().unwrap() + 1,
+            record["sampleIndexTo"].as_i64().unwrap()
+        );
         let profile = observation::sample_profile(&terrain, a, b);
         let lines = profile["lines"].as_array().unwrap();
         let left = lines
