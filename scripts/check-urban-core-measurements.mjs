@@ -66,6 +66,36 @@ for (const name of names) {
   ) {
     failures.push(`${name}: invalid freshFoodFacilityCounts`)
   }
+  if (
+    !Number.isFinite(observed.buildingLevelsObservedRatio)
+    || observed.buildingLevelsObservedRatio < 0
+    || observed.buildingLevelsObservedRatio > 1
+  ) {
+    failures.push(`${name}: invalid buildingLevelsObservedRatio`)
+  }
+  if (
+    !Number.isFinite(observed.observedFloorAreaRatioProxy)
+    || observed.observedFloorAreaRatioProxy < 0
+  ) {
+    failures.push(`${name}: invalid observedFloorAreaRatioProxy`)
+  }
+  const access = observed.freshFoodNetworkAccess
+  if (!access || access.model !== 'walking-network-proxy') {
+    failures.push(`${name}: missing walking-network access model`)
+  } else {
+    validateAccessMetric(
+      name,
+      'allMappedFreshFood',
+      access.allMappedFreshFood,
+      failures,
+    )
+    validateAccessMetric(
+      name,
+      'marketLikeFreshFood',
+      access.marketLikeFreshFood,
+      failures,
+    )
+  }
   if (!Array.isArray(item.limitations) || item.limitations.length < 4) {
     failures.push(`${name}: limitations are incomplete`)
   }
@@ -84,6 +114,12 @@ for (const name of names) {
     buildingCount: observed.buildingCountInsideCircleCentroid,
     buildingCoverageRatio: observed.estimatedBuildingCoverageRatio,
     freshFoodPoints,
+    buildingLevelsObservedRatio: observed.buildingLevelsObservedRatio,
+    observedFloorAreaRatioProxy: observed.observedFloorAreaRatioProxy,
+    marketLikeMedianMinutes:
+      access?.marketLikeFreshFood?.medianMinutes ?? null,
+    marketLikeWithin10MinuteRatio:
+      access?.marketLikeFreshFood?.within10MinuteRatio ?? null,
     file: name,
   })
 }
@@ -102,6 +138,7 @@ if (failures.length) {
     'buildingCount',
     'buildingCoverageRatio',
     'freshFoodPoints',
+    'buildingLevelsObservedRatio',
   ]) {
     const values = rows.map((row) => row[key]).sort((a, b) => a - b)
     const middle = Math.floor(values.length / 2)
@@ -113,10 +150,82 @@ if (failures.length) {
       max: values[values.length - 1],
     }
   }
+  const marketRows = rows.filter(
+    (row) => row.marketLikeMedianMinutes !== null,
+  )
+  summary.mappedMarketAccessWindows = marketRows.length
+  summary.marketLikeMedianMinutes = summarizeNumbers(
+    marketRows.map((row) => row.marketLikeMedianMinutes),
+  )
+  summary.marketLikeWithin10MinuteRatio = summarizeNumbers(
+    marketRows.map((row) => row.marketLikeWithin10MinuteRatio),
+  )
   console.log(JSON.stringify({
     status: 'pass',
     windows: rows.length,
     summary,
     rows: rows.sort((a, b) => a.caseId.localeCompare(b.caseId)),
   }, null, 2))
+}
+
+function validateAccessMetric(name, label, metric, failures) {
+  if (!metric) {
+    failures.push(`${name}: missing access.${label}`)
+    return
+  }
+  if (
+    !Number.isInteger(metric.routedFacilityCount)
+    || metric.routedFacilityCount < 0
+    || !Number.isInteger(metric.demandBuildingCount)
+    || metric.demandBuildingCount < 0
+    || !Number.isInteger(metric.buildingsWithTime)
+    || metric.buildingsWithTime < 0
+    || !Number.isInteger(metric.unreachableBuildingCount)
+    || metric.unreachableBuildingCount < 0
+  ) {
+    failures.push(`${name}: invalid access counts for ${label}`)
+  }
+  if (metric.routedFacilityCount === 0) {
+    if (
+      metric.medianMinutes !== null
+      || metric.p90Minutes !== null
+      || metric.within10MinuteRatio !== null
+    ) {
+      failures.push(`${name}: zero routed facilities must not claim access metrics`)
+    }
+  } else {
+    for (const field of ['medianMinutes', 'p90Minutes']) {
+      if (!Number.isFinite(metric[field]) || metric[field] < 0) {
+        failures.push(`${name}: invalid ${label}.${field}`)
+      }
+    }
+    for (const field of [
+      'within5MinuteRatio',
+      'within10MinuteRatio',
+      'within15MinuteRatio',
+    ]) {
+      if (
+        !Number.isFinite(metric[field])
+        || metric[field] < 0
+        || metric[field] > 1
+      ) {
+        failures.push(`${name}: invalid ${label}.${field}`)
+      }
+    }
+  }
+}
+
+function summarizeNumbers(values) {
+  if (values.length === 0) {
+    return null
+  }
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  return {
+    min: sorted[0],
+    median: sorted.length % 2
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2,
+    max: sorted[sorted.length - 1],
+  }
 }

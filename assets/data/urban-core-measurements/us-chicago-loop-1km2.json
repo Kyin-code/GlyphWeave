@@ -44,9 +44,47 @@
     "buildingCountInsideCircleCentroid": 325,
     "estimatedBuildingFootprintM2": 230860.264,
     "estimatedBuildingCoverageRatio": 0.231,
+    "buildingLevelsObservedCount": 108,
+    "buildingLevelsObservedRatio": 0.332,
+    "estimatedObservedFloorAreaM2": 2367328.551,
+    "observedFloorAreaRatioProxy": 2.367,
     "freshFoodFacilityCounts": {
       "convenience": 3,
       "bakery": 3
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 6443,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 6,
+        "demandBuildingCount": 325,
+        "buildingsWithTime": 311,
+        "unreachableBuildingCount": 14,
+        "medianMinutes": 3.452,
+        "p90Minutes": 8.243,
+        "within5MinuteRatio": 0.686,
+        "within10MinuteRatio": 0.92,
+        "within15MinuteRatio": 0.957
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 0,
+        "demandBuildingCount": 325,
+        "buildingsWithTime": 0,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": null,
+        "p90Minutes": null,
+        "within5MinuteRatio": null,
+        "within10MinuteRatio": null,
+        "within15MinuteRatio": null
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
     }
   },
   "limitations": [
@@ -54,6 +92,8 @@
     "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
     "Road density is centreline length, not lane capacity or right-of-way area.",
     "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
     "The circular window is a measurement sample and must not be described as the whole city."
   ],
   "attribution": {

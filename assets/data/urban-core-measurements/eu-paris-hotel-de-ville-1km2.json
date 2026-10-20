@@ -42,6 +42,10 @@
     "buildingCountInsideCircleCentroid": 1085,
     "estimatedBuildingFootprintM2": 246480.048,
     "estimatedBuildingCoverageRatio": 0.246,
+    "buildingLevelsObservedCount": 772,
+    "buildingLevelsObservedRatio": 0.712,
+    "estimatedObservedFloorAreaM2": 905530.482,
+    "observedFloorAreaRatioProxy": 0.906,
     "freshFoodFacilityCounts": {
       "marketplace": 2,
       "convenience": 24,
@@ -50,6 +54,40 @@
       "supermarket": 4,
       "seafood": 2,
       "butcher": 4
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 7492,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 65,
+        "demandBuildingCount": 1085,
+        "buildingsWithTime": 1045,
+        "unreachableBuildingCount": 40,
+        "medianMinutes": 1.162,
+        "p90Minutes": 2.474,
+        "within5MinuteRatio": 0.955,
+        "within10MinuteRatio": 0.963,
+        "within15MinuteRatio": 0.963
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 15,
+        "demandBuildingCount": 1085,
+        "buildingsWithTime": 1044,
+        "unreachableBuildingCount": 41,
+        "medianMinutes": 2.416,
+        "p90Minutes": 4.054,
+        "within5MinuteRatio": 0.935,
+        "within10MinuteRatio": 0.962,
+        "within15MinuteRatio": 0.962
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
     }
   },
   "limitations": [
@@ -57,6 +95,8 @@
     "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
     "Road density is centreline length, not lane capacity or right-of-way area.",
     "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
     "The circular window is a measurement sample and must not be described as the whole city."
   ],
   "attribution": {

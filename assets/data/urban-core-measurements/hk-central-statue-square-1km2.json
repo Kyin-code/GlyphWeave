@@ -48,11 +48,49 @@
     "buildingCountInsideCircleCentroid": 410,
     "estimatedBuildingFootprintM2": 301684.154,
     "estimatedBuildingCoverageRatio": 0.302,
+    "buildingLevelsObservedCount": 176,
+    "buildingLevelsObservedRatio": 0.429,
+    "estimatedObservedFloorAreaM2": 3188792.336,
+    "observedFloorAreaRatioProxy": 3.189,
     "freshFoodFacilityCounts": {
       "convenience": 7,
       "supermarket": 10,
       "bakery": 1,
       "marketplace": 3
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 8404,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 21,
+        "demandBuildingCount": 410,
+        "buildingsWithTime": 404,
+        "unreachableBuildingCount": 6,
+        "medianMinutes": 1.628,
+        "p90Minutes": 5.338,
+        "within5MinuteRatio": 0.876,
+        "within10MinuteRatio": 0.985,
+        "within15MinuteRatio": 0.985
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 13,
+        "demandBuildingCount": 410,
+        "buildingsWithTime": 404,
+        "unreachableBuildingCount": 6,
+        "medianMinutes": 2.629,
+        "p90Minutes": 5.758,
+        "within5MinuteRatio": 0.851,
+        "within10MinuteRatio": 0.985,
+        "within15MinuteRatio": 0.985
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
     }
   },
   "limitations": [
@@ -60,6 +98,8 @@
     "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
     "Road density is centreline length, not lane capacity or right-of-way area.",
     "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
     "The circular window is a measurement sample and must not be described as the whole city."
   ],
   "attribution": {
