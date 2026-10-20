@@ -450,7 +450,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24；单区 CLI 5/24，双区控制 9/24 | 真实低地世界仍受 B-02/B-03 供给限制，未达到 24/24；不再表述为"只有 bbox+2m" |
 | B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；**tier id/role 已持久化到 edge/extension/entity grounding，quality-report 输出 `roadTierAudit` 并作为 gate**；512m 控制 accepted 2（collector-16 + farm-access-8）、unserved 0、road audit **33/33 pass**；6.4m 邻接填方误报已修正为 5.7m | 仍无 12m local 实网；v3 128 状态内真实 parcel supply 仍为 0，frontage 0/24；882 最大图目标未验证 |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；residual audit 按 source/sub-use 输出 candidate/target/realized/policy remainder/rejected/unresolved；当前 b03 控制 unresolved **128,542m²**；A-closure 最大图未实现 **50,538,180m²** | 历史 land-execution-2 的 123,760m² 是旧 worldRevision；显式子用途、农村公共空间、共享农路/等高条带、development↔landcover 映射、全局 1m 重叠审计仍缺 |
-| B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界派生（`c052838`）、轴/节点生长（`b59da3e`） | profile 参数尚未完整驱动 frontage/services/道路展开；coverageRatio / serviceRadiusM / terrain 仍无消费者 |
+| B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间、退界派生、轴/节点生长；`heightM` 已驱动默认建筑高度；**`serviceRadiusM` 已成为真实覆盖审计**（village-field 800m / 4 服务 / 18 户全覆） | coverageRatio / terrain 仍无消费者；serviceRadius 是几何覆盖，不是人口/容量模型 |
 | B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；**最大图 complete-ground gate pass**（255.693s、240 chunks、623 entities、landcover unresolved 0、failures 0） | 第二次确定性重跑、240 chunk 浏览器漫游、崩溃未修；B-01/B-02/B-04 的独立内容证据仍需收口 |
 
 结论：**B 仍是 partial，但卡点已从"代码缺陷"移到"输入供给与作者分配"**——1 km 的城市天花板是 40,898m² 的分配额，

@@ -3291,6 +3291,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             serde_json::to_vec_pretty(&settlement_graph)?,
         )?;
         index.settlement_graph = Some(settlement_graph);
+        if let Some(profile) = super::settlement::morphology::resolve(&effective_style)
+            .map_err(WorldgenError::InvalidRules)?
+        {
+            let coverage = super::settlement::service_coverage::audit(
+                &index.entities,
+                f64::from(profile.service_radius_m),
+            )
+            .map_err(WorldgenError::InvalidRules)?;
+            fs::write(
+                scene_dir.join("service-coverage-audit.json"),
+                serde_json::to_vec_pretty(&coverage)?,
+            )?;
+        }
         trace.stage(&scene.scene_id,"scene-serialization");
         fs::write(
             scene_dir.join("scene.json"),

@@ -905,14 +905,16 @@ pub fn compile(style: &Value, scenes: &[SceneSpec]) -> Result<Option<CompiledSty
         &mut field_sources,
         &mut unsupported,
     )?;
+    field_sources.push(FieldSource::new(
+        "service-coverage-audit.json.radiusM",
+        SOURCE_DERIVED,
+        "serviceRadiusM",
+        "worldgen audits every realized dwelling against every realized service at this radius; it never places facilities",
+    ));
     for (field, reason) in [
         (
             "coverageRatio",
             "no consumer: the pipeline does not implement a footprint-coverage target",
-        ),
-        (
-            "serviceRadiusM",
-            "no consumer: facility placement is an explicit request program, never a radius",
         ),
         (
             "terrain",
@@ -1163,7 +1165,7 @@ mod tests {
                 "{id} must not declare a consumed field unsupported"
             );
             // Unsupported fields are declared, never silently claimed.
-            for field in ["coverageRatio", "serviceRadiusM", "terrain"] {
+            for field in ["coverageRatio", "terrain"] {
                 assert!(
                     compiled
                         .report
@@ -1226,13 +1228,13 @@ mod tests {
                 "compact-mixed-block",
                 "7b2b48790a5338e64dad1549386aaf838191fa7f9b6c9f568c7cd5df4a96eaaa",
                 "98a6499ef8de3f2b54d34f0033e9a9b26ce0551b23441762f1b3ddf2f3eea96c",
-                "2a94cd27ff7e35e284c5c59975c90bec8c2f49d1d512a237aa0ce75de33e643a",
+                "32f5adf0dd81ea9329dc1e7206a616810150848eeae1243c3eaaec63cb617cdd",
             ),
             (
                 "village-field",
                 "75620dee9131ac7df0d72319c060df79e0ace7ccb4d5ba72bf8ccbe4f1b6a0b0",
                 "f921ae85a58e9a83dc0730cd525915d16c1e41e9390c7534814a5ca010ffc298",
-                "417b6214c2ea6f1ec03d5bac01808286d859a141ab4d6831234eb6b2d53afbe3",
+                "cbf5cd2ec6e5b05be4c13080507a0ef0d8d53ee683a2cda130bab401dc9318be",
             ),
         ] {
             let compiled = compile(&style(profile_id), &[scene()]).unwrap().unwrap();
