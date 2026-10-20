@@ -139,6 +139,50 @@ fn rect(e: &EntityInstance) -> [i64; 4] {
         i64::from(e.world_z) + hd,
     ]
 }
+/// A candidate that leaves one endpoint in the opposite direction from an
+/// existing road leaving that same endpoint is a continuation, not a crossing.
+/// The padded support rectangles overlap end-to-end even though the pavements
+/// meet only at the shared node.
+pub(super) fn collinear_continuation(
+    candidate_start: [i32; 2],
+    candidate_end: [i32; 2],
+    old: &EntityInstance,
+    shared: [i32; 2],
+) -> bool {
+    let Some(profile) = &old.grounding.road_profile else {
+        return false;
+    };
+    let candidate = if candidate_start == shared {
+        [
+            candidate_end[0] - candidate_start[0],
+            candidate_end[1] - candidate_start[1],
+        ]
+    } else if candidate_end == shared {
+        [
+            candidate_start[0] - candidate_end[0],
+            candidate_start[1] - candidate_end[1],
+        ]
+    } else {
+        return false;
+    };
+    let existing = if profile.start == shared {
+        [
+            profile.end[0] - profile.start[0],
+            profile.end[1] - profile.start[1],
+        ]
+    } else if profile.end == shared {
+        [
+            profile.start[0] - profile.end[0],
+            profile.start[1] - profile.end[1],
+        ]
+    } else {
+        return false;
+    };
+    candidate[0].signum() * existing[1].signum() - candidate[1].signum() * existing[0].signum() == 0
+        && candidate[0].signum() * existing[0].signum()
+            + candidate[1].signum() * existing[1].signum()
+            < 0
+}
 pub fn append(
     plan: &mut RoadNetworkPlan,
     scene: &SceneSpec,
@@ -331,6 +375,9 @@ pub(super) fn append_one_with_tier(
                 "extension overlaps road outside a matching endpoint junction",
             ));
         }
+        let continuation = junctions
+            .iter()
+            .any(|point| collinear_continuation(r.start, r.end, old, *point));
         // B01-T2 R3 V2-3: a BASE road whose own tie-in platform is shorter than
         // the junction occupancy this extension needs cannot host it safely.
         // Refuse it by name instead of silently accepting a stepped junction.
@@ -368,6 +415,9 @@ pub(super) fn append_one_with_tier(
         }
         for zz in q[1]..=q[3] {
             for xx in q[0]..=q[2] {
+                if continuation {
+                    continue;
+                }
                 if !junctions
                     .iter()
                     .any(|p| {
@@ -692,5 +742,62 @@ mod tests {
             before,
             "rejected candidates must not partially mutate graph state"
         );
+    }
+    #[test]
+    fn collinear_end_to_end_continuation_is_not_a_crossing() {
+        let (s, _, w, z, mut plan, _) = fixture();
+        let mut t = BakedTerrain::new(&s).unwrap();
+        t.insert_chunk(
+            0,
+            0,
+            512,
+            512,
+            &encode_millimetres(512, 512, std::iter::repeat_n(0., 512 * 512)).unwrap(),
+        )
+        .unwrap();
+        plan.natural_heightfield_hash = t.content_hash().unwrap();
+        let ctx = road_alignment::AlignmentContext::new(&s, &t, w, &z).unwrap();
+        let request = CorridorRequest {
+            scene_id: s.scene_id.clone(),
+            start: [96, 128],
+            end: [160, 128],
+            road_width_m: 16,
+            shoulder_width_m: 3,
+            max_fill_mm: 6000,
+            max_rise_mm_per_m: 80,
+            start_level_mm: Some(1000),
+            end_level_mm: Some(2000),
+            junction_length_m: 8,
+        };
+        append_one(&mut plan, &ctx, &request, "continuation".into()).unwrap();
+        assert_eq!(plan.edges.len(), 2);
+    }
+    #[test]
+    fn perpendicular_endpoint_overlap_still_requires_an_explicit_split() {
+        let (s, _, w, z, mut plan, _) = fixture();
+        let mut t = BakedTerrain::new(&s).unwrap();
+        t.insert_chunk(
+            0,
+            0,
+            512,
+            512,
+            &encode_millimetres(512, 512, std::iter::repeat_n(0., 512 * 512)).unwrap(),
+        )
+        .unwrap();
+        plan.natural_heightfield_hash = t.content_hash().unwrap();
+        let ctx = road_alignment::AlignmentContext::new(&s, &t, w, &z).unwrap();
+        let request = CorridorRequest {
+            scene_id: s.scene_id.clone(),
+            start: [96, 128],
+            end: [96, 192],
+            road_width_m: 16,
+            shoulder_width_m: 3,
+            max_fill_mm: 6000,
+            max_rise_mm_per_m: 80,
+            start_level_mm: Some(0),
+            end_level_mm: Some(1000),
+            junction_length_m: 8,
+        };
+        assert!(append_one(&mut plan, &ctx, &request, "corner".into()).is_err());
     }
 }

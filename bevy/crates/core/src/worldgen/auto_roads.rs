@@ -515,19 +515,22 @@ fn clear(
             b[2].min(r[2]),
             b[3].min(r[3]),
         ];
-        if q[0] <= q[2]
-            && q[1] <= q[3]
-            && !road_extensions::shared_junctions(plan, &road.entity_id, c.start, c.end)
-                .iter()
-                .any(|p| {
-                    let radius = i64::from(c.road_width_m / 2 + 3).max(8);
-                    q[0] >= i64::from(p[0]) - radius
-                        && q[2] <= i64::from(p[0]) + radius
-                        && q[1] >= i64::from(p[1]) - radius
-                        && q[3] <= i64::from(p[1]) + radius
-                })
-        {
-            return Err(err("existing_road_crossing"));
+        if q[0] <= q[2] && q[1] <= q[3] {
+            let junctions =
+                road_extensions::shared_junctions(plan, &road.entity_id, c.start, c.end);
+            let continuation = junctions.iter().any(|point| {
+                road_extensions::collinear_continuation(c.start, c.end, road, *point)
+            });
+            let inside_junction = junctions.iter().any(|p| {
+                let radius = i64::from(c.road_width_m / 2 + 3).max(8);
+                q[0] >= i64::from(p[0]) - radius
+                    && q[2] <= i64::from(p[0]) + radius
+                    && q[1] >= i64::from(p[1]) - radius
+                    && q[3] <= i64::from(p[1]) + radius
+            });
+            if !continuation && !inside_junction {
+                return Err(err(format!("existing_road_crossing:{}", road.entity_id)));
+            }
         }
     }
     for site in &plan.roadside_sites {
