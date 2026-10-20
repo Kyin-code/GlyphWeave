@@ -361,11 +361,33 @@ pub struct Request {
     pub max_candidate_attempts: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parcel_insets: Option<ParcelInsets>,
+    /// Optional radial band around `centerWorld`, in whole metres. Expanded
+    /// district requests use this to keep old-core commerce and new-ring homes
+    /// in their authored urban stages without changing any placement gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center_distance_m: Option<[u32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center_world: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub district_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub construction_cohort: Option<String>,
     /// The along-road purpose-conversion policy this request is placed under. It is DERIVED by
     /// `from_style` from the program-level switch and skipped by serde on purpose: a request may not
     /// widen its own purpose gate, and every already published request must serialize byte-identically.
     #[serde(skip)]
     pub rural_conversion: RuralConversion,
+}
+impl Request {
+    pub fn allows_center_distance(&self, x: i32, z: i32) -> bool {
+        let (Some(ring), Some(center)) = (self.center_distance_m, self.center_world) else {
+            return true;
+        };
+        let dx = i64::from(x) - i64::from(center[0]);
+        let dz = i64::from(z) - i64::from(center[1]);
+        let distance_m = ((dx * dx + dz * dz) as f64).sqrt().round() as u64;
+        (u64::from(ring[0])..=u64::from(ring[1])).contains(&distance_m)
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -478,6 +500,35 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
             .unwrap_or_default()
             .validate_for_request(r.width_m, r.depth_m, r.setback_m)
             .map_err(err)?;
+        match (r.center_distance_m, r.center_world) {
+            (Some(ring), Some(_)) => {
+                if ring[0] > ring[1] || ring[1] > 10_000 {
+                    return Err(err(
+                        "frontage centerDistanceM must satisfy inner <= outer <= 10000",
+                    ));
+                }
+            }
+            (None, None) => {}
+            _ => {
+                return Err(err(
+                    "frontage centerDistanceM and centerWorld must be stated together",
+                ));
+            }
+        }
+        if r.district_id.is_some() != r.construction_cohort.is_some() {
+            return Err(err(
+                "frontage districtId and constructionCohort must be stated together",
+            ));
+        }
+        if r.district_id
+            .as_deref()
+            .is_some_and(|id| id.is_empty() || id.len() > 64)
+            || r.construction_cohort.as_deref().is_some_and(|cohort| {
+                !matches!(cohort, "established" | "renewal" | "new")
+            })
+        {
+            return Err(err("invalid frontage district metadata"));
+        }
         count += u64::from(r.count);
     }
     if count > 2048 {
@@ -754,6 +805,8 @@ pub(super) fn candidate_site(
             request_id: r.id.clone(),
             kind: r.kind.clone(),
             height_m: r.height_m,
+            district_id: r.district_id.clone(),
+            construction_cohort: r.construction_cohort.clone(),
         }),
         // A frontage parcel's purpose is its authored request, which `verify_conversion` reads from
         // the outcome; it never declares one on the parcel itself.
@@ -2167,6 +2220,10 @@ fn claim_and_place(
         return Ok(None);
     }
     let mut site = candidate_site(road, r, &scene.scene_id, station, side)?;
+    if !r.allows_center_distance(site.world_x, site.world_z) {
+        budget.reject("outside_district_ring");
+        return Ok(None);
+    }
     let parcel = parcel_boundary(&site)?;
     let (mut reason, converted_m2) = envelope_verdict(
         parcel,
@@ -2510,6 +2567,9 @@ fn candidate_urban_distance(
     let Ok(site) = candidate_site(road, r, scene_id, turn.station, turn.side) else {
         return i64::MAX;
     };
+    if !r.allows_center_distance(site.world_x, site.world_z) {
+        return i64::MAX;
+    }
     let Ok(parcel) = parcel_boundary(&site) else {
         return i64::MAX;
     };

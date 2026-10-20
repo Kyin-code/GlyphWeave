@@ -68,7 +68,7 @@ pub mod zoning;
 mod assigned_road_tests;
 #[cfg(test)]
 mod entrance_recheck_tests;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use terrain_context::{RasterSurface, TerrainContext};
@@ -182,6 +182,12 @@ pub struct GroundingSpec {
     /// roads and every non-road entity leave it absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_tier: Option<road_network::RoadTierRef>,
+    /// Optional settlement-stage provenance carried from an expanded district
+    /// frontage request. Absent for every non-district entity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub district_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub construction_cohort: Option<String>,
     #[serde(default)]
     pub pivot: GroundingPivot,
     #[serde(default)]
@@ -251,6 +257,8 @@ impl Default for GroundingSpec {
             frontage_road_point: None,
             road_profile: None,
             road_tier: None,
+            district_id: None,
+            construction_cohort: None,
             pivot: GroundingPivot::Bottom,
             bottom_offset_m: 0.0,
             roadbed_offset_m: 0.0,
@@ -2733,6 +2741,42 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             entities = repaired;
             carves = final_carves;
+            // Rule-engine `fallback = "skip"` may remove a planned frontage pad
+            // after the first completion pass. Run the same bounded completion
+            // transaction again so the plan, conversions, development plan,
+            // carves and entity list cannot diverge after placement.
+            if let (Some(plan), Some(zones), Some(mask)) = (
+                road_plan.as_mut(),
+                planned_zones.as_deref(),
+                zoning_mask.as_ref(),
+            ) {
+                let done = complete_pad_tops(
+                    manifest.world.seed ^ scene.seed_offset,
+                    scene,
+                    plan,
+                    &mut entities,
+                    &mut carves,
+                    zones,
+                    mask,
+                    water,
+                    &mut development_plan,
+                )?;
+                if !done.records.is_empty() {
+                    fs::write(
+                        scene_dir.join("road-network-plan.json"),
+                        serde_json::to_vec_pretty(&*plan)?,
+                    )?;
+                    pad_completion_reports.push(serde_json::json!({
+                        "sceneId": scene.scene_id,
+                        "phase": "post-rules-reconcile",
+                        "rounds": done.rounds,
+                        "padsChecked": done.checked,
+                        "padsRefused": done.refused,
+                        "padsDeepened": done.deepened,
+                        "pads": done.records,
+                    }));
+                }
+            }
             // A pad the ROAD PLAN planned must be accounted for end to end, and a
             // pad it REFUSED by name must be nowhere. The reconcile report is the
             // one artifact that publishes both id lists, so both claims travel with
@@ -2749,7 +2793,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 if !planned.is_empty() {
                     report["plannedPadIds"] = serde_json::json!(planned);
                 }
-                let refused: Vec<&str> = road_network::refused_pad_ids(plan).into_iter().collect();
+                // A pad removed by a post-reconcile rules-engine `skip` is already
+                // named by the report's input/output/skip triangle. It is not a
+                // planner refusal that existed before reconcile, so publishing it
+                // in `refusedEntityIds` would contradict `inputEntityIds`.
+                let input_ids: BTreeSet<&str> = report
+                    .get("inputEntityIds")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect();
+                let refused: Vec<&str> = road_network::refused_pad_ids(plan)
+                    .into_iter()
+                    .filter(|id| !input_ids.contains(id))
+                    .collect();
                 if !refused.is_empty() {
                     report["refusedEntityIds"] = serde_json::json!(refused);
                 }
@@ -3022,6 +3080,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 scene_dir.join("road-network-audit.json"),
                 serde_json::to_vec_pretty(&audit)?,
             )?;
+            if let Some(district_audit) =
+                crate::settlement::district_program::audit(&effective_style, scene, plan)
+                    .map_err(WorldgenError::InvalidRules)?
+            {
+                fs::write(
+                    scene_dir.join("urban-district-audit.json"),
+                    serde_json::to_vec_pretty(&district_audit)?,
+                )?;
+            }
         }
         // A style that declared the policy but produced no road plan has no pad
         // that could have been cut: the record says so instead of vanishing.

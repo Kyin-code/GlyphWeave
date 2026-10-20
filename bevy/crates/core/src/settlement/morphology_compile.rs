@@ -867,29 +867,36 @@ fn compile_agriculture(
 
 /// Compile the effective style for a manifest, or `None` for the legacy path.
 pub fn compile(style: &Value, scenes: &[SceneSpec]) -> Result<Option<CompiledStyle>, String> {
-    let Some(profile) = morphology::resolve(style)? else {
+    let expanded = super::district_program::expand(style, scenes)?;
+    let Some(profile) = morphology::resolve(&expanded)? else {
         return Ok(None);
     };
-    let mut effective = style.clone();
+    let mut effective = expanded.clone();
     let mut field_sources = Vec::new();
     let mut unsupported = Vec::new();
     let mut notes = Vec::new();
+    if expanded.get("urbanDistrictProgram").is_some() {
+        notes.push(
+            "urbanDistrictProgram expanded its ordered radial iterations into frontage requests; every resulting parcel still passes the same terrain, purpose, access and construction gates"
+                .into(),
+        );
+    }
     compile_frontage(
-        style,
+        &expanded,
         &mut effective,
         &profile,
         &mut field_sources,
         &mut notes,
     )?;
     compile_auto_roads(
-        style,
+        &expanded,
         &mut effective,
         &profile,
         &mut field_sources,
         &mut notes,
     )?;
     compile_residual(
-        style,
+        &expanded,
         &mut effective,
         &profile,
         scenes,
@@ -898,7 +905,7 @@ pub fn compile(style: &Value, scenes: &[SceneSpec]) -> Result<Option<CompiledSty
         &mut notes,
     )?;
     compile_agriculture(
-        style,
+        &expanded,
         &mut effective,
         &profile,
         scenes,

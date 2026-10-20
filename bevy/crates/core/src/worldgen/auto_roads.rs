@@ -5745,6 +5745,10 @@ mod tests {
             setback_m: 12,
             max_candidate_attempts: 32,
             parcel_insets: None,
+            center_distance_m: None,
+            center_world: None,
+            district_id: None,
+            construction_cohort: None,
             rural_conversion: super::super::frontage::RuralConversion::Disabled,
         }
     }

@@ -25,7 +25,7 @@
 //! footprint inside the band, a band cell credited twice, a surface that
 //! straddles the band boundary, a ledger total that disagrees with the geometry,
 //! or a band with a hole in it.
-use super::road_network::{RoadNetworkPlan, WATER_DATUM_MM};
+use super::road_network::RoadNetworkPlan;
 use super::water_query::WATER_SHORE_CLEARANCE_M;
 use super::{EntityInstance, LandUseZone, SceneSpec, WaterGeometry};
 use crate::baked_terrain::BakedTerrain;
@@ -377,10 +377,11 @@ pub fn audit(
                 half_d as i32,
             ) {
                 audit.pad_cells += 1;
-                let blocked = water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5)
-                    || natural.height(x, z).is_some_and(|h| {
-                        h < WATER_DATUM_MM as f32 / 1000.
-                    });
+                // Water membership is the structured footprint. A dry hollow
+                // below the scene datum outside that footprint is lowland, not
+                // a second implicit lake; the published surface raster agrees.
+                let blocked =
+                    water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5);
                 if blocked {
                     wet += 1;
                 }

@@ -27,12 +27,16 @@ pub struct ServiceRequest {
     pub depth_m: u32,
     pub height_m: u32,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SiteProgram {
     pub request_id: String,
     pub kind: String,
     pub height_m: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub district_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub construction_cohort: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -607,6 +611,8 @@ fn append_with(
                                     request_id: r.id.clone(),
                                     kind: r.kind.clone(),
                                     height_m: r.height_m,
+                                    district_id: None,
+                                    construction_cohort: None,
                                 }),
                                 purpose: None,
                             

@@ -984,6 +984,10 @@ mod tests {
             setback_m: 8,
             max_candidate_attempts: 8,
             parcel_insets: None,
+            center_distance_m: None,
+            center_world: None,
+            district_id: None,
+            construction_cohort: None,
             rural_conversion: frontage::RuralConversion::RuralToUrban,
         };
         scene.road_network_plan.as_mut().unwrap().frontage = Some(frontage::Report {
@@ -1327,6 +1331,8 @@ mod tests {
             request_id: "forged".into(),
             kind: "turnip_cart".into(),
             height_m: 4,
+            district_id: None,
+            construction_cohort: None,
         });
         assert_eq!(
             frontage::verify_conversion(

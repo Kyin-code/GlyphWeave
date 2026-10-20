@@ -312,6 +312,14 @@ impl RoadsideSite {
             rotation_y_deg: s.rotation_y_deg,
             grounding: GroundingSpec {
                 frontage_road_point: s.frontage_road_point,
+                district_id: s
+                    .program
+                    .as_ref()
+                    .and_then(|program| program.district_id.clone()),
+                construction_cohort: s
+                    .program
+                    .as_ref()
+                    .and_then(|program| program.construction_cohort.clone()),
                 bottom_offset_m: s
                     .support_level_mm
                     .map_or(0., |mm| mm.rem_euclid(1000) as f32 / 1000.),
@@ -1386,6 +1394,10 @@ pub(super) fn plan_with_zones_demand(
                 side_m: 0,
                 rear_m: 0,
             }),
+            center_distance_m: None,
+            center_world: None,
+            district_id: None,
+            construction_cohort: None,
             rural_conversion: super::frontage::RuralConversion::Disabled,
         };
         // B01-T2 R13 (T-0013): a grading is only usable if THIS edge's own roadside
@@ -6722,6 +6734,10 @@ mod tests {
             setback_m: 4,
             max_candidate_attempts: 8,
             parcel_insets: Some(super::super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
+            center_distance_m: None,
+            center_world: None,
+            district_id: None,
+            construction_cohort: None,
             rural_conversion: super::super::frontage::RuralConversion::Disabled,
         }
     }
