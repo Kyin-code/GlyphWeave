@@ -312,8 +312,8 @@
 | D15.1 | 生成器不得覆盖用户 `assets/`；生成物进 `generated/`、参考素材进 `references/`、正式素材进 `assets/` | 生产可用 | 输出目录约定 |
 | D15.2 | 格式：3D 优先 `.glb`，兼容 `.gltf + .bin + textures`；Godot 支持 `.tscn`/`.tres`；2D 支持 `.png`/`.webp` | 部分 | 当前资产为 `.obj`+`.mtl` 与 `.gltf`；`.glb` 无 |
 | D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
-| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **未完成** | 两项明确未解析：Quaternius 建筑资产精确上游包、`@cloudflare/workerd-windows-64@1.20260701.1` 许可元数据（A-09 一直带着这两项签收） |
-| D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；Quaternius/workerd 两项许可仍未解析 |
+| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **一项未完成** | `workerd-windows-64` 已解析为 Apache-2.0（npm 元数据 + 包 package.json + 上游 LICENSE）；**Quaternius 建筑资产精确上游包仍未解析** |
+| D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；workerd 已解析，Quaternius 仍未解析 |
 | D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
 | D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |
 
@@ -388,7 +388,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | A-06 权威数据/投影闭包 | header/scene/auditInput 闭包修复 | ✅ |
 | A-07 240 块生命周期 | 240/240、3 warm、9 revisit、2 retry | ✅ 消费者侧；后续 r44 又加了 streaming |
 | A-08 自然/保护/最低需求 | 保护区高度改变样本 0 | ✅ |
-| A-09 许可库存 | Cargo/pnpm 清单 + Three LICENSE | ⚠️ 两项仍未解析（Quaternius 建筑包、workerd-windows-64） |
+| A-09 许可库存 | Cargo/pnpm 清单 + Three LICENSE | ⚠️ 一项未解析（Quaternius 建筑包）；workerd-windows-64 已解析为 Apache-2.0 |
 | A-10 正负回归 | Rust 470、Vitest 170、Node 252 | ⚠️ 数量已变：workspace **993 passed / 35 ignored**（`0d3be23`）；且受 6.1 第 3 项影响 |
 
 ### 5.2 6×10km 最大世界的数字演进（同一类口径，逐轮可比）
@@ -462,7 +462,7 @@ C-N1 已产出逐函数来源矩阵与 `ecology_habitat` 纯接口；C-N2 仍是
 C-E1 已在山城 512m 控制生成 **232 段挡墙 / 5 个涵洞记录**（`terrain-works.json`），
 C-E2 已输出自然 vs 最终地形的路由对比（87 个改向节点 / 5 个抬升终端），
 不再是"只有 fill + 道路 profile"。仍缺挡墙基础、排水沟、竖曲线、洪泛/水量模型；
-C-H1/H2 部分；C-L1 两项未解析；C-V1、C-G1 未做。**C 仍未整体签收。**
+C-H1/H2 部分；C-L1 的 workerd 项已解析，Quaternius 建筑包仍未解析；C-V1、C-G1 未做。**C 仍未整体签收。**
 
 ---
 
@@ -518,7 +518,7 @@ C-H1/H2 部分；C-L1 两项未解析；C-V1、C-G1 未做。**C 仍未整体签
 | P2 | 形态 profile 编译（D13） | B-04 | 先把 12 原型中的 2–3 个落到参数，不追求全覆盖 |
 | P2 | Godot 从未运行验收（D14.7） | C-V1 的跨引擎交付 | 装 Godot 4.7 跑一次最小场景 |
 | P3 | 多场景/转接点（D17） | R12、C-G1 | 单场景稳定后再谈 |
-| P3 | 许可两项未解析 | C-L1、发布 | 建筑资产与 workerd 元数据 |
+| P3 | 许可一项未解析 | C-L1、发布 | Quaternius 建筑资产精确上游包 |
 
 ---
 

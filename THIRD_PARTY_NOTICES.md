@@ -23,7 +23,14 @@
 - `pnpm-lock.yaml` 的 `packages:` 段共 347 个锁定包。
 - 当前平台已安装并可解析许可证元数据的包为 224 个；`pnpm licenses list --prod --json` 与 `pnpm licenses list --dev --json` 分两次执行，避免整表因缺少可选包索引而失败。
 - 122 个锁定包是当前平台未安装的可选原生包（esbuild/sharp/lightningcss/oxlint/rolldown/tailwindcss 等非 Windows x64 变体或 fsevents）。
-- 1 个锁定包仍无许可证元数据：`@cloudflare/workerd-windows-64@1.20260701.1`。`pnpm licenses list --json` 因 `ERR_PNPM_MISSING_PACKAGE_INDEX_FILE` 失败；本仓库不自动执行 `pnpm install` 改动依赖。该项明确标为未解析，不能当作许可清单通过。
+- `@cloudflare/workerd-windows-64@1.20260701.1` 已解析为 **Apache-2.0**：
+  `npm view ... license` 返回 `Apache-2.0`；下载的
+  `cloudflare-workerd-windows-64-1.20260701.1.tgz` 的 `package/package.json`
+  也声明 `"license": "Apache-2.0"`，npm shasum
+  `5bb96eae407ec4dcf927656c63dadaf99eaf3e9c`。tarball 内没有单独 LICENSE
+  文件，因此发布时必须以 `https://github.com/cloudflare/workerd` 的 Apache-2.0
+  文本作为上游许可依据（2026-10-20 读取 `main/LICENSE`，长度 10,174 字节）。
+  证据见 `docs/collaboration/rk-x/C-L1-WORKERD-20261020.zh-CN.md`。
 - 含 copyleft 表达式的已解析包：`lightningcss@1.32.0` 与 `lightningcss-win32-x64-msvc@1.32.0` 为 `MPL-2.0`（构建工具链）；`@img/sharp-win32-x64@0.34.5` 为 `Apache-2.0 AND LGPL-3.0-or-later`（可选原生图像处理包）。是否随最终分发取决于发布包实际包含的内容，不能仅凭字符串删除依赖或宣称全 MIT。
 
 ## Vendored 代码与资产
