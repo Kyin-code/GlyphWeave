@@ -100,7 +100,7 @@
 |---|---|---|---|
 | B-01 独立地块几何 | 真实前/侧/后院临路 parcel，替代"楼框+2m"；512m 小场景 | — | ⚠️ 部分（`parcel_geometry` 已落地；CLI 控制 5/24） |
 | B-02 需求与道路容量 | 24 段自动路预算 vs 882 目标的供给限制显式化；主次支路与农田可达 | B-01 工程自测 | ⚠️ 部分（collector/local 接口已有；真实小场景仅 8m farm-access） |
-| B-03 用途—实际覆盖闭合 | 城市未建地/院落通道/农田田埂农路/自然保留地的实际表面 | B-02 在小场景证明接口 | ⚠️ 部分（1km unresolved 123,760m²；最大图 50,538,180m²） |
+| B-03 用途—实际覆盖闭合 | 城市未建地/院落通道/农田田埂农路/自然保留地的实际表面 | B-02 在小场景证明接口 | ⚠️ 部分（residual audit 已按 source/sub-use 输出；当前 b03 控制 unresolved 128,542m²；最大图 50,538,180m²） |
 | B-04 形态与公共服务 | 紧凑混合/低密住宅/村落农田的可辨认差异；设施服务范围、步行联系 | B-01～B-03 接口可用 | ⚠️ 部分（六 profiles + 48 案例索引；参数未完整驱动） |
 | B-05 集成与生态尾差 | 多 seed 7/42/2026、非零 origin、最大图一次集成、生态尾差 | 上述接口稳定 | ⚠️ 部分（A-closure 最大图已烘焙；B candidate/浏览器未跑） |
 
@@ -260,7 +260,7 @@
 | D11.8 | 自然保留地实际地表：16m 网格分类 ground/forest_floor/wetland，面积守恒，水体相交不生成 | 生产可用（示例） | r28：49152m² = 40960+4352+3840 |
 | D11.9 | `future_development` / `unmanaged` / `reserved` 一律不得自动获得 realized 信用 | 生产可用 | r18 §61-70 明确列账 |
 | D11.10 | 最大图用途实现闭合 | ⚠️ **未达成** | r49：实现 9,769,950 / 未实现 50,230,050m²；A-closure 2026-10-20：实现 **9,461,820 / 未实现 50,538,180m²**；A 例外 #2/#5/#6 即此项 |
-| D11.11 | landcover 实际表面全部实现 | ⚠️ **未达成** | A 例外 #3 `landcover remains unrealized`；小示例已闭合，最大图仍缺 |
+| D11.11 | landcover 实际表面全部实现 | ⚠️ **未达成** | A 例外 #3 `landcover remains unrealized`；小示例已闭合，最大图仍缺；residual 已能按 source/sub-use 解释 unresolved |
 | D11.12 | 保护区填土距离查询精确且高效（Chebyshev，非欧氏） | 生产可用 | r42：8.52–10.75× 加速，1238 个保护矩形、200000 次查询逐项等价 |
 
 ### D12 生态
@@ -448,7 +448,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 |---|---|---|---|
 | B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24；单区 CLI 5/24，双区控制 9/24 | 真实低地世界仍受 B-02/B-03 供给限制，未达到 24/24；不再表述为"只有 bbox+2m" |
 | B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；双区控制出现 16m collector + 8m farm-access；山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 仍无 12m local 实网；v3 128 状态内无真实 parcel supply；tier provenance 与 final audit gate 未接；882 最大图目标未验证 |
-| B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；1 km `b8-conv` 农田 103 → 134、农村实现 +23,797m²（`4fa7234`）；A-closure 同口径最大图未实现 **50,538,180m²** | 1 km B-03 控制仍有 123,760m² unresolved（urban 11,999 + rural 111,761）；三份世界 landcover 仍 fail |
+| B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；residual audit 按 source/sub-use 输出 candidate/target/realized/policy remainder/rejected/unresolved；当前 b03 控制 unresolved **128,542m²**；A-closure 最大图未实现 **50,538,180m²** | 历史 land-execution-2 的 123,760m² 是旧 worldRevision；显式子用途、农村公共空间、共享农路/等高条带、development↔landcover 映射、全局 1m 重叠审计仍缺 |
 | B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界派生（`c052838`）、轴/节点生长（`b59da3e`） | profile 参数尚未完整驱动 frontage/services/道路展开；coverageRatio / serviceRadiusM / terrain 仍无消费者 |
 | B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；滨水注册样本入册（`c9db3e6`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；A-closure 6×10km 已烘焙（255.941s、240 chunks、623 entities、生态 342,380/342,380/0） | B-05 的 B candidate 最大图集成仍未做；240 chunk 浏览器未跑；崩溃未修 |
 
@@ -544,6 +544,7 @@ C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工�
 | 输入矩阵 | `examples/*.manifest.json`（32 份） |
 | 1 km 探针的开启态（唯一可重放入口） | `examples/b01-1km-probe-optin.manifest.json` + `bevy/crates/cli/tests/b01_1km_probe_optin.rs`（默认两条测试校验开关与"除开关外无差异"；`-- --ignored` 烘焙并断言数字） |
 | B-02 当前审计 | `docs/collaboration/rk-x/B02-CURRENT-AUDIT-20261020.zh-CN.md` |
+| B-03 residual 审计 | `docs/collaboration/rk-x/B03-RESIDUAL-AUDIT-20261020.zh-CN.md` |
 | 独立检查脚本 | `scripts/check-*.mjs`（frontage/render-stream/automatic-roads/road-corridor/…） |
 
 ---

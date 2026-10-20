@@ -81,9 +81,193 @@ pub struct LandUseLedger {
     /// to urban realization and from nowhere else, which is what `audit_conversions` re-checks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversions: Vec<Conversion>,
+    /// Explicit residual-land accounting. Absent for worlds that never declared
+    /// a residual program, so legacy ledgers keep their serialized shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residual: Option<ResidualAudit>,
     pub allocation_status: String,
     pub realization_status: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidualRejection {
+    pub reason: String,
+    pub area_m2: f64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidualAccount {
+    pub source_zone_id: String,
+    pub sub_use: String,
+    pub candidate_m2: f64,
+    pub target_m2: f64,
+    pub realized_m2: f64,
+    /// Candidate land the policy deliberately leaves outside this sub-use.
+    /// Not an additional area; it may exceed unresolved when realized exceeds
+    /// target (for example cultivated soil inside a pasture cell).
+    pub policy_remainder_m2: f64,
+    /// Rejected attempts inside unresolved_m2, never an additional area.
+    pub rejected_attempt_m2: f64,
+    pub unresolved_m2: f64,
+    pub rejections: Vec<ResidualRejection>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidualAudit {
+    pub status: String,
+    pub candidate_m2: f64,
+    pub target_m2: f64,
+    pub realized_m2: f64,
+    pub policy_remainder_m2: f64,
+    pub rejected_attempt_m2: f64,
+    pub unresolved_m2: f64,
+    pub accounts: Vec<ResidualAccount>,
+    pub failures: Vec<String>,
+}
+/// Independent residual accounting over the published source cells and their
+/// realized mesh geometry. Rejected attempts are a subset of unresolved.
+/// Policy remainder is not additive and may exceed unresolved when realized
+/// exceeds target.
+pub fn residual_audit(
+    plan: &development::LandcoverPlan,
+    surfaces: &landcover::SurfaceRealization,
+) -> Result<ResidualAudit, String> {
+    let program = plan
+        .residual_program
+        .as_ref()
+        .ok_or("residual audit requires a residual program")?;
+    let mut patches_by_source: BTreeMap<&str, Vec<&landcover::SurfacePatch>> = BTreeMap::new();
+    for patch in &surfaces.patches {
+        let size = landcover::mesh_area(patch)?;
+        if !patch.area_m2.is_finite() || (size - patch.area_m2).abs() > EPS {
+            return Err("residual surface declared area differs from geometry".into());
+        }
+        patches_by_source
+            .entry(patch.source_cell_id.as_str())
+            .or_default()
+            .push(patch);
+    }
+    let mut rejections_by_source: BTreeMap<&str, Vec<&landcover::SurfaceRejection>> =
+        BTreeMap::new();
+    for rejection in &surfaces.rejections {
+        rejections_by_source
+            .entry(rejection.source_cell_id.as_str())
+            .or_default()
+            .push(rejection);
+    }
+    let mut accounts: BTreeMap<(String, String), ResidualAccount> = BTreeMap::new();
+    for cell in &plan.cells {
+        let (sub_use, ratio) = match cell.role {
+            development::LandcoverRole::ManagedYard => ("managed_yard", 1.),
+            development::LandcoverRole::FutureDevelopment => (
+                "urban_public_open_space",
+                program.urban_open_space_ratio(),
+            ),
+            development::LandcoverRole::AgricultureCandidate => (
+                "rural_pasture",
+                program.rural_pasture_ratio(),
+            ),
+            development::LandcoverRole::ConservationCandidate => ("conservation", 1.),
+            development::LandcoverRole::Unmanaged => ("unmanaged", 1.),
+        };
+        let candidate = cell.boundary.area() as f64;
+        let target = (candidate * ratio).floor();
+        let mut realized = 0.;
+        for patch in patches_by_source.get(cell.id.as_str()).into_iter().flatten() {
+            let counts = match (cell.role, patch.material) {
+                (
+                    development::LandcoverRole::ManagedYard,
+                    landcover::Material::ManagedGrass | landcover::Material::AccessPavement,
+                ) => true,
+                (
+                    development::LandcoverRole::FutureDevelopment,
+                    landcover::Material::PublicOpenSpace,
+                ) => true,
+                (
+                    development::LandcoverRole::AgricultureCandidate,
+                    landcover::Material::PastureGround
+                    | landcover::Material::CultivatedSoil
+                    | landcover::Material::FieldHeadland
+                    | landcover::Material::FarmTrack,
+                ) => true,
+                (
+                    development::LandcoverRole::ConservationCandidate,
+                    landcover::Material::ConservationGround
+                    | landcover::Material::ConservationForestFloor
+                    | landcover::Material::ConservationWetland,
+                ) => true,
+                _ => false,
+            };
+            if counts {
+                realized += landcover::mesh_area(patch)?;
+            }
+        }
+        let mut rejected_by_reason: BTreeMap<String, f64> = BTreeMap::new();
+        let mut rejected = 0.;
+        for rejection in rejections_by_source.get(cell.id.as_str()).into_iter().flatten() {
+            let area = rejection.area_m2 as f64;
+            rejected += area;
+            *rejected_by_reason.entry(rejection.reason.clone()).or_default() += area;
+        }
+        let unresolved = (candidate - realized).max(0.);
+        let account = accounts
+            .entry((cell.zone_id.clone(), sub_use.into()))
+            .or_insert_with(|| ResidualAccount {
+                source_zone_id: cell.zone_id.clone(),
+                sub_use: sub_use.into(),
+                candidate_m2: 0.,
+                target_m2: 0.,
+                realized_m2: 0.,
+                policy_remainder_m2: 0.,
+                rejected_attempt_m2: 0.,
+                unresolved_m2: 0.,
+                rejections: vec![],
+            });
+        account.candidate_m2 += candidate;
+        account.target_m2 += target;
+        account.realized_m2 += realized;
+        account.policy_remainder_m2 += (candidate - target).max(0.);
+        account.rejected_attempt_m2 += rejected.min(unresolved);
+        account.unresolved_m2 += unresolved;
+        for (reason, area) in rejected_by_reason {
+            if let Some(row) = account.rejections.iter_mut().find(|row| row.reason == reason) {
+                row.area_m2 += area;
+            } else {
+                account.rejections.push(ResidualRejection { reason, area_m2: area });
+            }
+        }
+    }
+    let accounts: Vec<_> = accounts.into_values().collect();
+    let candidate_m2: f64 = accounts.iter().map(|a| a.candidate_m2).sum();
+    let target_m2: f64 = accounts.iter().map(|a| a.target_m2).sum();
+    let realized_m2: f64 = accounts.iter().map(|a| a.realized_m2).sum();
+    let policy_remainder_m2: f64 = accounts.iter().map(|a| a.policy_remainder_m2).sum();
+    let rejected_attempt_m2: f64 = accounts.iter().map(|a| a.rejected_attempt_m2).sum();
+    let unresolved_m2: f64 = accounts.iter().map(|a| a.unresolved_m2).sum();
+    let mut failures = Vec::new();
+    if (candidate_m2 - realized_m2 - unresolved_m2).abs() > EPS {
+        failures.push("residual candidate does not equal realized plus unresolved".into());
+    }
+    if rejected_attempt_m2 > unresolved_m2 + EPS {
+        failures.push("residual rejected attempts exceed unresolved".into());
+    }
+    Ok(ResidualAudit {
+        status: if unresolved_m2 <= EPS && failures.is_empty() {
+            "pass".into()
+        } else {
+            "incomplete".into()
+        },
+        candidate_m2,
+        target_m2,
+        realized_m2,
+        policy_remainder_m2,
+        rejected_attempt_m2,
+        unresolved_m2,
+        accounts,
+        failures,
+    })
 }
 
 /// Independent verdict on the conversion accounting of one scene.
@@ -481,6 +665,7 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
         unresolved_m2: 0.,
         transport_subset_m2: 0.,
         conversions,
+        residual: None,
         allocation_status: "pass".into(),
         realization_status: "incomplete".into(),
         status: "incomplete".into(),
@@ -583,6 +768,9 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
         if size > sources[id].boundary.area() as f64 + EPS {
             return Err("ledger source overcredited".into());
         }
+    }
+    if landcover_plan.residual_program.is_some() {
+        result.residual = Some(residual_audit(landcover_plan, surfaces)?);
     }
     for (kind, row) in result.by_purpose.iter_mut() {
         row.planned_scene_ratio = row.planned_m2 / area;
@@ -1422,6 +1610,150 @@ mod tests {
         missing.landcover_surfaces = None;
         assert!(analyze(&missing, &profile).is_err());
     }
+    #[test]
+    fn residual_audit_splits_policy_remainder_and_rejections_from_unresolved() {
+        fn cell(
+            id: &str,
+            zone: &str,
+            kind: &str,
+            role: development::LandcoverRole,
+            width_m: u32,
+            depth_m: u32,
+        ) -> development::LandcoverCell {
+            development::LandcoverCell {
+                id: id.into(),
+                boundary: development::Rect {
+                    x: 0,
+                    z: 0,
+                    width_m,
+                    depth_m,
+                },
+                source_cell_id: id.into(),
+                zone_id: zone.into(),
+                zone_kind: kind.into(),
+                role,
+                realization_status: "planned".into(),
+                realization_reason: Some("test".into()),
+            }
+        }
+        fn patch(
+            id: &str,
+            source: &str,
+            zone: &str,
+            material: Material,
+            width_m: u32,
+            depth_m: u32,
+        ) -> landcover::SurfacePatch {
+            let w = width_m as f64;
+            let d = depth_m as f64;
+            landcover::SurfacePatch {
+                id: id.into(),
+                source_cell_id: source.into(),
+                parcel_id: source.into(),
+                zone_kind: zone.into(),
+                material,
+                area_m2: w * d,
+                vertices: vec![[0., 0., 0.], [0., 0., d], [w, 0., d], [w, 0., 0.]],
+                triangles: vec![[0, 1, 2], [0, 2, 3]],
+            }
+        }
+        let plan = development::LandcoverPlan {
+            version: 1,
+            source: "test".into(),
+            scene_id: "s".into(),
+            scene_area_m2: 333,
+            cells: vec![
+                cell("u-future", "u", "urban", development::LandcoverRole::FutureDevelopment, 10, 10),
+                cell("u-yard", "u", "urban", development::LandcoverRole::ManagedYard, 2, 2),
+                cell("r-agri", "r", "rural", development::LandcoverRole::AgricultureCandidate, 20, 10),
+                cell("n-cons", "n", "nature", development::LandcoverRole::ConservationCandidate, 5, 5),
+                cell("x-unassigned", "x", "unassigned", development::LandcoverRole::Unmanaged, 2, 2),
+            ],
+            farm_pattern: None,
+            residual_program: Some(super::super::residual_land::SceneResidualProgram {
+                urban_open_space_ratio: Some(0.1),
+                rural_pasture_ratio: Some(0.2),
+            }),
+        };
+        let surfaces = landcover::SurfaceRealization {
+            version: 1,
+            scene_id: "s".into(),
+            final_heightfield_hash: "h".into(),
+            patches: vec![
+                patch("u-open", "u-future", "urban", Material::PublicOpenSpace, 10, 1),
+                patch("u-yard-grass", "u-yard", "urban", Material::ManagedGrass, 3, 1),
+                patch("r-soil", "r-agri", "rural", Material::CultivatedSoil, 10, 6),
+                patch("r-headland", "r-agri", "rural", Material::FieldHeadland, 10, 2),
+                patch("r-track", "r-agri", "rural", Material::FarmTrack, 10, 1),
+                patch("n-ground", "n-cons", "nature", Material::ConservationGround, 5, 5),
+            ],
+            rejections: vec![landcover::SurfaceRejection {
+                source_cell_id: "u-yard".into(),
+                x: 0,
+                z: 0,
+                area_m2: 1,
+                reason: "residual_grade_exceeds_25_percent".into(),
+            }],
+            agriculture: Default::default(),
+            ecology: Default::default(),
+        };
+        let audit = residual_audit(&plan, &surfaces).unwrap();
+        assert_eq!(audit.status, "incomplete");
+        assert_eq!(audit.candidate_m2, 333.);
+        assert_eq!(audit.target_m2, 83.);
+        assert_eq!(audit.realized_m2, 128.);
+        assert_eq!(audit.policy_remainder_m2, 250.);
+        assert_eq!(audit.rejected_attempt_m2, 1.);
+        assert_eq!(audit.unresolved_m2, 205.);
+        assert!(audit.failures.is_empty());
+        let find = |zone: &str, sub_use: &str| {
+            audit
+                .accounts
+                .iter()
+                .find(|account| account.source_zone_id == zone && account.sub_use == sub_use)
+                .unwrap()
+        };
+        let urban_open = find("u", "urban_public_open_space");
+        assert_eq!(
+            (
+                urban_open.candidate_m2,
+                urban_open.target_m2,
+                urban_open.realized_m2,
+                urban_open.policy_remainder_m2,
+                urban_open.unresolved_m2,
+            ),
+            (100., 10., 10., 90., 90.)
+        );
+        let yard = find("u", "managed_yard");
+        assert_eq!(
+            (yard.realized_m2, yard.rejected_attempt_m2, yard.unresolved_m2),
+            (3., 1., 1.)
+        );
+        let rural = find("r", "rural_pasture");
+        assert_eq!(
+            (rural.target_m2, rural.realized_m2, rural.unresolved_m2),
+            (40., 90., 110.)
+        );
+        let conservation = find("n", "conservation");
+        assert_eq!(
+            (conservation.realized_m2, conservation.unresolved_m2),
+            (25., 0.)
+        );
+        let unmanaged = find("x", "unmanaged");
+        assert_eq!(unmanaged.unresolved_m2, 4.);
+        let json = serde_json::to_value(&audit).unwrap();
+        assert_eq!(json["unresolvedM2"], serde_json::json!(205.));
+    }
+
+    #[test]
+    fn residual_audit_is_absent_from_a_legacy_ledger() {
+        let (scene, profile) = fixture();
+        let ledger = analyze(&scene, &profile).unwrap();
+        assert!(ledger.residual.is_none());
+        let json = serde_json::to_value(&ledger).unwrap();
+        assert!(json.get("residual").is_none(), "legacy ledger grew a residual field");
+    }
+
     #[test]
     fn reserved_candidates_and_small_balanced_output_are_not_completion() {
         let (mut scene, profile) = fixture();

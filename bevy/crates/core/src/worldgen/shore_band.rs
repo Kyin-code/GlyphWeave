@@ -830,6 +830,7 @@ mod tests {
             unresolved_m2: 0.,
             transport_subset_m2: 0.,
             conversions: vec![],
+            residual: None,
             allocation_status: "pass".into(),
             realization_status: "incomplete".into(),
             status: "incomplete".into(),
