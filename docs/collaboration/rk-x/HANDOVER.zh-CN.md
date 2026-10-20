@@ -32,7 +32,10 @@
 > 该计划尚未转回最终 AccessGraph 实体。
 > P5 市场网络切片已用 280 容量市场覆盖 260 需求、15 个需求点零缺口，见
 > [`MARKET-CATCHMENT-P5-20261021.zh-CN.md`](MARKET-CATCHMENT-P5-20261021.zh-CN.md)。
-> 完整 epoch 和宏观工程接线仍未完成；
+> P4 静态规划史切片含 5 个历史基座、3 modify、2 demolish、2 带父 ID
+> replace，见
+> [`EPOCH-EVOLUTION-P4-20261021.zh-CN.md`](EPOCH-EVOLUTION-P4-20261021.zh-CN.md)。
+> 宏观工程接线仍未完成；
 > 审核稿 §20 是当前状态准绳，不能把旧 B/C 完成标志当成新要求完成。
 
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
