@@ -1,6 +1,7 @@
 # B-04 morphology + service coverage (2026-10-20)
 
-状态：`serviceRadiusM` 已成为真实消费者；B-04 仍未签收（coverageRatio 仍无消费者）。
+状态：`serviceRadiusM` 与 `coverageRatio` 均已有真实消费者；B-04 profile-driven
+核心完成，几何生成仍以作者尺寸优先，coverage 是独立审计而不是静默缩放。
 
 ## 1. 控制
 
@@ -33,8 +34,10 @@
   `service-coverage-audit.json.radiusM`；
 - parcel/inset/setback/road hierarchy/publicSpaceRatio/village field 仍由
   profile 编译；
-- `coverageRatio`：**仍是 unsupported**，因为当前没有不破坏既有
-  parcel/footprint 合同的实际消费者。
+- `coverageRatio`：由 opt-in `morphologyCoverage="audit"` 消费，输出
+  `morphology-coverage-audit.json`。它测量真实 parcel/building footprint，
+  按 profile 范围逐地块命名 `outOfRangeParcelIds` 与 `unrealizedParcelIds`；
+  不悄悄缩小已写明的建筑尺寸。
 
 ## 4. 代码
 
@@ -45,7 +48,9 @@
 
 ## 5. 未完成
 
-1. coverageRatio 还没有生产者/消费者；不能为了“字段已接”去悄悄缩小已写明的
-   建筑尺寸。
+1. coverageRatio 当前是审计消费者，不是生成器强制缩放；若要让 profile 直接
+   改建筑密度，需单独设计“作者尺寸 vs profile 建议”的冲突合同。
 2. serviceRadiusM 目前是几何覆盖审计，不是人口/通勤/容量模型。
-3. 尚未在 1km / 最大图上重跑 B-04。
+3. compact-mixed 控制的 weightedCoverageRatio 低于 profile 下界，测试会具名
+   报告；village-field 控制有 18/18 户 + 4/4 服务。
+4. 尚未在 1km / 最大图上重跑 B-04 coverage。

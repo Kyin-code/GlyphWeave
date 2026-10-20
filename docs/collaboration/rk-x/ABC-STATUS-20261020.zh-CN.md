@@ -21,7 +21,7 @@
 | B-01 地块/建筑/入口 | 512m joint-plains complete：18/18 住宅有入口、4/4 服务、gate pass | **完整切片** |
 | B-02 道路容量 | tier id/role 持久化到 edge/extension/entity；`roadTierAudit` 进 gate；512m 控制 accepted 2、unserved 0、road audit 33/33 pass | 接口完成，frontage 供给 0/24 未闭合 |
 | B-03 用途/地表 | complete-ground-v1：512m unresolved 128,542→**0**；最大图 ground cover 50,538,180m²、ledger 60,000,000/0 | 当前控制闭合 |
-| B-04 形态/服务 | heightM 已驱动默认高度；serviceRadiusM 在 village-field 800m 下 4 服务/18 户全覆；coverageRatio 仍 unsupported | 部分 |
+| B-04 形态/服务 | heightM 已驱动默认高度；serviceRadiusM 在 village-field 800m 下 4 服务/18 户全覆；coverageRatio 由 `morphologyCoverage=audit` 逐地块审计并命名 out-of-range/unrealized | profile-driven 核心完成 |
 | B-05 集成 | 最大图 complete-ground gate pass；1km/多 seed 旧证据保留 | 最大图通过，1km 临街供给仍缺 |
 
 ### B 的关键未闭合项
