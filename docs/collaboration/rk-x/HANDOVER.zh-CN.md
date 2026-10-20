@@ -23,6 +23,13 @@
 > [`CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md`](CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md)。
 > 该稿状态为待审核；审核通过前不得把 P0–P7 技术切片当作最终城区方案。
 
+> **2026-10-21 核心城区审核稿 V3**：当前最新审核入口为
+> [`CORE-CITY-V3-NATURAL-HUMAN-EVOLUTION-REVIEW-20261021.zh-CN.md`](CORE-CITY-V3-NATURAL-HUMAN-EVOLUTION-REVIEW-20261021.zh-CN.md)。
+> 该稿要求先冻结纯自然基线，再由自然节点生成地形成本路径与聚落，随后按
+> epoch 生长旧城/更新/新区/郊区/旅游/农牧区；普通建筑数量、尺寸和用途必须由
+> 需求、街区—地块容量、建筑原型及入口条件产生，菜场/超市/周期/批发市场
+> 使用分层网络模型。审核通过前不要继续扩大普通城区实现。
+
 > **2026-10-21 V2 生成链接入**：自然地理草图派生、48 城 v2 先验、切面关系
 > 语义、网络规划史、土地压力系数以及道路/建筑最终实体化已落地。核心切面
 > `derived-core-city-slice-1km` 通过 scale/quality，147 道路段、86 段内部道路

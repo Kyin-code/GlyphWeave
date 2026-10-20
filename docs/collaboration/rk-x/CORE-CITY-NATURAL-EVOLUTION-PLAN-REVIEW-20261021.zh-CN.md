@@ -4,6 +4,11 @@
 
 日期：2026-10-21
 
+> 后续审核入口：本文件保留为 V2 设计与实现证据。针对固定建筑体量、道路骨架、
+> 多级市场和完整新旧城迭代的最新方案见
+> [`CORE-CITY-V3-NATURAL-HUMAN-EVOLUTION-REVIEW-20261021.zh-CN.md`](CORE-CITY-V3-NATURAL-HUMAN-EVOLUTION-REVIEW-20261021.zh-CN.md)；
+> V3 审核通过前不要继续扩大普通城区实现。
+
 适用项目：GlyphWeave 现代世界生成；Rust Core 为唯一生成真源，HTML 只读取已烘焙结果。
 
 ## 0. 审核结论
