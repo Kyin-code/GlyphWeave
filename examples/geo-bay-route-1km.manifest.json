@@ -157,6 +157,13 @@
       "maxMarkets": 3,
       "candidateSpacingM": 120
     },
+    "epochProgram": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 110,
+      "expansionRadiusM": 150,
+      "modernRadiusM": 220
+    },
     "water": {
       "waterType": "lake",
       "levelPolicy": "horizontal-datum",

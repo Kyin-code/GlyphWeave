@@ -333,6 +333,9 @@ async function loadScene() {
   loaded.marketCatchmentPlan = await fetch(`../scenes/${loaded.sceneId}/market-catchment-plan.json`)
     .then(response => response.ok ? response.json() : null)
     .catch(() => null)
+  loaded.epochEvolutionPlan = await fetch(`../scenes/${loaded.sceneId}/epoch-evolution-plan.json`)
+    .then(response => response.ok ? response.json() : null)
+    .catch(() => null)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
   nearBuildToken++
@@ -379,6 +382,7 @@ function drawStrategicOverlays(ox, oz, scale) {
     }
     context.restore()
   }
+  const epochByBuilding = new Map((scene.epochEvolutionPlan?.assignedBuildings ?? []).map(item => [item.buildingId, item]))
   for (const building of scene.settlementEvolutionPlan?.buildings ?? []) {
     const x = ox + (building.worldX - scene.originX - building.widthM / 2) * scale
     const z = oz + (building.worldZ - scene.originZ - building.depthM / 2) * scale
@@ -386,9 +390,15 @@ function drawStrategicOverlays(ox, oz, scale) {
       : building.kind === 'office_tower' ? '#9aadb4'
       : '#d4b48a'
     context.fillRect(x, z, Math.max(2, building.widthM * scale), Math.max(2, building.depthM * scale))
-    context.strokeStyle = 'rgba(24,34,38,.55)'
+    const epoch = epochByBuilding.get(building.id)
+    context.strokeStyle = epoch?.operation === 'replace' ? '#e3b55f'
+      : epoch?.operation === 'modify' ? '#7ab7a7'
+      : epoch?.cohort === 'old-core' ? '#2f3430'
+      : 'rgba(24,34,38,.55)'
     context.lineWidth = 1
+    context.setLineDash(epoch?.operation === 'replace' ? [4, 3] : epoch?.cohort === 'old-core' ? [] : [2, 2])
     context.strokeRect(x, z, Math.max(2, building.widthM * scale), Math.max(2, building.depthM * scale))
+    context.setLineDash([])
   }
   const marketDemand = new Map((scene.marketCatchmentPlan?.demandPoints ?? []).map(point => [point.id, point]))
   for (const access of scene.marketCatchmentPlan?.accessibility ?? []) {

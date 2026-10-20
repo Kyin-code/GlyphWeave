@@ -54,6 +54,7 @@ pub mod engineering_connections;
 pub mod frontage;
 pub mod conversion_budget;
 pub mod conversion_fringe;
+pub mod epoch_evolution;
 mod frontage_supply;
 pub mod parcel_geometry;
 pub mod road_parcel_feasibility;
@@ -2011,6 +2012,7 @@ impl WorldManifest {
         auto_roads::validate_manifest(effective)?;
         frontage::validate_manifest(effective)?;
         height_encoding_from_style(&self.style)?;
+        epoch_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         market_catchment::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
@@ -2615,6 +2617,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     scene_dir.join("settlement-evolution-plan.json"),
                     serde_json::to_vec_pretty(&settlement_plan)?,
                 )?;
+                if let Some(epoch_plan) =
+                    epoch_evolution::plan(route_plan, &settlement_plan, &effective_style)
+                        .map_err(WorldgenError::InvalidRules)?
+                {
+                    fs::write(
+                        scene_dir.join("epoch-evolution-plan.json"),
+                        serde_json::to_vec_pretty(&epoch_plan)?,
+                    )?;
+                }
                 if let Some(market_plan) =
                     market_catchment::plan(route_plan, &settlement_plan, &effective_style)
                         .map_err(WorldgenError::InvalidRules)?
