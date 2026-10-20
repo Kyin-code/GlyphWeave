@@ -55,6 +55,7 @@ pub mod frontage;
 pub mod conversion_budget;
 pub mod conversion_fringe;
 pub mod epoch_evolution;
+pub mod engineering_scale;
 mod frontage_supply;
 pub mod parcel_geometry;
 pub mod road_parcel_feasibility;
@@ -2606,6 +2607,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             route_evolution::require_pass(&route_plan)
                 .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+            if let Some(engineering_plan) =
+                engineering_scale::plan(route_plan, &effective_style)
+                    .map_err(WorldgenError::InvalidRules)?
+            {
+                fs::write(
+                    scene_dir.join("engineering-scale-plan.json"),
+                    serde_json::to_vec_pretty(&engineering_plan)?,
+                )?;
+                engineering_scale::require_pass(&engineering_plan)
+                    .map_err(WorldgenError::InvalidRules)?;
+            }
             if let Some(settlement_plan) = settlement_evolution::plan(
                 scene,
                 &natural_samples,

@@ -21,6 +21,21 @@
     "terrain": "continuous-heightfield",
     "terrainProfile": "mountain-foot",
     "heightPrecision": "millimeter",
+    "urbanSlice": {
+      "version": 1,
+      "settlementScale": "town",
+      "mode": "whole-settlement",
+      "cropReason": "a small mountain-lake town can be evaluated with its roads, settlement and market catchment in one 1km window",
+      "contextRadiusM": 2500,
+      "offMapContinuity": [
+        "roads",
+        "river",
+        "urban-fabric"
+      ],
+      "specialFactors": [
+        "mountainous"
+      ]
+    },
     "referenceData": {
       "sources": [
         "docs/collaboration/b04-case-register.zh-CN.md",
