@@ -66,7 +66,9 @@ A-closure（未开 coverage）的 gate failures：
   与首次输出的 `worldRevision` 相同（`0bc8ece5…`）；1,777 个可比文件
   逐字节相同（mismatch 0 / missing 0），唯一差异是
   `generation-report.json` 的输出路径字段。
-- 240 chunk HTML 连续漫游与视觉空置检查。
+- ~~240 chunk HTML 连续漫游与视觉空置检查~~ **已补 smoke**：12×20
+  全战略图渲染完成且 console error/warn 为空；2.5D 对非港场景改为
+  Rust 内容 focus，最大图 focus 帧无黑洞/错位块。
 - 偶发 `0xC0000005` 仍未修复；单次成功不等于套件稳定。
 
 ## 6. 证据
