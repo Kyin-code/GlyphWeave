@@ -7,7 +7,7 @@
     "caseUnit": "core-cut-not-whole-city",
     "minimumSourceCountForAuditedCase": 2,
     "minimumPublisherDiversity": 2,
-    "expectedSourceAuditedCases": 34,
+    "expectedSourceAuditedCases": 48,
     "expectedPartialOsmWindows": 12,
     "heuristicValuesMayBePromotedOnlyWithMeasuredStatus": true,
     "browserOrReaderAccessAccepted": true,
@@ -810,6 +810,202 @@
       ]
     },
     {
+      "id": "miami-planning",
+      "publisher": "City of Miami",
+      "title": "Planning, Zoning and Land Use",
+      "url": "https://www.miami.gov/Planning-Zoning-Land-Use",
+      "readerUrl": "https://r.jina.ai/http://www.miami.gov/Planning-Zoning-Land-Use",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-portal",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The city publishes planning, zoning and land-use guidance and the Miami 21 zoning code."
+      ]
+    },
+    {
+      "id": "denver-planning",
+      "publisher": "City and County of Denver",
+      "title": "Community Planning and Development",
+      "url": "https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Community-Planning-and-Development",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Denver maintains a community planning and development department."
+      ]
+    },
+    {
+      "id": "denver-open-data",
+      "publisher": "Denver Open Data",
+      "title": "Denver Open Data",
+      "url": "https://data.denvergov.org/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Denver publishes municipal spatial datasets."
+      ]
+    },
+    {
+      "id": "portland-bps",
+      "publisher": "City of Portland Bureau of Planning and Sustainability",
+      "title": "Bureau of Planning and Sustainability",
+      "url": "https://www.portland.gov/bps",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Portland maintains a planning and sustainability bureau with planning and growth-management functions."
+      ]
+    },
+    {
+      "id": "dc-planning",
+      "publisher": "DC Office of Planning",
+      "title": "DC Office of Planning",
+      "url": "https://planning.dc.gov/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The Office of Planning publishes comprehensive-plan and zoning information."
+      ]
+    },
+    {
+      "id": "dc-open-data",
+      "publisher": "Open Data DC",
+      "title": "Open Data DC",
+      "url": "https://opendata.dc.gov/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Washington DC publishes municipal spatial datasets."
+      ]
+    },
+    {
+      "id": "las-vegas-planning",
+      "publisher": "City of Las Vegas",
+      "title": "Planning Department",
+      "url": "https://www.lasvegasnevada.gov/Government/Departments/Planning",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal planning department publishes planning and development information."
+      ]
+    },
+    {
+      "id": "new-orleans-planning",
+      "publisher": "City of New Orleans",
+      "title": "City Planning Commission",
+      "url": "https://nola.gov/city-planning/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The City Planning Commission publishes planning and land-use information."
+      ]
+    },
+    {
+      "id": "new-orleans-open-data",
+      "publisher": "Open Data NOLA",
+      "title": "City of New Orleans Open Data",
+      "url": "https://data.nola.gov/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "New Orleans publishes municipal open datasets."
+      ]
+    },
+    {
+      "id": "osaka-city",
+      "publisher": "City of Osaka",
+      "title": "Osaka City official portal",
+      "url": "https://www.city.osaka.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Osaka urban-planning information."
+      ]
+    },
+    {
+      "id": "kyoto-city",
+      "publisher": "City of Kyoto",
+      "title": "Kyoto City official portal",
+      "url": "https://www.city.kyoto.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Kyoto urban-planning and heritage information."
+      ]
+    },
+    {
+      "id": "unesco-kyoto",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Historic Monuments of Ancient Kyoto",
+      "url": "https://whc.unesco.org/en/list/688/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/688/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The source records the historic monuments and heritage setting of Kyoto, Uji and Otsu."
+      ]
+    },
+    {
+      "id": "yokohama-city",
+      "publisher": "City of Yokohama",
+      "title": "Yokohama City official portal",
+      "url": "https://www.city.yokohama.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Yokohama planning and waterfront information."
+      ]
+    },
+    {
+      "id": "hk-ura",
+      "publisher": "Hong Kong Urban Renewal Authority",
+      "title": "Urban Renewal Authority",
+      "url": "https://www.ura.org.hk/en",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-renewal-agency",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The authority publishes urban-renewal project and redevelopment information."
+      ]
+    },
+    {
+      "id": "hk-transport",
+      "publisher": "Hong Kong Transport Department",
+      "title": "Transport Department",
+      "url": "https://www.td.gov.hk/en/home/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-transport-agency",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The department publishes transport and traffic information relevant to dense retail cores."
+      ]
+    },
+    {
+      "id": "hk-afcd",
+      "publisher": "Hong Kong Agriculture, Fisheries and Conservation Department",
+      "title": "Agriculture, Fisheries and Conservation Department",
+      "url": "https://www.afcd.gov.hk/english/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-conservation-agency",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The department provides official country-park and conservation information."
+      ]
+    },
+    {
       "id": "osm-map-api",
       "publisher": "OpenStreetMap contributors",
       "title": "OpenStreetMap map data API",
@@ -1124,45 +1320,63 @@
     },
     {
       "caseId": "us-miami",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["miami-planning", "osm-map-api"],
+      "supportedMechanisms": [
+        "planning, zoning and land-use regulation",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["bayfront crop", "Art Deco parcel sample", "seawall and flood exposure", "market access time"]
     },
     {
       "caseId": "us-denver",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["denver-planning", "denver-open-data"],
+      "supportedMechanisms": [
+        "municipal planning and development framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["plain-grid crop", "front-range edge", "warehouse and rail layers", "market access time"]
     },
     {
       "caseId": "us-portland",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["portland-bps", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal planning and growth-management framework",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["river small-block crop", "urban-growth boundary", "block/parcel data", "market access time"]
     },
     {
       "caseId": "us-washington-dc",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["dc-planning", "dc-open-data"],
+      "supportedMechanisms": [
+        "comprehensive-plan and zoning framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["capital-axis crop", "height-control boundary", "civic parcel layer", "market access time"]
     },
     {
       "caseId": "us-las-vegas",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["las-vegas-planning", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal planning and development information",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["entertainment-corridor crop", "casino parcel sample", "desert-edge interface", "market access time"]
     },
     {
       "caseId": "us-new-orleans",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["new-orleans-planning", "new-orleans-open-data"],
+      "supportedMechanisms": [
+        "city planning and land-use framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["delta-grid crop", "levee and wetland-edge constraints", "historic parcel sample", "market access time"]
     },
     {
       "caseId": "eu-london",
@@ -1266,59 +1480,83 @@
     },
     {
       "caseId": "jp-tokyo-bay",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["tokyo-urban-planning", "mlit-street-design"],
+      "supportedMechanisms": [
+        "metropolitan urban-planning framework",
+        "walkable street-design guidance"
+      ],
+      "measurementGaps": ["reclaimed-bay crop", "podium and elevated-walk sample", "waterfront public access", "market access time"]
     },
     {
       "caseId": "jp-osaka-namba",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["osaka-city", "mlit-street-design"],
+      "supportedMechanisms": [
+        "municipal planning information entry point",
+        "walkable street-design guidance"
+      ],
+      "measurementGaps": ["canal-commerce crop", "fine merchant parcel data", "covered shopping street", "market access time"]
     },
     {
       "caseId": "jp-kyoto-gion",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["kyoto-city", "unesco-kyoto"],
+      "supportedMechanisms": [
+        "municipal planning and heritage information",
+        "historic monument and urban-setting constraint"
+      ],
+      "measurementGaps": ["Gion machiya crop", "temple-ground interface", "protected-building inventory", "market access time"]
     },
     {
       "caseId": "jp-yokohama-minato",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["yokohama-city", "mlit-street-design"],
+      "supportedMechanisms": [
+        "municipal planning and waterfront information",
+        "walkable street-design guidance"
+      ],
+      "measurementGaps": ["old-port-to-Minato-Mirai crop", "waterfront block data", "rail and pier interfaces", "market access time"]
     },
     {
       "caseId": "hk-mong-kok",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-ura"],
+      "supportedMechanisms": [
+        "land-use and facility planning standards",
+        "urban-renewal and redevelopment framework"
+      ],
+      "measurementGaps": ["dense street-market crop", "narrow-frontage parcel data", "vertical mixed-use floors", "market access time"]
     },
     {
       "caseId": "hk-causeway-bay",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-transport"],
+      "supportedMechanisms": [
+        "land-use and facility planning standards",
+        "transport and pedestrian-flow information"
+      ],
+      "measurementGaps": ["reclaimed-retail crop", "retail podium sample", "pedestrian-flow data", "market access time"]
     },
     {
       "caseId": "hk-kwun-tong",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-housing-authority"],
+      "supportedMechanisms": [
+        "land-use and facility planning standards",
+        "public-housing estate layer"
+      ],
+      "measurementGaps": ["industrial-to-waterfront-renewal crop", "estate and industrial floor-area data", "steep-connector network", "market access time"]
     },
     {
       "caseId": "hk-sai-kung",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-afcd"],
+      "supportedMechanisms": [
+        "land-use and facility planning standards",
+        "country-park and conservation constraints"
+      ],
+      "measurementGaps": ["ria-village crop", "pier and waterfront lane network", "country-park boundary", "seasonal visitor demand"]
     }
   ]
 }

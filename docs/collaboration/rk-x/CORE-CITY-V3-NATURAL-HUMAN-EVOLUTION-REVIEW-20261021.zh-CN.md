@@ -9,11 +9,11 @@
 适用范围：GlyphWeave 现代城市核心切面生成。Rust Core 是唯一生成真源；
 HTML/Three.js 只读取已烘焙结果；本轮不处理未来需求。
 
-W0 调查进度：已完成 34 个代表案例的来源入口审计，其中 12 个完成首轮
+W0 调查进度：已完成全部 48 个代表案例的来源入口审计，其中 12 个完成首轮
 OSM 米制观测，机器矩阵见
 [`URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`](URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md)
 和 `assets/data/urban-case-evidence.json`。48 案全部有覆盖状态，
-其中 34 案为 `source-audited-core-cut`，14 案仍为 `screened-heuristic`；
+48 案均为 `source-audited-core-cut`；
 12 案达到 `partial-osm-core-window`，尚无案例达到完整
 `measured-core-window`。
 

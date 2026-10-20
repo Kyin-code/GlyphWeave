@@ -2,8 +2,7 @@
 
 日期：2026-10-21
 
-状态：**调查进行中；34 个代表案例已有公开来源，其中 12 个完成首轮 OSM
-米制观测，另 14 个仍为机制筛选**
+状态：**48 案来源审计完成；12 个完成首轮 OSM 米制观测，36 个仍待米制测量**
 
 上游设计：
 
@@ -40,9 +39,9 @@ node scripts/check-urban-core-measurements.mjs
 {
   "status": "pass",
   "cases": 48,
-  "sourceAuditedCases": 34,
-  "screenedCases": 14,
-  "sources": 65,
+  "sourceAuditedCases": 48,
+  "screenedCases": 0,
+  "sources": 81,
   "partialOsmWindows": 12
 }
 ```
@@ -53,11 +52,11 @@ node scripts/check-urban-core-measurements.mjs
 |---|---|---|
 | `source-audited-core-cut` | 至少两个不同发布者来源；能支持核心切面机制 | 代表性案例 |
 | `partial-osm-core-window` | 已有约 1km² 当前 OSM 道路、建筑覆盖和设施点观测 | 12 个代表案例 |
-| `screened-heuristic` | 已进入 48 案机制筛选，尚无逐案公开来源矩阵 | 14 案参数先验 |
+| `screened-heuristic` | 已进入机制筛选，尚无逐案公开来源矩阵 | 0 案 |
 | `measured-core-window` | 已定义米制 crop，并完成路网/地块/密度/市场等测量 | **尚无案例达到** |
 | `bake-calibrated` | 已用真实或合成控制世界完成烘焙对照 | **尚无 V3 案例达到** |
 
-本轮把 34 案提升到 `source-audited-core-cut`，其中前 12 案同时达到
+本轮把 48 案全部提升到 `source-audited-core-cut`，其中前 12 案同时达到
 `partial-osm-core-window`。没有案例被错误提升为完整的
 `measured-core-window`，因为地块、FAR、市场容量和网络时距仍未全部测量。
 
@@ -352,6 +351,30 @@ node scripts/check-urban-core-measurements.mjs
 其中里斯本与巴塞罗那的官方规划材料覆盖明显弱于其他案例，不能用于高置信
 规划参数。
 
+### 3.15 第四批美国、日本与香港来源审计
+
+最后 14 案补齐如下：
+
+| 案例 | 来源 A | 来源 B | 当前限制 |
+|---|---|---|---|
+| 迈阿密 | [Planning, Zoning & Land Use](https://www.miami.gov/Planning-Zoning-Land-Use) | [OpenStreetMap](https://api.openstreetmap.org/api/0.6/map) | 需要海堤、洪水与 Art Deco 地块实测 |
+| 丹佛 | [Community Planning and Development](https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Community-Planning-and-Development) | [Denver Open Data](https://data.denvergov.org/) | 山前边缘与平原网格待测 |
+| 波特兰 | [Bureau of Planning and Sustainability](https://www.portland.gov/bps) | [OpenStreetMap](https://api.openstreetmap.org/api/0.6/map) | 增长边界和小街区待测 |
+| 华盛顿 DC | [DC Office of Planning](https://planning.dc.gov/) | [Open Data DC](https://opendata.dc.gov/) | 首都轴线、限高和社区网格待测 |
+| 拉斯维加斯 | [Planning Department](https://www.lasvegasnevada.gov/Government/Departments/Planning) | [OpenStreetMap](https://api.openstreetmap.org/api/0.6/map) | 娱乐走廊与沙漠边缘待测 |
+| 新奥尔良 | [City Planning Commission](https://nola.gov/city-planning/) | [Open Data NOLA](https://data.nola.gov/) | 三角洲、堤防与湿地边界待测 |
+| 东京湾 | [Tokyo Urban Planning](https://www.toshiseibi.metro.tokyo.lg.jp/) | [MLIT Street Design](https://www.mlit.go.jp/toshi/toshi_gairo_fr_000055.html) | 填海、裙房与高架步行系统待测 |
+| 大阪难波 | [Osaka City](https://www.city.osaka.lg.jp/) | [MLIT Street Design](https://www.mlit.go.jp/toshi/toshi_gairo_fr_000055.html) | 运河商业与细商用地块待测 |
+| 京都祇园 | [Kyoto City](https://www.city.kyoto.lg.jp/) | [UNESCO Ancient Kyoto](https://whc.unesco.org/en/list/688/) | 町家与寺社边界待测 |
+| 横滨港未来 | [Yokohama City](https://www.city.yokohama.lg.jp/) | [MLIT Street Design](https://www.mlit.go.jp/toshi/toshi_gairo_fr_000055.html) | 旧港—新城、铁路与码头界面待测 |
+| 香港旺角 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [Urban Renewal Authority](https://www.ura.org.hk/en) | 街市密集度、窄面宽与垂直混合待测 |
+| 香港铜锣湾 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [Transport Department](https://www.td.gov.hk/en/home/index.html) | 填海零售核心与步行流待测 |
+| 香港观塘 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [Housing Authority](https://www.housingauthority.gov.hk/en/) | 工业更新、屋邨与陡坡连接待测 |
+| 香港西贡 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [AFCD](https://www.afcd.gov.hk/english/index.html) | 渔村、码头与郊野公园边界待测 |
+
+至此 48/48 案都有至少两个不同发布者的公开来源。该成果只关闭 Source Gate
+的最小入口要求；真实地块、道路、FAR、历史和市场的米制测量仍未完成。
+
 ## 4. 首轮 1km² 米制观测
 
 测量脚本以命名核心锚点为中心，取面积约 1km² 的圆形当前 OSM 快照：
@@ -495,10 +518,11 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 
 ## 6. 仍未完成的证据工作
 
-### 6.1 14 个待补案例
+### 6.1 36 个待补测量案例
 
-`assets/data/urban-case-evidence.json` 已为全部 48 案登记状态。其余 14 案
-目前只能是 `screened-heuristic`，不能用于声称官方密度、人口、路网或市场统计。
+`assets/data/urban-case-evidence.json` 已为全部 48 案登记来源状态。
+除前 12 个 OSM 窗口外，其余 36 案仍不能用于声称官方密度、人口、路网或
+市场统计；其中里斯本、巴塞罗那等案例还需要补强官方规划史料。
 
 ### 6.2 米制核心窗口
 
@@ -534,7 +558,7 @@ W0 继续按以下顺序推进：
 2. 使用官方开放数据/OSM 辅助测量道路、地块、建筑高度和设施；
 3. 每个数值分别标记 `observed`、`derived` 或 `heuristic`；
 4. 补齐市场专用来源；
-5. 将 14 个案例按地区逐批升级；
+5. 将剩余 36 个案例按核心窗口逐批测量；
 6. 只有通过来源 gate 后，才把参数写入生成 Manifest 或 Rust fixture。
 
 在这些工作完成前，V3 审核稿中的道路密度、FAR、市场和工程系数仍只能当作
