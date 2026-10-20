@@ -637,6 +637,15 @@ N0 纯自然基线
 
 状态：**待项目负责人审核；审核通过前继续扩大普通城区实现范围属于越界。**
 
+W0 来源调查已开始：12 个代表核心切面已有至少两个不同发布者的公开来源入口，
+32 个来源已登记 URL、访问日期、直接访问状态和支持断言；全部 48 案都有
+`source-audited-core-cut` 或 `screened-heuristic` 覆盖状态。尚无案例达到
+`measured-core-window`。机器数据与校验：
+
+- `assets/data/urban-case-evidence-12.json`
+- `scripts/check-urban-case-evidence.mjs`
+- `rk-x/URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`
+
 ---
 
 ## 6. 当前卡点与待决策项（更新于 2026-10-19）

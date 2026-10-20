@@ -1,0 +1,794 @@
+{
+  "format": "glyphweave.urban-case-evidence",
+  "version": 1,
+  "retrievedAt": "2026-10-21",
+  "purpose": "W0 source audit for twelve representative core cuts. Mechanism priors exist for all 48 cases; this file records which cases have verified public-source entry points and which still require measured core-window data.",
+  "policy": {
+    "caseUnit": "core-cut-not-whole-city",
+    "minimumSourceCountForAuditedCase": 2,
+    "minimumPublisherDiversity": 2,
+    "heuristicValuesMayBePromotedOnlyWithMeasuredStatus": true,
+    "browserOrReaderAccessAccepted": true,
+    "unverifiedAiSummariesAccepted": false
+  },
+  "sources": [
+    {
+      "id": "bj-master-plan",
+      "publisher": "Beijing Municipal Commission of Planning and Natural Resources",
+      "title": "Beijing Master Plan 2016-2035",
+      "url": "https://ghzrzyw.beijing.gov.cn/zhengwuxinxi/zxzt/bjcsztgh20162035/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The official long-term master plan contains capital-function, historic-city, resource and urban-rural chapters."
+      ]
+    },
+    {
+      "id": "bj-urban-design-guideline",
+      "publisher": "Beijing Municipal Commission of Planning and Natural Resources",
+      "title": "Beijing Urban Design Guideline",
+      "url": "https://ghzrzyw.beijing.gov.cn/biaozhunguanli/bz/qt/202106/P020211108567546343857.pdf",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-guideline",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipality publishes a design guideline for urban space, street and block relationships."
+      ]
+    },
+    {
+      "id": "bj-hutong-story",
+      "publisher": "english.beijing.gov.cn",
+      "title": "Cultural Innovation Breathes New Life into Beijing's Hutongs",
+      "url": "https://english.beijing.gov.cn/latest/news/202307/t20230701_3152487.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-article",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Hutongs are described as narrow residential lanes within a high-rise capital and as objects of adaptive reuse."
+      ]
+    },
+    {
+      "id": "sh-master-plan",
+      "publisher": "Shanghai Municipal People's Government",
+      "title": "Shanghai Master Plan 2017-2035",
+      "url": "https://www.shanghai.gov.cn/newshanghai/xxgkfj/2035004.pdf",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The approved long-term plan is available as an official municipal PDF."
+      ]
+    },
+    {
+      "id": "sh-master-plan-home",
+      "publisher": "english.shanghai.gov.cn",
+      "title": "Shanghai Master Plan 2017-2035 portal",
+      "url": "https://english.shanghai.gov.cn/en-MasterPlan/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal identifies Shanghai Master Plan 2017-2035 as the long-term spatial plan."
+      ]
+    },
+    {
+      "id": "sh-lilong-rehab",
+      "publisher": "International Institute for Asian Studies",
+      "title": "The Shanghai lilong: Approaches to rehabilitation and reuse",
+      "url": "https://www.iias.asia/the-newsletter/article/shanghai-lilong-approaches-rehabilitation-and-reuse",
+      "readerUrl": "https://r.jina.ai/http://www.iias.asia/the-newsletter/article/shanghai-lilong-approaches-rehabilitation-and-reuse",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-research",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "Lilong originated in nineteenth-century Shanghai and dominated twentieth-century housing.",
+        "The article reports that about half of Shanghai's built area and 70 to 80 percent of residents were associated with lilong by 1949.",
+        "Four post-2000 rehabilitation approaches are compared, including commercial, residential and mixed reuse."
+      ]
+    },
+    {
+      "id": "cq-state-council-approval",
+      "publisher": "State Council of the People's Republic of China",
+      "title": "Approval of Chongqing Territorial Spatial Master Plan 2021-2035",
+      "url": "https://www.gov.cn/zhengce/zhengceku/202402/content_6934307.htm",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan-approval",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The State Council approved Chongqing's 2021-2035 territorial spatial master plan on 2024-02-21."
+      ]
+    },
+    {
+      "id": "cq-adb-green-low-carbon",
+      "publisher": "Asian Development Bank",
+      "title": "Chongqing Gaoxin District Green and Low-Carbon Urban Development Program",
+      "url": "https://www.adb.org/projects/56182-001/main",
+      "readerUrl": "https://r.jina.ai/http://www.adb.org/projects/56182-001/main",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-development-bank",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "ADB records a green and low-carbon urban development program in Chongqing Gaoxin District."
+      ]
+    },
+    {
+      "id": "sz-spatial-plan",
+      "publisher": "Shenzhen Municipal People's Government",
+      "title": "Shenzhen Territorial Spatial Master Plan 2021-2035",
+      "url": "https://www.sz.gov.cn/cn/xxgk/zfxxgj/ghjh/csgh/zxgh/content/post_12097290.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal government issued the approved 2021-2035 territorial spatial master plan in January 2025."
+      ]
+    },
+    {
+      "id": "sz-state-council-approval",
+      "publisher": "The State Council Information Office",
+      "title": "State Council approval of Shenzhen territorial spatial plan",
+      "url": "https://english.www.gov.cn/policies/latestreleases/202409/30/content_WS66fa5310c6d0868f4e8eb6c9.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan-approval",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The State Council published approval of Shenzhen's territorial spatial plan in September 2024."
+      ]
+    },
+    {
+      "id": "sz-unep",
+      "publisher": "UN Environment Programme World Conservation Monitoring Centre",
+      "title": "Urban planning for the future in Shenzhen",
+      "url": "https://www.unep-wcmc.org/en/news/urban-planning-for-the-future-in-shenzhen",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-research",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The source discusses forward-looking urban planning in Shenzhen."
+      ]
+    },
+    {
+      "id": "nyc-zoning-resolution",
+      "publisher": "New York City Department of City Planning",
+      "title": "New York City Zoning Resolution",
+      "url": "https://zoningresolution.planning.nyc.gov/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-regulation",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The Zoning Resolution defines residence, commercial and manufacturing districts and special-area regulations."
+      ]
+    },
+    {
+      "id": "nyc-street-design-manual",
+      "publisher": "New York City Department of Transportation",
+      "title": "Street Design Manual",
+      "url": "https://www.nyc.gov/html/dot/html/pedestrians/streetdesignmanual.shtml",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-guideline",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The manual provides municipal street and pedestrian design guidance."
+      ]
+    },
+    {
+      "id": "nyc-open-data",
+      "publisher": "New York City Department of City Planning",
+      "title": "NYC Planning Open Data",
+      "url": "https://www.nyc.gov/site/planning/data-maps/open-data.page",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The planning department publishes spatial and planning datasets for measurement."
+      ]
+    },
+    {
+      "id": "chi-dcd",
+      "publisher": "City of Chicago Department of Planning and Development",
+      "title": "Planning and Development",
+      "url": "https://www.chicago.gov/city/en/depts/dcd.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Chicago maintains a municipal planning and development department with plans and development functions."
+      ]
+    },
+    {
+      "id": "chi-data",
+      "publisher": "City of Chicago",
+      "title": "Chicago Data Portal",
+      "url": "https://data.cityofchicago.org/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The city publishes machine-readable parcel, zoning and public-infrastructure datasets."
+      ]
+    },
+    {
+      "id": "chi-history-museum",
+      "publisher": "Chicago History Museum",
+      "title": "Chicago History Museum",
+      "url": "https://www.chicagohistory.org/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-museum",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "A civic history institution provides an independent source for Chicago's urban-history research."
+      ]
+    },
+    {
+      "id": "paris-open-data",
+      "publisher": "Ville de Paris",
+      "title": "Paris Open Data",
+      "url": "https://opendata.paris.fr/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Paris publishes municipal spatial and facility datasets."
+      ]
+    },
+    {
+      "id": "paris-apur",
+      "publisher": "Atelier Parisien d'Urbanisme",
+      "title": "Parisian Urban Planning Workshop",
+      "url": "https://www.apur.org/en/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-planning-workshop",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "APUR analyses and publishes planning evidence for Paris and Greater Paris."
+      ]
+    },
+    {
+      "id": "paris-open-markets-dataset",
+      "publisher": "Ville de Paris",
+      "title": "Open-air markets dataset",
+      "url": "https://opendata.paris.fr/explore/dataset/marches-decouverts/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-dataset",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Paris publishes a spatial dataset of open-air markets suitable for periodic-market network analysis."
+      ]
+    },
+    {
+      "id": "prague-city",
+      "publisher": "Prague City Hall",
+      "title": "Prague City official portal",
+      "url": "https://www.praha.eu/jnp/en/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The city portal provides an official entry point for municipal planning and heritage information."
+      ]
+    },
+    {
+      "id": "prague-open-data",
+      "publisher": "Prague City Hall",
+      "title": "Prague Open Data",
+      "url": "https://opendata.praha.eu/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Prague publishes municipal open datasets for spatial measurement."
+      ]
+    },
+    {
+      "id": "unesco-prague",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Historic Centre of Prague",
+      "url": "https://whc.unesco.org/en/list/616/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/616/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The historic centre is described as a manifestation of medieval urbanism on both banks of the Vltava River.",
+        "The source states that large-scale urban renewal and massive demolition were avoided, preserving the overall street pattern and spatial composition."
+      ]
+    },
+    {
+      "id": "tokyo-urban-planning",
+      "publisher": "Tokyo Metropolitan Government",
+      "title": "Tokyo Urban Planning portal",
+      "url": "https://www.toshiseibi.metro.tokyo.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The metropolitan government maintains a dedicated urban-planning portal."
+      ]
+    },
+    {
+      "id": "mlit-street-design",
+      "publisher": "Ministry of Land, Infrastructure, Transport and Tourism",
+      "title": "Street Design Guidelines",
+      "url": "https://www.mlit.go.jp/toshi/toshi_gairo_fr_000055.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "national-guideline",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The guideline covers walkable public-space design across large and small Japanese cities."
+      ]
+    },
+    {
+      "id": "taito-city",
+      "publisher": "Taito City",
+      "title": "Taito City official portal",
+      "url": "https://www.city.taito.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-local-government",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Taito City provides local planning, disaster and community information for the Shitamachi case."
+      ]
+    },
+    {
+      "id": "kobe-urban-planning",
+      "publisher": "City of Kobe",
+      "title": "Development and Urban Planning",
+      "url": "https://www.city.kobe.lg.jp/a57337/business/kaihatsu/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The city publishes zoning search, development permission, urbanization-control and high-use-district material."
+      ]
+    },
+    {
+      "id": "kobe-city",
+      "publisher": "City of Kobe",
+      "title": "Kobe City official portal",
+      "url": "https://www.city.kobe.lg.jp/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for local planning and project information."
+      ]
+    },
+    {
+      "id": "hk-hkpsg",
+      "publisher": "Hong Kong Planning Department",
+      "title": "Hong Kong Planning Standards and Guidelines",
+      "url": "https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-guideline",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "HKPSG defines criteria for the scale, location and site requirements of land uses and facilities."
+      ]
+    },
+    {
+      "id": "hk-planning",
+      "publisher": "Hong Kong Planning Department",
+      "title": "Hong Kong Planning Department",
+      "url": "https://www.pland.gov.hk/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The department publishes statutory plans and planning information."
+      ]
+    },
+    {
+      "id": "hk-amo",
+      "publisher": "Hong Kong Antiquities and Monuments Office",
+      "title": "Antiquities and Monuments Office",
+      "url": "https://www.amo.gov.hk/en/home/index.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-heritage-agency",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The heritage agency documents monuments and historic buildings in Hong Kong."
+      ]
+    },
+    {
+      "id": "hk-housing-authority",
+      "publisher": "Hong Kong Housing Authority",
+      "title": "Hong Kong Housing Authority",
+      "url": "https://www.housingauthority.gov.hk/en/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-housing-authority",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The Housing Authority provides official estate and public-housing information relevant to Sha Tin."
+      ]
+    }
+  ],
+  "coverage": [
+    {
+      "caseId": "cn-beijing",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["bj-master-plan", "bj-urban-design-guideline", "bj-hutong-story"],
+      "supportedMechanisms": [
+        "capital-axis planning and historic-city conservation",
+        "hutong fine grain and adaptive reuse",
+        "municipal urban-design control"
+      ],
+      "measurementGaps": ["core-window crop", "road density", "parcel frontage", "FAR", "fresh-food access time"]
+    },
+    {
+      "caseId": "cn-shanghai",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["sh-master-plan", "sh-master-plan-home", "sh-lilong-rehab"],
+      "supportedMechanisms": [
+        "long-term municipal spatial plan",
+        "lilong fine-grain housing and redevelopment pressure",
+        "commercial, residential and mixed lilong rehabilitation"
+      ],
+      "measurementGaps": ["core-window crop", "lilong parcel distribution", "road density", "FAR", "market access time"]
+    },
+    {
+      "caseId": "cn-chongqing",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cq-state-council-approval", "cq-adb-green-low-carbon"],
+      "supportedMechanisms": [
+        "national spatial-plan approval",
+        "green and low-carbon development pressure"
+      ],
+      "measurementGaps": ["two-river crop", "slope distribution", "terrace/retaining-wall density", "road grade", "engineering volumes"]
+    },
+    {
+      "caseId": "cn-shenzhen",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["sz-spatial-plan", "sz-state-council-approval", "sz-unep"],
+      "supportedMechanisms": [
+        "recent territorial spatial plan",
+        "state-level planning approval",
+        "forward-looking urban planning"
+      ],
+      "measurementGaps": ["urban-village parcel sample", "reclaimed land area", "bayfront public access", "road density", "market access time"]
+    },
+    {
+      "caseId": "us-new-york",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["nyc-zoning-resolution", "nyc-street-design-manual", "nyc-open-data"],
+      "supportedMechanisms": [
+        "district-based zoning and special regulations",
+        "street and pedestrian design guidance",
+        "open spatial data"
+      ],
+      "measurementGaps": ["Manhattan crop", "block and parcel distribution", "FAR/height", "market access time"]
+    },
+    {
+      "caseId": "us-chicago",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["chi-dcd", "chi-data", "chi-history-museum"],
+      "supportedMechanisms": [
+        "municipal planning and development function",
+        "parcel/zoning/public-infrastructure data",
+        "independent urban history"
+      ],
+      "measurementGaps": ["lakefront crop", "grid block dimensions", "rail/industrial layers", "FAR/height", "market access time"]
+    },
+    {
+      "caseId": "eu-paris",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["paris-open-data", "paris-apur", "paris-open-markets-dataset"],
+      "supportedMechanisms": [
+        "municipal open data",
+        "Paris/Greater Paris planning analysis",
+        "periodic open-air market network"
+      ],
+      "measurementGaps": ["Seine crop", "perimeter-block parcel data", "FAR/height", "market access time"]
+    },
+    {
+      "caseId": "eu-prague",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["prague-city", "prague-open-data", "unesco-prague"],
+      "supportedMechanisms": [
+        "municipal planning and heritage entry point",
+        "municipal open data",
+        "medieval river-crossing urbanism and preserved street pattern"
+      ],
+      "measurementGaps": ["river-valley crop", "medieval parcel pattern", "panel-estate sample", "FAR/height", "market access time"]
+    },
+    {
+      "caseId": "jp-tokyo-shitamachi",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["tokyo-urban-planning", "mlit-street-design", "taito-city"],
+      "supportedMechanisms": [
+        "metropolitan urban-planning framework",
+        "walkable street-design guidance",
+        "local disaster and community context"
+      ],
+      "measurementGaps": ["Taito crop", "fine parcel/street distribution", "FAR/height", "station access", "market access time"]
+    },
+    {
+      "caseId": "jp-kobe-sannomiya",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["kobe-urban-planning", "kobe-city", "mlit-street-design"],
+      "supportedMechanisms": [
+        "development permission and zoning controls",
+        "municipal planning portal",
+        "walkable street-design guidance"
+      ],
+      "measurementGaps": ["mountain-sea crop", "slope/steep-lane sample", "port interface", "block/parcel data", "market access time"]
+    },
+    {
+      "caseId": "hk-central",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-planning", "hk-amo"],
+      "supportedMechanisms": [
+        "land-use and facility planning standards",
+        "statutory planning information",
+        "heritage protection layer"
+      ],
+      "measurementGaps": ["Central/Admiralty crop", "steep slope and podium sample", "pedestrian network elevation", "FAR/height", "market access time"]
+    },
+    {
+      "caseId": "hk-sha-tin",
+      "level": "source-audited-core-cut",
+      "sourceIds": ["hk-hkpsg", "hk-planning", "hk-housing-authority"],
+      "supportedMechanisms": [
+        "new-town land-use and facility standards",
+        "statutory planning information",
+        "public housing estate layer"
+      ],
+      "measurementGaps": ["Shing Mun River crop", "new-town block and estate data", "school/retail access", "riverfront access", "market access time"]
+    },
+    {
+      "caseId": "cn-guangzhou",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-chengdu",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-xian",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-hangzhou",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-wuhan",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-qingdao",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-xiamen",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "cn-kunming",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-san-francisco",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-los-angeles",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-seattle",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-boston",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-miami",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-denver",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-portland",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-washington-dc",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-las-vegas",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "us-new-orleans",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-london",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-amsterdam",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-berlin",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-zurich",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-milan",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-rome",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-barcelona",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-lisbon",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-stockholm",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "eu-vienna",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "jp-tokyo-bay",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "jp-osaka-namba",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "jp-kyoto-gion",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "jp-yokohama-minato",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "hk-mong-kok",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "hk-causeway-bay",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "hk-kwun-tong",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    },
+    {
+      "caseId": "hk-sai-kung",
+      "level": "screened-heuristic",
+      "sourceIds": [],
+      "supportedMechanisms": [],
+      "measurementGaps": ["representative source audit pending"]
+    }
+  ]
+}
