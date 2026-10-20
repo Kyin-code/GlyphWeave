@@ -10,6 +10,10 @@
 > 现代湖滨控制当前为 `scale-audit pass`、`road-network-audit pass`、
 > `quality-report warn`（剩余 966m² 庭院坡地未实现面）。
 
+> **2026-10-21 迭代城区追加**：first vertical slice of
+> established/renewal/new district growth is implemented. See
+> [`ITERATIVE-DISTRICTS-20261021.zh-CN.md`](ITERATIVE-DISTRICTS-20261021.zh-CN.md).
+
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
 
 | 项 | 当前值 |

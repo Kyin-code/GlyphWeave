@@ -241,7 +241,7 @@
 | D10.6 | 设施程序：类型/尺寸/数量显式，按原尺寸规划不缩小；三层分离（请求 / 计划候选 / 有入口实现） | 生产可用 | r26：请求 4、计划 3→4、实现 3→4；尺寸范围 store 6–40/6–30/3–12、school 30–128/26–120/4–30、church 12–80/12–80/3–40、town_hall 30–128/24–120/8–60、market 36–128/30–128/3–20 |
 | D10.7 | 联合审计：实体 ID 唯一、类型/尺寸/变换/入口与计划一致；保存的 audit 声称 pass 不能覆盖实际数据 | 生产可用 | r27 §5；CLI 从 manifest+自然重建 |
 | D10.8 | 地块四朝向、非零 origin、跨 zone 分摊、无重叠守恒 | 部分 | 有测试；大规模真实世界未验 |
-| D10.9 | 形态学驱动的街区差异（紧凑混合/低密/村落）、多入口、共享步行网络 | ⚠️ **部分** | morphology compile 与 compact/village 控制已落地；现代湖滨控制呈现多尺度住宅、公寓块和店铺；多入口/共享步行网络仍未完成 |
+| D10.9 | 形态学驱动的街区差异（紧凑混合/低密/村落）、多入口、共享步行网络 | ⚠️ **部分** | morphology compile、compact/village 控制和 2026-10-21 新老城阶段控制已落地；商业/住宅按中心距离与建设阶段变化；多入口/共享步行网络仍未完成 |
 | D10.10 | ⚠️ `engineered_placement::reconcile` 必须遵守对象描述符声明的 `fallback`（skip 就跳过），不得把不合规小卖部升级成整图失败；跳过必须具名 + 计数 | **未修**（T-0013 授权项） | T-0012 §2：`assets/objects/storefront.object.toml` 要求 road 距离 8m，而 fixture `setbackM = 12` → 立面间隙约 14m，必然不满足 |
 | D10.11 | 可通行合同：最大纵坡 **25%**（`access::WALKABLE_GRADE = 0.25`，`worldgen/access.rs:16`）、入口引道 **2m**（`ENTRANCE_APRON_RUN_M = 2.`，`worldgen.rs:4258`）→ 引道容差 0.5m；入口台阶 0.30m；通道 1.5m 宽、2m 搜索网格、120m 预算、≤6000 展开节点 | 生产可用 | 一手核对常量；这组数字是当前回归的判据来源（见 §6.1） |
 | D10.12 | 任何建筑（authored 或 generated）都必须有真实入口：缺入口/入口不在边界/被挡/台阶超限各有独立状态码 | 生产可用 | AccessGraph v2；`quality-report` 从最终 heightfield 与实体重算，不信任 scene 里的计数 |
@@ -285,7 +285,7 @@
 | D13.2 | 证据等级 A（政府导则/官方数据/法规）、B（OSM/公开卫星/GIS）、C（学术论文）、D（旅游网页，仅观察线索） | 仅研究 | 形态研究 §20-23 |
 | D13.3 | 参数按分布而非"国家开关"：街区尺度、路网层级、地块深度、退界、混合度、绿地比例、坡地工程、滨水公共性、历史叠加 | 仅研究 | 形态研究 §16 |
 | D13.4 | **6 种城市形态**：`dense-core` / `river-delta` / `coastal-bay` / `mountain-valley` / `temperate-plain` / `low-density-suburban`，只改分布先验不改硬约束；路网尺度 260/360/460m | **已实现** | 一手确认：`CityForm` 枚举与字符串解析在 `worldgen.rs:589-604`，有 `profile_entities` 与多主题测试 |
-| D13.5 | **12 种聚落原型**（河谷线性镇/海湾港口/山前台地/平原网格/轨道新城/工业铁路带/湖滨旅游/三角洲堤防/岛屿多中心/林地村镇/农田道路聚落/旧城新区拼接） | 仅设计 | 形态研究 §150-152；代码中无对应结构 |
+| D13.5 | **12 种聚落原型**（河谷线性镇/海湾港口/山前台地/平原网格/轨道新城/工业铁路带/湖滨旅游/三角洲堤防/岛屿多中心/林地村镇/农田道路聚落/旧城新区拼接） | ⚠️ **1 个垂直切片** | `urbanDistrictProgram` 已实现“旧核心/更新带/新城环”的可执行阶段结果；仅覆盖 1 个原型方向，不等于 12 种全部实现 |
 | D13.6 | 每个参数的 landRatio 与 density 分开（landRatio 是场景面积比，density 是同类地块内强度），不能混用 | 部分 | 参数基线表存在（道路 0.08–0.22/0.55–1.00 等），未逐条落地 |
 | D13.7 | `MorphologyProfile` 14 字段；每个值须标 `hard_constraint`/`soft_preference`/`observed_source`/`inference`/`confidence` | 仅设计 | 现有 `settlement/morphology.rs` + `morphology_compile.rs` 是编译层，不是该 14 字段合同 |
 | D13.8 | 12 步生成顺序：自然与水文 → 灾害/保护区 → 历史要素 → 基础设施 → 城乡分区 → 主干路与公交节点 → 街区/地块/公共空间 → 建筑入口院落 → 商业/学校/市场/夜市 → 街树/林带/公园 → 人为自然影响 → 全局审计 | 部分 | 现有顺序为 自然→分区→道路→地块→建筑→地表→生态；缺历史要素/公交/公共空间 |
@@ -481,6 +481,21 @@ smoke（scene-0 / chunk 0,1 / loaded 6 / no script error）。C 核心里程碑�
 白色伪影已证实为地形顶点色 sRGB/线性空间重复编码；草场圆形已由
 `uniformDensity` 移除；Rust 规划的店铺/住宅块/高层恢复各自渲染分支。
 证据与截图见 `rk-x/FIVE-ISSUES-CLOSURE-20261021.zh-CN.md`。
+
+### 5.8 2026-10-21 迭代式新老城区
+
+`iterative-new-old-city-512` 已烘焙并实测：
+
+- 新增 `urbanDistrictProgram`，按中心距离和有序建设阶段展开既有 frontage 请求；
+- established / renewal / new 实现 11 / 11 / 9 个地块，平均中心距
+  67.51 / 128.40 / 189.33m；
+- 商业从中心向外为 7 / 6 / 4，外围以住宅与公寓块为主；
+- 道路 29/29、地块 31/31、scale audit pass；`quality-report warn`
+  仍来自 955m² 庭院未实现面和 structured-water planner 口径；
+- 新模块 `settlement/district_program.rs` 与 `urban-district-audit.json`
+  提供机器可复核的阶段结果。
+
+证据见 `rk-x/ITERATIVE-DISTRICTS-20261021.zh-CN.md`。
 
 ---
 

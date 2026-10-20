@@ -52,6 +52,15 @@
   草场焦点圆形由 `uniformDensity` 消除。
 - 详细证据见 `FIVE-ISSUES-CLOSURE-20261021.zh-CN.md`。
 
+### 2026-10-21 新老城区迭代切片
+
+- 新增 `urbanDistrictProgram`：中心半径、有序建设阶段、cohort 和请求宏会展开到
+  既有 frontage 规则，不绕过地形、水域、入口或规则引擎。
+- `iterative-new-old-city-512` 实测 established/renewal/new 为 **11/11/9** 个地块，
+  平均中心距 **67.5/128.4/189.3m**；商业数量 7/6/4，外围转为住宅。
+- 生成 `urban-district-audit.json`；29/29 道路、31/31 地块、scale audit pass。
+- 详细记录见 `ITERATIVE-DISTRICTS-20261021.zh-CN.md`。
+
 ## 结论
 
 - **A 的当前最大图质量门已经 pass，且确定性重跑通过**；A 的偶发崩溃和浏览器长漫游仍开放。
