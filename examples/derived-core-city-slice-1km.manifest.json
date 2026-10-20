@@ -183,7 +183,7 @@
     "planningHistory": {
       "version": 1,
       "enabled": true,
-      "oldCoreRadiusM": 220,
+      "oldCoreRadiusM": 130,
       "parkAreaM2PerPerson": 8,
       "renewalShare": 0.35
     },

@@ -63,6 +63,16 @@ pub struct Assignment {
     pub centrality: f64,
     pub district: String,
     pub planning_action: String,
+    pub typology: NeighbourhoodRule,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourhoodRule {
+    pub typology_id: String,
+    pub tenure_mix: String,
+    pub parking_strategy: String,
+    pub frontage_strategy: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -262,6 +272,7 @@ pub fn plan(
         "city" => 1100.0,
         _ => 700.0,
     };
+    let profile = settlement.community_profile.as_deref().unwrap_or("generic");
 
     let mut assignments = Vec::new();
     let mut actions = Vec::new();
@@ -297,6 +308,7 @@ pub fn plan(
             centrality,
             district: district.into(),
             planning_action: planning_action.into(),
+            typology: neighbourhood_rule(profile, district),
         });
     }
 
@@ -392,6 +404,161 @@ pub fn plan(
         assignments,
         failures,
     }))
+}
+
+fn neighbourhood_rule(profile: &str, district: &str) -> NeighbourhoodRule {
+    let (typology_id, tenure_mix, parking_strategy, frontage_strategy) = match (profile, district) {
+        ("china-gated", "old-core") => (
+            "china-historic-mixed-lane",
+            "market-ownership-and-rental",
+            "curbside-and-shared",
+            "continuous-small-shopfront",
+        ),
+        ("china-gated", "renewal-or-expansion") => (
+            "china-gated-redevelopment",
+            "market-housing-mixed-block",
+            "underground-or-podium",
+            "perimeter-retail-with-gated-interior",
+        ),
+        ("china-gated", _) => (
+            "china-gated-residential-enclave",
+            "owner-occupied-superblock",
+            "underground-parking",
+            "enclosed-residential-with-entrance-services",
+        ),
+        ("china-urban-village", "old-core") => (
+            "urban-village-fine-grain",
+            "local-resident-and-migrant-rental",
+            "informal-shared",
+            "mixed-lane-frontage",
+        ),
+        ("china-urban-village", "renewal-or-expansion") => (
+            "urban-village-renewal",
+            "resettlement-and-market-housing",
+            "shared-podium",
+            "retained-lane-with-new-block-frontage",
+        ),
+        ("china-urban-village", _) => (
+            "transit-superblock",
+            "market-housing",
+            "podium-and-underground",
+            "large-block-with-transit-commercial-edge",
+        ),
+        ("us-suburban", "old-core") => (
+            "us-small-town-grid",
+            "owner-and-renter",
+            "surface-lot",
+            "main-street-commercial",
+        ),
+        ("us-suburban", "renewal-or-expansion") => (
+            "us-commercial-corridor-infill",
+            "mixed-tenure",
+            "surface-lot",
+            "strip-commercial-and-apartment-infill",
+        ),
+        ("us-suburban", _) => (
+            "us-income-segregated-suburb",
+            "homeowner-dominant",
+            "surface-lot-and-garage",
+            "cul-de-sac-and-arterial-retail",
+        ),
+        ("us-mixed-income", "old-core") => (
+            "us-mixed-tenure-old-grid",
+            "income-diverse-rental-and-owner",
+            "curbside-and-structured",
+            "continuous-mixed-use-street",
+        ),
+        ("us-mixed-income", "renewal-or-expansion") => (
+            "us-mixed-income-transit-infill",
+            "inclusionary-and-market-rate",
+            "structured-and-unbundled",
+            "transit-oriented-mixed-use",
+        ),
+        ("us-mixed-income", _) => (
+            "us-income-diverse-corridor",
+            "mixed-income",
+            "parking-podium",
+            "commercial-corridor-with-multi-family-blocks",
+        ),
+        ("europe-perimeter", "old-core") => (
+            "european-historic-perimeter",
+            "mixed-tenure",
+            "curbside-and-courtyard",
+            "continuous-street-wall",
+        ),
+        ("europe-perimeter", "renewal-or-expansion") => (
+            "european-perimeter-infill",
+            "social-and-market-housing",
+            "courtyard-and-transit",
+            "perimeter-block-repair",
+        ),
+        ("europe-perimeter", _) => (
+            "european-perimeter-extension",
+            "mixed-housing",
+            "transit-first",
+            "street-square-transition",
+        ),
+        ("japan-machiya", "old-core") => (
+            "japan-machiya-row",
+            "small-owner-and-renter",
+            "minimal-curbside",
+            "shop-house-row",
+        ),
+        ("japan-machiya", "renewal-or-expansion") => (
+            "japan-station-renewal",
+            "mixed-rental-and-owner",
+            "station-podium",
+            "arcade-to-station-frontage",
+        ),
+        ("japan-machiya", _) => (
+            "japan-transit-residential",
+            "owner-and-rental",
+            "station-podium",
+            "station-commercial-with-quiet-side-streets",
+        ),
+        ("hong-kong-estate", "old-core") => (
+            "hong-kong-street-market-block",
+            "mixed-rental-and-owner",
+            "minimal-curbside",
+            "podium-shop-and-market-frontage",
+        ),
+        ("hong-kong-estate", "renewal-or-expansion") => (
+            "hong-kong-redevelopment-podium",
+            "public-private-mix",
+            "podium-and-transit",
+            "vertical-mixed-podium",
+        ),
+        ("hong-kong-estate", _) => (
+            "hong-kong-estate-cluster",
+            "public-rental-and-sale",
+            "transit-and-podium",
+            "estate-centre-and-connected-podium",
+        ),
+        (_, "old-core") => (
+            "generic-mixed-old-core",
+            "mixed-tenure",
+            "shared-curbside",
+            "mixed-street-frontage",
+        ),
+        (_, "renewal-or-expansion") => (
+            "generic-redevelopment",
+            "mixed-tenure",
+            "structured",
+            "mixed-use-frontage",
+        ),
+        _ => (
+            "generic-new-neighbourhood",
+            "mixed-tenure",
+            "district-parking",
+            "connected-frontage",
+        ),
+    };
+    NeighbourhoodRule {
+        typology_id: typology_id.into(),
+        tenure_mix: tenure_mix.into(),
+        parking_strategy: parking_strategy.into(),
+        frontage_strategy: frontage_strategy.into(),
+    }
 }
 
 pub fn materialize_public_space(
@@ -913,5 +1080,18 @@ mod tests {
         let changed = apply_road_widening(&mut roads, &planning);
         assert!(!changed.is_empty());
         assert!(roads[0].depth_m > 8.0);
+    }
+
+    #[test]
+    fn neighbourhood_rules_encode_regional_traditions() {
+        let china = neighbourhood_rule("china-gated", "new-city-or-edge");
+        let us = neighbourhood_rule("us-mixed-income", "new-city-or-edge");
+        let europe = neighbourhood_rule("europe-perimeter", "new-city-or-edge");
+        let hong_kong = neighbourhood_rule("hong-kong-estate", "new-city-or-edge");
+        assert_eq!(china.typology_id, "china-gated-residential-enclave");
+        assert_eq!(us.typology_id, "us-income-diverse-corridor");
+        assert_eq!(europe.frontage_strategy, "street-square-transition");
+        assert_eq!(hong_kong.parking_strategy, "transit-and-podium");
+        assert_ne!(china.typology_id, us.typology_id);
     }
 }
