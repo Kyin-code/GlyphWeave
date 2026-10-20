@@ -1,1 +1,3471 @@
-{"format":"glyphweave.urban-case-priors","version":1,"cases":[{"id":"cn-beijing","naturalGeography":"华北冲积扇、山前季风、半干旱春季、永定河泛滥","historicalLayers":"都城水利—城墙/胡同—单位大院—环路/CBD","focusCuts":"老城中轴—胡同—单位大院—CBD 边缘"},{"id":"cn-shanghai","naturalGeography":"长江三角洲、潮滩/河网、台风与软土","historicalLayers":"水乡/港口—租界里弄—工业岸线—浦东/填江","focusCuts":"外滩—里弄—浦东高层与滨江"},{"id":"cn-guangzhou","naturalGeography":"珠江三角洲、丘陵、湿热季风、河涌","historicalLayers":"古港/城墙—骑楼商业—城中村—珠江新城","focusCuts":"骑楼老城—河涌—CBD/城中村"},{"id":"cn-shenzhen","naturalGeography":"海湾丘陵、红树林、台风、填海","historicalLayers":"边陲村落—特区工业—旧村更新—湾区新城","focusCuts":"深圳湾/旧村/科技园交叉切面"},{"id":"cn-chengdu","naturalGeography":"成都平原、都江堰灌溉、盆地湿润","historicalLayers":"古城/水网—单位院落—环路/天府新区","focusCuts":"老城街网—林盘—新区边缘"},{"id":"cn-chongqing","naturalGeography":"平行岭谷、长江/嘉陵江、陡坡与雾","historicalLayers":"江岸城—战时/三线工业—直辖后高层与轨道","focusCuts":"两江夹半岛、台地街道与桥"},{"id":"cn-xian","naturalGeography":"关中冲积平原、秦岭山麓、季风半干旱","historicalLayers":"古都水渠/城墙—工业单位—曲江/高新区","focusCuts":"城墙内—山麓新区—遗址带"},{"id":"cn-hangzhou","naturalGeography":"西湖盆地、钱塘江河口、丘陵与梅雨","historicalLayers":"西湖城市—运河商业—旧城更新—钱江新城","focusCuts":"西湖山水—旧城巷—滨江高层"},{"id":"cn-wuhan","naturalGeography":"江汉平原、多湖湿地、长江/汉江交汇","historicalLayers":"三镇/租界—工业重镇—桥隧/湖滨新区","focusCuts":"两江交汇—里份—湖滨创新区"},{"id":"cn-qingdao","naturalGeography":"山海相间、花岗岩丘陵、季风海洋性","historicalLayers":"渔港/租界—港口工业—海滨旅游—新区","focusCuts":"老城坡道—港口—海湾新区"},{"id":"cn-xiamen","naturalGeography":"海湾丘陵、台风、填海与红树林","historicalLayers":"渔村/海防—老城骑楼—特区/填海","focusCuts":"岛内旧城—海湾—填海新城"},{"id":"cn-kunming","naturalGeography":"高原盆地、滇池断陷、干湿季风","historicalLayers":"坝子水利—旧城—湖滨新区—山地村落","focusCuts":"滇池湿地—盆地城市—山地边缘"},{"id":"us-new-york","naturalGeography":"冰碛海岸、哈德逊河口、岛屿与湿地","historicalLayers":"原住民/殖民港—网格—移民公寓—高速更新—滨水再开发","focusCuts":"曼哈顿网格/老街区/滨水"},{"id":"us-san-francisco","naturalGeography":"半岛丘陵、海湾、地震带与海雾","historicalLayers":"淘金港—斜坡网格—1906 重建—高速争议—科技更新","focusCuts":"坡地街网—码头—新办公区"},{"id":"us-los-angeles","naturalGeography":"干旱盆地、沿海山脉、地震/山火","historicalLayers":"牧场/铁路—油业—自由路网—郊区化—多中心","focusCuts":"商业带—低密社区—山脚"},{"id":"us-chicago","naturalGeography":"密歇根湖岸、冰水平原、网格","historicalLayers":"铁路/河港—1871 重建—工业带—湖滨公园—城市更新","focusCuts":"网格街区—高架—湖滨"},{"id":"us-seattle","naturalGeography":"冰蚀丘陵、海湾、森林、雨水","historicalLayers":"木材港—铁路/航运—航空—科技—滨水更新","focusCuts":"坡地街区—港口—科技新区"},{"id":"us-boston","naturalGeography":"海湾、半岛、湿地、冰川地形","historicalLayers":"殖民街巷—填海—大学/港区—Seaport 更新","focusCuts":"历史街巷—填海港区"},{"id":"us-miami","naturalGeography":"低洼海岸、石灰岩、湿地、飓风","historicalLayers":"铁路旅游—排水泥沼—古巴移民—高层海滨","focusCuts":"海滨塔楼—运河社区—湿地边缘"},{"id":"us-denver","naturalGeography":"前山、干旱河谷、冲积平原","historicalLayers":"矿业/铁路—平原网格—公交导向更新","focusCuts":"网格核心—山前新区"},{"id":"us-portland","naturalGeography":"河谷、火山丘、森林、增长边界","historicalLayers":"木材港—铁路—小街区—增长边界与轻轨","focusCuts":"河岸—小街区—城市增长边界"},{"id":"us-washington-dc","naturalGeography":"波托马克河、沿海平原、湿地","historicalLayers":"规划首都—放射轴—社区街网—地铁","focusCuts":"纪念轴—政府核心—社区边界"},{"id":"us-las-vegas","naturalGeography":"荒漠盆地、干谷、山地、极低水供给","historicalLayers":"铁路/水井—赌场走廊—计划社区—蔓延","focusCuts":"娱乐核心—水景绿洲—荒漠边缘"},{"id":"us-new-orleans","naturalGeography":"密西西比三角洲、沼泽、飓风","historicalLayers":"殖民港—堤防/泵站—工业岸线—旅游核心","focusCuts":"老法式网格—堤坝—湿地边缘"},{"id":"eu-london","naturalGeography":"泰晤士河谷、低丘、海洋性气候","historicalLayers":"罗马城—中世纪街网—工业码头—绿带—码头更新","focusCuts":"历史核心—泰晤士河—新金融区"},{"id":"eu-paris","naturalGeography":"塞纳河盆地、平原、温和海洋性","historicalLayers":"罗马/中世纪—Haussmann—郊区大型住宅—大巴黎","focusCuts":"塞纳河轴—连续街墙—外围更新"},{"id":"eu-amsterdam","naturalGeography":"低地沼泽、运河、海堤、软土","historicalLayers":"水利圩田—黄金时代运河—工业港—港区更新","focusCuts":"运河带—旧港—新住宅岛"},{"id":"eu-berlin","naturalGeography":"冰川平原、施普雷河、湖泊","historicalLayers":"普鲁士街区—工业—战争分裂—统一更新","focusCuts":"庭院街区—铁路/运河—新政府区"},{"id":"eu-zurich","naturalGeography":"湖盆、冰川丘陵、阿尔卑斯前缘","historicalLayers":"中世纪核心—铁路/工业—湖岸更新","focusCuts":"湖岸—电车街区—坡地住宅"},{"id":"eu-milan","naturalGeography":"波河平原、冲积土、夏季湿热","historicalLayers":"罗马/中世纪—工业—战后外围—旧工业更新","focusCuts":"历史核心—庭院街区—新商务外围"},{"id":"eu-rome","naturalGeography":"台伯河谷、火山丘陵、地震/洪水","historicalLayers":"古罗马—中世纪收缩—教皇规划—外围扩张","focusCuts":"遗址—广场—现代外围"},{"id":"eu-barcelona","naturalGeography":"地中海海岸、山前、冲积平原","historicalLayers":"罗马城—中世纪—Eixample—工业/奥运—22@ 更新","focusCuts":"老城—Eixample—海滨更新"},{"id":"eu-lisbon","naturalGeography":"塔霍河口、丘陵、地震/海啸","historicalLayers":"摩尔/中世纪—1755 重建—工业港—Expo 更新","focusCuts":"坡地老城—河岸—东部新区"},{"id":"eu-stockholm","naturalGeography":"破碎岩岛、冰川地貌、波罗的海","historicalLayers":"港城—工业—轨道卫星城—重建","focusCuts":"历史岛城—滨水新城—群岛边缘"},{"id":"eu-prague","naturalGeography":"伏尔塔瓦河谷、丘陵、大陆性气候","historicalLayers":"中世纪核心—工业—社会主义住宅—轨道更新","focusCuts":"河谷核心—面板住宅—轨道边缘"},{"id":"eu-vienna","naturalGeography":"多瑙河、森林丘陵、大陆性","historicalLayers":"城墙/环城—公共住房—战后重建—河道治理","focusCuts":"环城带—公共住宅—河岸"},{"id":"jp-tokyo-shitamachi","naturalGeography":"武藏野台地/低地、河网、地震/台风","historicalLayers":"江户水路—町人街区—铁路—关东震灾/战后更新","focusCuts":"下町窄巷—河岸—轨道站"},{"id":"jp-tokyo-bay","naturalGeography":"东京湾填海、软土、台风","historicalLayers":"港区/工业—填海—奥运/再开发","focusCuts":"台场填海—滨水公园—高层"},{"id":"jp-osaka-namba","naturalGeography":"淀川三角洲、低地、潮汐","historicalLayers":"水运商业—近代工业—战后高密商业","focusCuts":"难波商业—寺院—铁路枢纽"},{"id":"jp-kyoto-gion","naturalGeography":"京都盆地、东山丘陵、河川","historicalLayers":"平安京格网—町家—近代旅游—保护更新","focusCuts":"町家—寺社—河岸旅游"},{"id":"jp-yokohama-minato","naturalGeography":"东京湾西岸、港口、丘陵","historicalLayers":"开港—码头/工业—港未来填海更新","focusCuts":"旧港—未来港—步行连桥"},{"id":"jp-kobe-sannomiya","naturalGeography":"六甲山前、海港、狭窄平原","historicalLayers":"开港居留地—工业—震后重建—坡地住宅","focusCuts":"三宫商业—坡地住宅—港口"},{"id":"hk-central","naturalGeography":"港岛北岸陡坡、填海、台风","historicalLayers":"殖民港—填海—金融核心—天桥/地铁","focusCuts":"金融核心—坡地—海滨"},{"id":"hk-mong-kok","naturalGeography":"九龙半岛低平、密集街网","historicalLayers":"渔农/殖民市镇—唐楼—高密商业—重建","focusCuts":"街市—唐楼—轨道站"},{"id":"hk-causeway-bay","naturalGeography":"港岛北岸填海、商业核心","historicalLayers":"早期海岸—填海—百货/地铁商业","focusCuts":"商业塔楼—旧街市—地铁"},{"id":"hk-kwun-tong","naturalGeography":"九龙湾丘陵/填海、旧工业","historicalLayers":"工业卫星—制造业衰退—商业/住宅更新","focusCuts":"旧工业—新办公—海滨"},{"id":"hk-sha-tin","naturalGeography":"沙田河谷、填海、新市镇","historicalLayers":"农村河谷—新市镇—轨交/住宅组团","focusCuts":"新市镇中心—河道—住宅"},{"id":"hk-sai-kung","naturalGeography":"山海相间、海湾、郊野公园","historicalLayers":"渔村—旅游/海上活动—低密村镇","focusCuts":"海港—旅游市场—郊野边缘"}]}
+{
+  "format": "glyphweave.urban-case-priors",
+  "version": 2,
+  "schema": "core-cut-history-v2",
+  "generatedBy": "scripts/build-urban-case-priors.mjs",
+  "date": "2026-10-21",
+  "cases": [
+    {
+      "id": "cn-beijing",
+      "region": "china",
+      "coreCut": "imperial / axis / to / cbd",
+      "naturalGeography": {
+        "setting": "mountain-front-alluvial-plain",
+        "regionalReliefM": 70,
+        "climateBand": "temperate-continental-monsoon",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "aeolian-deposition",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "Yongding fan, low hills and broad alluvial plain",
+        "hazards": [
+          "flood",
+          "drought",
+          "erosion"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "imperial waterworks",
+          "change": "city walls and axial water management"
+        },
+        {
+          "order": 2,
+          "era": "industrial capital",
+          "change": "danwei compounds and ring roads"
+        },
+        {
+          "order": 3,
+          "era": "reform growth",
+          "change": "ring corridors, CBD and suburban new towns"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "imperial axis, hutongs and fine-grained mixed lanes",
+        "renewal": "hutong preservation, courtyard reuse and selective infill",
+        "newCity": "ring-road employment centres, gated superblocks and rail-linked offices",
+        "edge": "mountain-front new towns, nurseries and regional logistics",
+        "centres": [
+          "imperial axis",
+          "old markets",
+          "CBD",
+          "rail stations"
+        ]
+      },
+      "focusFeature": "imperial-axis-to-cbd",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "political-capital",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1,
+        "protectionResistance": 0.78,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-shanghai",
+      "region": "china",
+      "coreCut": "lilong / to / pudong / waterfront",
+      "naturalGeography": {
+        "setting": "river-delta",
+        "regionalReliefM": 8,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "delta-deposition",
+          "tidal-processes",
+          "tectonic-subsidence",
+          "river-avulsion"
+        ],
+        "hydrography": "Yangtze delta, tidal creeks, soft ground and reclaimed banks",
+        "hazards": [
+          "flood",
+          "storm-surge",
+          "subsidence"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "water town",
+          "change": "canals and river trade"
+        },
+        {
+          "order": 2,
+          "era": "treaty port",
+          "change": "gridded concessions and industrial waterfront"
+        },
+        {
+          "order": 3,
+          "era": "metropolitan growth",
+          "change": "Pudong towers and riverfront reclamation"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "lilong lanes, canal-side markets and dense street commerce",
+        "renewal": "lane preservation, creative reuse and riverside regeneration",
+        "newCity": "Pudong towers, transit malls and gated residential districts",
+        "edge": "delta towns, container ports and reclaimed industrial land",
+        "centres": [
+          "Bund",
+          "People's Square",
+          "Lujiazui",
+          "rail hubs"
+        ]
+      },
+      "focusFeature": "lilong-to-pudong-waterfront",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "financial-center",
+        "port-industrial",
+        "coastal-reclamation"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.38,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.32
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-guangzhou",
+      "region": "china",
+      "coreCut": "arcade / old / city / to / river / cbd",
+      "naturalGeography": {
+        "setting": "humid-river-delta",
+        "regionalReliefM": 35,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "delta-deposition",
+          "tidal-processes",
+          "fluvial-incision",
+          "monsoon-flooding"
+        ],
+        "hydrography": "Pearl River distributaries, tidal channels and low hills",
+        "hazards": [
+          "flood",
+          "storm-surge",
+          "typhoon"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "river port",
+          "change": "wharves and arcaded trade streets"
+        },
+        {
+          "order": 2,
+          "era": "industrial expansion",
+          "change": "factories, rail and urban villages"
+        },
+        {
+          "order": 3,
+          "era": "reform growth",
+          "change": "Zhujiang New Town and metro corridors"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "arcaded streets, small lots and wet markets",
+        "renewal": "micro-renewal of urban villages beside towers",
+        "newCity": "CBD towers, metro stations and gated compounds",
+        "edge": "river towns, orchards, logistics and reclaimed land",
+        "centres": [
+          "old river port",
+          "Beijing Road",
+          "Zhujiang New Town",
+          "rail stations"
+        ]
+      },
+      "focusFeature": "arcade-old-city-to-river-cbd",
+      "communityProfile": "china-urban-village",
+      "specialFactors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.22,
+        "protectionResistance": 0.68,
+        "specialRegime": 1.12
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-shenzhen",
+      "region": "china",
+      "coreCut": "shenzhen / bay / and / urban / village",
+      "naturalGeography": {
+        "setting": "coastal-bay",
+        "regionalReliefM": 120,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-wave-erosion",
+          "coastal-deposition",
+          "river-avulsion",
+          "tectonic-uplift"
+        ],
+        "hydrography": "hills, ria coast, mangroves and reclaimed bays",
+        "hazards": [
+          "typhoon",
+          "storm-surge",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "fishing villages",
+          "change": "shore settlements and bays"
+        },
+        {
+          "order": 2,
+          "era": "special-zone industry",
+          "change": "planned industrial parks and urban villages"
+        },
+        {
+          "order": 3,
+          "era": "innovation metropolis",
+          "change": "rail corridors, reclaimed CBD and mountain reserves"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "urban villages, market lanes and former fishing settlements",
+        "renewal": "village redevelopment, industrial upgrading and waterfront parks",
+        "newCity": "large planned blocks, tech campuses and transit-oriented districts",
+        "edge": "mountain reserves, ports and reclaimed coastal industry",
+        "centres": [
+          "Futian",
+          "Nanshan",
+          "Qianhai",
+          "port and rail hubs"
+        ]
+      },
+      "focusFeature": "shenzhen-bay-and-urban-village",
+      "communityProfile": "china-urban-village",
+      "specialFactors": [
+        "special-economic-zone",
+        "financial-center",
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.48,
+        "protectionResistance": 0.66,
+        "specialRegime": 1.38
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-chengdu",
+      "region": "china",
+      "coreCut": "old / grid / to / tianfu / new / area",
+      "naturalGeography": {
+        "setting": "alluvial-basin",
+        "regionalReliefM": 35,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tectonic-subsidence",
+          "irrigation-sedimentation"
+        ],
+        "hydrography": "Chengdu plain, irrigation fans and low terraces",
+        "hazards": [
+          "flood",
+          "earthquake"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "irrigation plain",
+          "change": "canal settlements and market towns"
+        },
+        {
+          "order": 2,
+          "era": "industrial capital",
+          "change": "danwei compounds and ring roads"
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "Tianfu New Area and rail rings"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine-grid old city, teahouses and lane markets",
+        "renewal": "courtyard reuse, street markets and selective infill",
+        "newCity": "large residential and office districts around rail nodes",
+        "edge": "Linpan farmsteads, orchards and floodplain agriculture",
+        "centres": [
+          "Tianfu Square",
+          "old markets",
+          "rail stations",
+          "new-area centres"
+        ]
+      },
+      "focusFeature": "old-grid-to-tianfu-new-area",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.05,
+        "protectionResistance": 0.62,
+        "specialRegime": 1.02
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-chongqing",
+      "region": "china",
+      "coreCut": "two / river / terrace / city",
+      "naturalGeography": {
+        "setting": "fold-mountain-river-confluence",
+        "regionalReliefM": 480,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "fluvial-incision",
+          "mass-wasting",
+          "river-avulsion"
+        ],
+        "hydrography": "parallel ridges, two rivers and steep terraces",
+        "hazards": [
+          "landslide",
+          "flood",
+          "earthquake"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "river ports",
+          "change": "stair streets and quay settlements"
+        },
+        {
+          "order": 2,
+          "era": "wartime and third-front industry",
+          "change": "factories on terraces"
+        },
+        {
+          "order": 3,
+          "era": "municipal growth",
+          "change": "bridges, tunnels, metro and high-rise clusters"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "stepped lanes, river landings and dense mixed slopes",
+        "renewal": "retaining-wall regeneration and hillside redevelopment",
+        "newCity": "platform districts, bridgeheads and transit-linked towers",
+        "edge": "ridge towns, reservoirs and mountain industry",
+        "centres": [
+          "Jiefangbei",
+          "river ports",
+          "bridgeheads",
+          "suburban rail centres"
+        ]
+      },
+      "focusFeature": "two-river-terrace-city",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "mountainous",
+        "historic-core",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.72,
+        "protectionResistance": 0.78,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-xian",
+      "region": "china",
+      "coreCut": "walled / city / to / qinling / front",
+      "naturalGeography": {
+        "setting": "loess-margin-alluvial-plain",
+        "regionalReliefM": 160,
+        "climateBand": "temperate-continental-monsoon",
+        "geomorphicProcesses": [
+          "aeolian-deposition",
+          "fluvial-deposition",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "Wei River plain below the Qinling front",
+        "hazards": [
+          "flood",
+          "drought",
+          "erosion"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "imperial grid",
+          "change": "walled city and water channels"
+        },
+        {
+          "order": 2,
+          "era": "industrial units",
+          "change": "rail yards and worker compounds"
+        },
+        {
+          "order": 3,
+          "era": "new districts",
+          "change": "high-tech parks and heritage buffers"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "wall-enclosed grid, courtyards and market lanes",
+        "renewal": "heritage conservation with selective tourist commerce",
+        "newCity": "superblocks, campuses and metro-oriented offices",
+        "edge": "loess villages, orchards and mountain-front tourism",
+        "centres": [
+          "walled city",
+          "Bell Tower",
+          "high-tech zone",
+          "north rail station"
+        ]
+      },
+      "focusFeature": "walled-city-to-qinling-front",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "historic-core",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 0.96,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.08
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-hangzhou",
+      "region": "china",
+      "coreCut": "west / lake / old / city / and / qianjiang",
+      "naturalGeography": {
+        "setting": "lake-basin-hill-margin",
+        "regionalReliefM": 90,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "fluvial-incision",
+          "lake-sedimentation"
+        ],
+        "hydrography": "West Lake basin, Qiantang estuary and low hills",
+        "hazards": [
+          "flood",
+          "landslide",
+          "typhoon"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "lake city",
+          "change": "causeways, canals and market streets"
+        },
+        {
+          "order": 2,
+          "era": "grand canal",
+          "change": "commercial waterfront and old workshops"
+        },
+        {
+          "order": 3,
+          "era": "digital metropolis",
+          "change": "Qianjiang towers and rail-linked suburbs"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "lakeside lanes, canal markets and low-rise street walls",
+        "renewal": "heritage streets, canal reuse and visitor pressure management",
+        "newCity": "riverfront towers, gated residential districts and tech campuses",
+        "edge": "tea hills, wetlands and tourist villages",
+        "centres": [
+          "West Lake",
+          "canal market",
+          "Qianjiang New City",
+          "rail stations"
+        ]
+      },
+      "focusFeature": "west-lake-old-city-and-qianjiang",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "historic-core",
+        "tourism",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.12,
+        "protectionResistance": 0.9,
+        "specialRegime": 1.14
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-wuhan",
+      "region": "china",
+      "coreCut": "river / confluence / and / lakefront / city",
+      "naturalGeography": {
+        "setting": "river-lake-alluvial-plain",
+        "regionalReliefM": 24,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "river-avulsion",
+          "wetland-accumulation"
+        ],
+        "hydrography": "Yangtze-Han confluence, lakes and low levees",
+        "hazards": [
+          "flood",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "triple river towns",
+          "change": "ferries, wharves and markets"
+        },
+        {
+          "order": 2,
+          "era": "industrial hub",
+          "change": "rail, steel and workers' districts"
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "bridges, tunnels and lakefront campuses"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "riverfront lanes, mixed old blocks and food markets",
+        "renewal": "waterfront and old-industrial reuse",
+        "newCity": "lakefront campuses, residential superblocks and science parks",
+        "edge": "wetland farms, fisheries and flood detention",
+        "centres": [
+          "river confluence",
+          "old Hankou",
+          "Wuchang station",
+          "lakefront new centres"
+        ]
+      },
+      "focusFeature": "river-confluence-and-lakefront-city",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.18,
+        "protectionResistance": 0.72,
+        "specialRegime": 1.06
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-qingdao",
+      "region": "china",
+      "coreCut": "mountain / coast / harbour",
+      "naturalGeography": {
+        "setting": "coastal-mountain",
+        "regionalReliefM": 260,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "coastal-wave-erosion",
+          "mass-wasting"
+        ],
+        "hydrography": "granite hills, ria coast and narrow coastal terraces",
+        "hazards": [
+          "landslide",
+          "storm-surge",
+          "typhoon"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "fishing and treaty port",
+          "change": "cliff streets and wharves"
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "rail, shipyards and warehouses"
+        },
+        {
+          "order": 3,
+          "era": "tourism and new city",
+          "change": "coastal high-rise and suburban campuses"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "stepped streets, red-roof low-rise and harbour markets",
+        "renewal": "historic quarter reuse and port transition",
+        "newCity": "coastal towers, campuses and gated districts",
+        "edge": "fishing villages, rocky coves and mountain conservation",
+        "centres": [
+          "old port",
+          "rail station",
+          "May Fourth Square",
+          "West Coast New Area"
+        ]
+      },
+      "focusFeature": "mountain-coast-harbour",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "mountainous",
+        "tourism",
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.52,
+        "protectionResistance": 0.86,
+        "specialRegime": 1.12
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-xiamen",
+      "region": "china",
+      "coreCut": "island / old / town / and / reclaimed / bay",
+      "naturalGeography": {
+        "setting": "island-bay",
+        "regionalReliefM": 150,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-wave-erosion",
+          "tidal-processes",
+          "coastal-deposition",
+          "reclamation"
+        ],
+        "hydrography": "island hills, embayments, mudflats and reclaimed shorelines",
+        "hazards": [
+          "typhoon",
+          "storm-surge",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "fishing and defence island",
+          "change": "small ports and lanes"
+        },
+        {
+          "order": 2,
+          "era": "treaty port",
+          "change": "arcaded waterfront"
+        },
+        {
+          "order": 3,
+          "era": "special-zone growth",
+          "change": "reclamation, ports and new districts"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "arcaded lanes, harbour markets and dense island blocks",
+        "renewal": "heritage tourism and old-village regeneration",
+        "newCity": "reclaimed districts, ports and gated waterfront towers",
+        "edge": "mudflats, fishing harbours and island conservation",
+        "centres": [
+          "old harbour",
+          "Zhongshan Road",
+          "software park",
+          "airport and port nodes"
+        ]
+      },
+      "focusFeature": "island-old-town-and-reclaimed-bay",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "island",
+        "tourism",
+        "coastal-reclamation",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.58,
+        "protectionResistance": 0.84,
+        "specialRegime": 1.2
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "cn-kunming",
+      "region": "china",
+      "coreCut": "plateau / lake / basin / city",
+      "naturalGeography": {
+        "setting": "plateau-fault-basin",
+        "regionalReliefM": 650,
+        "climateBand": "highland-monsoon",
+        "geomorphicProcesses": [
+          "tectonic-subsidence",
+          "faulting",
+          "lake-sedimentation",
+          "karst-dissolution"
+        ],
+        "hydrography": "Dianchi rift basin, terraces and surrounding hills",
+        "hazards": [
+          "earthquake",
+          "flood",
+          "karst-collapse",
+          "drought"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "irrigated basin",
+          "change": "market towns and lakeside villages"
+        },
+        {
+          "order": 2,
+          "era": "provincial capital",
+          "change": "central grid and rail"
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "lakefront new districts and mountain-edge growth"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "compact basin core, markets and low-rise mixed streets",
+        "renewal": "old district intensification with lake-water constraints",
+        "newCity": "lakefront offices and gated residential districts",
+        "edge": "mountain villages, flower farms and wetland reserves",
+        "centres": [
+          "old centre",
+          "rail station",
+          "Dianchi lakeside",
+          "new districts"
+        ]
+      },
+      "focusFeature": "plateau-lake-basin-city",
+      "communityProfile": "china-gated",
+      "specialFactors": [
+        "mountainous",
+        "tourism",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.38,
+        "protectionResistance": 0.9,
+        "specialRegime": 1.04
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-new-york",
+      "region": "united-states",
+      "coreCut": "manhattan / grid / harbour / and / redevelopment",
+      "naturalGeography": {
+        "setting": "glacial-estuary-coast",
+        "regionalReliefM": 45,
+        "climateBand": "temperate-humid",
+        "geomorphicProcesses": [
+          "glacial-deposition",
+          "coastal-wave-erosion",
+          "tidal-processes",
+          "fluvial-deposition"
+        ],
+        "hydrography": "Hudson estuary, glacial islands, marshes and bedrock outcrops",
+        "hazards": [
+          "storm-surge",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "irregular waterfront and market streets"
+        },
+        {
+          "order": 2,
+          "era": "industrial immigration",
+          "change": "tenement grids, rail and piers"
+        },
+        {
+          "order": 3,
+          "era": "modern redevelopment",
+          "change": "highways, towers and waterfront reuse"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine historic street grid, tenements and mixed commercial corridors",
+        "renewal": "landmark preservation, zoning bonuses and waterfront redevelopment",
+        "newCity": "tower clusters, transit nodes and large redevelopment blocks",
+        "edge": "suburban rail towns, wetlands and port logistics",
+        "centres": [
+          "Lower Manhattan",
+          "Midtown",
+          "harbour",
+          "regional rail hubs"
+        ]
+      },
+      "focusFeature": "manhattan-grid-harbour-and-redevelopment",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.62,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.36
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-san-francisco",
+      "region": "united-states",
+      "coreCut": "steep / grid / bay / and / employment / core",
+      "naturalGeography": {
+        "setting": "coastal-hills-estuary",
+        "regionalReliefM": 310,
+        "climateBand": "mediterranean",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "faulting",
+          "coastal-wave-erosion",
+          "mass-wasting"
+        ],
+        "hydrography": "peninsula hills, fault lines, bay and Pacific fog",
+        "hazards": [
+          "earthquake",
+          "landslide",
+          "wildfire"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "gold-rush port",
+          "change": "irregular waterfront grid"
+        },
+        {
+          "order": 2,
+          "era": "1906 rebuild",
+          "change": "street grid over steep terrain"
+        },
+        {
+          "order": 3,
+          "era": "tech-era infill",
+          "change": "office campuses and transit-oriented housing"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "steep grid, small mixed lots and continuous commercial streets",
+        "renewal": "historic reuse, upzoning and waterfront office conversion",
+        "newCity": "transit-oriented offices and mid-rise infill",
+        "edge": "coastal parks, reservoirs and low-density hills",
+        "centres": [
+          "downtown",
+          "Market Street",
+          "Mission",
+          "regional transit"
+        ]
+      },
+      "focusFeature": "steep-grid-bay-and-employment-core",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "financial-center",
+        "mountainous",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.54,
+        "protectionResistance": 0.88,
+        "specialRegime": 1.28
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-los-angeles",
+      "region": "united-states",
+      "coreCut": "commercial / strip / to / polycentric / core",
+      "naturalGeography": {
+        "setting": "arid-alluvial-basin",
+        "regionalReliefM": 210,
+        "climateBand": "mediterranean-semi-arid",
+        "geomorphicProcesses": [
+          "alluvial-fan-deposition",
+          "tectonic-uplift",
+          "wildfire",
+          "fluvial-incision"
+        ],
+        "hydrography": "coastal basin, alluvial fans, fault-bounded ranges and dry washes",
+        "hazards": [
+          "wildfire",
+          "earthquake",
+          "flood",
+          "drought"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "ranch and rail",
+          "change": "linear settlements and land speculation"
+        },
+        {
+          "order": 2,
+          "era": "automobile growth",
+          "change": "streetcar suburbs and commercial strips"
+        },
+        {
+          "order": 3,
+          "era": "polycentric metropolis",
+          "change": "freeways, business clusters and infill"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fragmented old downtown, small commercial blocks and historic corridors",
+        "renewal": "adaptive reuse, transit-oriented apartments and boulevard retrofits",
+        "newCity": "office clusters, shopping centres and large residential subdivisions",
+        "edge": "hillside homes, logistics, studios and fire-risk wildland edge",
+        "centres": [
+          "Downtown",
+          "Hollywood",
+          "Westside",
+          "regional freeway nodes"
+        ]
+      },
+      "focusFeature": "commercial-strip-to-polycentric-core",
+      "communityProfile": "us-suburban",
+      "specialFactors": [
+        "financial-center",
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.28,
+        "protectionResistance": 0.62,
+        "specialRegime": 1.16
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-chicago",
+      "region": "united-states",
+      "coreCut": "grid / loop / and / lakefront",
+      "naturalGeography": {
+        "setting": "glacial-lake-plain",
+        "regionalReliefM": 22,
+        "climateBand": "continental-humid",
+        "geomorphicProcesses": [
+          "glacial-deposition",
+          "fluvial-deposition",
+          "lake-sedimentation"
+        ],
+        "hydrography": "Lake Michigan shore, glacial plain and river branches",
+        "hazards": [
+          "flood",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "rail and river port",
+          "change": "regular grid and industrial corridors"
+        },
+        {
+          "order": 2,
+          "era": "industrial metropolis",
+          "change": "L tracks, warehouses and lakefront parks"
+        },
+        {
+          "order": 3,
+          "era": "post-industrial growth",
+          "change": "loop offices and neighbourhood infill"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "regular grid, alley networks and mixed commercial streets",
+        "renewal": "industrial reuse, transit-oriented infill and lakefront parks",
+        "newCity": "loop offices, planned residential blocks and rail centres",
+        "edge": "rail suburbs, logistics and prairie preserves",
+        "centres": [
+          "Loop",
+          "lakefront",
+          "river branches",
+          "L stations"
+        ]
+      },
+      "focusFeature": "grid-loop-and-lakefront",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 0.96,
+        "protectionResistance": 0.68,
+        "specialRegime": 1.14
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-seattle",
+      "region": "united-states",
+      "coreCut": "hill / bay / and / urban / village",
+      "naturalGeography": {
+        "setting": "glacial-hills-coastal-bay",
+        "regionalReliefM": 220,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "glacial-scour",
+          "coastal-wave-erosion",
+          "fluvial-incision",
+          "mass-wasting"
+        ],
+        "hydrography": "Puget Sound, glacial hills, drowned valleys and wet forest",
+        "hazards": [
+          "earthquake",
+          "landslide",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "timber port",
+          "change": "waterfront mills and skid roads"
+        },
+        {
+          "order": 2,
+          "era": "rail and aviation",
+          "change": "industrial corridors and streetcar suburbs"
+        },
+        {
+          "order": 3,
+          "era": "technology growth",
+          "change": "urban villages and waterfront renewal"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "steep blocks, waterfront markets and mixed commercial streets",
+        "renewal": "urban-village upzoning, seawall renewal and transit infill",
+        "newCity": "tech campuses, light-rail centres and multi-family corridors",
+        "edge": "forest suburbs, ports and protected watersheds",
+        "centres": [
+          "Downtown",
+          "Pike Place",
+          "South Lake Union",
+          "port and rail nodes"
+        ]
+      },
+      "focusFeature": "hill-bay-and-urban-village",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "mountainous",
+        "port-industrial",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.34,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-boston",
+      "region": "united-states",
+      "coreCut": "colonial / lanes / to / filled / waterfront",
+      "naturalGeography": {
+        "setting": "glacial-coastal-estuary",
+        "regionalReliefM": 70,
+        "climateBand": "temperate-humid",
+        "geomorphicProcesses": [
+          "glacial-deposition",
+          "coastal-wave-erosion",
+          "tidal-processes",
+          "land-reclamation"
+        ],
+        "hydrography": "peninsula, harbour islands, filled coves and low drumlins",
+        "hazards": [
+          "storm-surge",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "irregular lanes and wharves"
+        },
+        {
+          "order": 2,
+          "era": "land filling",
+          "change": "expanded downtown and rail terminals"
+        },
+        {
+          "order": 3,
+          "era": "knowledge economy",
+          "change": "university, hospital and seaport redevelopment"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine colonial lanes, brick row blocks and harbour markets",
+        "renewal": "historic preservation, institutional expansion and seaport redevelopment",
+        "newCity": "waterfront innovation blocks and transit-oriented infill",
+        "edge": "harbour islands, wetlands and low-density rail suburbs",
+        "centres": [
+          "downtown",
+          "waterfront",
+          "universities",
+          "hospitals"
+        ]
+      },
+      "focusFeature": "colonial-lanes-to-filled-waterfront",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "historic-core",
+        "port-industrial",
+        "coastal-reclamation"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.36,
+        "protectionResistance": 0.9,
+        "specialRegime": 1.14
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-miami",
+      "region": "united-states",
+      "coreCut": "bayfront / towers / and / wetland / edge",
+      "naturalGeography": {
+        "setting": "low-limestone-coast-wetland",
+        "regionalReliefM": 7,
+        "climateBand": "tropical-monsoon",
+        "geomorphicProcesses": [
+          "karst-dissolution",
+          "coastal-deposition",
+          "tidal-processes",
+          "drainage-canalization"
+        ],
+        "hydrography": "limestone ridge, Biscayne Bay, wetlands and artificial canals",
+        "hazards": [
+          "hurricane",
+          "storm-surge",
+          "flood",
+          "karst-collapse"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "rail tourism",
+          "change": "hotel strip and drainage canals"
+        },
+        {
+          "order": 2,
+          "era": "immigrant growth",
+          "change": "canal suburbs and ethnic commercial corridors"
+        },
+        {
+          "order": 3,
+          "era": "luxury waterfront",
+          "change": "high-rise islands and gated communities"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "small waterfront grid, Art Deco hotels and mixed commercial corridors",
+        "renewal": "flood-proofing, elevated streets and historic hotel reuse",
+        "newCity": "luxury towers, gated islands and large retail centres",
+        "edge": "wetlands, farms, ports and vulnerable low-density suburbs",
+        "centres": [
+          "Downtown",
+          "South Beach",
+          "Brickell",
+          "port and airport"
+        ]
+      },
+      "focusFeature": "bayfront-towers-and-wetland-edge",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "coastal-reclamation",
+        "tourism",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.58,
+        "protectionResistance": 0.72,
+        "specialRegime": 1.34
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-denver",
+      "region": "united-states",
+      "coreCut": "plain / grid / to / front / range",
+      "naturalGeography": {
+        "setting": "mountain-front-plain",
+        "regionalReliefM": 340,
+        "climateBand": "semi-arid-continental",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "alluvial-fan-deposition",
+          "fluvial-incision",
+          "aeolian-deposition"
+        ],
+        "hydrography": "high plains below the Front Range, dry valleys and alluvial fans",
+        "hazards": [
+          "drought",
+          "wildfire",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "mining rail town",
+          "change": "grid core and rail yards"
+        },
+        {
+          "order": 2,
+          "era": "streetcar and automobile growth",
+          "change": "annexed grid suburbs"
+        },
+        {
+          "order": 3,
+          "era": "transit-oriented growth",
+          "change": "infill around rail stations"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "regular grid, warehouses and mixed downtown blocks",
+        "renewal": "adaptive reuse, station-area apartments and greenway restoration",
+        "newCity": "business parks, subdivisions and transit-oriented centres",
+        "edge": "foothill towns, ranches and protected mountain front",
+        "centres": [
+          "downtown",
+          "Union Station",
+          "Tech Center",
+          "mountain-front corridors"
+        ]
+      },
+      "focusFeature": "plain-grid-to-front-range",
+      "communityProfile": "us-suburban",
+      "specialFactors": [
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.08,
+        "protectionResistance": 0.58,
+        "specialRegime": 1.02
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-portland",
+      "region": "united-states",
+      "coreCut": "river / small / block / and / growth / boundary",
+      "naturalGeography": {
+        "setting": "river-valley-volcanic-hills",
+        "regionalReliefM": 160,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "fluvial-incision",
+          "volcanism",
+          "mass-wasting"
+        ],
+        "hydrography": "Willamette valley, volcanic cones and dense forest",
+        "hazards": [
+          "flood",
+          "landslide",
+          "wildfire"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "timber port",
+          "change": "river industry and rail"
+        },
+        {
+          "order": 2,
+          "era": "small-block planning",
+          "change": "streetcar suburbs and gridded core"
+        },
+        {
+          "order": 3,
+          "era": "growth-boundary era",
+          "change": "light rail, infill and farmland protection"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "small blocks, river warehouses and mixed commercial streets",
+        "renewal": "industrial reuse, greenway restoration and missing-middle infill",
+        "newCity": "light-rail centres, planned districts and multi-family corridors",
+        "edge": "orchards, farms, forest and urban growth boundary",
+        "centres": [
+          "downtown",
+          "riverfront",
+          "light-rail nodes",
+          "neighbourhood centres"
+        ]
+      },
+      "focusFeature": "river-small-block-and-growth-boundary",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 0.88,
+        "protectionResistance": 0.78,
+        "specialRegime": 1.04
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-washington-dc",
+      "region": "united-states",
+      "coreCut": "capital / axis / and / community / grid",
+      "naturalGeography": {
+        "setting": "tidal-river-coastal-plain",
+        "regionalReliefM": 55,
+        "climateBand": "temperate-humid",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tidal-processes",
+          "coastal-plain-sedimentation"
+        ],
+        "hydrography": "Potomac tidal river, low terraces and coastal-plain ravines",
+        "hazards": [
+          "flood",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "planned capital",
+          "change": "baroque axes and civic reservations"
+        },
+        {
+          "order": 2,
+          "era": "rail and streetcar growth",
+          "change": "community grids and streetcar corridors"
+        },
+        {
+          "order": 3,
+          "era": "metropolitan growth",
+          "change": "metro-oriented edge cities"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "monumental axis, civic blocks and rowhouse neighbourhoods",
+        "renewal": "public-realm restoration and office conversion",
+        "newCity": "metro centres, office corridors and planned residential districts",
+        "edge": "river parks, military installations and low-density suburbs",
+        "centres": [
+          "Capitol axis",
+          "White House",
+          "Union Station",
+          "metro centres"
+        ]
+      },
+      "focusFeature": "capital-axis-and-community-grid",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "political-capital",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.14,
+        "protectionResistance": 0.94,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-las-vegas",
+      "region": "united-states",
+      "coreCut": "entertainment / corridor / and / desert / edge",
+      "naturalGeography": {
+        "setting": "desert-basin",
+        "regionalReliefM": 380,
+        "climateBand": "hot-arid",
+        "geomorphicProcesses": [
+          "aeolian-erosion",
+          "alluvial-fan-deposition",
+          "tectonic-uplift",
+          "flash-flood"
+        ],
+        "hydrography": "desert basin, dry washes, alluvial fans and fault-block ranges",
+        "hazards": [
+          "drought",
+          "flash-flood",
+          "wildfire",
+          "earthquake"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "rail and water stop",
+          "change": "small grid settlement"
+        },
+        {
+          "order": 2,
+          "era": "casino corridor",
+          "change": "entertainment mega-blocks and water spectacle"
+        },
+        {
+          "order": 3,
+          "era": "suburban sprawl",
+          "change": "master-planned communities and freeway retail"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "small downtown grid, rail yards and low-rise commercial strips",
+        "renewal": "casino redevelopment and downtown infill",
+        "newCity": "master-planned subdivisions, strip malls and resort corridors",
+        "edge": "desert conservation, solar farms and water infrastructure",
+        "centres": [
+          "Strip",
+          "downtown",
+          "airport corridor",
+          "planned community centres"
+        ]
+      },
+      "focusFeature": "entertainment-corridor-and-desert-edge",
+      "communityProfile": "us-suburban",
+      "specialFactors": [
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.72,
+        "protectionResistance": 0.44,
+        "specialRegime": 1.28
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "us-new-orleans",
+      "region": "united-states",
+      "coreCut": "delta / grid / levees / and / wetlands",
+      "naturalGeography": {
+        "setting": "delta-swamp-estuary",
+        "regionalReliefM": 3,
+        "climateBand": "subtropical-humid",
+        "geomorphicProcesses": [
+          "delta-deposition",
+          "wetland-accumulation",
+          "tectonic-subsidence",
+          "river-avulsion"
+        ],
+        "hydrography": "Mississippi delta, swamps, natural levees and coastal marsh",
+        "hazards": [
+          "hurricane",
+          "flood",
+          "storm-surge",
+          "subsidence"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "colonial river port",
+          "change": "French grid and riverfront quays"
+        },
+        {
+          "order": 2,
+          "era": "drainage and rail",
+          "change": "expanded grid, canals and pumping"
+        },
+        {
+          "order": 3,
+          "era": "tourism and port",
+          "change": "historic core, industrial corridor and wetland loss"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine French-Spanish grid, courtyards and mixed riverfront blocks",
+        "renewal": "historic restoration, elevated utilities and flood adaptation",
+        "newCity": "drained subdivisions, port industry and large retail corridors",
+        "edge": "wetlands, fishing villages and vulnerable low-lying suburbs",
+        "centres": [
+          "French Quarter",
+          "riverfront",
+          "port",
+          "tourism core"
+        ]
+      },
+      "focusFeature": "delta-grid-levees-and-wetlands",
+      "communityProfile": "us-mixed-income",
+      "specialFactors": [
+        "historic-core",
+        "port-industrial",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.76,
+        "protectionResistance": 0.92,
+        "specialRegime": 1.32
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-london",
+      "region": "europe",
+      "coreCut": "historic / city / to / docklands",
+      "naturalGeography": {
+        "setting": "tidal-river-basin",
+        "regionalReliefM": 45,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tidal-processes",
+          "coastal-plain-sedimentation"
+        ],
+        "hydrography": "Thames basin, low hills, tidal river and floodplain",
+        "hazards": [
+          "flood",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "Roman and medieval port",
+          "change": "irregular core and waterfront"
+        },
+        {
+          "order": 2,
+          "era": "industrial docks",
+          "change": "rail, warehouses and terraced expansion"
+        },
+        {
+          "order": 3,
+          "era": "post-industrial metropolis",
+          "change": "docklands renewal, green belt and transit centres"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "irregular medieval lanes, terraces and market streets",
+        "renewal": "conservation areas, dockland redevelopment and estate renewal",
+        "newCity": "Docklands towers, rail stations and planned urban extensions",
+        "edge": "green-belt towns, reservoirs and industrial logistics",
+        "centres": [
+          "City",
+          "Westminster",
+          "Canary Wharf",
+          "rail hubs"
+        ]
+      },
+      "focusFeature": "historic-city-to-docklands",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "financial-center",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.46,
+        "protectionResistance": 0.94,
+        "specialRegime": 1.3
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-paris",
+      "region": "europe",
+      "coreCut": "seine / axis / and / perimeter / block",
+      "naturalGeography": {
+        "setting": "river-basin",
+        "regionalReliefM": 65,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "fluvial-incision",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "Seine basin, low hills and broad floodplain",
+        "hazards": [
+          "flood",
+          "drought"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "medieval river core",
+          "change": "dense irregular streets"
+        },
+        {
+          "order": 2,
+          "era": "Haussmann modernization",
+          "change": "uniform street walls and boulevards"
+        },
+        {
+          "order": 3,
+          "era": "postwar growth",
+          "change": "large peripheral estates and Grand Paris rail"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "dense perimeter blocks, market streets and courtyards",
+        "renewal": "heritage conservation, social-housing renewal and station infill",
+        "newCity": "large housing estates, business districts and rail-oriented centres",
+        "edge": "forests, market farms and satellite towns",
+        "centres": [
+          "historic centre",
+          "La Défense",
+          "rail stations",
+          "outer town centres"
+        ]
+      },
+      "focusFeature": "seine-axis-and-perimeter-block",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.12,
+        "protectionResistance": 0.96,
+        "specialRegime": 1.2
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-amsterdam",
+      "region": "europe",
+      "coreCut": "canal / ring / to / eastern / docklands",
+      "naturalGeography": {
+        "setting": "low-delta-wetland",
+        "regionalReliefM": 2,
+        "climateBand": "temperate-maritime",
+        "geomorphicProcesses": [
+          "peat-subsidence",
+          "tidal-processes",
+          "delta-deposition",
+          "polder-drainage"
+        ],
+        "hydrography": "Rhine delta, peat lowland, canals and artificial polders",
+        "hazards": [
+          "flood",
+          "subsidence",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "water management",
+          "change": "polders and canal settlements"
+        },
+        {
+          "order": 2,
+          "era": "Golden Age canal ring",
+          "change": "narrow plots and merchant docks"
+        },
+        {
+          "order": 3,
+          "era": "industrial port and renewal",
+          "change": "canal expansion, harbour reuse and artificial islands"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "narrow canal plots, continuous street walls and bridges",
+        "renewal": "industrial harbour reuse and canal-side infill",
+        "newCity": "planned residential islands and transit-oriented districts",
+        "edge": "polders, greenhouses, ports and wetland reserves",
+        "centres": [
+          "canal ring",
+          "central station",
+          "harbour",
+          "new residential islands"
+        ]
+      },
+      "focusFeature": "canal-ring-to-eastern-docklands",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "coastal-reclamation",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.52,
+        "protectionResistance": 0.96,
+        "specialRegime": 1.28
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-berlin",
+      "region": "europe",
+      "coreCut": "tenement / blocks / and / divided / city / update",
+      "naturalGeography": {
+        "setting": "glacial-plain-river-lakes",
+        "regionalReliefM": 55,
+        "climateBand": "continental-humid",
+        "geomorphicProcesses": [
+          "glacial-deposition",
+          "fluvial-deposition",
+          "lake-sedimentation"
+        ],
+        "hydrography": "Spree valley, glacial plains and lake chains",
+        "hazards": [
+          "flood",
+          "drought"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "Prussian capital",
+          "change": "tenement blocks and ceremonial axis"
+        },
+        {
+          "order": 2,
+          "era": "industrial and divided city",
+          "change": "rail, factories and separated centres"
+        },
+        {
+          "order": 3,
+          "era": "post-unification",
+          "change": "government quarter, infill and industrial reuse"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "perimeter tenements, courtyard blocks and broad civic spaces",
+        "renewal": "careful infill, courtyard reuse and former industrial conversion",
+        "newCity": "planned housing estates, government blocks and rail corridors",
+        "edge": "forest, lakes, garden suburbs and logistics parks",
+        "centres": [
+          "historic centre",
+          "government quarter",
+          "Alexanderplatz",
+          "rail ring"
+        ]
+      },
+      "focusFeature": "tenement-blocks-and-divided-city-update",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "political-capital"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.02,
+        "protectionResistance": 0.88,
+        "specialRegime": 1.1
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-zurich",
+      "region": "europe",
+      "coreCut": "lakefront / old / town / and / hillside",
+      "naturalGeography": {
+        "setting": "lake-basin-glacial-hills",
+        "regionalReliefM": 280,
+        "climateBand": "temperate-alpine",
+        "geomorphicProcesses": [
+          "glacial-scour",
+          "fluvial-deposition",
+          "mass-wasting"
+        ],
+        "hydrography": "Lake Zurich, glacial hills and Alpine foreland",
+        "hazards": [
+          "flood",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "medieval lake town",
+          "change": "compact core and guild streets"
+        },
+        {
+          "order": 2,
+          "era": "rail and industry",
+          "change": "station district and lakeside industry"
+        },
+        {
+          "order": 3,
+          "era": "knowledge city",
+          "change": "lakefront renewal, tram corridors and hillside housing"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "compact medieval lanes, waterfront squares and mixed uses",
+        "renewal": "industrial conversion and careful lakeside infill",
+        "newCity": "tram-served offices, cooperative housing and hillside terraces",
+        "edge": "villages, vineyards, forest and mountain-edge recreation",
+        "centres": [
+          "old town",
+          "main station",
+          "lakefront",
+          "tram nodes"
+        ]
+      },
+      "focusFeature": "lakefront-old-town-and-hillside",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "financial-center",
+        "historic-core",
+        "tourism",
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.42,
+        "protectionResistance": 0.96,
+        "specialRegime": 1.22
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-milan",
+      "region": "europe",
+      "coreCut": "historic / courtyard / city / to / industrial / periphery",
+      "naturalGeography": {
+        "setting": "alluvial-plain",
+        "regionalReliefM": 32,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tectonic-subsidence",
+          "irrigation-canalization"
+        ],
+        "hydrography": "Po plain, alluvial soils and canal network",
+        "hazards": [
+          "flood",
+          "drought",
+          "subsidence"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "Roman and medieval core",
+          "change": "radial streets and canals"
+        },
+        {
+          "order": 2,
+          "era": "industrial belt",
+          "change": "rail, factories and worker districts"
+        },
+        {
+          "order": 3,
+          "era": "post-industrial growth",
+          "change": "expo, logistics and office periphery"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "dense perimeter blocks, courtyards and market streets",
+        "renewal": "industrial heritage reuse, courtyard infill and public-space recovery",
+        "newCity": "business districts, logistics hubs and large housing estates",
+        "edge": "irrigated farmland, cascinas and logistics corridors",
+        "centres": [
+          "Duomo",
+          "rail stations",
+          "business district",
+          "expo nodes"
+        ]
+      },
+      "focusFeature": "historic-courtyard-city-to-industrial-periphery",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 0.98,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.1
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-rome",
+      "region": "europe",
+      "coreCut": "archaeological / core / and / modern / periphery",
+      "naturalGeography": {
+        "setting": "volcanic-hills-river-valley",
+        "regionalReliefM": 150,
+        "climateBand": "mediterranean",
+        "geomorphicProcesses": [
+          "volcanism",
+          "fluvial-incision",
+          "mass-wasting",
+          "tectonic-uplift"
+        ],
+        "hydrography": "Tiber valley, volcanic hills and tufa plateaus",
+        "hazards": [
+          "earthquake",
+          "flood",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "ancient core",
+          "change": "aqueducts, forums and walled centre"
+        },
+        {
+          "order": 2,
+          "era": "papal and modern growth",
+          "change": "axial streets and peripheral districts"
+        },
+        {
+          "order": 3,
+          "era": "heritage metropolis",
+          "change": "archaeology-constrained growth and rail expansion"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "historic squares, narrow lanes and monumental reservations",
+        "renewal": "archaeology-led conservation and selective housing renewal",
+        "newCity": "planned peripheral districts, offices and rail corridors",
+        "edge": "parks, ruins, agriculture and hillside suburbs",
+        "centres": [
+          "historic centre",
+          "Vatican axis",
+          "Termini",
+          "EUR"
+        ]
+      },
+      "focusFeature": "archaeological-core-and-modern-periphery",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.34,
+        "protectionResistance": 1,
+        "specialRegime": 1.2
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-barcelona",
+      "region": "europe",
+      "coreCut": "gothic / core / eixample / and / waterfront",
+      "naturalGeography": {
+        "setting": "coastal-plain-hill-front",
+        "regionalReliefM": 120,
+        "climateBand": "mediterranean",
+        "geomorphicProcesses": [
+          "alluvial-fan-deposition",
+          "coastal-wave-erosion",
+          "tectonic-uplift",
+          "mass-wasting"
+        ],
+        "hydrography": "coastal plain between Collserola and the Mediterranean",
+        "hazards": [
+          "flood",
+          "landslide",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "Roman and medieval port",
+          "change": "walled old city"
+        },
+        {
+          "order": 2,
+          "era": "Eixample expansion",
+          "change": "chamfered grid and uniform blocks"
+        },
+        {
+          "order": 3,
+          "era": "industrial and Olympic era",
+          "change": "industrial belts, waterfront renewal and 22@ innovation district"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "dense irregular lanes and small mixed plots",
+        "renewal": "superblock programme, industrial conversion and social housing",
+        "newCity": "Eixample grid, waterfront towers and innovation districts",
+        "edge": "hillside parks, delta farms and coastal towns",
+        "centres": [
+          "old city",
+          "Eixample",
+          "waterfront",
+          "rail stations"
+        ]
+      },
+      "focusFeature": "gothic-core-eixample-and-waterfront",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "tourism",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.28,
+        "protectionResistance": 0.94,
+        "specialRegime": 1.22
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-lisbon",
+      "region": "europe",
+      "coreCut": "hillside / old / city / and / expo / waterfront",
+      "naturalGeography": {
+        "setting": "river-estuary-hills",
+        "regionalReliefM": 220,
+        "climateBand": "mediterranean-atlantic",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "fluvial-incision",
+          "coastal-wave-erosion",
+          "mass-wasting"
+        ],
+        "hydrography": "Tagus estuary, steep hills and Atlantic coast",
+        "hazards": [
+          "earthquake",
+          "tsunami",
+          "landslide",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "medieval hillside port",
+          "change": "irregular lanes and stairs"
+        },
+        {
+          "order": 2,
+          "era": "1755 rebuild",
+          "change": "Baixa grid and earthquake-resistant blocks"
+        },
+        {
+          "order": 3,
+          "era": "modern port city",
+          "change": "industrial riverfront and Expo renewal"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "steep lanes, tiled facades and small mixed plots",
+        "renewal": "seismic retrofit, tourism pressure management and waterfront renewal",
+        "newCity": "riverfront offices, housing and transport nodes",
+        "edge": "beaches, fishing towns and agricultural hills",
+        "centres": [
+          "Baixa",
+          "Alfama",
+          "riverfront",
+          "airport corridor"
+        ]
+      },
+      "focusFeature": "hillside-old-city-and-expo-waterfront",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "tourism",
+        "mountainous",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.46,
+        "protectionResistance": 0.94,
+        "specialRegime": 1.16
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-stockholm",
+      "region": "europe",
+      "coreCut": "island / core / to / waterfront / new / town",
+      "naturalGeography": {
+        "setting": "glacial-archipelago",
+        "regionalReliefM": 45,
+        "climateBand": "cold-temperate-maritime",
+        "geomorphicProcesses": [
+          "glacial-scour",
+          "post-glacial-uplift",
+          "coastal-wave-erosion",
+          "fluvial-deposition"
+        ],
+        "hydrography": "broken bedrock islands, drowned valleys and young glacial soils",
+        "hazards": [
+          "flood",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "island port",
+          "change": "medieval core and bridges"
+        },
+        {
+          "order": 2,
+          "era": "industrial and garden-city growth",
+          "change": "rail suburbs and public housing"
+        },
+        {
+          "order": 3,
+          "era": "metro archipelago",
+          "change": "planned centres, waterfront regeneration and nature reserves"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "medieval island grid and waterfront blocks",
+        "renewal": "harbour reuse and careful heritage infill",
+        "newCity": "metro-centred housing, offices and waterside districts",
+        "edge": "archipelago settlements, forest and recreation",
+        "centres": [
+          "Gamla Stan",
+          "central station",
+          "metro hubs",
+          "harbour"
+        ]
+      },
+      "focusFeature": "island-core-to-waterfront-new-town",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "island",
+        "historic-core",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.56,
+        "protectionResistance": 0.94,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-prague",
+      "region": "europe",
+      "coreCut": "river / valley / core / to / panel / estates",
+      "naturalGeography": {
+        "setting": "river-valley-hills",
+        "regionalReliefM": 240,
+        "climateBand": "continental-humid",
+        "geomorphicProcesses": [
+          "fluvial-incision",
+          "tectonic-uplift",
+          "mass-wasting"
+        ],
+        "hydrography": "Vltava valley, terraces and wooded hills",
+        "hazards": [
+          "flood",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "medieval river core",
+          "change": "castle, bridge and dense lanes"
+        },
+        {
+          "order": 2,
+          "era": "industrial growth",
+          "change": "rail, factories and tenement districts"
+        },
+        {
+          "order": 3,
+          "era": "socialist and market era",
+          "change": "panel estates, metro and office infill"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "medieval lanes, squares and dense perimeter blocks",
+        "renewal": "heritage conservation and industrial conversion",
+        "newCity": "panel housing, metro stations and office corridors",
+        "edge": "forests, villages and reservoir landscapes",
+        "centres": [
+          "Old Town",
+          "castle",
+          "metro nodes",
+          "riverfront"
+        ]
+      },
+      "focusFeature": "river-valley-core-to-panel-estates",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.24,
+        "protectionResistance": 0.96,
+        "specialRegime": 1.12
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "eu-vienna",
+      "region": "europe",
+      "coreCut": "ringstrasse / public / housing / and / danube",
+      "naturalGeography": {
+        "setting": "river-basin-hill-front",
+        "regionalReliefM": 180,
+        "climateBand": "continental-humid",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "aeolian-deposition",
+          "fluvial-incision"
+        ],
+        "hydrography": "Danube basin, loess hills and floodplain forest",
+        "hazards": [
+          "flood",
+          "drought"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "imperial walled city",
+          "change": "Ringstrasse transformation"
+        },
+        {
+          "order": 2,
+          "era": "social housing era",
+          "change": "public housing blocks and transit"
+        },
+        {
+          "order": 3,
+          "era": "modern Danube city",
+          "change": "waterfront towers, rail and green networks"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "monumental Ring, dense inner blocks and market streets",
+        "renewal": "public-housing retrofit and adaptive reuse",
+        "newCity": "large public housing estates, waterfront offices and rail centres",
+        "edge": "vineyards, forest hills and Danube wetlands",
+        "centres": [
+          "historic core",
+          "Ring",
+          "central station",
+          "Danube City"
+        ]
+      },
+      "focusFeature": "ringstrasse-public-housing-and-danube",
+      "communityProfile": "europe-perimeter",
+      "specialFactors": [
+        "historic-core",
+        "political-capital"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.08,
+        "protectionResistance": 0.9,
+        "specialRegime": 1.12
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-tokyo-shitamachi",
+      "region": "japan",
+      "coreCut": "shitamachi / lanes / and / station / renewal",
+      "naturalGeography": {
+        "setting": "delta-lowland-and-plateau",
+        "regionalReliefM": 25,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tectonic-subsidence",
+          "river-avulsion",
+          "land-reclamation"
+        ],
+        "hydrography": "Sumida lowland, artificial canals and adjacent plateau edge",
+        "hazards": [
+          "earthquake",
+          "flood",
+          "typhoon"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "Edo waterways",
+          "change": "canal markets and dense merchant districts"
+        },
+        {
+          "order": 2,
+          "era": "industrial and rail growth",
+          "change": "factories, warehouses and narrow lanes"
+        },
+        {
+          "order": 3,
+          "era": "disaster renewal and redevelopment",
+          "change": "station complexes beside surviving small plots"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine plots, narrow lanes, shop houses and canal markets",
+        "renewal": "small-lot preservation, fire resilience and station redevelopment",
+        "newCity": "transit towers, planned blocks and riverside parks",
+        "edge": "reclaimed riverfront, logistics and suburban rail towns",
+        "centres": [
+          "river markets",
+          "station nodes",
+          "temple grounds",
+          "major crossings"
+        ]
+      },
+      "focusFeature": "shitamachi-lanes-and-station-renewal",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "historic-core",
+        "coastal-reclamation",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.48,
+        "protectionResistance": 0.86,
+        "specialRegime": 1.28
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-tokyo-bay",
+      "region": "japan",
+      "coreCut": "reclaimed / bay / waterfront",
+      "naturalGeography": {
+        "setting": "reclaimed-bay",
+        "regionalReliefM": 2,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-deposition",
+          "tidal-processes",
+          "reclamation",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "soft reclaimed ground, seawalls and artificial islands",
+        "hazards": [
+          "earthquake",
+          "storm-surge",
+          "liquefaction"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "port and industry",
+          "change": "wharves, rail and warehouses"
+        },
+        {
+          "order": 2,
+          "era": "reclamation",
+          "change": "planned waterfront and transport infrastructure"
+        },
+        {
+          "order": 3,
+          "era": "waterfront city",
+          "change": "towers, parks and event venues"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "former docks, warehouses and early waterfront plots",
+        "renewal": "industrial waterfront conversion and disaster-resilient public space",
+        "newCity": "large planned blocks, towers, malls and rail-linked parks",
+        "edge": "ports, reclaimed logistics and artificial beaches",
+        "centres": [
+          "waterfront",
+          "rail stations",
+          "convention nodes",
+          "port"
+        ]
+      },
+      "focusFeature": "reclaimed-bay-waterfront",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "coastal-reclamation",
+        "port-industrial",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.62,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.32
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-osaka-namba",
+      "region": "japan",
+      "coreCut": "canal / commerce / and / rail / hub",
+      "naturalGeography": {
+        "setting": "river-delta-lowland",
+        "regionalReliefM": 6,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "tidal-processes",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "Yodo delta, tidal canals and low alluvial ground",
+        "hazards": [
+          "flood",
+          "storm-surge",
+          "earthquake"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "water trade",
+          "change": "canals, bridges and merchant districts"
+        },
+        {
+          "order": 2,
+          "era": "industrial and rail growth",
+          "change": "dense commercial blocks and rail yards"
+        },
+        {
+          "order": 3,
+          "era": "postwar redevelopment",
+          "change": "covered arcades, towers and station complexes"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine merchant plots, covered shopping streets and canal edges",
+        "renewal": "station-led redevelopment beside dense small-scale commerce",
+        "newCity": "rail towers, malls and planned office blocks",
+        "edge": "ports, reclaimed land and lowland suburbs",
+        "centres": [
+          "Namba",
+          "Umeda",
+          "canal markets",
+          "rail terminals"
+        ]
+      },
+      "focusFeature": "canal-commerce-and-rail-hub",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "financial-center",
+        "historic-core",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.46,
+        "protectionResistance": 0.78,
+        "specialRegime": 1.26
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-kyoto-gion",
+      "region": "japan",
+      "coreCut": "machiya / grid / and / temple / hills",
+      "naturalGeography": {
+        "setting": "basin-river-hill-front",
+        "regionalReliefM": 90,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "fluvial-incision",
+          "tectonic-subsidence"
+        ],
+        "hydrography": "Kyoto basin, Kamo River and eastern hills",
+        "hazards": [
+          "flood",
+          "earthquake",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "planned capital",
+          "change": "Chinese-influenced grid"
+        },
+        {
+          "order": 2,
+          "era": "merchant and temple growth",
+          "change": "thatched townhouses and temple precincts"
+        },
+        {
+          "order": 3,
+          "era": "modern tourism",
+          "change": "heritage controls, rail and visitor commerce"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "grid traces, machiya rows, temple grounds and narrow lanes",
+        "renewal": "heritage conservation, machiya reuse and tourism-pressure management",
+        "newCity": "rail stations, universities and low-rise residential districts",
+        "edge": "tea hills, bamboo forest and riverside recreation",
+        "centres": [
+          "imperial core",
+          "Gion",
+          "Kyoto Station",
+          "temple precincts"
+        ]
+      },
+      "focusFeature": "machiya-grid-and-temple-hills",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "historic-core",
+        "tourism"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.16,
+        "protectionResistance": 0.98,
+        "specialRegime": 1.14
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-yokohama-minato",
+      "region": "japan",
+      "coreCut": "old / port / to / minato / mirai",
+      "naturalGeography": {
+        "setting": "bay-hills-reclamation",
+        "regionalReliefM": 120,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-wave-erosion",
+          "coastal-deposition",
+          "reclamation",
+          "mass-wasting"
+        ],
+        "hydrography": "western Tokyo Bay, coastal hills and reclaimed port flats",
+        "hazards": [
+          "earthquake",
+          "storm-surge",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "opening of port",
+          "change": "foreign settlement, wharves and rail"
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "warehouses, shipyards and coastal rail"
+        },
+        {
+          "order": 3,
+          "era": "Minato Mirai reclamation",
+          "change": "towers, convention centre and waterfront parks"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "historic port grid, warehouses and waterfront civic buildings",
+        "renewal": "port heritage reuse and waterfront public space",
+        "newCity": "planned reclaimed blocks, towers and pedestrian links",
+        "edge": "container ports, hillside housing and coastal industry",
+        "centres": [
+          "old port",
+          "Minato Mirai",
+          "station",
+          "port logistics"
+        ]
+      },
+      "focusFeature": "old-port-to-minato-mirai",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "port-industrial",
+        "coastal-reclamation",
+        "tourism",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.42,
+        "protectionResistance": 0.86,
+        "specialRegime": 1.24
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "jp-kobe-sannomiya",
+      "region": "japan",
+      "coreCut": "mountain / sea / city / section",
+      "naturalGeography": {
+        "setting": "mountain-sea-corridor",
+        "regionalReliefM": 300,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "tectonic-uplift",
+          "mass-wasting",
+          "coastal-wave-erosion",
+          "alluvial-fan-deposition"
+        ],
+        "hydrography": "narrow coastal plain between Rokko Mountains and Osaka Bay",
+        "hazards": [
+          "earthquake",
+          "landslide",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "treaty port",
+          "change": "foreign settlement and waterfront rail"
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "shipyards, warehouses and hillside housing"
+        },
+        {
+          "order": 3,
+          "era": "post-earthquake reconstruction",
+          "change": "resilient rail, stepped neighbourhoods and waterfront parks"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "small port grid, arcades and steep lanes",
+        "renewal": "earthquake-resilient rebuilding and hillside access improvements",
+        "newCity": "rail station complexes, waterfront offices and terraced housing",
+        "edge": "hillside residential steps, ports and mountain conservation",
+        "centres": [
+          "Sannomiya",
+          "harbour",
+          "station",
+          "hillside district centres"
+        ]
+      },
+      "focusFeature": "mountain-sea-city-section",
+      "communityProfile": "japan-machiya",
+      "specialFactors": [
+        "mountainous",
+        "port-industrial",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "city",
+        "terrainScarcity": 1.66,
+        "protectionResistance": 0.92,
+        "specialRegime": 1.22
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-central",
+      "region": "hong-kong",
+      "coreCut": "financial / waterfront / and / steep / hillside",
+      "naturalGeography": {
+        "setting": "steep-coast-reclamation",
+        "regionalReliefM": 260,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-wave-erosion",
+          "mass-wasting",
+          "reclamation",
+          "tectonic-uplift"
+        ],
+        "hydrography": "steep Hong Kong Island slope, narrow shore and reclaimed waterfront",
+        "hazards": [
+          "typhoon",
+          "storm-surge",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "waterfront godowns, military and administrative core"
+        },
+        {
+          "order": 2,
+          "era": "reclamation and rail",
+          "change": "financial district and vertical transport"
+        },
+        {
+          "order": 3,
+          "era": "global finance",
+          "change": "skybridges, metro and continuous waterfront reclamation"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "tight colonial lanes, markets and mixed tenement edges",
+        "renewal": "office redevelopment, heritage fragments and hillside escalators",
+        "newCity": "reclaimed towers, malls, elevated walkways and transit stations",
+        "edge": "hillside residential towers, country park and steep access roads",
+        "centres": [
+          "Central",
+          "Admiralty",
+          "harbour",
+          "Peak tram and metro nodes"
+        ]
+      },
+      "focusFeature": "financial-waterfront-and-steep-hillside",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "financial-center",
+        "coastal-reclamation",
+        "mountainous",
+        "port-industrial"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.82,
+        "protectionResistance": 0.9,
+        "specialRegime": 1.4
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-mong-kok",
+      "region": "hong-kong",
+      "coreCut": "dense / street / market / and / vertical / mix",
+      "naturalGeography": {
+        "setting": "coastal-lowland-reclamation",
+        "regionalReliefM": 12,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-deposition",
+          "reclamation",
+          "tidal-processes"
+        ],
+        "hydrography": "Kowloon coastal plain and successive reclamations",
+        "hazards": [
+          "typhoon",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "market villages",
+          "change": "roadside commerce and small industry"
+        },
+        {
+          "order": 2,
+          "era": "tenement growth",
+          "change": "extremely dense mixed blocks and street markets"
+        },
+        {
+          "order": 3,
+          "era": "metro and redevelopment",
+          "change": "towers above retained fine-grained street commerce"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "fine street grid, tong-lau blocks, markets and alleys",
+        "renewal": "small-scale redevelopment and street-market preservation",
+        "newCity": "towers, malls and transit-linked vertical mixed use",
+        "edge": "reclaimed waterfront, rail yards and housing estates",
+        "centres": [
+          "Mong Kok station",
+          "street markets",
+          "Yau Ma Tei",
+          "West Kowloon"
+        ]
+      },
+      "focusFeature": "dense-street-market-and-vertical-mix",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.74,
+        "protectionResistance": 0.72,
+        "specialRegime": 1.34
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-causeway-bay",
+      "region": "hong-kong",
+      "coreCut": "reclaimed / retail / core",
+      "naturalGeography": {
+        "setting": "reclaimed-bay-coast",
+        "regionalReliefM": 3,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "reclamation",
+          "coastal-deposition",
+          "tidal-processes"
+        ],
+        "hydrography": "former bay and marsh converted into dense urban blocks",
+        "hazards": [
+          "typhoon",
+          "storm-surge",
+          "flood"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "early shore settlement",
+          "change": "market and light industry"
+        },
+        {
+          "order": 2,
+          "era": "reclamation",
+          "change": "gridded shopping blocks"
+        },
+        {
+          "order": 3,
+          "era": "metro retail core",
+          "change": "department stores, towers and pedestrian congestion"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "street markets, small shops and mixed tenement edges",
+        "renewal": "retail-led redevelopment and pedestrian-space reallocation",
+        "newCity": "malls, towers and metro-linked commercial podiums",
+        "edge": "waterfront parks, reclaimed land and residential hillside",
+        "centres": [
+          "Causeway Bay station",
+          "department stores",
+          "street markets",
+          "Victoria Park"
+        ]
+      },
+      "focusFeature": "reclaimed-retail-core",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "coastal-reclamation",
+        "financial-center",
+        "historic-core"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.78,
+        "protectionResistance": 0.76,
+        "specialRegime": 1.36
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-kwun-tong",
+      "region": "hong-kong",
+      "coreCut": "industrial / hillside / to / waterfront / renewal",
+      "naturalGeography": {
+        "setting": "hillside-reclaimed-industrial-bay",
+        "regionalReliefM": 90,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "mass-wasting",
+          "coastal-deposition",
+          "reclamation",
+          "fluvial-incision"
+        ],
+        "hydrography": "Kowloon Bay hills, former industrial flats and reclaimed waterfront",
+        "hazards": [
+          "landslide",
+          "typhoon",
+          "storm-surge"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "industrial satellite town",
+          "change": "factories, housing estates and port industry"
+        },
+        {
+          "order": 2,
+          "era": "deindustrialization",
+          "change": "vacant industrial buildings and logistics"
+        },
+        {
+          "order": 3,
+          "era": "office and residential renewal",
+          "change": "waterfront parks and new towers"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "industrial blocks, public housing estates and steep connector roads",
+        "renewal": "industrial-building conversion and waterfront regeneration",
+        "newCity": "office towers, residential redevelopment and promenade",
+        "edge": "port uses, hillside estates and country park",
+        "centres": [
+          "Kwun Tong station",
+          "industrial core",
+          "waterfront",
+          "public estates"
+        ]
+      },
+      "focusFeature": "industrial-hillside-to-waterfront-renewal",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "port-industrial",
+        "mountainous",
+        "coastal-reclamation"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "megacity",
+        "terrainScarcity": 1.62,
+        "protectionResistance": 0.84,
+        "specialRegime": 1.3
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-sha-tin",
+      "region": "hong-kong",
+      "coreCut": "new / town / valley / and / river",
+      "naturalGeography": {
+        "setting": "river-valley-reclamation",
+        "regionalReliefM": 35,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "fluvial-deposition",
+          "reclamation",
+          "fluvial-incision",
+          "mass-wasting"
+        ],
+        "hydrography": "Shing Mun valley, coastal reclamation and surrounding hills",
+        "hazards": [
+          "flood",
+          "landslide",
+          "typhoon"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "agricultural valley",
+          "change": "fishing and farming villages"
+        },
+        {
+          "order": 2,
+          "era": "new-town planning",
+          "change": "reclamation, public housing and rail"
+        },
+        {
+          "order": 3,
+          "era": "mature new town",
+          "change": "estate renewal, riverside parks and commercial nodes"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "village markets, old roads and riverside settlements",
+        "renewal": "estate renewal and riverside public-space improvement",
+        "newCity": "planned public-housing clusters, malls and rail stations",
+        "edge": "country parks, reservoirs and remaining villages",
+        "centres": [
+          "Sha Tin station",
+          "new-town centre",
+          "river park",
+          "public estates"
+        ]
+      },
+      "focusFeature": "new-town-valley-and-river",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "metropolis",
+        "terrainScarcity": 1.42,
+        "protectionResistance": 0.82,
+        "specialRegime": 1.18
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    },
+    {
+      "id": "hk-sai-kung",
+      "region": "hong-kong",
+      "coreCut": "ria / fishing / village / and / country / park",
+      "naturalGeography": {
+        "setting": "ria-coast-hills",
+        "regionalReliefM": 180,
+        "climateBand": "humid-subtropical",
+        "geomorphicProcesses": [
+          "coastal-wave-erosion",
+          "mass-wasting",
+          "fluvial-incision",
+          "coastal-deposition"
+        ],
+        "hydrography": "drowned valleys, rocky headlands, beaches and steep hills",
+        "hazards": [
+          "typhoon",
+          "storm-surge",
+          "landslide"
+        ],
+        "evidenceTier": "mechanism-prior"
+      },
+      "history": [
+        {
+          "order": 1,
+          "era": "fishing villages",
+          "change": "waterfront lanes and piers"
+        },
+        {
+          "order": 2,
+          "era": "tourism and recreation",
+          "change": "seafood market and marina activity"
+        },
+        {
+          "order": 3,
+          "era": "conservation era",
+          "change": "country-park boundary and low-rise village controls"
+        }
+      ],
+      "urbanStructure": {
+        "oldCore": "waterfront lanes, piers, seafood market and low-rise village plots",
+        "renewal": "village-house control, pier upgrades and visitor-capacity management",
+        "newCity": "low-rise resort and marina facilities beside conservation land",
+        "edge": "country parks, beaches, reservoirs and marine reserves",
+        "centres": [
+          "waterfront market",
+          "pier",
+          "bus terminus",
+          "marina"
+        ]
+      },
+      "focusFeature": "ria-fishing-village-and-country-park",
+      "communityProfile": "hong-kong-estate",
+      "specialFactors": [
+        "island",
+        "tourism",
+        "mountainous"
+      ],
+      "landPressurePrior": {
+        "settlementScale": "town",
+        "terrainScarcity": 1.72,
+        "protectionResistance": 0.98,
+        "specialRegime": 1.12
+      },
+      "evidence": {
+        "sources": [
+          "docs/collaboration/b04-case-register.zh-CN.md",
+          "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+          "docs/modern-mainland-morphology.zh-CN.md"
+        ],
+        "confidence": "heuristic-core-cut"
+      }
+    }
+  ]
+}
