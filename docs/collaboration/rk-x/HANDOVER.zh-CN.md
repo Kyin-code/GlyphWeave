@@ -8,9 +8,9 @@
 
 | 项 | 当前值 |
 |---|---|
-| 分支 / HEAD | `refactor/authoritative-baked-audit` / `258c1f2`（C-V1 smoke 记录），已推送 |
-| A | 最大图 complete-ground：240 chunks / 623 entities / **gate pass 0 failures**；第二次烘焙 worldRevision 相同，1777 个数据文件逐字节相同；整包测试曾 exit 0（1613.77s） |
-| B | 512m 供应控制 **24/24 沿街 realized-with-access + collector/local 实网**；joint-plains **18/18 住宅 + 4/4 服务 + gate pass**；B-03 最大图 50,538,180m² ground + ledger 60,000,000/0；B-04 height/serviceRadius/coverage audit；B-05 最大图两次确定性 pass |
+| 分支 / HEAD | `refactor/authoritative-baked-audit` / `a097e36`，已推送 |
+| A | 最大图 complete-ground：240 chunks / 623 entities / **gate pass 0 failures**；第二次烘焙 worldRevision 相同，1777 个数据文件逐字节相同；第二次完整 workspace 测试 **exit 0**（core 805 passed / 34 ignored） |
+| B | 512m 供应控制 **24/24 沿街 realized-with-access + collector/local 实网 + coverage pass**；joint-plains **18/18 住宅 + 4/4 服务 + gate pass**；B-03 最大图 50,538,180m² ground + ledger 60,000,000/0；B-05 最大图两次确定性 pass |
 | C | C-N1 来源矩阵 + habitat 接口；C-E1 最大图 **1,734 挡墙**；C-E2 **734 改向节点 / 54 raised terminals**；最大图工程版 **gate pass**；C-L1 两项来源已解析；Godot 4.7.2 runtime smoke pass |
 | 预览 | 战略图/2.5D 已实测；2.5D 加载时显示 loading overlay；最大图全战略图无 console error，非港场景 2.5D 改为内容 focus，主画面无黑洞/错觉边界 |
 | 仍开放 | 偶发 `0xC0000005`；1km/120 户属于输入供给压力；Quaternius 精确历史下载日期未知 |
