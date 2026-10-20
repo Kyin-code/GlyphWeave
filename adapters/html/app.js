@@ -321,6 +321,9 @@ let renderStream = null
 async function loadScene() {
   const token = ++sceneLoadToken
   const loaded = await loadPreviewScene(world.scenes[sceneSelect.selectedIndex], world.revision)
+  loaded.urbanDistrictAudit = await fetch(`../scenes/${loaded.sceneId}/urban-district-audit.json`)
+    .then(response => response.ok ? response.json() : null)
+    .catch(() => null)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
   nearBuildToken++
@@ -331,6 +334,38 @@ async function loadScene() {
 }
 
 function drawStrategicOverlays(ox, oz, scale) {
+  const districtColors = ['#d8aa58', '#4f9d9a', '#6789c9']
+  const districts = scene.urbanDistrictAudit?.iterations ?? []
+  if (districts.length) {
+    const center = scene.urbanDistrictAudit.centerWorld
+    const px = ox + (center[0] - scene.originX) * scale
+    const pz = oz + (center[1] - scene.originZ) * scale
+    context.save()
+    districts.forEach((district, index) => {
+      const radius = district.centerDistanceM[1] * scale
+      context.beginPath()
+      context.arc(px, pz, radius, 0, Math.PI * 2)
+      context.setLineDash([7, 6])
+      context.lineWidth = index === 0 ? 2 : 1.5
+      context.strokeStyle = districtColors[index % districtColors.length]
+      context.globalAlpha = .78
+      context.stroke()
+      context.setLineDash([])
+      context.fillStyle = districtColors[index % districtColors.length]
+      context.font = '600 12px system-ui'
+      context.fillText(district.id, px + radius * .72, pz - radius * .72)
+    })
+    context.globalAlpha = 1
+    context.fillStyle = '#111c22'; context.fillRect(18, canvas.clientHeight - 102, 334, 84)
+    context.font = '12px system-ui'; context.textBaseline = 'middle'
+    districts.forEach((district, index) => {
+      context.fillStyle = districtColors[index % districtColors.length]
+      context.fillRect(28, canvas.clientHeight - 94 + index * 22, 12, 12)
+      context.fillStyle = '#e2e9e6'
+      context.fillText(`${district.constructionCohort} · ${district.centerDistanceM[0]}–${district.centerDistanceM[1]}m · ${district.planned}/${district.requested}`, 48, canvas.clientHeight - 88 + index * 22)
+    })
+    context.restore()
+  }
   for (const entity of scene.entities ?? []) {
     if (entity.kind !== 'road' && entity.kind !== 'sidewalk' && entity.kind !== 'building' && entity.kind !== 'urban_building' && entity.kind !== 'building_tower' && entity.kind !== 'town_hall' && entity.kind !== 'market' && entity.kind !== 'industrial' && entity.kind !== 'commercial_center' && entity.kind !== 'school' && entity.kind !== 'residential_block') continue
     if (entity.kind === 'road') {

@@ -343,11 +343,12 @@ function makeModernResidentialBlock(entity, THREE) {
   const group = new THREE.Group()
   group.name = 'modern-residential-block:' + entity.entityId
   const w = entity.widthM, d = entity.depthM, h = entity.heightM
-  const concrete = new THREE.MeshStandardMaterial({ color: '#aaa79e', roughness: .92 })
-  const pale = new THREE.MeshStandardMaterial({ color: '#d5d0c4', roughness: .88 })
-  const graphite = new THREE.MeshStandardMaterial({ color: '#566267', roughness: .55, metalness: .18 })
-  const glass = new THREE.MeshStandardMaterial({ color: '#477487', roughness: .2, metalness: .42 })
-  const glassLight = new THREE.MeshStandardMaterial({ color: '#82aebd', roughness: .18, metalness: .3 })
+  const tone = constructionTone(entity)
+  const concrete = new THREE.MeshStandardMaterial({ color: tone.concrete, roughness: .92 })
+  const pale = new THREE.MeshStandardMaterial({ color: tone.wall, roughness: .88 })
+  const graphite = new THREE.MeshStandardMaterial({ color: tone.trim, roughness: .55, metalness: .18 })
+  const glass = new THREE.MeshStandardMaterial({ color: tone.glass, roughness: .2, metalness: .42 })
+  const glassLight = new THREE.MeshStandardMaterial({ color: tone.glassLight, roughness: .18, metalness: .3 })
   const green = new THREE.MeshStandardMaterial({ color: '#527b44', roughness: 1 })
 
   const podiumH = Math.max(2.8, Math.min(4.2, h * .2))
@@ -501,10 +502,11 @@ export function makePlannedResidentialHome(entity, THREE) {
   group.userData.footprintOnly=true
   const w=entity.widthM, d=entity.depthM, h=entity.heightM
   const roofH=Math.min(2,h*.25), wallH=h-roofH
-  const wall=new THREE.MeshStandardMaterial({color:'#ddd6c7',roughness:.95})
+  const tone=constructionTone(entity)
+  const wall=new THREE.MeshStandardMaterial({color:tone.wall,roughness:.95})
   const body=new THREE.Mesh(new THREE.BoxGeometry(w,wallH,d),wall)
   body.name='building-body';body.position.y=wallH*.5;group.add(body)
-  const roof=new THREE.Mesh(new THREE.ConeGeometry(1,1,4),new THREE.MeshStandardMaterial({color:'#8a5a42',roughness:.9}))
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(1,1,4),new THREE.MeshStandardMaterial({color:tone.roof,roughness:.9}))
   roof.geometry.rotateY(Math.PI/4)
   roof.scale.set(w/Math.SQRT2,roofH,d/Math.SQRT2)
   roof.name='building-roof';roof.position.y=wallH+roofH*.5;group.add(roof)
@@ -517,6 +519,26 @@ export function makePlannedResidentialHome(entity, THREE) {
   }
   group.position.set(entity.worldX,entity.worldY,entity.worldZ)
   return group
+}
+
+function constructionTone(entity) {
+  const cohort = entity.grounding?.constructionCohort
+  if (cohort === 'established') {
+    return {
+      wall: '#c7b08e', concrete: '#8f897b', trim: '#554c40',
+      roof: '#8a513b', glass: '#52717a', glassLight: '#8aa5a5',
+    }
+  }
+  if (cohort === 'renewal') {
+    return {
+      wall: '#cbc8bc', concrete: '#999a93', trim: '#546069',
+      roof: '#6c6256', glass: '#4e6f7b', glassLight: '#86a8b1',
+    }
+  }
+  return {
+    wall: '#e0e4df', concrete: '#aaaeaa', trim: '#617079',
+    roof: '#56636a', glass: '#477b91', glassLight: '#9bc4d2',
+  }
 }
 
 export function makeResidentialHome(entity, THREE, heightAt) {
