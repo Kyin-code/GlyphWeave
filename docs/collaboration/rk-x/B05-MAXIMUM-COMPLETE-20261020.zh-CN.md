@@ -63,8 +63,9 @@ A-closure（未开 coverage）的 gate failures：
 ## 5. 未验证
 
 - ~~第二次确定性重跑~~ **已通过**：`b05-maximum-complete-repeat-20261020`
-  与首次输出的 `worldRevision` 相同（`0bc8ece5…`）；1781 个文件中 1777 个
-  逐字节相同，唯一差异是 `generation-report.json` 的输出路径字段。
+  与首次输出的 `worldRevision` 相同（`0bc8ece5…`）；1,777 个可比文件
+  逐字节相同（mismatch 0 / missing 0），唯一差异是
+  `generation-report.json` 的输出路径字段。
 - 240 chunk HTML 连续漫游与视觉空置检查。
 - 偶发 `0xC0000005` 仍未修复；单次成功不等于套件稳定。
 
