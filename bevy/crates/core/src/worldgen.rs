@@ -3156,6 +3156,39 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }));
         }
         let access_surfaces = bake_access_surfaces(&access_graph, &baked_samples)?;
+        if let Some(plan) = &settlement_evolution_result {
+            let final_ids = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let omitted = plan
+                .buildings
+                .iter()
+                .filter_map(|building| {
+                    let entity_id =
+                        format!("generated.settlement-evolution.{}", building.id);
+                    (!final_ids.contains(entity_id.as_str())).then_some(serde_json::json!({
+                        "entityId": entity_id,
+                        "kind": building.kind,
+                        "households": building.households,
+                        "jobs": building.jobs,
+                        "retailFloorAreaM2": building.retail_floor_area_m2,
+                        "reason": "strict generated-facade access contract produced no verified route"
+                    }))
+                })
+                .collect::<Vec<_>>();
+            fs::write(
+                scene_dir.join("settlement-materialization-report.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format": "glyphweave.settlement-materialization-report",
+                    "version": 1,
+                    "sceneId": scene.scene_id,
+                    "plannedBuildings": plan.buildings.len(),
+                    "materializedBuildings": plan.buildings.len() - omitted.len(),
+                    "omittedBuildings": omitted,
+                }))?,
+            )?;
+        }
         if let Some(rules_dir) = &rules_dir {
             let audit = audit_baked_scene(
                 manifest.world.seed ^ scene.seed_offset,
