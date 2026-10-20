@@ -18,6 +18,11 @@
 > 设计，当前原型不作为该需求的最终方案。审核文档：
 > [`NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md`](NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md)。
 
+> **2026-10-21 核心城区审核稿 V2**：进一步否决“固定建筑完成数、整城平均
+> 数值、硬同心圆和只换材质的新旧城”。新版审核入口：
+> [`CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md`](CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md)。
+> 该稿状态为待审核；审核通过前不得把 P0–P7 技术切片当作最终城区方案。
+
 > **2026-10-21 自然—城市重构状态**：审核稿已完成 48 城核心区机制、自然地理、
 > 规划史、大都市切面、土地紧张和生鲜市场辐射模型，并把执行顺序细化为
 > P0–P7。P0 纯自然切片已通过零人工痕、工程/道路/开发计划为零、scale/
