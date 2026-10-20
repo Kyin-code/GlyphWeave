@@ -1,0 +1,139 @@
+# 交接文档（GlyphWeave · B/C 里程碑推进）
+
+> 生成于本轮会话结束时。**基线需求**始终是
+> [`requirements-and-progress-master.zh-CN.md`](requirements-and-progress-master.zh-CN.md)，
+> 本文件是它的"当前状态快照 + 待办 + 操作手册"，不替代基线。
+
+## 1. 状态快照
+
+| 项 | 值 |
+|---|---|
+| 分支 | `refactor/authoritative-baked-audit` |
+| HEAD | `ac2db35 feat(worldgen): a graded entry corridor for pads that own no frontage point` |
+| 工作树 | **干净**（`git status --porcelain` 为空） |
+| 本会话提交 | **48 次**（`0edabb3..HEAD`），全部通过一次性 `git commit -F`，无 merge |
+| 仓库总提交 | 292 |
+| 测试规模 | 整包 **26 条 `test result` 全 ok**；core lib **781 passed / 34 ignored** |
+| 偶发缺陷 | 整包测试约 **1/27** 概率 `0xC0000005`（见 §6） |
+
+## 2. 本会话做成了什么（按主题）
+
+### 2.1 供给与地形工程（B-01 主干）
+
+| 能力 | 开关 | 关键数字 |
+|---|---|---|
+| 沿路用途转换（rural→urban） | `frontageProgram.ruralConversion = "explicit"` | 1km 曾把临街实现从 1 提到 67 |
+| 有界挖方（地块 + 道路） | `frontageProgram.terrainPolicy = "bounded-cut"` + `maxCutMm ≤ 2000` | 1km 削方台账 27,178 格 / 6,598 m³，与栅格复算逐格相等 |
+| 半挖半填纵断面 | 同上 | 山城道路削方 675 格 / 150.7 m³，半挖半填站 12% |
+| 填方环按填深推导 | `terrainPolicy.earthworkBlend = "derived-from-fill"` | 最大环 126 m → 19.6 m，环包络缩 29 倍 |
+| 台地有界收敛 | 随 bounded-cut | 实体平台抬升可在 2 m cap 内加深，否则具名拒绝 |
+| 分级入口走廊 | `terrainPolicy.entryCorridor = "graded"` | 能力已接三条 gate 路径，**真实世界 0 次接受**（见 §5） |
+
+**不可动清单（本会话一次没破）**：6 m 填方、8% 道路纵坡、25% 可走入坡、2 m 引道、
+退界域 8..=32、岸线净距 4 m、保护区/水体/岸线带零土方、`MAX_CUT_MM = 2000`、
+两条链金标 `c3_base_identity_*` / `w4_chain_digest_*`。
+
+### 2.2 滨水（新能力）
+
+- `automaticRoadExtensions.allowStructuredWater = "bridge-or-causeway"`：滨水可跑 road-first
+- 跨水必须登记桥/堤（长度、湿格、桥面、起坡点），**水面逐格零变化**
+- 滨水地块站在**自己路面的高程**上；岸线保留 **4,096 m² 连续公共通行带**（4 m = 既有审计净距）
+- 滨水商业排在**离岸 18–20 m 的第一排街**（原 150 m 硬编码已退役）
+- `river` 有了 `assets/objects/river.object.toml`，规则引擎真正审它（425/425）
+
+### 2.3 分区与形态（B-03/B-04）
+
+- `landUseProfile.urbanGrowth = "axis-and-node"`：城市用地沿**主干路轴（80 m）+ 600 m 生活圈**生长，
+  面积**精确等于**径向预算（40,898 m² 不变），urban 区内建筑占比 13.3% → 37%
+- `morphology_compile`：`frontInsetM` 派生 `setbackM`；`publicSpaceRatio` 单独就能生成公共空间
+  （512m 夹具 0 → 16,387 m²，账本守恒）
+- 审计可信度：修掉 4 处"测量口径"缺陷（编译态 style、候选顺序、削方 stamp、off 臂未真关）
+
+### 2.4 内容与账本
+
+- `developmentAudit` 区分"地块产物"与"规则生成建筑"（`ruleBuildingGenerated` 计数 + 可伪造检测）
+- 用途预算封顶：转换按 `planned − committed − residual` 花钱，超额具名拒绝
+- 转换只允许发生在**城市边缘 64 m 带内**（`FRINGE_M`，1km 上转换 24.4% → 100% 在带内）
+- 生态配额：短少 patch 在确定性晶格上**重排**，达标 patch 永不触碰（A 例外 #4 的修复）
+
+### 2.5 性能
+
+- 接受期接入检查：carve **32 m 均匀桶索引** + 窗口 memo + 早退
+- 1km bake 199 → 124 s，gate 115 → 68 s，整包 1966 → 1371 s，**判定零改动**（逐字节验证）
+
+## 3. 三个固定世界（可直接复现）
+
+| 世界 | 清单 | 关键数字 | 复现方式 |
+|---|---|---|---|
+| **1 km 探针** | `examples/b01-1km-probe-optin.manifest.json`（+137 字节、4 个开关） | 43 pad / 15 户 / 24 店；接入失败 0；gate 7 条；release bake 17–18 s | `#[ignore]` 测试 `the_optin_manifest_replays_the_probes_published_numbers`（`GLYPHWEAVE_AUDIT_WORLD` 可跳过烘焙） |
+| **山城** | `examples/hillside-town-512.manifest.json` | 22 pad / 15 户 / 6 店；削方 7 pad、道路 675 格；dev 失败 0；gate 4 条 | `cargo test -p glyphweave-cli --test hillside_cut_city`（4 tests） |
+| **滨水** | `examples/waterfront-city-512.manifest.json` | 28 pad / 22 户 / 4 设施；60 路 / 7 桥 / 273 m 跨水；岸线带 4,096 m²；gate 3 条 | `cargo test -p glyphweave-cli --test waterfront_city_512`（1 test） |
+
+1km 的关闭态基线：`examples/b01-1km-probe.manifest.json`（无开关）；两者**除四个开关外逐字节相同**（有测试钉住）。
+
+## 4. 常用命令
+
+```powershell
+# 全量（约 23–26 分钟，偶发崩溃见 §6）
+cargo test --manifest-path bevy/Cargo.toml --workspace --no-fail-fast
+
+# 单世界烘焙 + 质量门
+cargo run --manifest-path bevy/Cargo.toml -p glyphweave-cli --release -- generate-world <manifest> <out>
+cargo run --manifest-path bevy/Cargo.toml -p glyphweave-cli --release -- quality-report <out>
+cargo run --manifest-path bevy/Cargo.toml -p glyphweave-cli --release -- world-quality-gate <out>   # 非 0 退出表示 gate fail
+
+# 只看某个夹具
+cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut_city
+```
+
+## 5. 仍存在的问题（按优先级）
+
+| # | 问题 | 现状 | 需要什么 |
+|---|---|---|---|
+| 1 | **A 例外 #4（生态缺 1 株）未关闭** | 修复已合并，24 个 512m 世界严格 no-op；真实唯一实例在 6×10km（342,380/342,379） | **一次 6×10km `generate-world`（约 380–420 s）**，未授权 |
+| 2 | 1km 住宅 15/18（缺口 12） | `urbanCoreRatio 0.02`（规划城市地 40,898 m² ≈ 4%）已耗尽 | 提高该比例（作者输入），或加相邻台面高差合同 |
+| 3 | 相邻台面高差无上限 | 两块 24×24 相距 32 m、台面差 2.3 m 时，各自环之间必成谷/崖 | 新增合同（"相邻台面 ≤ X m"）或挡墙 |
+| 4 | 分级走廊 0 次接受 | 1km 三次尝试全撤回：checked route 落在更近的街 / 天然坡 31.6% | 选路规则优先指派街；或允许走廊削坡 |
+| 5 | 山城临街 7/24 | 已证明是**输入上限**（24 需求 vs standalone 上限 10；21/33 条路无纵断面） | 作者改输入（更高需求→更多街道/更低住宅最小宽） |
+| 6 | 滨水 3 条 land-use 欠账 | frontage demand / purpose-area / landcover | 内容目标问题，非缺陷 |
+| 7 | 偶发 `0xC0000005`（~1/27） | 已解析到 road-network JSON serde 派生序列化；WER dump 显示读地址 −1；仓库零 `unsafe` ⇒ 疑依赖或编译器 | 整包循环取证（`tools/crash-hunt/`） |
+| 8 | C 里程碑未实质开工 | 有削方台账、挡墙/排水/涵洞/竖曲线均无 | Round 56 的"台地挡墙"被中断，未落地 |
+
+## 6. 偶发崩溃的操作纪律（重要）
+
+整包测试约 **1/27** 概率以 `0xC0000005` 崩溃，**不是**本轮引入：
+
+- 栈深实测峰值 192–224 KiB（默认 2 MiB，余量 8×），**不是深栈**
+- 崩溃点在 `road-network-plan` 的 serde 序列化
+- 证据与工具：`docs/collaboration/rk-x/KNOWN-ISSUE-intermittent-crash.zh-CN.md`、`tools/crash-hunt/`
+
+**纪律**：任何"套件全绿"的结论应以**多次连续运行**为准；崩溃时重跑并在报告里注明。
+
+## 7. 文档索引（本会话新增/更新）
+
+| 文件 | 内容 |
+|---|---|
+| `docs/collaboration/requirements-and-progress-master.zh-CN.md` | 基线账本（§5 进度、§6 七条待决策项，已追平到 43 次提交时） |
+| `docs/collaboration/rk-x/ROUND-LOG.zh-CN.md` | 逐轮证据日志（记到 Round 12；之后证据在提交正文与测试常量里） |
+| `docs/collaboration/rk-x/A-EXCEPTION-4-ECOLOGY.zh-CN.md` | 生态例外的证据状态与关闭条件 |
+| `docs/collaboration/rk-x/KNOWN-ISSUE-intermittent-crash.zh-CN.md` | 偶发崩溃的已知事实、工具、下一步 |
+| `docs/collaboration/rk-x/DECISION-COST-SHEET.zh-CN.md` | 六项"需授权"改动的代价表 |
+| `tools/crash-hunt/` | 崩溃取证脚本（dump 捕获、偏移符号化、循环复现） |
+
+## 8. 交接给下一位的前三件事
+
+1. **跑一次基线确认**：`cargo test --workspace --no-fail-fast`（崩溃则重跑）+ 三个夹具测试，
+   确认 §3 的数字仍成立。
+2. **拿授权做 6×10km 烘焙**，把 `342,380/342,379` 变成 `342,380/342,380`，然后更新
+   `A-EXCEPTION-4-ECOLOGY.zh-CN.md` 并关闭例外。
+3. **接着做 C 的内容**：先做"台地挡墙"（`terrainPolicy.retainingWalls`，opt-in，
+   高差 ≥ 阈值才生成、占地入账本、审计可复算），再做排水/涵洞/竖曲线。
+
+## 9. 注意事项（别踩）
+
+- **不要**改两条链金标、`WALKABLE_GRADE`、`ENTRANCE_APRON_RUN_M`、审计容差、
+  `MAX_CUT_MM`、`FRINGE_M`、`development.rs` 的判定，除非有明确授权。
+- **不要**用 `RUST_MIN_STACK`、`catch_unwind`、放宽断言去"修"偶发崩溃。
+- **不要**为了让数字好看而挑 seed；seed 列表要事先固定并全部报告。
+- 数值改动一律走 **opt-in + 关闭态逐字节冻结**（本会话所有能力都是这个模式）。
+- 提交用 `git commit -F <文件>`（PowerShell 多行 `-m` 会失败）；`bevy/work/` 在 gitignore 里。
