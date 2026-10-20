@@ -1,0 +1,359 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "Derived mountain-lake metropolis slice",
+    "seed": 42,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "mountain-foot",
+    "heightPrecision": "millimeter",
+    "naturalGeography": {
+      "version": 1,
+      "mode": "derived",
+      "setting": "coastal-mountain",
+      "regionalReliefM": 820,
+      "climateBand": "humid-subtropical",
+      "derivationSeed": 42,
+      "hints": {
+        "karst": false,
+        "glacial": false
+      }
+    },
+    "urbanSlice": {
+      "version": 1,
+      "semanticsVersion": 2,
+      "settlementScale": "metropolis",
+      "mode": "feature-cut",
+      "focusFeature": "old-lake-core-and-financial-waterfront",
+      "cropReason": "show the old market core, constrained mountain lake and new financial waterfront as one relational slice rather than a whole metropolis",
+      "contextRadiusM": 2500,
+      "offMapContinuity": [
+        "roads",
+        "rail",
+        "river",
+        "urban-fabric",
+        "coast"
+      ],
+      "specialFactors": [
+        "financial-center",
+        "historic-core",
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "viewpoint": "old-core-to-financial-waterfront",
+      "focusRelations": [
+        {
+          "subject": "old-market-core",
+          "relation": "faces-and-drains-to",
+          "object": "mountain-lake"
+        },
+        {
+          "subject": "financial-waterfront",
+          "relation": "occupies-reclaimed-edge-of",
+          "object": "lake-basin"
+        },
+        {
+          "subject": "new-growth",
+          "relation": "follows-terrain-corridors-around",
+          "object": "protected-mountain-foot"
+        }
+      ],
+      "requiredAnchors": [
+        {
+          "id": "lake-shore",
+          "kind": "waterfront",
+          "role": "main-public-frontage"
+        },
+        {
+          "id": "old-market",
+          "kind": "market",
+          "role": "historic-core"
+        },
+        {
+          "id": "financial-station",
+          "kind": "employment",
+          "role": "new-financial-centre"
+        }
+      ],
+      "contextAnchors": [
+        {
+          "id": "regional-rail",
+          "kind": "transit",
+          "role": "off-map-access"
+        }
+      ],
+      "edgeIntents": [
+        {
+          "edge": "west",
+          "kind": "rail",
+          "destinationRole": "regional-metropolis"
+        },
+        {
+          "edge": "north",
+          "kind": "roads",
+          "destinationRole": "upstream-valley"
+        },
+        {
+          "edge": "east",
+          "kind": "coast",
+          "destinationRole": "outer-bay"
+        }
+      ]
+    },
+    "referenceData": {
+      "sources": [
+        "assets/data/urban-case-priors-48.json",
+        "docs/collaboration/b04-case-register.zh-CN.md"
+      ],
+      "caseIds": [
+        "cn-hangzhou",
+        "hk-central",
+        "us-seattle"
+      ],
+      "crop": "synthetic 1km feature cut combining lake-city and steep-waterfront mechanisms",
+      "retrievedAt": "2026-10-21",
+      "seedBasis": "deterministic composite, not a reconstruction of a named city",
+      "inferenceReason": "the slice expresses a geographic relationship rather than a whole-city density average"
+    },
+    "communityProfile": {
+      "version": 1,
+      "profile": "china-gated"
+    },
+    "routeEvolution": {
+      "version": 1,
+      "enabled": true,
+      "gridStepM": 16,
+      "roadWidthM": 8,
+      "maxGrade": 0.08,
+      "maxTerrainSlope": 0.55,
+      "maxFillM": 6,
+      "allowBridge": true,
+      "maxBridgeSpanM": 260,
+      "turnPenalty": 1.4,
+      "anchors": [
+        {"id": "old-market", "x": 448, "z": 512, "role": "valley-floor"},
+        {"id": "financial-station", "x": 832, "z": 576, "role": "downstream-valley"},
+        {"id": "south-basin", "x": 704, "z": 640, "role": "alluvial-basin"},
+        {"id": "upstream", "x": 384, "z": 384, "role": "upstream-valley"}
+      ],
+      "routes": [
+        {
+          "id": "old-core-to-waterfront",
+          "from": "old-market",
+          "to": "financial-station",
+          "via": [640, 576]
+        },
+        {
+          "id": "upstream-access",
+          "from": "south-basin",
+          "to": "upstream",
+          "via": [448, 512]
+        }
+      ]
+    },
+    "settlementEvolution": {
+      "version": 1,
+      "enabled": true,
+      "householdsTarget": 180,
+      "jobsTarget": 60,
+      "retailFloorAreaM2": 1200,
+      "serviceBudget": 2,
+      "lotWidthM": 20,
+      "lotDepthM": 24,
+      "roadStepM": 24,
+      "setbackM": 10,
+      "maxSlope": 0.25,
+      "floorAreaRatio": 1.2,
+      "maxFloors": 4
+    },
+    "planningHistory": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 220,
+      "parkAreaM2PerPerson": 8,
+      "renewalShare": 0.35
+    },
+    "marketCatchment": {
+      "version": 1,
+      "enabled": true,
+      "beta": 0.08,
+      "maxTravelMinutes": 15,
+      "walkSpeedMps": 1.3,
+      "marketCapacity": 280,
+      "marketQuality": 1.0,
+      "coverageTarget": 0.85,
+      "maxMarkets": 3,
+      "candidateSpacingM": 120
+    },
+    "epochProgram": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 110,
+      "expansionRadiusM": 150,
+      "modernRadiusM": 220
+    },
+    "water": {
+      "waterType": "lake",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "shoreProfile": {
+        "transitionRadius": 1.25,
+        "shallowBandM": 12,
+        "averageDepthM": 2.0
+      },
+      "waveModel": {
+        "preset": "calm-lake-breeze",
+        "amplitudeM": 0.04,
+        "wavelengthM": 8,
+        "roughness": 0.22
+      },
+      "flowDirection": null,
+      "flowSpeedMps": 0.0
+    },
+    "assetContracts": {
+      "tree": {
+        "type": "tree",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 2,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "maxDepthM": 5.5,
+        "minHeightM": 4,
+        "maxHeightM": 9
+      },
+      "bush": {
+        "type": "bush",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.6,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.6,
+        "maxHeightM": 2.6
+      },
+      "grass_clump": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.3,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.3,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.5,
+        "maxHeightM": 1.6
+      },
+      "rock": {
+        "type": "rock",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.2,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "maxDepthM": 8,
+        "minHeightM": 0.2,
+        "maxHeightM": 5
+      },
+      "road": {
+        "type": "road",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 4,
+        "maxWidthM": 10000,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "residential_home": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 8,
+        "maxWidthM": 40,
+        "minDepthM": 8,
+        "maxDepthM": 40,
+        "minHeightM": 3,
+        "maxHeightM": 24
+      },
+      "storefront": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 40,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 2,
+        "maxHeightM": 30
+      },
+      "office_tower": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 12,
+        "maxWidthM": 60,
+        "minDepthM": 12,
+        "maxDepthM": 60,
+        "minHeightM": 12,
+        "maxHeightM": 120
+      },
+      "lake": {
+        "type": "water",
+        "placement": "water-surface",
+        "allowedSurfaces": ["water", "deep_water"],
+        "forbiddenSurfaces": ["grass", "forest", "soil", "stone", "underground"],
+        "minWidthM": 360,
+        "maxWidthM": 360,
+        "minDepthM": 250,
+        "maxDepthM": 250,
+        "minHeightM": 1,
+        "maxHeightM": 1
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.core-lake",
+      "name": "核心湖湾",
+      "type": "lake",
+      "purpose": "expresses the lake-old-core-financial-waterfront relationship",
+      "description": "山脚湖湾作为核心切面的自然骨架，周边道路、旧城与新区围绕其地貌关系展开。",
+      "sceneId": "scene-0",
+      "worldX": 720,
+      "worldZ": 250,
+      "worldY": 0,
+      "widthM": 360,
+      "depthM": 250,
+      "heightM": 1,
+      "assetId": "water.modern-lakeside"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

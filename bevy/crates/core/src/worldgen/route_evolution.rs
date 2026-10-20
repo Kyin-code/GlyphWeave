@@ -177,7 +177,10 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         return Err("invalid routeEvolution limits".into());
     }
     if program.anchors.len() < 2 && !program.anchors.is_empty() {
-        return Err("routeEvolution anchors must be empty for auto mode or contain at least two anchors".into());
+        return Err(
+            "routeEvolution anchors must be empty for auto mode or contain at least two anchors"
+                .into(),
+        );
     }
     let mut ids = std::collections::BTreeSet::new();
     for anchor in &program.anchors {
@@ -270,14 +273,7 @@ pub fn plan(
             .iter()
             .find(|anchor| anchor.id == request.to)
             .ok_or_else(|| TerrainError(format!("missing route anchor {}", request.to)))?;
-        let route = solve_route(
-            &request,
-            from,
-            to,
-            &grid,
-            &program,
-            water_level_m,
-        );
+        let route = solve_route(&request, from, to, &grid, &program, water_level_m);
         if route.status != "pass" {
             failures.push(format!(
                 "{}: {}",
@@ -361,8 +357,7 @@ impl<'a> Grid<'a> {
     }
 
     fn water_at(&self, x: i32, z: i32) -> bool {
-        self.water.contains_point(f64::from(x), f64::from(z))
-            || self.water.shore_band_cell(x, z)
+        self.water.contains_point(f64::from(x), f64::from(z)) || self.water.shore_band_cell(x, z)
     }
 }
 
@@ -526,7 +521,13 @@ fn solve_route(
                 .partial_cmp(&(b.design_height_m - b.natural_height_m))
                 .unwrap_or(Ordering::Equal)
         })
-        .map(|point| (point.x, point.z, point.design_height_m - point.natural_height_m))
+        .map(|point| {
+            (
+                point.x,
+                point.z,
+                point.design_height_m - point.natural_height_m,
+            )
+        })
         .unwrap_or((0, 0, 0.0));
     let maximum_fill_m = fill_point.2.max(0.0);
     let maximum_grade = points
@@ -627,10 +628,7 @@ fn find_path_nodes(
     for direction in 0..DIRECTIONS.len() {
         let state = start * DIRECTIONS.len() + direction;
         cost[state] = 0.0;
-        heap.push(QueueEntry {
-            cost: 0.0,
-            state,
-        });
+        heap.push(QueueEntry { cost: 0.0, state });
     }
     let mut best_end = None;
     while let Some(entry) = heap.pop() {
@@ -733,10 +731,16 @@ fn smooth_polyline(points: &[RoutePoint], grid: &Grid<'_>, iterations: usize) ->
             let rz = (pair[0].z as f64 * 0.25 + pair[1].z as f64 * 0.75).round() as i32;
             let q = sample_route_point(grid, qx, qz);
             let r = sample_route_point(grid, rx, rz);
-            if next.last().is_none_or(|point: &RoutePoint| (point.x, point.z) != (q.x, q.z)) {
+            if next
+                .last()
+                .is_none_or(|point: &RoutePoint| (point.x, point.z) != (q.x, q.z))
+            {
                 next.push(q);
             }
-            if next.last().is_none_or(|point: &RoutePoint| (point.x, point.z) != (r.x, r.z)) {
+            if next
+                .last()
+                .is_none_or(|point: &RoutePoint| (point.x, point.z) != (r.x, r.z))
+            {
                 next.push(r);
             }
         }
@@ -772,9 +776,7 @@ fn grade_profile(points: &mut [RoutePoint], program: &Program, water_level_m: f6
 fn path_length(points: &[RoutePoint]) -> f64 {
     points
         .windows(2)
-        .map(|pair| {
-            f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z))
-        })
+        .map(|pair| f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z)))
         .sum()
 }
 
@@ -979,22 +981,95 @@ pub fn retain_clearance(entities: &mut Vec<EntityInstance>, plan: &Plan, extra_m
                 return false;
             }
             let clearance = route.road_width_m as f64 * 0.5 + extra_m + entity_radius_m;
-            route
-                .polyline
-                .windows(2)
-                .any(|segment| {
-                    point_segment_distance(
-                        f64::from(entity.world_x),
-                        f64::from(entity.world_z),
-                        f64::from(segment[0].x),
-                        f64::from(segment[0].z),
-                        f64::from(segment[1].x),
-                        f64::from(segment[1].z),
-                    ) <= clearance
-                })
+            route.polyline.windows(2).any(|segment| {
+                point_segment_distance(
+                    f64::from(entity.world_x),
+                    f64::from(entity.world_z),
+                    f64::from(segment[0].x),
+                    f64::from(segment[0].z),
+                    f64::from(segment[1].x),
+                    f64::from(segment[1].z),
+                ) <= clearance
+            })
         })
     });
     before - entities.len()
+}
+
+/// Materialize a passing route plan as static road segments.
+///
+/// The planner already produced a terrain-following, grade-limited polyline.
+/// Each consecutive pair becomes an oriented road segment using the same width
+/// and design height, so HTML and downstream audits can consume the result
+/// without inventing a second road geometry.
+pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
+    let mut entities = Vec::new();
+    for route in plan.routes.iter().filter(|route| route.status == "pass") {
+        // The storage contract treats a road's widthM as its long axis and
+        // depthM as pavement width. Keep enough subdivisions to follow the
+        // terrain curve without creating sub-contract slivers.
+        let minimum_segment = f64::from(route.road_width_m).mul_add(0.5, 0.25).max(4.25);
+        let simplified = simplify_for_materialization(&route.polyline, minimum_segment);
+        for (index, pair) in simplified.windows(2).enumerate() {
+            let dx = pair[1].x - pair[0].x;
+            let dz = pair[1].z - pair[0].z;
+            let length = f64::from(dx).hypot(f64::from(dz));
+            if length < 0.5 {
+                continue;
+            }
+            let rotation_y_deg = f64::from(dz).atan2(f64::from(dx)).to_degrees() as f32;
+            let design_height_m = (pair[0].design_height_m + pair[1].design_height_m) * 0.5;
+            entities.push(EntityInstance {
+                asset_id: "road.generated".into(),
+                entity_id: format!("generated.route-evolution.{}.{}", route.id, index),
+                kind: "road".into(),
+                world_x: ((pair[0].x + pair[1].x) as f64 * 0.5).round() as i32,
+                world_z: ((pair[0].z + pair[1].z) as f64 * 0.5).round() as i32,
+                world_y: (design_height_m * 4.0).round() as i32,
+                scale: 1.0,
+                width_m: length as f32,
+                depth_m: route.road_width_m as f32,
+                height_m: 0.45,
+                rotation_y_deg,
+                grounding: super::GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
+            });
+        }
+    }
+    entities
+}
+
+fn simplify_for_materialization(
+    polyline: &[RoutePoint],
+    minimum_segment_m: f64,
+) -> Vec<RoutePoint> {
+    let Some(first) = polyline.first() else {
+        return Vec::new();
+    };
+    let mut kept = vec![first.clone()];
+    for point in polyline
+        .iter()
+        .skip(1)
+        .take(polyline.len().saturating_sub(2))
+    {
+        let last = kept.last().expect("first point is always present");
+        if f64::from(point.x - last.x).hypot(f64::from(point.z - last.z)) >= minimum_segment_m {
+            kept.push(point.clone());
+        }
+    }
+    if let Some(last) = polyline.last() {
+        let current = kept.last().expect("first point is always present");
+        let remaining = f64::from(last.x - current.x).hypot(f64::from(last.z - current.z));
+        if remaining > 0.5 {
+            if remaining < minimum_segment_m && kept.len() >= 2 {
+                *kept.last_mut().expect("kept has at least two points") = last.clone();
+            } else {
+                kept.push(last.clone());
+            }
+        }
+    }
+    kept
 }
 
 fn point_segment_distance(px: f64, pz: f64, ax: f64, az: f64, bx: f64, bz: f64) -> f64 {
@@ -1012,7 +1087,7 @@ fn point_segment_distance(px: f64, pz: f64, ax: f64, az: f64, bx: f64, bz: f64) 
 mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
-    use crate::worldgen::{WaterKind, water_geometry};
+    use crate::worldgen::{water_geometry, WaterKind};
 
     fn terrain(scene: &SceneSpec) -> BakedTerrain {
         let width = scene.width_m as usize;
@@ -1128,12 +1203,38 @@ mod tests {
         assert!(!route.bridge_spans.is_empty());
         assert!(route.maximum_grade <= 0.08 + 1e-6);
         assert!(route.maximum_terrain_fill_m <= 6.0 + 1e-6);
-        assert!(
-            route
-                .bridge_spans
-                .iter()
-                .all(|span| !span.kind.starts_with("rejected-"))
-        );
+        assert!(route
+            .bridge_spans
+            .iter()
+            .all(|span| !span.kind.starts_with("rejected-")));
+    }
+
+    #[test]
+    fn materialized_roads_keep_curve_orientation_and_auditable_segments() {
+        let scene = SceneSpec {
+            scene_id: "route-materialize".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let terrain = terrain(&scene);
+        let style = style(true);
+        let water = lake(&scene, &style);
+        let plan = plan(&scene, &terrain, water, &style).unwrap().unwrap();
+        let entities = materialize(&plan);
+        assert!(!entities.is_empty());
+        assert!(entities.iter().all(|entity| entity.kind == "road"));
+        assert!(entities.iter().all(|entity| entity.width_m >= 4.25));
+        assert!(entities
+            .iter()
+            .any(|entity| entity.rotation_y_deg.abs() > 1.0));
+        let ids = entities
+            .iter()
+            .map(|entity| entity.entity_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), entities.len());
     }
 
     #[test]

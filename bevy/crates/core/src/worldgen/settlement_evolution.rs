@@ -12,7 +12,7 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 
 use super::community_typology;
 use super::route_evolution::Plan as RoutePlan;
-use super::{SceneSpec, WaterGeometry};
+use super::{EntityInstance, SceneSpec, WaterGeometry};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -163,10 +163,13 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
     {
         return Err("invalid settlementEvolution demand or lot limits".into());
     }
-    if style.get("frontageProgram").and_then(|p| p.get("requests")).is_some() {
+    if style
+        .get("frontageProgram")
+        .and_then(|p| p.get("requests"))
+        .is_some()
+    {
         return Err(
-            "settlementEvolution cannot be combined with frontageProgram.requests.count"
-                .into(),
+            "settlementEvolution cannot be combined with frontageProgram.requests.count".into(),
         );
     }
     Ok(())
@@ -199,15 +202,15 @@ pub fn plan(
     let typology = community_typology::resolve(style).map_err(TerrainError)?;
     let lot_width_m = (program.lot_width_m
         * typology.as_ref().map_or(1.0, |value| value.lot_width_scale))
-        .clamp(8.0, 80.0);
+    .clamp(8.0, 80.0);
     let lot_depth_m = (program.lot_depth_m
         * typology.as_ref().map_or(1.0, |value| value.lot_depth_scale))
-        .clamp(8.0, 80.0);
-    let floor_area_ratio = program.floor_area_ratio
-        * typology.as_ref().map_or(1.0, |value| value.far_scale);
+    .clamp(8.0, 80.0);
+    let floor_area_ratio =
+        program.floor_area_ratio * typology.as_ref().map_or(1.0, |value| value.far_scale);
     let max_floors = ((program.max_floors as f32
         * typology.as_ref().map_or(1.0, |value| value.floors_scale))
-        .round() as u32)
+    .round() as u32)
         .max(1);
     let household_area_m2 = typology
         .as_ref()
@@ -255,8 +258,10 @@ pub fn plan(
                         route.id, segment_index, sample, side_index
                     );
                     let access = route.road_width_m as f64 * 0.5 + f64::from(program.setback_m);
-                    let center_x = road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
-                    let center_z = road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
+                    let center_x =
+                        road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
+                    let center_z =
+                        road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
                     let x = center_x.round() as i32;
                     let z = center_z.round() as i32;
                     if let Err(reason) = lot_is_legal(
@@ -279,9 +284,9 @@ pub fn plan(
                         continue;
                     }
                     if buildings.iter().any(|building: &Building| {
-                        (f64::from(building.world_x) - f64::from(x)).hypot(
-                            f64::from(building.world_z) - f64::from(z),
-                        ) < f64::from(lot_width_m.min(lot_depth_m)) * 0.9
+                        (f64::from(building.world_x) - f64::from(x))
+                            .hypot(f64::from(building.world_z) - f64::from(z))
+                            < f64::from(lot_width_m.min(lot_depth_m)) * 0.9
                     }) {
                         rejections.push(Rejection {
                             candidate_id,
@@ -294,12 +299,9 @@ pub fn plan(
                     }
                     let center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     let pressure = (1.0 - center_distance / 650.0).clamp(0.15, 1.0);
-                    let floors = ((1.0 + pressure * f64::from(max_floors - 1))
-                        .round() as u32)
-                        .max(1);
-                    let footprint = f64::from(lot_width_m)
-                        * f64::from(lot_depth_m)
-                        * 0.58;
+                    let floors =
+                        ((1.0 + pressure * f64::from(max_floors - 1)).round() as u32).max(1);
+                    let footprint = f64::from(lot_width_m) * f64::from(lot_depth_m) * 0.58;
                     let floor_area = footprint * f64::from(floors) * f64::from(floor_area_ratio);
                     let household_capacity = (floor_area / household_area_m2).floor() as u32;
                     let job_capacity = (floor_area / job_area_m2).floor() as u32;
@@ -326,14 +328,22 @@ pub fn plan(
                     } else if wants_jobs {
                         ("office_tower", lot_width_m.min(28.0), lot_depth_m.min(26.0))
                     } else {
-                        ("residential_home", lot_width_m.min(24.0), lot_depth_m.min(26.0))
+                        (
+                            "residential_home",
+                            lot_width_m.min(24.0),
+                            lot_depth_m.min(26.0),
+                        )
                     };
                     let height = 4.0 + floors as f32 * 3.2;
                     let building = Building {
                         id: candidate_id.clone(),
                         kind: kind.into(),
                         route_id: route.id.clone(),
-                        side: if side < 0.0 { "left".into() } else { "right".into() },
+                        side: if side < 0.0 {
+                            "left".into()
+                        } else {
+                            "right".into()
+                        },
                         world_x: x,
                         world_z: z,
                         width_m: width,
@@ -353,11 +363,8 @@ pub fn plan(
                         income_band: typology.as_ref().map_or_else(
                             || "mixed".into(),
                             |value| {
-                                community_typology::income_band(
-                                    &value.profile,
-                                    center_distance,
-                                )
-                                .into()
+                                community_typology::income_band(&value.profile, center_distance)
+                                    .into()
                             },
                         ),
                     };
@@ -404,7 +411,11 @@ pub fn plan(
     Ok(Some(Plan {
         format: "glyphweave.settlement-evolution-plan".into(),
         version: 1,
-        status: if complete { "pass".into() } else { "incomplete".into() },
+        status: if complete {
+            "pass".into()
+        } else {
+            "incomplete".into()
+        },
         demand: Demand {
             households: program.households_target,
             jobs: program.jobs_target,
@@ -431,8 +442,16 @@ fn route_center(plan: &RoutePlan) -> (f64, f64) {
     }
     let count = plan.anchors.len() as f64;
     (
-        plan.anchors.iter().map(|anchor| f64::from(anchor.x)).sum::<f64>() / count,
-        plan.anchors.iter().map(|anchor| f64::from(anchor.z)).sum::<f64>() / count,
+        plan.anchors
+            .iter()
+            .map(|anchor| f64::from(anchor.x))
+            .sum::<f64>()
+            / count,
+        plan.anchors
+            .iter()
+            .map(|anchor| f64::from(anchor.z))
+            .sum::<f64>()
+            / count,
     )
 }
 
@@ -457,13 +476,7 @@ fn lot_is_legal(
     }
     let mut lowest = f32::INFINITY;
     let mut highest = f32::NEG_INFINITY;
-    for [sx, sz] in [
-        [-hw, -hd],
-        [hw, -hd],
-        [-hw, hd],
-        [hw, hd],
-        [0.0, 0.0],
-    ] {
+    for [sx, sz] in [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd], [0.0, 0.0]] {
         let px = x + sx.round() as i32;
         let pz = z + sz.round() as i32;
         if water.contains_point(f64::from(px), f64::from(pz)) {
@@ -480,6 +493,34 @@ fn lot_is_legal(
         return Err("slope_exceeds_contract".into());
     }
     Ok(())
+}
+
+pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
+    plan.buildings
+        .iter()
+        .map(|building| {
+            let world_y = terrain
+                .height(building.world_x, building.world_z)
+                .map_or(0.0, |height| height * 4.0)
+                .round() as i32;
+            EntityInstance {
+                entity_id: format!("generated.settlement-evolution.{}", building.id),
+                asset_id: format!("building.{}", building.kind),
+                kind: building.kind.clone(),
+                world_x: building.world_x,
+                world_z: building.world_z,
+                world_y,
+                scale: 1.0,
+                width_m: building.width_m,
+                depth_m: building.depth_m,
+                height_m: building.height_m,
+                rotation_y_deg: 0.0,
+                grounding: super::GroundingSpec::default(),
+                anchors: Vec::new(),
+                bounds: None,
+            }
+        })
+        .collect()
 }
 
 pub fn require_complete(plan: &Plan) -> Result<(), TerrainError> {
@@ -500,7 +541,7 @@ mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
     use crate::worldgen::route_evolution::{Anchor, Plan as RoutePlan, Route, RoutePoint};
-    use crate::worldgen::{WaterKind, water_geometry};
+    use crate::worldgen::{water_geometry, WaterKind};
 
     fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry) {
         let scene = SceneSpec {
@@ -511,16 +552,10 @@ mod tests {
             origin_z: 0,
             seed_offset: 0,
         };
-        let payload = encode_millimetres(
-            512,
-            512,
-            (0..512).flat_map(|_| (0..512).map(|_| 10.0)),
-        )
-        .unwrap();
+        let payload =
+            encode_millimetres(512, 512, (0..512).flat_map(|_| (0..512).map(|_| 10.0))).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
-        terrain
-            .insert_chunk(0, 0, 512, 512, &payload)
-            .unwrap();
+        terrain.insert_chunk(0, 0, 512, 512, &payload).unwrap();
         let style = serde_json::json!({"water": {"levelM": 0}});
         let water = water_geometry(WaterKind::None, &[], &scene, &style);
         (scene, terrain, water)
@@ -611,7 +646,20 @@ mod tests {
             .unwrap();
         assert_eq!(low.status, "pass");
         assert!(high.buildings.len() > low.buildings.len());
-        assert!(high.buildings.iter().any(|building| building.kind == "office_tower"));
+        assert!(high
+            .buildings
+            .iter()
+            .any(|building| building.kind == "office_tower"));
+        let entities = materialize(&low, &terrain);
+        assert_eq!(entities.len(), low.buildings.len());
+        assert!(entities.iter().all(|entity| {
+            entity
+                .entity_id
+                .starts_with("generated.settlement-evolution.")
+                && entity.width_m > 0.0
+                && entity.depth_m > 0.0
+                && entity.height_m > 0.0
+        }));
     }
 
     #[test]
@@ -638,11 +686,9 @@ mod tests {
         let (scene, terrain, water) = fixture();
         let routes = route_plan();
         let mut china = style(180, 20, 300.0);
-        china["communityProfile"] =
-            serde_json::json!({"version": 1, "profile": "china-gated"});
+        china["communityProfile"] = serde_json::json!({"version": 1, "profile": "china-gated"});
         let mut us = style(180, 20, 300.0);
-        us["communityProfile"] =
-            serde_json::json!({"version": 1, "profile": "us-suburban"});
+        us["communityProfile"] = serde_json::json!({"version": 1, "profile": "us-suburban"});
         let china = plan(&scene, &terrain, water, &routes, &china)
             .unwrap()
             .unwrap();

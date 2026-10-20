@@ -2618,6 +2618,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         };
         let route_evolution_plan =
             route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
+        let mut settlement_evolution_result = None;
         if let Some(route_plan) = &route_evolution_plan {
             fs::write(
                 scene_dir.join("route-evolution-plan.json"),
@@ -2653,6 +2654,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 route_plan,
                 &effective_style,
             )? {
+                settlement_evolution_result = Some(settlement_plan.clone());
                 fs::write(
                     scene_dir.join("settlement-evolution-plan.json"),
                     serde_json::to_vec_pretty(&settlement_plan)?,
@@ -2768,6 +2770,42 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 development_plan.as_ref(),
                 planned_zones.as_deref(),
             )?;
+        if let Some(route_plan) = &route_evolution_plan {
+            let existing = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let materialized = route_evolution::materialize(route_plan)
+                .into_iter()
+                .filter(|entity| !existing.contains(entity.entity_id.as_str()))
+                .collect::<Vec<_>>();
+            let count = materialized.len();
+            drop(existing);
+            entities.extend(materialized);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "route-evolution-materialization",
+                "materializedRoadSegments": count,
+            }));
+        }
+        if let Some(plan) = &settlement_evolution_result {
+            let existing = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let materialized = settlement_evolution::materialize(plan, &natural_samples)
+                .into_iter()
+                .filter(|entity| !existing.contains(entity.entity_id.as_str()))
+                .collect::<Vec<_>>();
+            let count = materialized.len();
+            drop(existing);
+            entities.extend(materialized);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "settlement-evolution-materialization",
+                "materializedBuildings": count,
+            }));
+        }
         if let Some(route_plan) = &route_evolution_plan {
             let removed = route_evolution::retain_clearance(&mut entities, route_plan, 2.0);
             engineering_reports.push(serde_json::json!({
