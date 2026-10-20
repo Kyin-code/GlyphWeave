@@ -2,11 +2,13 @@
   "format": "glyphweave.urban-case-evidence",
   "version": 1,
   "retrievedAt": "2026-10-21",
-  "purpose": "W0 source audit for twelve representative core cuts. Mechanism priors exist for all 48 cases; this file records verified source entry points, partial OSM core-window measurements, and remaining measurement gaps.",
+  "purpose": "W0 source audit for the 48 core cuts. Mechanism priors exist for all cases; this file records verified source entry points, partial OSM core-window measurements, and remaining measurement gaps.",
   "policy": {
     "caseUnit": "core-cut-not-whole-city",
     "minimumSourceCountForAuditedCase": 2,
     "minimumPublisherDiversity": 2,
+    "expectedSourceAuditedCases": 24,
+    "expectedPartialOsmWindows": 12,
     "heuristicValuesMayBePromotedOnlyWithMeasuredStatus": true,
     "browserOrReaderAccessAccepted": true,
     "unverifiedAiSummariesAccepted": false
@@ -406,6 +408,152 @@
       ]
     },
     {
+      "id": "cn-guangzhou-spatial-plan",
+      "publisher": "Guangzhou Municipal People's Government",
+      "title": "Guangzhou Territorial Spatial Master Plan 2021-2035",
+      "url": "https://www.gz.gov.cn/gkmlpt/content/9/9960/post_9960346.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal government issued Guangzhou's 2021-2035 territorial spatial master plan."
+      ]
+    },
+    {
+      "id": "cn-chengdu-ecological-plan",
+      "publisher": "Chengdu Planning and Natural Resources Bureau",
+      "title": "Chengdu ecological restoration planning document",
+      "url": "https://mpnr.chengdu.gov.cn/ghhzrzyj/tzgg/2024-08/21/97e8fd940aa04e2f9735fb75b8c60110/files/bff1eee922864412a083407cd2e3e8d0.pdf",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-pdf",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal planning and natural-resources bureau publishes an ecological restoration planning document."
+      ]
+    },
+    {
+      "id": "cn-xian-state-approval",
+      "publisher": "State Council of the People's Republic of China",
+      "title": "Approval of Xi'an Territorial Spatial Master Plan 2021-2035",
+      "url": "https://www.gov.cn/zhengce/zhengceku/202501/content_7000441.htm",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan-approval",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The State Council approved Xi'an's 2021-2035 territorial spatial master plan."
+      ]
+    },
+    {
+      "id": "cn-hangzhou-portal",
+      "publisher": "Hangzhou Municipal People's Government",
+      "title": "Hangzhou Municipal Government portal",
+      "url": "https://www.hangzhou.gov.cn/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Hangzhou planning and government information."
+      ]
+    },
+    {
+      "id": "cn-wuhan-spatial-plan",
+      "publisher": "Wuhan Municipal People's Government",
+      "title": "Wuhan Territorial Spatial Master Plan 2021-2035",
+      "url": "https://www.wuhan.gov.cn/zwgk/xxgk/zfwj/szfwj/202504/t20250425_2573228.shtml",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-plan",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal government issued Wuhan's 2021-2035 territorial spatial master plan."
+      ]
+    },
+    {
+      "id": "cn-qingdao-portal",
+      "publisher": "Qingdao Municipal People's Government",
+      "title": "Qingdao Government portal",
+      "url": "https://www.qingdao.gov.cn/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Qingdao planning and government information."
+      ]
+    },
+    {
+      "id": "cn-xiamen-portal",
+      "publisher": "Xiamen Municipal People's Government",
+      "title": "Xiamen Municipal Government portal",
+      "url": "https://www.xm.gov.cn/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Xiamen planning and government information."
+      ]
+    },
+    {
+      "id": "cn-kunming-portal",
+      "publisher": "Kunming Municipal People's Government",
+      "title": "Kunming Municipal Government portal",
+      "url": "https://www.km.gov.cn/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official entry point for Kunming planning and government information."
+      ]
+    },
+    {
+      "id": "us-san-francisco-planning",
+      "publisher": "San Francisco Planning Department",
+      "title": "San Francisco Planning",
+      "url": "https://sfplanning.org/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The Planning Department publishes city planning and zoning information."
+      ]
+    },
+    {
+      "id": "us-los-angeles-planning",
+      "publisher": "Los Angeles City Planning",
+      "title": "Los Angeles City Planning",
+      "url": "https://planning.lacity.gov/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The city planning department publishes plans, zoning and urban-design information."
+      ]
+    },
+    {
+      "id": "us-seattle-opcd",
+      "publisher": "Seattle Office of Planning and Community Development",
+      "title": "Office of Planning and Community Development",
+      "url": "https://www.seattle.gov/opcd/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Seattle maintains a planning and community-development department."
+      ]
+    },
+    {
+      "id": "us-boston-planning",
+      "publisher": "City of Boston Planning Department",
+      "title": "City of Boston Planning Department",
+      "url": "https://www.bostonplans.org/",
+      "readerUrl": "https://r.jina.ai/http://www.bostonplans.org/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The department publishes neighborhood planning, zoning, urban design and 3D data resources."
+      ]
+    },
+    {
       "id": "osm-map-api",
       "publisher": "OpenStreetMap contributors",
       "title": "OpenStreetMap map data API",
@@ -600,87 +748,123 @@
     },
     {
       "caseId": "cn-guangzhou",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-guangzhou-spatial-plan", "osm-map-api"],
+      "supportedMechanisms": [
+        "2021-2035 municipal territorial spatial plan",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["core-window crop", "arcade old-city parcel sample", "road density", "FAR", "market access time"]
     },
     {
       "caseId": "cn-chengdu",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-chengdu-ecological-plan", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal ecological-restoration planning",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["core-window crop", "old-grid parcel sample", "road density", "FAR", "market access time"]
     },
     {
       "caseId": "cn-xian",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-xian-state-approval", "osm-map-api"],
+      "supportedMechanisms": [
+        "state-approved 2021-2035 territorial spatial plan",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["wall-city crop", "protected-core parcel sample", "road density", "FAR", "market access time"]
     },
     {
       "caseId": "cn-hangzhou",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-hangzhou-portal", "osm-map-api"],
+      "supportedMechanisms": [
+        "official municipal planning information entry point",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["West Lake core-window crop", "lakeside parcel sample", "protected-view constraints", "road density", "market access time"]
     },
     {
       "caseId": "cn-wuhan",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-wuhan-spatial-plan", "osm-map-api"],
+      "supportedMechanisms": [
+        "2021-2035 municipal territorial spatial plan",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["river-confluence crop", "lakefront parcel sample", "bridge density", "road density", "market access time"]
     },
     {
       "caseId": "cn-qingdao",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-qingdao-portal", "osm-map-api"],
+      "supportedMechanisms": [
+        "official municipal planning information entry point",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["mountain-coast crop", "stepped-street sample", "slope distribution", "road grade", "market access time"]
     },
     {
       "caseId": "cn-xiamen",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-xiamen-portal", "osm-map-api"],
+      "supportedMechanisms": [
+        "official municipal planning information entry point",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["island waterfront crop", "arcade parcel sample", "reclaimed-edge area", "road density", "market access time"]
     },
     {
       "caseId": "cn-kunming",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["cn-kunming-portal", "osm-map-api"],
+      "supportedMechanisms": [
+        "official municipal planning information entry point",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["plateau-lake crop", "basin parcel sample", "slope distribution", "road density", "market access time"]
     },
     {
       "caseId": "us-san-francisco",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["us-san-francisco-planning", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal planning and zoning information",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["steep-grid crop", "block and parcel distribution", "FAR/height", "market access time"]
     },
     {
       "caseId": "us-los-angeles",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["us-los-angeles-planning", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal planning, zoning and urban-design information",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["polycentric core selection", "commercial-strip sample", "parcel/FAR data", "market access time"]
     },
     {
       "caseId": "us-seattle",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["us-seattle-opcd", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal planning and community-development framework",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["hill-bay crop", "urban-village parcel sample", "FAR/height", "market access time"]
     },
     {
       "caseId": "us-boston",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["us-boston-planning", "osm-map-api"],
+      "supportedMechanisms": [
+        "municipal neighborhood planning, zoning and urban-design information",
+        "current map geometry available for bounded-window measurement"
+      ],
+      "measurementGaps": ["colonial-lane crop", "filled-waterfront boundary", "block and parcel distribution", "market access time"]
     },
     {
       "caseId": "us-miami",

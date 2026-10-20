@@ -2,8 +2,8 @@
 
 日期：2026-10-21
 
-状态：**调查进行中；12 个代表案例已有公开来源和首轮 OSM 米制观测，
-36 个仍为机制筛选**
+状态：**调查进行中；24 个代表案例已有公开来源，其中 12 个完成首轮 OSM
+米制观测，另 24 个仍为机制筛选**
 
 上游设计：
 
@@ -12,7 +12,7 @@
 
 机器可读结果：
 
-- `assets/data/urban-case-evidence-12.json`
+- `assets/data/urban-case-evidence.json`
 - `scripts/check-urban-case-evidence.mjs`
 - `assets/data/urban-core-measurements/`
 - `scripts/measure-urban-case-osm.mjs`
@@ -40,9 +40,9 @@ node scripts/check-urban-core-measurements.mjs
 {
   "status": "pass",
   "cases": 48,
-  "sourceAuditedCases": 12,
-  "screenedCases": 36,
-  "sources": 33,
+  "sourceAuditedCases": 24,
+  "screenedCases": 24,
+  "sources": 45,
   "partialOsmWindows": 12
 }
 ```
@@ -53,13 +53,13 @@ node scripts/check-urban-core-measurements.mjs
 |---|---|---|
 | `source-audited-core-cut` | 至少两个不同发布者来源；能支持核心切面机制 | 代表性案例 |
 | `partial-osm-core-window` | 已有约 1km² 当前 OSM 道路、建筑覆盖和设施点观测 | 12 个代表案例 |
-| `screened-heuristic` | 已进入 48 案机制筛选，尚无逐案公开来源矩阵 | 参数先验 |
+| `screened-heuristic` | 已进入 48 案机制筛选，尚无逐案公开来源矩阵 | 24 案参数先验 |
 | `measured-core-window` | 已定义米制 crop，并完成路网/地块/密度/市场等测量 | **尚无案例达到** |
 | `bake-calibrated` | 已用真实或合成控制世界完成烘焙对照 | **尚无 V3 案例达到** |
 
-本轮把 12 案提升到 `source-audited-core-cut + partial-osm-core-window`；
-没有案例被错误提升为完整的 `measured-core-window`，因为地块、FAR、
-市场容量和网络时距仍未全部测量。
+本轮把 24 案提升到 `source-audited-core-cut`，其中前 12 案同时达到
+`partial-osm-core-window`。没有案例被错误提升为完整的
+`measured-core-window`，因为地块、FAR、市场容量和网络时距仍未全部测量。
 
 ## 3. 代表性案例与来源
 
@@ -306,6 +306,31 @@ node scripts/check-urban-core-measurements.mjs
   河道和公园的组合；
 - 社区菜场/邻里商业应在屋邨和站点网络中核定，而不是一个市场覆盖全图。
 
+### 3.13 第二批来源审计
+
+第二批把中国剩余 8 个核心切面和 4 个美国城市提升到有官方规划入口与
+独立 OSM 数据源的状态：
+
+| 案例 | 官方入口 | 当前用途 |
+|---|---|---|
+| 广州 | [2021–2035 国土空间总体规划](https://www.gz.gov.cn/gkmlpt/content/9/9960/post_9960346.html) | 江港、骑楼旧城、珠江新城对照 |
+| 成都 | [生态修复规划文件](https://mpnr.chengdu.gov.cn/ghhzrzyj/tzgg/2024-08/21/97e8fd940aa04e2f9735fb75b8c60110/files/bff1eee922864412a083407cd2e3e8d0.pdf) | 平原旧城、水系与生态修复 |
+| 西安 | [国务院国土空间规划批复](https://www.gov.cn/zhengce/zhengceku/202501/content_7000441.htm) | 城墙核心、保护与新区 |
+| 杭州 | [杭州市政府门户](https://www.hangzhou.gov.cn/) | 西湖、运河与滨水新区 |
+| 武汉 | [2021–2035 国土空间总体规划](https://www.wuhan.gov.cn/zwgk/xxgk/zfwj/szfwj/202504/t20250425_2573228.shtml) | 江汇、湖群与三镇 |
+| 青岛 | [青岛政务网](https://www.qingdao.gov.cn/) | 山—海—港与阶梯街道 |
+| 厦门 | [厦门市政府门户](https://www.xm.gov.cn/) | 岛屿、骑楼与填海边缘 |
+| 昆明 | [昆明市政府门户](https://www.km.gov.cn/) | 高原湖盆与坝区 |
+| 旧金山 | [SF Planning](https://sfplanning.org/) | 陡坡网格、湾岸与就业核心 |
+| 洛杉矶 | [LA City Planning](https://planning.lacity.gov/) | 多中心、商业走廊与低密蔓延 |
+| 西雅图 | [Seattle OPCD](https://www.seattle.gov/opcd/) | 山海坡地、城市村与轨道更新 |
+| 波士顿 | [City of Boston Planning Department](https://www.bostonplans.org/) | 殖民巷网、填海滨水与再开发 |
+
+这批案例的第二个来源是 [OpenStreetMap map data API](https://api.openstreetmap.org/api/0.6/map)，
+只证明当前可取得有界窗口的道路、建筑和设施几何，**不证明历史事实**。
+它们尚未完成 1km² OSM 米制测量，因此保持 `source-audited-core-cut`，
+不带 `partial-osm-core-window` 标记。
+
 ## 4. 首轮 1km² 米制观测
 
 测量脚本以命名核心锚点为中心，取面积约 1km² 的圆形当前 OSM 快照：
@@ -449,9 +474,9 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 
 ## 6. 仍未完成的证据工作
 
-### 6.1 36 个待补案例
+### 6.1 24 个待补案例
 
-`assets/data/urban-case-evidence-12.json` 已为全部 48 案登记状态。其余 36 案
+`assets/data/urban-case-evidence.json` 已为全部 48 案登记状态。其余 24 案
 目前只能是 `screened-heuristic`，不能用于声称官方密度、人口、路网或市场统计。
 
 ### 6.2 米制核心窗口
@@ -484,11 +509,11 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 
 W0 继续按以下顺序推进：
 
-1. 对 12 个已审案例定义米制 core-window；
+1. 对 24 个已审案例定义米制 core-window；
 2. 使用官方开放数据/OSM 辅助测量道路、地块、建筑高度和设施；
 3. 每个数值分别标记 `observed`、`derived` 或 `heuristic`；
 4. 补齐市场专用来源；
-5. 将 36 个案例按地区逐批升级；
+5. 将 24 个案例按地区逐批升级；
 6. 只有通过来源 gate 后，才把参数写入生成 Manifest 或 Rust fixture。
 
 在这些工作完成前，V3 审核稿中的道路密度、FAR、市场和工程系数仍只能当作

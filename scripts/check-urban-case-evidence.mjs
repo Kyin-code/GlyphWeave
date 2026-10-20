@@ -2,7 +2,7 @@ import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const evidencePath = resolve(
-  process.argv[2] ?? 'assets/data/urban-case-evidence-12.json',
+  process.argv[2] ?? 'assets/data/urban-case-evidence.json',
 )
 const priorsPath = resolve(
   process.argv[3] ?? 'assets/data/urban-case-priors-48.json',
@@ -169,8 +169,19 @@ if (coverageIds.size !== priorIds.size) {
     `coverage count mismatch: evidence ${coverageIds.size}, priors ${priorIds.size}`,
   )
 }
-if (auditedIds.length !== 12) {
-  failures.push(`expected 12 source-audited cases, got ${auditedIds.length}`)
+const expectedAudited =
+  evidence.policy?.expectedSourceAuditedCases ?? 12
+if (auditedIds.length !== expectedAudited) {
+  failures.push(
+    `expected ${expectedAudited} source-audited cases, got ${auditedIds.length}`,
+  )
+}
+const expectedMeasured =
+  evidence.policy?.expectedPartialOsmWindows ?? partialOsmWindows
+if (partialOsmWindows !== expectedMeasured) {
+  failures.push(
+    `expected ${expectedMeasured} partial OSM windows, got ${partialOsmWindows}`,
+  )
 }
 
 if (failures.length) {
