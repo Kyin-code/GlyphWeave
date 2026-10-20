@@ -30,7 +30,9 @@
 > P3 容量规划切片由需求与地块容量产出 15 栋建筑，不是固定 count；见
 > [`SETTLEMENT-CAPACITY-P3-20261021.zh-CN.md`](SETTLEMENT-CAPACITY-P3-20261021.zh-CN.md)。
 > 该计划尚未转回最终 AccessGraph 实体。
-> 完整 epoch、市场辐射和宏观工程接线仍未完成；
+> P5 市场网络切片已用 280 容量市场覆盖 260 需求、15 个需求点零缺口，见
+> [`MARKET-CATCHMENT-P5-20261021.zh-CN.md`](MARKET-CATCHMENT-P5-20261021.zh-CN.md)。
+> 完整 epoch 和宏观工程接线仍未完成；
 > 审核稿 §20 是当前状态准绳，不能把旧 B/C 完成标志当成新要求完成。
 
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
