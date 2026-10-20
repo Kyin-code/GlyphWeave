@@ -130,6 +130,21 @@
         }
       ]
     },
+    "settlementEvolution": {
+      "version": 1,
+      "enabled": true,
+      "householdsTarget": 180,
+      "jobsTarget": 60,
+      "retailFloorAreaM2": 1200,
+      "serviceBudget": 2,
+      "lotWidthM": 20,
+      "lotDepthM": 24,
+      "roadStepM": 24,
+      "setbackM": 10,
+      "maxSlope": 0.25,
+      "floorAreaRatio": 1.2,
+      "maxFloors": 4
+    },
     "water": {
       "waterType": "lake",
       "levelPolicy": "horizontal-datum",

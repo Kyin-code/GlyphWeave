@@ -327,6 +327,9 @@ async function loadScene() {
   loaded.routeEvolutionPlan = await fetch(`../scenes/${loaded.sceneId}/route-evolution-plan.json`)
     .then(response => response.ok ? response.json() : null)
     .catch(() => null)
+  loaded.settlementEvolutionPlan = await fetch(`../scenes/${loaded.sceneId}/settlement-evolution-plan.json`)
+    .then(response => response.ok ? response.json() : null)
+    .catch(() => null)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
   nearBuildToken++
@@ -372,6 +375,17 @@ function drawStrategicOverlays(ox, oz, scale) {
       context.stroke()
     }
     context.restore()
+  }
+  for (const building of scene.settlementEvolutionPlan?.buildings ?? []) {
+    const x = ox + (building.worldX - scene.originX - building.widthM / 2) * scale
+    const z = oz + (building.worldZ - scene.originZ - building.depthM / 2) * scale
+    context.fillStyle = building.kind === 'storefront' ? '#c65b43'
+      : building.kind === 'office_tower' ? '#9aadb4'
+      : '#d4b48a'
+    context.fillRect(x, z, Math.max(2, building.widthM * scale), Math.max(2, building.depthM * scale))
+    context.strokeStyle = 'rgba(24,34,38,.55)'
+    context.lineWidth = 1
+    context.strokeRect(x, z, Math.max(2, building.widthM * scale), Math.max(2, building.depthM * scale))
   }
   const districts = scene.urbanDistrictAudit?.iterations ?? []
   if (districts.length) {
@@ -1037,6 +1051,33 @@ async function drawNear(buildToken) {
         nearGroupRoot.add(support)
       }
     }
+  }
+  for (const building of scene.settlementEvolutionPlan?.buildings ?? []) {
+    const ground = heightAt(building.worldX, building.worldZ)
+    const material = new THREE.MeshStandardMaterial({
+      color: building.kind === 'storefront' ? '#a85a43'
+        : building.kind === 'office_tower' ? '#71848d'
+        : '#c6aa80',
+      roughness: .9,
+      metalness: building.kind === 'office_tower' ? .12 : 0,
+    })
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(building.widthM, building.heightM, building.depthM),
+      material,
+    )
+    mesh.position.set(
+      building.worldX - scene.originX,
+      ground + building.heightM * .5,
+      building.worldZ - scene.originZ,
+    )
+    mesh.name = 'settlement-building:' + building.id
+    nearGroupRoot.add(mesh)
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(building.widthM * 1.04, .35, building.depthM * 1.04),
+      new THREE.MeshStandardMaterial({ color: '#4e4a43', roughness: .95 }),
+    )
+    roof.position.set(mesh.position.x, mesh.position.y + building.heightM * .5 + .18, mesh.position.z)
+    nearGroupRoot.add(roof)
   }
   const groundedRenderY = entity => {
     const scale = Number.isFinite(entity.scale) ? entity.scale : 1

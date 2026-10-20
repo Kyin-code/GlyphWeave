@@ -61,6 +61,7 @@ pub mod services;
 pub mod natural_geography;
 pub mod natural_only;
 pub mod route_evolution;
+pub mod settlement_evolution;
 pub mod urban_slice;
 mod shorefront;
 mod terrain_context;
@@ -2012,6 +2013,8 @@ impl WorldManifest {
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         route_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        settlement_evolution::validate_style(&self.style)
+            .map_err(WorldgenError::InvalidRules)?;
         urban_slice::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
@@ -2599,6 +2602,18 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             route_evolution::require_pass(&route_plan)
                 .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+            if let Some(settlement_plan) = settlement_evolution::plan(
+                scene,
+                &natural_samples,
+                water,
+                route_plan,
+                &effective_style,
+            )? {
+                fs::write(
+                    scene_dir.join("settlement-evolution-plan.json"),
+                    serde_json::to_vec_pretty(&settlement_plan)?,
+                )?;
+            }
         }
         trace.stage(&scene.scene_id,"road-and-service-planning");
         let planned_zones = match LandUseProfile::from_style(&manifest.style) {
