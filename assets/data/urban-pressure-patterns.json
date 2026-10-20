@@ -1,0 +1,1314 @@
+{
+  "format": "glyphweave.urban-pressure-patterns",
+  "version": 1,
+  "generatedAt": "2026-10-20",
+  "priorsPath": "G:\\difyllmwiki\\GlyphWeave\\assets\\data\\urban-case-priors-48.json",
+  "implementationSource": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\land_pressure.rs",
+  "method": "descriptive-grouping-of-heuristic-priors",
+  "warning": "Factors overlap heavily. Group medians and ratios are descriptive, not causal coefficients. The landPressurePrior values are not yet measured from official statistics.",
+  "scaleGroups": {
+    "megacity": {
+      "caseIds": [
+        "cn-beijing",
+        "cn-shanghai",
+        "cn-guangzhou",
+        "cn-shenzhen",
+        "cn-chengdu",
+        "cn-chongqing",
+        "cn-xian",
+        "cn-hangzhou",
+        "cn-wuhan",
+        "us-new-york",
+        "us-los-angeles",
+        "us-chicago",
+        "eu-london",
+        "eu-paris",
+        "jp-tokyo-shitamachi",
+        "hk-central",
+        "hk-mong-kok",
+        "hk-causeway-bay",
+        "hk-kwun-tong"
+      ],
+      "terrainScarcity": {
+        "count": 19,
+        "min": 0.96,
+        "median": 1.38,
+        "max": 1.82
+      },
+      "protectionResistance": {
+        "count": 19,
+        "min": 0.62,
+        "median": 0.78,
+        "max": 0.96
+      },
+      "specialRegime": {
+        "count": 19,
+        "min": 1.02,
+        "median": 1.2,
+        "max": 1.4
+      }
+    },
+    "city": {
+      "caseIds": [
+        "cn-qingdao",
+        "cn-xiamen",
+        "cn-kunming",
+        "us-san-francisco",
+        "us-seattle",
+        "us-boston",
+        "us-denver",
+        "us-portland",
+        "us-new-orleans",
+        "eu-amsterdam",
+        "eu-zurich",
+        "eu-barcelona",
+        "eu-lisbon",
+        "eu-stockholm",
+        "eu-prague",
+        "jp-kyoto-gion",
+        "jp-yokohama-minato",
+        "jp-kobe-sannomiya"
+      ],
+      "terrainScarcity": {
+        "count": 18,
+        "min": 0.88,
+        "median": 1.42,
+        "max": 1.76
+      },
+      "protectionResistance": {
+        "count": 18,
+        "min": 0.58,
+        "median": 0.91,
+        "max": 0.98
+      },
+      "specialRegime": {
+        "count": 18,
+        "min": 1.02,
+        "median": 1.18,
+        "max": 1.32
+      }
+    },
+    "metropolis": {
+      "caseIds": [
+        "us-miami",
+        "us-washington-dc",
+        "us-las-vegas",
+        "eu-berlin",
+        "eu-milan",
+        "eu-rome",
+        "eu-vienna",
+        "jp-tokyo-bay",
+        "jp-osaka-namba",
+        "hk-sha-tin"
+      ],
+      "terrainScarcity": {
+        "count": 10,
+        "min": 0.98,
+        "median": 1.38,
+        "max": 1.72
+      },
+      "protectionResistance": {
+        "count": 10,
+        "min": 0.44,
+        "median": 0.82,
+        "max": 1
+      },
+      "specialRegime": {
+        "count": 10,
+        "min": 1.1,
+        "median": 1.19,
+        "max": 1.34
+      }
+    },
+    "town": {
+      "caseIds": [
+        "hk-sai-kung"
+      ],
+      "terrainScarcity": {
+        "count": 1,
+        "min": 1.72,
+        "median": 1.72,
+        "max": 1.72
+      },
+      "protectionResistance": {
+        "count": 1,
+        "min": 0.98,
+        "median": 0.98,
+        "max": 0.98
+      },
+      "specialRegime": {
+        "count": 1,
+        "min": 1.12,
+        "median": 1.12,
+        "max": 1.12
+      }
+    }
+  },
+  "factorGroups": {
+    "coastal-reclamation": {
+      "caseIds": [
+        "cn-shanghai",
+        "cn-shenzhen",
+        "cn-xiamen",
+        "us-boston",
+        "us-miami",
+        "eu-amsterdam",
+        "jp-tokyo-shitamachi",
+        "jp-tokyo-bay",
+        "jp-yokohama-minato",
+        "hk-central",
+        "hk-causeway-bay",
+        "hk-kwun-tong",
+        "hk-sha-tin"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 13,
+          "min": 1.36,
+          "median": 1.52,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 13,
+          "min": 0.66,
+          "median": 0.84,
+          "max": 0.96
+        },
+        "specialRegime": {
+          "count": 13,
+          "min": 1.14,
+          "median": 1.3,
+          "max": 1.4
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 35,
+          "min": 0.88,
+          "median": 1.28,
+          "max": 1.76
+        },
+        "protectionResistance": {
+          "count": 35,
+          "min": 0.44,
+          "median": 0.88,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 35,
+          "min": 1.02,
+          "median": 1.16,
+          "max": 1.36
+        }
+      },
+      "implementationWeight": 0.18,
+      "descriptiveRegimeRatio": 1.121
+    },
+    "financial-center": {
+      "caseIds": [
+        "cn-shanghai",
+        "cn-guangzhou",
+        "cn-shenzhen",
+        "cn-hangzhou",
+        "us-new-york",
+        "us-san-francisco",
+        "us-los-angeles",
+        "us-chicago",
+        "us-seattle",
+        "eu-london",
+        "eu-paris",
+        "eu-zurich",
+        "eu-milan",
+        "eu-barcelona",
+        "eu-stockholm",
+        "jp-tokyo-shitamachi",
+        "jp-osaka-namba",
+        "jp-yokohama-minato",
+        "hk-central",
+        "hk-mong-kok",
+        "hk-causeway-bay"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 21,
+          "min": 0.96,
+          "median": 1.42,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 21,
+          "min": 0.62,
+          "median": 0.82,
+          "max": 0.96
+        },
+        "specialRegime": {
+          "count": 21,
+          "min": 1.1,
+          "median": 1.24,
+          "max": 1.4
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 27,
+          "min": 0.88,
+          "median": 1.38,
+          "max": 1.76
+        },
+        "protectionResistance": {
+          "count": 27,
+          "min": 0.44,
+          "median": 0.86,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 27,
+          "min": 1.02,
+          "median": 1.16,
+          "max": 1.34
+        }
+      },
+      "implementationWeight": 0.12,
+      "descriptiveRegimeRatio": 1.069
+    },
+    "historic-core": {
+      "caseIds": [
+        "cn-beijing",
+        "cn-guangzhou",
+        "cn-chengdu",
+        "cn-chongqing",
+        "cn-xian",
+        "cn-hangzhou",
+        "cn-wuhan",
+        "cn-qingdao",
+        "cn-kunming",
+        "us-new-york",
+        "us-san-francisco",
+        "us-chicago",
+        "us-boston",
+        "us-portland",
+        "us-washington-dc",
+        "us-new-orleans",
+        "eu-london",
+        "eu-paris",
+        "eu-amsterdam",
+        "eu-berlin",
+        "eu-zurich",
+        "eu-milan",
+        "eu-rome",
+        "eu-barcelona",
+        "eu-lisbon",
+        "eu-stockholm",
+        "eu-prague",
+        "eu-vienna",
+        "jp-tokyo-shitamachi",
+        "jp-osaka-namba",
+        "jp-kyoto-gion",
+        "jp-kobe-sannomiya",
+        "hk-mong-kok",
+        "hk-causeway-bay"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 34,
+          "min": 0.88,
+          "median": 1.35,
+          "max": 1.78
+        },
+        "protectionResistance": {
+          "count": 34,
+          "min": 0.62,
+          "median": 0.89,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 34,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.36
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 14,
+          "min": 1.08,
+          "median": 1.53,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 14,
+          "min": 0.44,
+          "median": 0.82,
+          "max": 0.98
+        },
+        "specialRegime": {
+          "count": 14,
+          "min": 1.02,
+          "median": 1.26,
+          "max": 1.4
+        }
+      },
+      "implementationWeight": 0.08,
+      "descriptiveRegimeRatio": 0.937
+    },
+    "island": {
+      "caseIds": [
+        "cn-xiamen",
+        "eu-stockholm",
+        "hk-sai-kung"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 3,
+          "min": 1.56,
+          "median": 1.58,
+          "max": 1.72
+        },
+        "protectionResistance": {
+          "count": 3,
+          "min": 0.84,
+          "median": 0.94,
+          "max": 0.98
+        },
+        "specialRegime": {
+          "count": 3,
+          "min": 1.12,
+          "median": 1.18,
+          "max": 1.2
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 45,
+          "min": 0.88,
+          "median": 1.38,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 45,
+          "min": 0.44,
+          "median": 0.84,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 45,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.4
+        }
+      },
+      "implementationWeight": 0.1,
+      "descriptiveRegimeRatio": 1
+    },
+    "mountainous": {
+      "caseIds": [
+        "cn-shenzhen",
+        "cn-chongqing",
+        "cn-qingdao",
+        "cn-kunming",
+        "us-san-francisco",
+        "us-los-angeles",
+        "us-seattle",
+        "us-denver",
+        "eu-zurich",
+        "eu-lisbon",
+        "jp-kobe-sannomiya",
+        "hk-central",
+        "hk-kwun-tong",
+        "hk-sha-tin",
+        "hk-sai-kung"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 15,
+          "min": 1.08,
+          "median": 1.48,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 15,
+          "min": 0.58,
+          "median": 0.86,
+          "max": 0.98
+        },
+        "specialRegime": {
+          "count": 15,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.4
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 33,
+          "min": 0.88,
+          "median": 1.34,
+          "max": 1.78
+        },
+        "protectionResistance": {
+          "count": 33,
+          "min": 0.44,
+          "median": 0.84,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 33,
+          "min": 1.02,
+          "median": 1.2,
+          "max": 1.36
+        }
+      },
+      "implementationWeight": 0.2,
+      "descriptiveRegimeRatio": 0.983
+    },
+    "political-capital": {
+      "caseIds": [
+        "cn-beijing",
+        "us-washington-dc",
+        "eu-berlin",
+        "eu-vienna"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 4,
+          "min": 1,
+          "median": 1.05,
+          "max": 1.14
+        },
+        "protectionResistance": {
+          "count": 4,
+          "min": 0.78,
+          "median": 0.89,
+          "max": 0.94
+        },
+        "specialRegime": {
+          "count": 4,
+          "min": 1.1,
+          "median": 1.15,
+          "max": 1.18
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 44,
+          "min": 0.88,
+          "median": 1.44,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 44,
+          "min": 0.44,
+          "median": 0.84,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 44,
+          "min": 1.02,
+          "median": 1.2,
+          "max": 1.4
+        }
+      },
+      "implementationWeight": 0.1,
+      "descriptiveRegimeRatio": 0.958
+    },
+    "port-industrial": {
+      "caseIds": [
+        "cn-shanghai",
+        "cn-guangzhou",
+        "cn-chongqing",
+        "cn-wuhan",
+        "cn-qingdao",
+        "cn-xiamen",
+        "us-new-york",
+        "us-chicago",
+        "us-seattle",
+        "us-boston",
+        "us-miami",
+        "us-portland",
+        "us-new-orleans",
+        "eu-amsterdam",
+        "eu-lisbon",
+        "jp-tokyo-bay",
+        "jp-osaka-namba",
+        "jp-yokohama-minato",
+        "jp-kobe-sannomiya",
+        "hk-central",
+        "hk-kwun-tong"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 21,
+          "min": 0.88,
+          "median": 1.52,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 21,
+          "min": 0.68,
+          "median": 0.82,
+          "max": 0.96
+        },
+        "specialRegime": {
+          "count": 21,
+          "min": 1.04,
+          "median": 1.22,
+          "max": 1.4
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 27,
+          "min": 0.96,
+          "median": 1.28,
+          "max": 1.78
+        },
+        "protectionResistance": {
+          "count": 27,
+          "min": 0.44,
+          "median": 0.88,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 27,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.38
+        }
+      },
+      "implementationWeight": 0.12,
+      "descriptiveRegimeRatio": 1.034
+    },
+    "special-economic-zone": {
+      "caseIds": [
+        "cn-shenzhen"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 1,
+          "min": 1.48,
+          "median": 1.48,
+          "max": 1.48
+        },
+        "protectionResistance": {
+          "count": 1,
+          "min": 0.66,
+          "median": 0.66,
+          "max": 0.66
+        },
+        "specialRegime": {
+          "count": 1,
+          "min": 1.38,
+          "median": 1.38,
+          "max": 1.38
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 47,
+          "min": 0.88,
+          "median": 1.42,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 47,
+          "min": 0.44,
+          "median": 0.86,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 47,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.4
+        }
+      },
+      "implementationWeight": 0.22,
+      "descriptiveRegimeRatio": 1.169
+    },
+    "tourism": {
+      "caseIds": [
+        "cn-xian",
+        "cn-hangzhou",
+        "cn-qingdao",
+        "cn-xiamen",
+        "cn-kunming",
+        "us-miami",
+        "us-las-vegas",
+        "us-new-orleans",
+        "eu-zurich",
+        "eu-rome",
+        "eu-barcelona",
+        "eu-lisbon",
+        "eu-prague",
+        "jp-tokyo-bay",
+        "jp-kyoto-gion",
+        "jp-yokohama-minato",
+        "hk-sai-kung"
+      ],
+      "grouping": {
+        "terrainScarcity": {
+          "count": 17,
+          "min": 0.96,
+          "median": 1.42,
+          "max": 1.76
+        },
+        "protectionResistance": {
+          "count": 17,
+          "min": 0.44,
+          "median": 0.9,
+          "max": 1
+        },
+        "specialRegime": {
+          "count": 17,
+          "min": 1.04,
+          "median": 1.2,
+          "max": 1.34
+        }
+      },
+      "otherCases": {
+        "terrainScarcity": {
+          "count": 31,
+          "min": 0.88,
+          "median": 1.38,
+          "max": 1.82
+        },
+        "protectionResistance": {
+          "count": 31,
+          "min": 0.58,
+          "median": 0.82,
+          "max": 0.96
+        },
+        "specialRegime": {
+          "count": 31,
+          "min": 1.02,
+          "median": 1.18,
+          "max": 1.4
+        }
+      },
+      "implementationWeight": 0.06,
+      "descriptiveRegimeRatio": 1.017
+    }
+  },
+  "implementationWeights": {
+    "political-capital": 0.1,
+    "historic-core": 0.08,
+    "financial-center": 0.12,
+    "port-industrial": 0.12,
+    "coastal-reclamation": 0.18,
+    "special-economic-zone": 0.22,
+    "mountainous": 0.2,
+    "tourism": 0.06,
+    "island": 0.1
+  },
+  "cases": [
+    {
+      "caseId": "cn-beijing",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "political-capital",
+        "historic-core"
+      ],
+      "terrainScarcity": 1,
+      "protectionResistance": 0.78,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "cn-shanghai",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "port-industrial",
+        "coastal-reclamation"
+      ],
+      "terrainScarcity": 1.38,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.32
+    },
+    {
+      "caseId": "cn-guangzhou",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.22,
+      "protectionResistance": 0.68,
+      "specialRegime": 1.12
+    },
+    {
+      "caseId": "cn-shenzhen",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "special-economic-zone",
+        "financial-center",
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "terrainScarcity": 1.48,
+      "protectionResistance": 0.66,
+      "specialRegime": 1.38
+    },
+    {
+      "caseId": "cn-chengdu",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "historic-core"
+      ],
+      "terrainScarcity": 1.05,
+      "protectionResistance": 0.62,
+      "specialRegime": 1.02
+    },
+    {
+      "caseId": "cn-chongqing",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "mountainous",
+        "historic-core",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.72,
+      "protectionResistance": 0.78,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "cn-xian",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "historic-core",
+        "tourism"
+      ],
+      "terrainScarcity": 0.96,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.08
+    },
+    {
+      "caseId": "cn-hangzhou",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "historic-core",
+        "tourism",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.12,
+      "protectionResistance": 0.9,
+      "specialRegime": 1.14
+    },
+    {
+      "caseId": "cn-wuhan",
+      "region": "china",
+      "scale": "megacity",
+      "factors": [
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.18,
+      "protectionResistance": 0.72,
+      "specialRegime": 1.06
+    },
+    {
+      "caseId": "cn-qingdao",
+      "region": "china",
+      "scale": "city",
+      "factors": [
+        "mountainous",
+        "tourism",
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.52,
+      "protectionResistance": 0.86,
+      "specialRegime": 1.12
+    },
+    {
+      "caseId": "cn-xiamen",
+      "region": "china",
+      "scale": "city",
+      "factors": [
+        "island",
+        "tourism",
+        "coastal-reclamation",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.58,
+      "protectionResistance": 0.84,
+      "specialRegime": 1.2
+    },
+    {
+      "caseId": "cn-kunming",
+      "region": "china",
+      "scale": "city",
+      "factors": [
+        "mountainous",
+        "tourism",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.38,
+      "protectionResistance": 0.9,
+      "specialRegime": 1.04
+    },
+    {
+      "caseId": "us-new-york",
+      "region": "united-states",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.62,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.36
+    },
+    {
+      "caseId": "us-san-francisco",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "financial-center",
+        "mountainous",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.54,
+      "protectionResistance": 0.88,
+      "specialRegime": 1.28
+    },
+    {
+      "caseId": "us-los-angeles",
+      "region": "united-states",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "mountainous"
+      ],
+      "terrainScarcity": 1.28,
+      "protectionResistance": 0.62,
+      "specialRegime": 1.16
+    },
+    {
+      "caseId": "us-chicago",
+      "region": "united-states",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 0.96,
+      "protectionResistance": 0.68,
+      "specialRegime": 1.14
+    },
+    {
+      "caseId": "us-seattle",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "mountainous",
+        "port-industrial",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.34,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "us-boston",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "port-industrial",
+        "coastal-reclamation"
+      ],
+      "terrainScarcity": 1.36,
+      "protectionResistance": 0.9,
+      "specialRegime": 1.14
+    },
+    {
+      "caseId": "us-miami",
+      "region": "united-states",
+      "scale": "metropolis",
+      "factors": [
+        "coastal-reclamation",
+        "tourism",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.58,
+      "protectionResistance": 0.72,
+      "specialRegime": 1.34
+    },
+    {
+      "caseId": "us-denver",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "mountainous"
+      ],
+      "terrainScarcity": 1.08,
+      "protectionResistance": 0.58,
+      "specialRegime": 1.02
+    },
+    {
+      "caseId": "us-portland",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 0.88,
+      "protectionResistance": 0.78,
+      "specialRegime": 1.04
+    },
+    {
+      "caseId": "us-washington-dc",
+      "region": "united-states",
+      "scale": "metropolis",
+      "factors": [
+        "political-capital",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.14,
+      "protectionResistance": 0.94,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "us-las-vegas",
+      "region": "united-states",
+      "scale": "metropolis",
+      "factors": [
+        "tourism"
+      ],
+      "terrainScarcity": 1.72,
+      "protectionResistance": 0.44,
+      "specialRegime": 1.28
+    },
+    {
+      "caseId": "us-new-orleans",
+      "region": "united-states",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "port-industrial",
+        "tourism"
+      ],
+      "terrainScarcity": 1.76,
+      "protectionResistance": 0.92,
+      "specialRegime": 1.32
+    },
+    {
+      "caseId": "eu-london",
+      "region": "europe",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.46,
+      "protectionResistance": 0.94,
+      "specialRegime": 1.3
+    },
+    {
+      "caseId": "eu-paris",
+      "region": "europe",
+      "scale": "megacity",
+      "factors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.12,
+      "protectionResistance": 0.96,
+      "specialRegime": 1.2
+    },
+    {
+      "caseId": "eu-amsterdam",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "coastal-reclamation",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.52,
+      "protectionResistance": 0.96,
+      "specialRegime": 1.28
+    },
+    {
+      "caseId": "eu-berlin",
+      "region": "europe",
+      "scale": "metropolis",
+      "factors": [
+        "historic-core",
+        "political-capital"
+      ],
+      "terrainScarcity": 1.02,
+      "protectionResistance": 0.88,
+      "specialRegime": 1.1
+    },
+    {
+      "caseId": "eu-zurich",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "financial-center",
+        "historic-core",
+        "tourism",
+        "mountainous"
+      ],
+      "terrainScarcity": 1.42,
+      "protectionResistance": 0.96,
+      "specialRegime": 1.22
+    },
+    {
+      "caseId": "eu-milan",
+      "region": "europe",
+      "scale": "metropolis",
+      "factors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "terrainScarcity": 0.98,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.1
+    },
+    {
+      "caseId": "eu-rome",
+      "region": "europe",
+      "scale": "metropolis",
+      "factors": [
+        "historic-core",
+        "tourism"
+      ],
+      "terrainScarcity": 1.34,
+      "protectionResistance": 1,
+      "specialRegime": 1.2
+    },
+    {
+      "caseId": "eu-barcelona",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "tourism",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.28,
+      "protectionResistance": 0.94,
+      "specialRegime": 1.22
+    },
+    {
+      "caseId": "eu-lisbon",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "tourism",
+        "mountainous",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.46,
+      "protectionResistance": 0.94,
+      "specialRegime": 1.16
+    },
+    {
+      "caseId": "eu-stockholm",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "island",
+        "historic-core",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.56,
+      "protectionResistance": 0.94,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "eu-prague",
+      "region": "europe",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "tourism"
+      ],
+      "terrainScarcity": 1.24,
+      "protectionResistance": 0.96,
+      "specialRegime": 1.12
+    },
+    {
+      "caseId": "eu-vienna",
+      "region": "europe",
+      "scale": "metropolis",
+      "factors": [
+        "historic-core",
+        "political-capital"
+      ],
+      "terrainScarcity": 1.08,
+      "protectionResistance": 0.9,
+      "specialRegime": 1.12
+    },
+    {
+      "caseId": "jp-tokyo-shitamachi",
+      "region": "japan",
+      "scale": "megacity",
+      "factors": [
+        "historic-core",
+        "coastal-reclamation",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.48,
+      "protectionResistance": 0.86,
+      "specialRegime": 1.28
+    },
+    {
+      "caseId": "jp-tokyo-bay",
+      "region": "japan",
+      "scale": "metropolis",
+      "factors": [
+        "coastal-reclamation",
+        "port-industrial",
+        "tourism"
+      ],
+      "terrainScarcity": 1.62,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.32
+    },
+    {
+      "caseId": "jp-osaka-namba",
+      "region": "japan",
+      "scale": "metropolis",
+      "factors": [
+        "financial-center",
+        "historic-core",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.46,
+      "protectionResistance": 0.78,
+      "specialRegime": 1.26
+    },
+    {
+      "caseId": "jp-kyoto-gion",
+      "region": "japan",
+      "scale": "city",
+      "factors": [
+        "historic-core",
+        "tourism"
+      ],
+      "terrainScarcity": 1.16,
+      "protectionResistance": 0.98,
+      "specialRegime": 1.14
+    },
+    {
+      "caseId": "jp-yokohama-minato",
+      "region": "japan",
+      "scale": "city",
+      "factors": [
+        "port-industrial",
+        "coastal-reclamation",
+        "tourism",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.42,
+      "protectionResistance": 0.86,
+      "specialRegime": 1.24
+    },
+    {
+      "caseId": "jp-kobe-sannomiya",
+      "region": "japan",
+      "scale": "city",
+      "factors": [
+        "mountainous",
+        "port-industrial",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.66,
+      "protectionResistance": 0.92,
+      "specialRegime": 1.22
+    },
+    {
+      "caseId": "hk-central",
+      "region": "hong-kong",
+      "scale": "megacity",
+      "factors": [
+        "financial-center",
+        "coastal-reclamation",
+        "mountainous",
+        "port-industrial"
+      ],
+      "terrainScarcity": 1.82,
+      "protectionResistance": 0.9,
+      "specialRegime": 1.4
+    },
+    {
+      "caseId": "hk-mong-kok",
+      "region": "hong-kong",
+      "scale": "megacity",
+      "factors": [
+        "historic-core",
+        "financial-center"
+      ],
+      "terrainScarcity": 1.74,
+      "protectionResistance": 0.72,
+      "specialRegime": 1.34
+    },
+    {
+      "caseId": "hk-causeway-bay",
+      "region": "hong-kong",
+      "scale": "megacity",
+      "factors": [
+        "coastal-reclamation",
+        "financial-center",
+        "historic-core"
+      ],
+      "terrainScarcity": 1.78,
+      "protectionResistance": 0.76,
+      "specialRegime": 1.36
+    },
+    {
+      "caseId": "hk-kwun-tong",
+      "region": "hong-kong",
+      "scale": "megacity",
+      "factors": [
+        "port-industrial",
+        "mountainous",
+        "coastal-reclamation"
+      ],
+      "terrainScarcity": 1.62,
+      "protectionResistance": 0.84,
+      "specialRegime": 1.3
+    },
+    {
+      "caseId": "hk-sha-tin",
+      "region": "hong-kong",
+      "scale": "metropolis",
+      "factors": [
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "terrainScarcity": 1.42,
+      "protectionResistance": 0.82,
+      "specialRegime": 1.18
+    },
+    {
+      "caseId": "hk-sai-kung",
+      "region": "hong-kong",
+      "scale": "town",
+      "factors": [
+        "island",
+        "tourism",
+        "mountainous"
+      ],
+      "terrainScarcity": 1.72,
+      "protectionResistance": 0.98,
+      "specialRegime": 1.12
+    }
+  ]
+}

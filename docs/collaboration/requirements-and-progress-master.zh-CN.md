@@ -651,12 +651,20 @@ W0 来源调查已开始：48 个代表核心切面均已有至少两个不同�
 河湖/治水，26/48 中段出现铁路/轨道，26/48 第三段出现更新/保护/重建。
 该统计是关键词辅助总结，不替代逐案历史考证。
 
+土地压力由 `scripts/summarize-urban-pressure.mjs` 汇总。样本显示地形稀缺
+不随城市规模单调上升：city 中位 1.42、megacity 1.38、town 样本 1.72。
+填海组地形中位 1.52、制度压力中位 1.30；山地组地形中位 1.48。当前
+`.20` 山地、`.18` 填海、`.22` 特区权重与样本方向不冲突，但仍是待做
+sensitivity test 的先验，不是回归结论。
+
 - `assets/data/urban-case-evidence.json`
 - `assets/data/urban-core-measurements/`
 - `assets/data/urban-history-patterns.json`
+- `assets/data/urban-pressure-patterns.json`
 - `scripts/check-urban-case-evidence.mjs`
 - `scripts/check-urban-core-measurements.mjs`
 - `scripts/summarize-urban-history.mjs`
+- `scripts/summarize-urban-pressure.mjs`
 - `rk-x/URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`
 
 ---

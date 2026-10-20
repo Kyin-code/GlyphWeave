@@ -13,8 +13,10 @@
 
 - `assets/data/urban-case-evidence.json`
 - `assets/data/urban-history-patterns.json`
+- `assets/data/urban-pressure-patterns.json`
 - `scripts/check-urban-case-evidence.mjs`
 - `scripts/summarize-urban-history.mjs`
+- `scripts/summarize-urban-pressure.mjs`
 - `assets/data/urban-core-measurements/`
 - `scripts/measure-urban-case-osm.mjs`
 - `scripts/check-urban-core-measurements.mjs`
@@ -34,6 +36,7 @@ node scripts/check-urban-case-evidence.mjs
 node scripts/check-urban-case-priors.mjs
 node scripts/check-urban-core-measurements.mjs
 node scripts/summarize-urban-history.mjs
+node scripts/summarize-urban-pressure.mjs
 ```
 
 当前结果：
@@ -516,32 +519,79 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 5. 非水港的 7 案也各有明确内陆逻辑：洛杉矶/丹佛的铁路与蔓延、华盛顿的
    规划首都、柏林的工业分裂、罗马的古代核心、京都的规划都城、旺角的村落市场。
 
-## 6. 本轮调查得到的跨案规律
+## 6. 土地压力与工程系数
 
-### 6.1 自然先于城市
+`scripts/summarize-urban-pressure.mjs` 从 48 案 `landPressurePrior` 生成
+`assets/data/urban-pressure-patterns.json`，并读取当前
+`land_pressure.rs` 的因子权重做并排比较。
+
+### 6.1 城市规模分组
+
+| 规模 | 案例数 | 地形稀缺中位 | 保护阻力中位 | 制度压力中位 |
+|---|---:|---:|---:|---:|
+| megacity | 19 | 1.38 | 0.78 | 1.20 |
+| metropolis | 10 | 1.38 | 0.82 | 1.19 |
+| city | 18 | 1.42 | 0.91 | 1.18 |
+| town | 1 | 1.72 | 0.98 | 1.12 |
+
+重要发现：**地形压力并不随城市规模单调上升。** 山地/岛屿县城可以比平原大都市
+更“缺地”。因此正式公式不能只乘人口规模，必须继续使用 terrainScarcity。
+town 只有香港西贡 1 个样本，不能形成统计结论。
+
+### 6.2 特殊因子分组与当前权重
+
+| 因子 | 案例数 | 地形中位 | 制度压力中位 | 当前实现权重 |
+|---|---:|---:|---:|---:|
+| special-economic-zone | 1 | 1.48 | 1.38 | 0.22 |
+| mountainous | 15 | 1.48 | 1.18 | 0.20 |
+| coastal-reclamation | 13 | 1.52 | 1.30 | 0.18 |
+| financial-center | 21 | 1.42 | 1.24 | 0.12 |
+| port-industrial | 21 | 1.52 | 1.22 | 0.12 |
+| political-capital | 4 | 1.05 | 1.15 | 0.10 |
+| island | 3 | 1.58 | 1.18 | 0.10 |
+| historic-core | 34 | 1.35 | 1.18 | 0.08 |
+| tourism | 17 | 1.42 | 1.20 | 0.06 |
+
+解释边界：
+
+- 这些是重叠样本的描述性中位数，不是因果回归；
+- 特区只有深圳 1 例，0.22 权重只能作为显式先验，不能宣称统计拟合；
+- 历史核心样本占 34/48，无法通过“有无历史核心”得到干净对照；
+- 山地组的地形中位数高，但制度压力中位并不高，说明“开山权限”与“山地本身”
+  必须拆成两个因子；
+- 填海组的地形稀缺与制度压力都偏高，支持把填海列为显式宏观工程候选，但
+  不等于自动批准填海；
+- 政治首都的地形稀缺低于其他组，说明政治中心不能简单等同于高密开发。
+
+当前权重与样本方向没有根本冲突，但尚不足以证明权重数值正确。下一步应在
+12 个已测量核心窗口和更多官方地块数据上做 sensitivity test，而不是直接调参。
+
+## 7. 本轮调查得到的跨案规律
+
+### 7.1 自然先于城市
 
 所有已审案例都显示城市核心与水系、海岸、河谷、平原、山麓或湖岸有关。
 但这批来源首先证明的是空间制度和城市形态；具体地貌过程与河流动力的米制
 参数仍要回到自然地理来源矩阵。
 
-### 6.2 旧城不是低密，而是细粒度
+### 7.2 旧城不是低密，而是细粒度
 
 北京胡同和上海里弄说明，旧城常见的是小地块、窄街、连续街墙和高混合，
 而不是简单“低层低密”。因此新区不能仅靠提高楼层来体现现代化。
 
-### 6.3 更新是多种动作并存
+### 7.3 更新是多种动作并存
 
 上海里弄资料明确出现商业、住宅、混合再利用；布拉格资料强调保留整体街网
 和空间构成。生成器必须支持保留、局部改造、拆合、填充和功能替换，
 不能把更新简化为整片拆除重建。
 
-### 6.4 制度差异会改变空间
+### 7.4 制度差异会改变空间
 
 纽约区划、神户开发许可、香港 HKPSG 和北京/上海/深圳总规都说明，
 同样的人口或就业需求，在不同制度下会得到不同地块、FAR、退界、停车、
 公共空间和设施组合。
 
-### 6.5 市场必须是网络
+### 7.5 市场必须是网络
 
 巴黎周期市场数据、香港设施标准和上海里弄商业肌理都指向：
 
@@ -550,15 +600,15 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 - 周期市场、菜场、商店街、超市和批发市场承担不同功能；
 - 单点固定半径不能证明覆盖。
 
-## 7. 仍未完成的证据工作
+## 8. 仍未完成的证据工作
 
-### 7.1 36 个待补测量案例
+### 8.1 36 个待补测量案例
 
 `assets/data/urban-case-evidence.json` 已为全部 48 案登记来源状态。
 除前 12 个 OSM 窗口外，其余 36 案仍不能用于声称官方密度、人口、路网或
 市场统计；其中里斯本、巴塞罗那等案例还需要补强官方规划史料。
 
-### 7.2 米制核心窗口
+### 8.2 米制核心窗口
 
 12 案虽已有首轮 OSM 观测，但尚未完成：
 
@@ -569,12 +619,12 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 - 中心性、服务时距和人口/就业权重；
 - 数据缺失和冲突记录。
 
-### 7.3 历史时间轴
+### 8.3 历史时间轴
 
 现有 48 案每案已有三段机制性历史，但除上海、布拉格等少数有直接来源外，
 多数尚需政府历史、规划档案或独立研究逐段核实。
 
-### 7.4 市场专用证据
+### 8.4 市场专用证据
 
 巴黎周期市场数据集是起点。还需补：
 
@@ -584,7 +634,7 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 - 日本商店街与社区商业资料；
 - 批发市场/冷链物流空间资料。
 
-## 8. 下一步
+## 9. 下一步
 
 W0 继续按以下顺序推进：
 
