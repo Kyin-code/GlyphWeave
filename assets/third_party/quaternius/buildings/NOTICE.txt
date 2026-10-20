@@ -26,3 +26,20 @@ Because these files were already present before this notice was added, the
 download date and the license version that applied on that date are not known
 from repository evidence. Resolve the exact source archive and applicable
 license before claiming release-grade legal clearance.
+
+2026-10-20 follow-up:
+
+The public Google Drive OBJ folders linked from both candidate pages were
+checked:
+
+- Buildings Pack (Jan 2019): Building1_Large.obj, Building1_Small.obj,
+  Building2_Large.obj, Building2_Small.obj, Building3_Big.obj,
+  Building3_Small.obj, Building4.obj, House1.obj, House2.obj.
+- Simple Buildings Pack (Aug 2017): Bank.obj, Flat.obj, Flat2.obj,
+  Hospital.obj, House.obj, House2.obj, House3.obj, House4.obj, House5.obj,
+  Shop.obj.
+
+Neither list contains 1Story_GableRoof, 2Story_GableRoof, 2Story_Wide or
+2Story_RoundRoof. The local files therefore do not match either published pack
+listing and their exact Quaternius pack/archive remains unknown. Both candidate
+pages declare CC0, but that cannot be transferred to these unproven local files.

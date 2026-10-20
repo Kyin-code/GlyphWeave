@@ -42,9 +42,9 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
-      "source": "Quaternius building assets; exact pack unresolved",
-      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
+      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
+      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.small": {
       "format": "obj",
@@ -54,9 +54,9 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
-      "source": "Quaternius building assets; exact pack unresolved",
-      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
+      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
+      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.wide": {
       "format": "obj",
@@ -66,9 +66,9 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
-      "source": "Quaternius building assets; exact pack unresolved",
-      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
+      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
+      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.round": {
       "format": "obj",
@@ -78,9 +78,9 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved",
-      "source": "Quaternius building assets; exact pack unresolved",
-      "provenance": "unresolved; see assets/third_party/quaternius/buildings/NOTICE.txt"
+      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
+      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     }
   }
 }

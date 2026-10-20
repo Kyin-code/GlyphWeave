@@ -312,7 +312,7 @@
 | D15.1 | 生成器不得覆盖用户 `assets/`；生成物进 `generated/`、参考素材进 `references/`、正式素材进 `assets/` | 生产可用 | 输出目录约定 |
 | D15.2 | 格式：3D 优先 `.glb`，兼容 `.gltf + .bin + textures`；Godot 支持 `.tscn`/`.tres`；2D 支持 `.png`/`.webp` | 部分 | 当前资产为 `.obj`+`.mtl` 与 `.gltf`；`.glb` 无 |
 | D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
-| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **一项未完成** | `workerd-windows-64` 已解析为 Apache-2.0（npm 元数据 + 包 package.json + 上游 LICENSE）；**Quaternius 建筑资产精确上游包仍未解析** |
+| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **一项未完成** | `workerd-windows-64` 已解析为 Apache-2.0；**Quaternius 建筑资产**：已核对 Buildings Pack 与 Simple Buildings Pack 的公开 OBJ 列表，均不匹配本地文件名，精确上游包仍未知 |
 | D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；workerd 已解析，Quaternius 仍未解析 |
 | D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
 | D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |

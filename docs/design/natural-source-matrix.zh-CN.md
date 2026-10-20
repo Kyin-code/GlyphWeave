@@ -34,7 +34,7 @@
 
 | 项 | 当前证据 | 仍未知 |
 |---|---|---|
-| Quaternius 建筑包 | `assets/glyphweave.registry.json` 的 `prop.building*` 写明 “CC0-1.0 declared by Quaternius building pack pages; exact local pack provenance unresolved”；`assets/third_party/quaternius/buildings/NOTICE.txt` 是本地说明 | 本地 `2Story_GableRoof.obj` 等文件的精确上游包/下载批次/校验和 |
+| Quaternius 建筑包 | 2026-10-20 核对了官网 Buildings Pack（2019-01）与 Simple Buildings Pack（2017-08）的公开 Drive OBJ 列表；两者文件名均与本地 `1Story_GableRoof`/`2Story_*` 不匹配 | 本地四个 OBJ 的精确 Quaternius pack/archive/下载批次仍未知 |
 | `@cloudflare/workerd-windows-64@1.20260701.1` | **已解析**：npm 元数据与下载包 `package.json` 均为 Apache-2.0；上游 `cloudflare/workerd/main/LICENSE` 为 Apache-2.0 | 包内无单独 LICENSE，分发时须附上游 Apache-2.0 文本/NOTICE |
 
 Quaternius 建筑包仍未清零，C-L1 不能宣称完成。
