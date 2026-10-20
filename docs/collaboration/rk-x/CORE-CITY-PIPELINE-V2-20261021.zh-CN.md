@@ -197,6 +197,7 @@ Rust Core 通过 `worldgen::urban_case_priors` 加载同一 JSON，并提供：
 - 网络中心及其角色；
 - 建筑到中心的网络距离和中心性；
 - 旧核心/更新扩张/新区边缘归类；
+- 社区类型、产权混合、停车策略和街面策略；
 - 街面保留、再开发评估、填充连接或新增长建议；
 - 道路拓宽动作；
 - 公园面积需求；
@@ -206,6 +207,8 @@ Rust Core 通过 `worldgen::urban_case_priors` 加载同一 JSON，并提供：
 
 - 3 个中心：`financial / mixed / historic`；
 - 7 类规划动作；
+- 8 个计划建筑中 7 个为 `china-historic-mixed-lane`，1 个为
+  `china-gated-redevelopment`，开始表达旧城与更新区的制度差异；
 - 6 个有严格可达入口的最终建筑；
 - 2 个计划建筑因生成正面 120m 内没有满足合同的可验证路线，被具名记录为未实现，不伪装完成。
 
@@ -289,7 +292,7 @@ Manifest：
 
 输出：
 
-`bevy/work/rk-x/derived-core-slice-materialized-v6-20261021`
+`bevy/work/rk-x/derived-core-slice-materialized-v9-20261021`
 
 结果：
 
