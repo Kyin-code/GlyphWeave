@@ -841,7 +841,7 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "two off-state bakes must publish the same bytes"
     );
     assert_eq!(
-        first_digest, "6eab4494c1dabc2f8745881637b523e5b6f01ca04a81ffff3da3b58fef4f82eb",
+        first_digest, "0097e08322b623b11e419e2da38348720d4ce776eaf74c19973a75d65c22e0dd",
         "the frozen blake3 tree digest of the policy-off world (B-02 re-took it: the road \
          audit now measures the road's own profile instead of a neighbour's carve, so the \
          two false >6m failures become a pass; terrain, road, pad and entity geometry did \

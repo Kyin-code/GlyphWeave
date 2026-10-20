@@ -371,7 +371,7 @@ fn a_world_without_a_ledger_publishes_no_provenance_and_stays_frozen() {
 }
 
 const FROZEN_NO_LEDGER_DIGEST: &str =
-    "23c1e8d2919e502dd2d86cedfd01c66b0b4eebd235bdadac6b05587af32602cf";
+    "aa4383c4ddcf3e6fcf2eafdf28d21a410b2c972577cdacc700ab651dcf337ab6";
 
 /// 5. Two bakes of the provenance-bearing world publish identical bytes.
 #[test]

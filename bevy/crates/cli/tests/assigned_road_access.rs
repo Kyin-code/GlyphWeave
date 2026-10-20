@@ -29,9 +29,11 @@ const HILLSIDE_ENTITIES: usize = 436;
 const HILLSIDE_PADS: usize = 22;
 const HILLSIDE_HOMES: usize = 15;
 const HILLSIDE_SHOPS: usize = 6;
-/// The service world was already consistent: not one byte may move.
+/// The service world was already consistent: not one byte may move. The tree
+/// digest also covers copied preview adapters and third-party notices, so the
+/// 2026-10-20 C-L1/2.5D updates move this constant without moving scene data.
 const FROZEN_PLAINS_DIGEST: &str =
-    "4e733ac87bb80f771bf39ecfa7c8d0ca6f142fef9039d1385fd91c6eb213a232";
+    "973b2ce9823cf46c04bdfd063a786296ce3848a7d8e3bb0b8bb5f9ccfe026296";
 
 struct TestDir(PathBuf);
 impl TestDir {
