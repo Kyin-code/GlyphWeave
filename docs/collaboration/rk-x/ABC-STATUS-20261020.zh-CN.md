@@ -1,4 +1,4 @@
-# A/B/C 当前状态总览（2026-10-20）
+# A/B/C 当前状态总览（2026-10-21 更新）
 
 本文件是 `requirements-and-progress-master.zh-CN.md` 的快照式导读；数值均来自
 本次实际烘焙/测试，不把历史值拼进新口径。
@@ -41,6 +41,16 @@
 | C-E2 工程后水文 | 自然 vs 最终 D8：87 changed flows / 5 raised terminals，status pass | 首版（路由完整性，不是洪泛模型） |
 | C-L1 许可 | workerd-windows 已按 Apache-2.0 记录；Quaternius 已定位 Ultimate Buildings Pack (Dec 2019)，本地为派生导出；精确历史下载日期未知 | 来源完成，历史日期留证 |
 | C-V1/G1 | HTML 战略图/2.5D 已实测；最大图工程版 gate pass；Godot 4.7.2 最大图 headless 加载 `scene-0 / chunk 0,1 / loaded 6` | **C-V1/C-G1 完成** |
+
+### 2026-10-21 可见性补验
+
+- `modern-lakeside-city-512` 新增为现代混合街区控制：29 条道路、27 个临街地块、
+  68 个显式树实体、1,157 株生态植物、21,419m² 湖面。
+- 可见对象：住宅 16x12/24x16、公寓块 24x20x32m/36x24x20m、店铺 12x10x6m；
+  HTML 不再把这些 Rust 实体统一渲染成固定尺寸无窗盒子。
+- 白色伪影根因已确认是地形顶点色的 sRGB/线性空间重复编码，并已修复；
+  草场焦点圆形由 `uniformDensity` 消除。
+- 详细证据见 `FIVE-ISSUES-CLOSURE-20261021.zh-CN.md`。
 
 ## 结论
 

@@ -1,6 +1,6 @@
 # GlyphWeave 需求与进度总表（master）
 
-生成日期：2026-10-18；最近更新：2026-10-20（A 例外 #4 已关闭）。性质：**需求台账 + 进度台账**，不是验收裁定，不替代任何合同文件。
+生成日期：2026-10-18；最近更新：2026-10-21（五项可见问题完成控制场景收口）。性质：**需求台账 + 进度台账**，不是验收裁定，不替代任何合同文件。
 读者：项目负责人、接手的主 Agent、实现 Agent、独立检查 Agent。
 
 ## 0. 怎么用这份文档
@@ -227,7 +227,7 @@
 | D9.5 | 纵断面 `roadProfile`：整数毫米站点、按世界坐标插值；**整条路不能用一个 worldY 推高度** | 生产可用 | 扩展路；⚠️ 基础边在 T 系列重构后也带 profile，正是当前回归源（见 §6） |
 | D9.6 | 毫米道路审计容差 **0.00005m**（旧平路 0.26m）；1mm 篡改必须失败 | 生产可用 | r46 §4 |
 | D9.7 | 共享路口只允许双方声明的端点；隐式 T 形连接拒绝，不自动拆分原路 | 生产可用 | r47 §95-97 |
-| D9.8 | 主次支路分级、小巷、真实转向/路口几何、立交 | ❌ 未开始 | 道路仍是 64m 级低地网格 |
+| D9.8 | 主次支路分级、小巷、真实转向/路口几何、立交 | ⚠️ **部分** | collector/local 宽度、road tier 与贴地纵断面已进入生产；现代控制有 29 条道路但基础骨架仍以 64m 网格为主，真实转向/立交未完成 |
 
 ### D10 地块 / 建筑 / 入口 / 院落 / 设施
 
@@ -241,7 +241,7 @@
 | D10.6 | 设施程序：类型/尺寸/数量显式，按原尺寸规划不缩小；三层分离（请求 / 计划候选 / 有入口实现） | 生产可用 | r26：请求 4、计划 3→4、实现 3→4；尺寸范围 store 6–40/6–30/3–12、school 30–128/26–120/4–30、church 12–80/12–80/3–40、town_hall 30–128/24–120/8–60、market 36–128/30–128/3–20 |
 | D10.7 | 联合审计：实体 ID 唯一、类型/尺寸/变换/入口与计划一致；保存的 audit 声称 pass 不能覆盖实际数据 | 生产可用 | r27 §5；CLI 从 manifest+自然重建 |
 | D10.8 | 地块四朝向、非零 origin、跨 zone 分摊、无重叠守恒 | 部分 | 有测试；大规模真实世界未验 |
-| D10.9 | 形态学驱动的街区差异（紧凑混合/低密/村落）、多入口、共享步行网络 | ❌ 未开始 | B-04 |
+| D10.9 | 形态学驱动的街区差异（紧凑混合/低密/村落）、多入口、共享步行网络 | ⚠️ **部分** | morphology compile 与 compact/village 控制已落地；现代湖滨控制呈现多尺度住宅、公寓块和店铺；多入口/共享步行网络仍未完成 |
 | D10.10 | ⚠️ `engineered_placement::reconcile` 必须遵守对象描述符声明的 `fallback`（skip 就跳过），不得把不合规小卖部升级成整图失败；跳过必须具名 + 计数 | **未修**（T-0013 授权项） | T-0012 §2：`assets/objects/storefront.object.toml` 要求 road 距离 8m，而 fixture `setbackM = 12` → 立面间隙约 14m，必然不满足 |
 | D10.11 | 可通行合同：最大纵坡 **25%**（`access::WALKABLE_GRADE = 0.25`，`worldgen/access.rs:16`）、入口引道 **2m**（`ENTRANCE_APRON_RUN_M = 2.`，`worldgen.rs:4258`）→ 引道容差 0.5m；入口台阶 0.30m；通道 1.5m 宽、2m 搜索网格、120m 预算、≤6000 展开节点 | 生产可用 | 一手核对常量；这组数字是当前回归的判据来源（见 §6.1） |
 | D10.12 | 任何建筑（authored 或 generated）都必须有真实入口：缺入口/入口不在边界/被挡/台阶超限各有独立状态码 | 生产可用 | AccessGraph v2；`quality-report` 从最终 heightfield 与实体重算，不信任 scene 里的计数 |
@@ -314,7 +314,7 @@
 | D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
 | D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ 来源已解析、历史日期未证明 | `workerd-windows-64` 为 Apache-2.0；**Quaternius 建筑资产**已定位到 **Ultimate Buildings Pack (Dec 2019)**，页面 CC0-1.0，本地为改名/单材质派生；精确下载日期仍未由仓库历史证明，当前 QAL v1.0 禁止单独再分发原包 |
 | D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；workerd 已解析，Quaternius 仍未解析 |
-| D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
+| D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | ⚠️ **控制通过·全量未签收** | 2026-10-21 现代湖滨控制已写 `visual-feedback.json`；白色伪影、草场圆形和城镇固定盒子已修；全量世界人工长漫游仍未完成 |
 | D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |
 
 ### D16 性能与资源
@@ -466,6 +466,21 @@ C-H1/H2 的核心自然/工程关系已由分区、地块、设施、公共空�
 C-L1 的 workerd 与 Quaternius 来源均已解析；**C-G1 已完成**：最大图工程版
 1734 挡墙 / 734 改向节点 / gate pass；**C-V1 已完成** Godot 4.7.2 runtime
 smoke（scene-0 / chunk 0,1 / loaded 6 / no script error）。C 核心里程碑完成。
+
+### 5.7 2026-10-21 五项可见问题控制
+
+现代湖滨控制 `modern-lakeside-city-512-v6-20261021` 已烘焙并实测：
+
+- 305 entities；29/29 roads、27/27 frontage sites、接入断点 0；
+- 68 个显式 tree、1,157 株生态植物（tree 698 / bush 449 / reed 10）、
+  湖面 21,419m²；
+- `scale-audit pass`、`road-network-audit pass`；
+- `quality-report status=warn`，剩余 966m²（约 0.37%）庭院坡地未实现面，
+  不冒充全场景 landcover pass。
+
+白色伪影已证实为地形顶点色 sRGB/线性空间重复编码；草场圆形已由
+`uniformDensity` 移除；Rust 规划的店铺/住宅块/高层恢复各自渲染分支。
+证据与截图见 `rk-x/FIVE-ISSUES-CLOSURE-20261021.zh-CN.md`。
 
 ---
 

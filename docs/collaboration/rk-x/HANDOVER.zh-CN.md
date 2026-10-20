@@ -4,6 +4,12 @@
 > [`requirements-and-progress-master.zh-CN.md`](requirements-and-progress-master.zh-CN.md)，
 > 本文件是它的"当前状态快照 + 待办 + 操作手册"，不替代基线。
 
+> **2026-10-21 追加**：五项可见问题的控制场景收口、白色伪影根因、
+> 现代建筑/道路/树木/水体证据见
+> [`FIVE-ISSUES-CLOSURE-20261021.zh-CN.md`](FIVE-ISSUES-CLOSURE-20261021.zh-CN.md)。
+> 现代湖滨控制当前为 `scale-audit pass`、`road-network-audit pass`、
+> `quality-report warn`（剩余 966m² 庭院坡地未实现面）。
+
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
 
 | 项 | 当前值 |
@@ -120,7 +126,7 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 | 5 | 山城临街 7/24 | 已证明是**输入上限**（24 需求 vs standalone 上限 10；21/33 条路无纵断面） | 作者改输入（更高需求→更多街道/更低住宅最小宽） |
 | 6 | 滨水 3 条 land-use 欠账 | frontage demand / purpose-area / landcover | 内容目标问题，非缺陷 |
 | 7 | 偶发 `0xC0000005`（~1/27） | 已解析到 road-network JSON serde 派生序列化；WER dump 显示读地址 −1；仓库零 `unsafe` ⇒ 疑依赖或编译器；本次 A-closure 单次烘焙成功不等于崩溃已修 | 整包循环取证（`tools/crash-hunt/`） |
-| 8 | C 里程碑未实质开工 | 有削方台账、挡墙/排水/涵洞/竖曲线均无 | Round 56 的"台地挡墙"被中断，未落地 |
+| 8 | C 已实施但仍有工程深化项 | C-N1 来源矩阵、C-E1 挡墙/涵洞、C-E2 工程后路由、C-L1 来源解析、C-V1/G1 runtime 与最大图工程 gate 均有实现；现代控制已显示树/湖/桥 | 挡墙基础、排水沟、竖曲线、洪泛/水量模型仍开放，不属于“C 尚未开始” |
 
 ## 6. 偶发崩溃的操作纪律（重要）
 
