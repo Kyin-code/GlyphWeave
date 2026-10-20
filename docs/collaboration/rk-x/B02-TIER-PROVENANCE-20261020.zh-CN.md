@@ -109,3 +109,31 @@ frontage 仍 0/24，roadNetworkAudit pass。
    或候选状态预算/轮转策略的进一步工作。
 3. `world-quality-gate` 的 landcover CLI 重算缺口另见
    `ISSUE-cli-landcover-gate-trust.zh-CN.md`。
+
+## 7. 2026-10-20 follow-up：为什么提高城市分配仍不闭合
+
+在 `b02-road-supply` 基础上尝试：
+
+- `urbanCoreRatio 0.08` + `ruralConversion: explicit` + bounded cut +
+  complete-ground：frontage **2/24**；
+- `urbanCoreRatio 0.20`：仍 **2/24**；
+- `urbanGrowth: axis-and-node`：**1/24**，gate 更差。
+
+关键证据来自 0.08 控制的 `frontage.outcomes`：
+
+| 原因 | homes | shops |
+|---|---:|---:|
+| `conversion_outside_the_urban_fringe` | 12 | 12 |
+| `purpose_conversion_exceeds_urban_allocation` | 8 | 8 |
+| `existing_support_changed` | 5 | 5 |
+| `outside_scene` | 2 | 2 |
+| `bounded_cut_footprint_overlaps_another_pad` | 1 | 1 |
+| realized | **2** | **0** |
+
+而且 `attempted` 只有 **30**（两条自动路、24m 站距）。所以这不是“城市地不够”
+一个变量能解决：道路只提供了少量站位，且很多站位落在 urban fringe 外或与
+已有支撑冲突；继续加大 urban 面积不会新增可建站位。
+
+下一步应改 v3 候选评分/道路供给：候选道路必须能产生新的 **urban/fringe 内
+frontage station**，并在道路占地前为 frontage 预留转换额度；只靠调整
+urbanCoreRatio 或放宽合同不成立。
