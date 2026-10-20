@@ -92,7 +92,7 @@
 |---|---|---|---|---|
 | **A 稳定底座** | 世界可以难看，但必须可复现、可追溯、消费者不能造物 | A-01～A-10（`acceptance-contract.zh-CN.md`） | ✅ 2026-09-09 `milestone-A-accepted`；`worldQualityStatus=fail` | **六条内容失败**（见 5.3），明文说不许继承到 B/C |
 | **B 真实街区/聚落** | 每个实体都能反查到 道路→地块→建筑→入口→账本，且面积守恒 | B-G1～B-G8（`milestone-b-acceptance`） | ⚠️ `partial` | 全区块内容缺口；细则见第 5 章 |
-| **C 自然—工程—人文** | 自然决定选址，工程反过来改地形水文，消费者读同一版本 | C-N1/N2、C-E1/E2、C-H1/H2、C-L1、C-V1、C-G1 | ❌ 未实质开工 | 局部工程/剖面已存在，不等于闭环 |
+| **C 自然—工程—人文** | 自然决定选址，工程反过来改地形水文，消费者读同一版本 | C-N1/N2、C-E1/E2、C-H1/H2、C-L1、C-V1、C-G1 | ⚠️ 首批实现 | C-N1 来源矩阵 + habitat 接口、C-E1 挡墙/涵洞、C-E2 工程后路由对比已落地；最大图工程版与消费者仍未签收 |
 
 ### 3.2 B 的五个批次（真正的实施里程碑）
 
@@ -196,7 +196,7 @@
 | D7.1 | 连续、可复现的高度场：同一世界坐标同一地形，邻近格高差受控 | 生产可用 | `value_noise2d`/`fbm2d` + `landform_field`（河谷/平原/丘陵/山地四带） |
 | D7.2 | 山脊谷地/盆地/河流/流域/汇流/闭合洼地，多尺度连续 | 部分 | 有 1628 个闭合洼地统计与 4 个未解决平坦终端（r44 gate）；不等于流域水文 |
 | D7.3 | 明确侵蚀模型与近似边界；不得给噪声改名冒充真实侵蚀 | ⚠️ 未达成 | 现有 `erosion_carve` 自述"不是粒子模拟"；r28 标注 `domain-approximation` |
-| D7.4 | C-N1：每个自然算法的出处矩阵（Mapgen4 / symbios-ground / 自写 / 近似边界）+ 可保留/拆分/替换决策 | ❌ 未开始 | 只有 `mapgen4-hydrology-plan` 计划；无逐函数矩阵 |
+| D7.4 | C-N1：每个自然算法的出处矩阵（Mapgen4 / symbios-ground / 自写 / 近似边界）+ 可保留/拆分/替换决策 | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已逐函数列出；Mapgen4/symbios-ground 未 vendor/未复制；新增 `ecology_habitat` 纯接口 |
 | D7.5 | 保护/未知用途不得被建设改写；保护边缘填土包络 `final ≤ natural + 0.5 × Chebyshev距离(m)` | 生产可用 | r24 §保护区；实测保护区 9,602,160m²、高度改变样本 0 |
 | D7.6 | 现有石头/树/旧路/旧农田/围墙/旧建筑作为 `ExistingFeature` 先落地，声明来源、永久性、保护级别、可移动性与转化策略 | 仅设计 | 形态研究 §171；架构文档 §43-45；代码中无该持久化结构 |
 | D7.7 | 版本化快照：`NaturalTerrainSnapshot`（heightfield/climate/drainage/water/landform/hazard/ecology + source/version）与 `EngineeredTerrainSnapshot`（有序操作/土方/结构实体/影响块/排水影响/稳定性/final hash）分别保存、分别审计 | 部分 | `natural-terrain.json` 与 `engineered-terrain.json` 已产出；schema 未达设计文档要求的字段面 |
@@ -211,7 +211,7 @@
 | D8.2 | 路面宽 4–32m 偶数、单侧路肩 0–8m（样例 8+3+3=**14m** 支撑） | 生产可用 | r45/r46 |
 | D8.3 | 保护区填土衰减包络；水体相交拒绝，不虚构桥梁 | 生产可用 | r45 §拒绝 |
 | D8.4 | 平台/挖填/路堤/边坡/挡墙/排水/涵洞作为工程实体并参与土方差量 | ❌ 未开始 | r46 §3.2 明说"没有完成走廊外边坡、路拱、排水、竖曲线舒适性或全域土方平衡" |
-| D8.5 | C-E2 工程后水文反馈（阻水/溢流/断流/涵洞正负测试） | ❌ 未开始 | 现有 `sampled drainage` 自述不是水量/洪泛模型 |
+| D8.5 | C-E2 工程后水文反馈（阻水/溢流/断流/涵洞正负测试） | ⚠️ 首个实现 | `engineeringDrainage="audit"` 对自然/最终地形重算图并输出 changedFlows/newSinks/lostSinks/raisedTerminals；仍是路由完整性，不是水量/洪泛模型 |
 | D8.6 | 工程操作与最终地形/实体/审计共享同一版本 | 部分 | v2 工程快照绑定真实道路实体 ID（r46） |
 | D8.7 | 地形只能通过**显式工程操作**改变：cut / fill / retain / embank / reclaim / channel / bridge / culvert / terrace；每个操作记录 footprint、原始自然场版本、目标高程、材料体积、排水影响、边坡稳定性、相邻影响、原因与审计状态；`final = natural + ordered deltas` | 部分 | 目前只有 fill + road profile 进 bake；其余操作**无实现** |
 | D8.8 | 工程优先级：保育/水体/灾害 > 主排水 > 桥/堤 > 主路 > 次路 > 地块平台 > 建筑地基 > 装饰性微地形 | 部分 | 硬支撑优先级已实现（道路 > 建筑），其余未实现 |
@@ -313,7 +313,7 @@
 | D15.2 | 格式：3D 优先 `.glb`，兼容 `.gltf + .bin + textures`；Godot 支持 `.tscn`/`.tres`；2D 支持 `.png`/`.webp` | 部分 | 当前资产为 `.obj`+`.mtl` 与 `.gltf`；`.glb` 无 |
 | D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
 | D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **未完成** | 两项明确未解析：Quaternius 建筑资产精确上游包、`@cloudflare/workerd-windows-64@1.20260701.1` 许可元数据（A-09 一直带着这两项签收） |
-| D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | 仅纪律 | 多轮文档反复声明"未复制 Mapgen4/symbios-ground 源码"；**无正式矩阵**（= C-N1 缺口） |
+| D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；Quaternius/workerd 两项许可仍未解析 |
 | D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
 | D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |
 
@@ -448,7 +448,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | 批次 | 状态 | 本轮（Round 5 起）的可核对增量 | 仍缺 |
 |---|---|---|---|
 | B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24；单区 CLI 5/24，双区控制 9/24 | 真实低地世界仍受 B-02/B-03 供给限制，未达到 24/24；不再表述为"只有 bbox+2m" |
-| B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；双区控制出现 16m collector + 8m farm-access；山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 仍无 12m local 实网；v3 128 状态内无真实 parcel supply；tier provenance 与 final audit gate 未接；882 最大图目标未验证 |
+| B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；**tier id/role 已持久化到 edge/extension/entity grounding，quality-report 输出 `roadTierAudit` 并作为 gate**；512m 控制 accepted 2（collector-16 + farm-access-8）、unserved 0、road audit **33/33 pass**；6.4m 邻接填方误报已修正为 5.7m | 仍无 12m local 实网；v3 128 状态内真实 parcel supply 仍为 0，frontage 0/24；882 最大图目标未验证 |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；residual audit 按 source/sub-use 输出 candidate/target/realized/policy remainder/rejected/unresolved；当前 b03 控制 unresolved **128,542m²**；A-closure 最大图未实现 **50,538,180m²** | 历史 land-execution-2 的 123,760m² 是旧 worldRevision；显式子用途、农村公共空间、共享农路/等高条带、development↔landcover 映射、全局 1m 重叠审计仍缺 |
 | B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界派生（`c052838`）、轴/节点生长（`b59da3e`） | profile 参数尚未完整驱动 frontage/services/道路展开；coverageRatio / serviceRadiusM / terrain 仍无消费者 |
 | B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；**最大图 complete-ground gate pass**（255.693s、240 chunks、623 entities、landcover unresolved 0、failures 0） | 第二次确定性重跑、240 chunk 浏览器漫游、崩溃未修；B-01/B-02/B-04 的独立内容证据仍需收口 |
@@ -458,10 +458,11 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 
 ### 5.6 C 的实际状态
 
-C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工程实体）本轮从"只有 fill + 道路 profile"扩到
-**fill + 有界 cut 的真实台账**（`3f6bb02`、`d40c2da`、`9d0cd79`：逐格复算、pad/road 分开记账、保护/水体/岸线 0 格），
-但仍**没有**边坡挡墙、排水、涵洞、竖曲线；C-E2（工程后水文）未做；C-H1/H2 部分；C-L1 两项未解析；C-V1、C-G1 未做。
-**C 仍未实质开工**，本轮只是把 C-E1 的局部预支做得更实。
+C-N1 已产出逐函数来源矩阵与 `ecology_habitat` 纯接口；C-N2 仍是近似。
+C-E1 已在山城 512m 控制生成 **232 段挡墙 / 5 个涵洞记录**（`terrain-works.json`），
+C-E2 已输出自然 vs 最终地形的路由对比（87 个改向节点 / 5 个抬升终端），
+不再是"只有 fill + 道路 profile"。仍缺挡墙基础、排水沟、竖曲线、洪泛/水量模型；
+C-H1/H2 部分；C-L1 两项未解析；C-V1、C-G1 未做。**C 仍未整体签收。**
 
 ---
 
@@ -513,7 +514,7 @@ C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工�
 | P1 | 农田/未建城市地的地表实现（50,538,180m²） | B-03、A 例外 2/3/5/6 | 分 urban/rural/自然三类逐项报 realized/unresolved |
 | P1 | 生态缺 1 株 | A 例外 4、C-G1 | **已关闭（2026-10-20）**：A-closure 6×10km 实测 342,380/342,380/0；保留证据，不再作为阻塞 |
 | P2 | 主次支路分级、路口真实几何 | B-04、C-H1 | 需要水平曲线与转向几何 |
-| P2 | 工程实体（边坡/挡墙/排水/涵洞）+ 工程后水文 | C-E1/E2 | 先做 C-N1 来源矩阵，再引实现 |
+| P2 | 工程实体（边坡/挡墙/排水/涵洞）+ 工程后水文 | C-E1/E2 | 首个挡墙/涵洞/路由对比已落地；下一步补排水沟、竖曲线、最大图工程版与消费者 |
 | P2 | 形态 profile 编译（D13） | B-04 | 先把 12 原型中的 2–3 个落到参数，不追求全覆盖 |
 | P2 | Godot 从未运行验收（D14.7） | C-V1 的跨引擎交付 | 装 Godot 4.7 跑一次最小场景 |
 | P3 | 多场景/转接点（D17） | R12、C-G1 | 单场景稳定后再谈 |

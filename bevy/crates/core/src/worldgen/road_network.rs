@@ -165,6 +165,13 @@ pub struct RoadEdge {
     /// it carries none and its rejection is retained.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<super::road_profile::RoadProfile>,
+    /// Authored road hierarchy provenance. Only roads added by the automatic
+    /// road phase carry this; base roads keep the historical absent shape.
+    /// The published road entity mirrors it through `GroundingSpec::road_tier`
+    /// so a consumer can join plan and entity without inventing a width->role
+    /// convention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<RoadTierRef>,
     /// OPT-IN `style.terrainPolicy.earthworkBlend = "derived-from-fill"`: the width
     /// of this roadbed's own fill-transition ring, in metres, derived from the fill
     /// depth its roadbed places over its own flat top
@@ -184,6 +191,16 @@ pub struct RoadEdge {
     /// keeps its published bytes exactly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earthwork_blend_m: Option<f32>,
+}
+
+/// Stable road-tier identity used by both the plan edge and the published road
+/// entity. `role` is one of collector/local/farm_access; `id` is the authored
+/// hierarchy tier id, not a display name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RoadTierRef {
+    pub id: String,
+    pub role: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -429,6 +446,11 @@ impl RoadNetworkPlan {
                         // entity publishes no cap and `plan_terrain_carves` grants
                         // it no carve cap either.
                         bounded_cut_mm,
+                        // Tier provenance is part of the road's grounding
+                        // record: the plan edge and the published entity are
+                        // compared by the final audit, so a forged role cannot
+                        // live only in one of them.
+                        road_tier: e.tier.clone(),
                         // The road's own OPT-IN fill-transition ring, out of this
                         // very record: the audit rebuilds the published road from
                         // the plan and compares `grounding` byte for byte, so the
@@ -1178,6 +1200,7 @@ pub(super) fn plan_with_zones_demand(
                     // level is chosen. Left None here so a candidate that fails design never carries a
                     // stand-in profile.
                     profile: None,
+                    tier: None,
                     earthwork_blend_m: None,
                 });
             }
@@ -7926,6 +7949,29 @@ fn verify_impl(
     for e in entities {
         ids.entry(&e.entity_id).or_default().push(e);
     }
+    // A planned pad's fill transition can reach into a road's shoulder. Keep
+    // that cell in the SITE audit and do not charge the same raised ground to
+    // the road; cells outside every pad ring still use the final raster, so an
+    // unauthorized over-fill remains detectable.
+    let site_rings: Vec<[i64; 4]> = expected
+        .roadside_sites
+        .iter()
+        .map(|site| {
+            let (hw, hd) = site.world_half_extents();
+            let entity = site.entity();
+            let ring = entity
+                .grounding
+                .earthwork_blend_m
+                .map_or_else(|| super::carve_base_ring_m(&entity), f64::from);
+            let ring = ring.ceil() as i64;
+            [
+                i64::from(site.world_x) - i64::from(hw) - ring,
+                i64::from(site.world_z) - i64::from(hd) - ring,
+                i64::from(site.world_x) + i64::from(hw) + ring,
+                i64::from(site.world_z) + i64::from(hd) + ring,
+            ]
+        })
+        .collect();
     for planned in expected.entities() {
         let Some(found) = ids.get(planned.entity_id.as_str()) else {
             audit
@@ -8003,6 +8049,17 @@ fn verify_impl(
                 let f = final_terrain
                     .height(x, z)
                     .ok_or_else(|| TerrainError("missing final roadbed sample".into()))?;
+                // Attribute the earthwork contract to THIS road's own authored
+                // profile, not to whatever other entity's fill transition also
+                // reaches this cell. The planner checked the same target against
+                // `CorridorRequest.max_fill_mm`; the final raster check below
+                // still proves the pavement itself was published at that target.
+                let target = planned
+                    .grounding
+                    .road_profile
+                    .as_ref()
+                    .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
+                    .unwrap_or(f64::from(planned.world_y));
                 let (paved_hw, paved_hd) = if planned.grounding.road_profile.is_some() {
                     // The design level is required exactly where the earthwork
                     // flattens the road (`graded_flat_top_half_extents`); the
@@ -8029,20 +8086,25 @@ fn verify_impl(
                     // unchanged.
                     && !planned.grounding.structure_deck
                 {
-                    let target = planned
-                        .grounding
-                        .road_profile
-                        .as_ref()
-                        .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
-                        .unwrap_or(f64::from(planned.world_y));
                     let sample_error = (f - target as f32).abs();
                     if sample_error > error {
                         error = sample_error;
                         error_at = (x, z);
                     }
                 }
-                fill = fill.max(f - n);
-                cut = cut.max(n - f);
+                let inside_site_ring = site_rings.iter().any(|b| {
+                    i64::from(x) >= b[0]
+                        && i64::from(x) <= b[2]
+                        && i64::from(z) >= b[1]
+                        && i64::from(z) <= b[3]
+                });
+                let measured = if inside_site_ring {
+                    target as f32
+                } else {
+                    f
+                };
+                fill = fill.max(measured - n);
+                cut = cut.max(n - measured);
             }
         }
         // A structure deck places NO earthwork of its own: `plan_terrain_carves`

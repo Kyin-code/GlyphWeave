@@ -178,6 +178,10 @@ pub struct GroundingSpec {
     pub frontage_road_point: Option<[i32;2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_profile: Option<road_profile::RoadProfile>,
+    /// Authored road-tier provenance for an automatic/extension road. Base
+    /// roads and every non-road entity leave it absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_tier: Option<road_network::RoadTierRef>,
     #[serde(default)]
     pub pivot: GroundingPivot,
     #[serde(default)]
@@ -246,6 +250,7 @@ impl Default for GroundingSpec {
         Self {
             frontage_road_point: None,
             road_profile: None,
+            road_tier: None,
             pivot: GroundingPivot::Bottom,
             bottom_offset_m: 0.0,
             roadbed_offset_m: 0.0,

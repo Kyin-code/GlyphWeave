@@ -1093,6 +1093,7 @@ mod tests {
                     natural_max_m: 0.,
                     // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
                     profile: None,
+                    tier: None,
                     earthwork_blend_m: None,
                 },
                 RoadEdge {
@@ -1107,6 +1108,7 @@ mod tests {
                     natural_max_m: 0.,
                     // B01-T2 mechanical sync: unprofiled legacy edge in this fixture
                     profile: None,
+                    tier: None,
                     earthwork_blend_m: None,
                 },
             ],

@@ -3,7 +3,7 @@
 use super::{
     EntityInstance, LandUseZone, SceneSpec, WaterGeometry, WorldManifest,
     road_alignment::{self, CorridorDesign, CorridorRequest},
-    road_network::{RoadEdge, RoadNetworkPlan, RoadNode},
+    road_network::{RoadEdge, RoadNetworkPlan, RoadNode, RoadTierRef},
     road_profile::RoadProfile,
 };
 use crate::baked_terrain::{BakedTerrain, TerrainError};
@@ -20,6 +20,11 @@ pub struct RoadExtension {
     pub entity_id: String,
     pub parent_road_ids: Vec<String>,
     pub design: CorridorDesign,
+    /// Authored hierarchy provenance for an automatically selected road.
+    /// Absent for the explicit `roadExtensions` contract and for every legacy
+    /// road that did not come from a hierarchy-aware programme.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<RoadTierRef>,
 }
 fn err(s: impl Into<String>) -> TerrainError {
     TerrainError(s.into())
@@ -193,6 +198,16 @@ pub(super) fn append_one(
     context: &road_alignment::AlignmentContext<'_>,
     r: &CorridorRequest,
     id: String,
+) -> Result<(), TerrainError> {
+    append_one_with_tier(plan, context, r, id, None)
+}
+
+pub(super) fn append_one_with_tier(
+    plan: &mut RoadNetworkPlan,
+    context: &road_alignment::AlignmentContext<'_>,
+    r: &CorridorRequest,
+    id: String,
+    tier: Option<RoadTierRef>,
 ) -> Result<(), TerrainError> {
     let t = context.terrain;
     let mask = &context.mask;
@@ -439,6 +454,7 @@ pub(super) fn append_one(
         // through the legacy extensions lookup, which is priority 2. Writing a copy here would create two
         // sources of truth for the same road.
         profile: None,
+        tier: tier.clone(),
         // OPT-IN earthworkBlend: the fill-derived ring is written by
         // earthwork_blend::stamp_plan once the whole pad list is final, so an
         // extension road starts without one - exactly like every base edge.
@@ -448,6 +464,7 @@ pub(super) fn append_one(
         entity_id: id,
         parent_road_ids: parents,
         design,
+        tier,
     });
     Ok(())
 }

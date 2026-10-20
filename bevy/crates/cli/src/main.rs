@@ -1059,6 +1059,14 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
+            if scene["roadTierAudit"].is_object()
+                && scene["roadTierAudit"]["status"] != "pass"
+            {
+                failures.push(format!(
+                    "{} final road tier provenance failed independent audit",
+                    scene["sceneId"]
+                ));
+            }
             if scene["landProtectionAudit"].is_object()
                 && scene["landProtectionAudit"]["status"] != "pass"
             {
@@ -1783,6 +1791,24 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
         } else {
             None
         };
+        let road_tier_audit = match (
+            scene.road_network_plan.as_ref(),
+            scene
+                .road_network_plan
+                .as_ref()
+                .and_then(|plan| plan.automatic_extensions.as_ref()),
+        ) {
+            (Some(plan), Some(report)) => Some(
+                match glyphweave_core::worldgen::auto_roads::audit_tier_provenance(plan, report) {
+                    Ok(()) => serde_json::json!({"status":"pass","failures":[]}),
+                    Err(error) => serde_json::json!({
+                        "status":"fail",
+                        "failures":[error.to_string()],
+                    }),
+                },
+            ),
+            _ => None,
+        };
         // OPT-IN `style.terrainPolicy.entryCorridor`: one independent recomputation
         // of every published graded entry corridor, from the plan's own pad records,
         // the natural raster and the published raster. Absent for a world without a
@@ -2176,6 +2202,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             "landmarks": scene.landmarks.len(), "entities": scene.entities.len(),
             "naturalTerrainAudit": recomputed_natural_audit,
             "roadNetworkAudit": road_network_audit,
+            "roadTierAudit": road_tier_audit,
             "automaticRoads":scene.road_network_plan.as_ref().and_then(|p|p.automatic_extensions.as_ref()),
             "frontageAudit":scene.road_network_plan.as_ref().filter(|p|p.frontage.is_some()).map(|p|glyphweave_core::worldgen::frontage::audit(p,&scene.entities,&access)),
             "jointLayoutAudit": joint_layout_audit,

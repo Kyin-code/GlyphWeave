@@ -5,7 +5,7 @@ use super::{
     frontage_supply::{Realization, SupplyContext, SupplySession},
     road_alignment::{AlignmentContext, CorridorRequest},
     road_extensions,
-    road_network::RoadNetworkPlan,
+    road_network::{RoadNetworkPlan, RoadTierRef},
     zoning::ZoningMask,
 };
 use crate::baked_terrain::{BakedTerrain, TerrainError};
@@ -430,6 +430,7 @@ struct Candidate {
     gain: u64,
     length: u32,
     tier_rank: u8,
+    tier_id: Option<String>,
     tier_role: Option<String>,
     road_width_m: u32,
 }
@@ -589,7 +590,7 @@ pub(super) fn append_declared(
         return Ok(());
     };
     // The bounded-cut allowance of this world's longitudinal road profile, read
-    // once:   is a world that never opted in and keeps the fill-only solver.
+    // once:   is a world that never opted in and keeps the fill-only solver.
     let profile_cut_mm = super::bounded_cut::CutPolicy::from_style(style).0.cap_mm();
     let version = all.version;
     let Some(program) = all
@@ -645,7 +646,7 @@ fn append_legacy(
     water: WaterGeometry,
     zones: &[LandUseZone],
     program: &SceneProgram,
-    // The bounded-cut allowance of the longitudinal profile;   keeps the
+    // The bounded-cut allowance of the longitudinal profile;   keeps the
     // historical fill-only solver and the historical bytes.
     profile_cut_mm: i32,
 ) -> Result<(), TerrainError> {
@@ -758,6 +759,7 @@ fn append_legacy(
                         gain: 0,
                         length,
                         tier_rank: 0,
+                        tier_id: None,
                         tier_role: None,
                         road_width_m: 8,
                     };
@@ -765,7 +767,7 @@ fn append_legacy(
                         continue;
                     }
                     if let Some(hierarchy) = &program.hierarchy {
-                        let mut best: Option<(usize, usize, u64, &str, String, u32)> = None;
+                        let mut best: Option<(usize, usize, u64, &str, &RoadTier)> = None;
                         let total_served = report
                             .targets
                             .iter()
@@ -820,12 +822,11 @@ fn append_legacy(
                                 purpose_served,
                                 purpose_gain,
                                 purpose.as_str(),
-                                tier.role.clone(),
-                                tier.width_m,
+                                tier,
                             );
                             let better = match &best {
                                 None => true,
-                                Some((bp, bs, bg, bpurpose, _, _)) => {
+                                Some((bp, bs, bg, bpurpose, _)) => {
                                     priority < *bp
                                         || (priority == *bp
                                             && (purpose_served > *bs
@@ -840,15 +841,16 @@ fn append_legacy(
                             }
                         }
                         c.served = total_served;
-                        if let Some((priority, _, _, _, role, width_m)) = best {
+                        if let Some((priority, _, _, _, tier)) = best {
                             c.priority = priority;
-                            c.tier_rank = match role.as_str() {
+                            c.tier_rank = match tier.role.as_str() {
                                 "collector" => 0,
                                 "local" => 1,
                                 _ => 2,
                             };
-                            c.tier_role = Some(role);
-                            c.road_width_m = width_m;
+                            c.tier_id = Some(tier.id.clone());
+                            c.tier_role = Some(tier.role.clone());
+                            c.road_width_m = tier.width_m;
                         }
                     } else {
                         for (priority, purpose) in program.priority_purposes.iter().enumerate() {
@@ -926,7 +928,21 @@ fn append_legacy(
                     junction_length_m: 8,
                 };
                 let request = ctx.infer_end(&r)?;
-                road_extensions::append_one(plan, &ctx, &request, id.clone())
+                let tier = c
+                    .tier_id
+                    .as_ref()
+                    .zip(c.tier_role.as_ref())
+                    .map(|(id, role)| RoadTierRef {
+                        id: id.clone(),
+                        role: role.clone(),
+                    });
+                road_extensions::append_one_with_tier(
+                    plan,
+                    &ctx,
+                    &request,
+                    id.clone(),
+                    tier,
+                )
             })();
             match result {
                 Ok(()) => {
@@ -949,6 +965,7 @@ fn append_legacy(
         report.stop_reason = "no_feasible_progress_candidate".into();
         break;
     }
+    audit_tier_provenance(plan, &report)?;
     plan.automatic_extensions = Some(report);
     Ok(())
 }
@@ -962,6 +979,7 @@ struct SupplyState {
     end: [i32; 2],
     length: u32,
     width_m: u32,
+    tier_id: String,
     tier_role: String,
 }
 impl SupplyState {
@@ -1086,6 +1104,7 @@ fn append_supply_aware(
         &mut working, scene, t, water, zones, style, program, mode, clock, source,
     )? {
         SupplyPhase::Complete(report) => {
+            audit_tier_provenance(&working, &report)?;
             working.automatic_extensions = Some(report);
             *plan = working;
             Ok(())
@@ -1263,10 +1282,10 @@ fn run_supply_phase(
         states.sort_by_key(|s| {
             (
                 supply_order(zones, &session, s),
-                s.tier_rank(),
                 s.node,
                 s.end,
                 s.length,
+                s.tier_rank(),
                 s.width_m,
             )
         });
@@ -1311,6 +1330,7 @@ fn run_supply_phase(
                         gain: 0,
                         length: state.length,
                         tier_rank: 0,
+                        tier_id: Some(state.tier_id.clone()),
                         tier_role: Some(state.tier_role.clone()),
                         road_width_m: state.width_m,
                     },
@@ -1335,7 +1355,16 @@ fn run_supply_phase(
                     junction_length_m: 8,
                 };
                 let request = ctx.infer_end(&r)?;
-                road_extensions::append_one(&mut staged, &ctx, &request, id.clone())
+                road_extensions::append_one_with_tier(
+                    &mut staged,
+                    &ctx,
+                    &request,
+                    id.clone(),
+                    Some(RoadTierRef {
+                        id: state.tier_id.clone(),
+                        role: state.tier_role.clone(),
+                    }),
+                )
             })();
             if let Err(e) = appended {
                 *report.rejected_by_reason.entry(category(&e.0)).or_default() += 1;
@@ -1677,7 +1706,7 @@ fn supply_states(
     // only the first tier (which is local for urban) made collector roads
     // unreachable in the demand-led phase even when the hierarchy authorized
     // them. The measured supply, not the tier name, decides which road wins.
-    let mut tiers: Vec<(u8, String, u32)> = vec![];
+    let mut tiers: Vec<(u8, String, String, u32)> = vec![];
     for request in session.budgets.iter().filter(|b| b.remaining() > 0) {
         let mut authorized: Vec<_> = hierarchy
             .tiers
@@ -1704,9 +1733,16 @@ fn supply_states(
             };
             if !tiers
                 .iter()
-                .any(|(_, role, width)| *role == tier.role && *width == tier.width_m)
+                .any(|(_, id, role, width)| {
+                    *id == tier.id && *role == tier.role && *width == tier.width_m
+                })
             {
-                tiers.push((rank, tier.role.clone(), tier.width_m));
+                tiers.push((
+                    rank,
+                    tier.id.clone(),
+                    tier.role.clone(),
+                    tier.width_m,
+                ));
             }
         }
     }
@@ -1744,13 +1780,14 @@ fn supply_states(
                 if existing.contains(&(start, end)) || existing.contains(&(end, start)) {
                     continue;
                 }
-                for (_, role, width_m) in &tiers {
+                for (_, tier_id, role, width_m) in &tiers {
                     let state = SupplyState {
                         node: node.id,
                         start,
                         end,
                         length,
                         width_m: *width_m,
+                        tier_id: tier_id.clone(),
                         tier_role: role.clone(),
                     };
                     // A state is tried at most once in the whole sweep: the
@@ -1865,6 +1902,91 @@ fn realized_increments(session: &SupplySession, realization: &Realization) -> Ve
 /// surfaces, landcover, development ownership, road engineering, access graph,
 /// node elevations) is worse than the trusted baseline. Pure over its inputs so
 /// the injection tests can drive it directly.
+/// Independently prove that every road the automatic phase claims carries the
+/// authored tier id/role/width and a reconstructable parent chain. This is a
+/// provenance audit, not a re-plan: it compares the published plan to the
+/// report's own hierarchy.
+pub fn audit_tier_provenance(
+    plan: &RoadNetworkPlan,
+    report: &Report,
+) -> Result<(), TerrainError> {
+    if let Some(base) = &report.base_road_program {
+        audit_tier_provenance(plan, base)?;
+    }
+    fn collect(report: &Report, out: &mut BTreeSet<String>) {
+        out.extend(report.generated_road_ids.iter().cloned());
+        if let Some(base) = &report.base_road_program {
+            collect(base, out);
+        }
+    }
+    let mut generated = BTreeSet::new();
+    collect(report, &mut generated);
+    let Some(hierarchy) = &report.program.hierarchy else {
+        if plan.edges.iter().any(|edge| edge.tier.is_some()) {
+            return Err(err("road_tier_without_hierarchy"));
+        }
+        return Ok(());
+    };
+    let tiers: BTreeMap<&str, &RoadTier> = hierarchy
+        .tiers
+        .iter()
+        .map(|tier| (tier.id.as_str(), tier))
+        .collect();
+    for edge in &plan.edges {
+        if edge.tier.is_some() && !generated.contains(edge.id.as_str()) {
+            return Err(err(format!(
+                "road_tier_on_non_generated_edge:{}",
+                edge.id
+            )));
+        }
+    }
+    for id in &generated {
+        let edge = plan
+            .edges
+            .iter()
+            .find(|edge| edge.id == *id)
+            .ok_or_else(|| err(format!("road_tier_edge_missing:{id}")))?;
+        let tier = edge
+            .tier
+            .as_ref()
+            .ok_or_else(|| err(format!("road_tier_missing:{id}")))?;
+        let expected = tiers
+            .get(tier.id.as_str())
+            .ok_or_else(|| err(format!("road_tier_unknown:{id}:{}", tier.id)))?;
+        if tier.role != expected.role {
+            return Err(err(format!(
+                "road_tier_role_mismatch:{id}:{}:{}",
+                tier.role, expected.role
+            )));
+        }
+        let extension = plan
+            .extensions
+            .iter()
+            .find(|extension| extension.entity_id == *id)
+            .ok_or_else(|| err(format!("road_tier_extension_missing:{id}")))?;
+        if extension.design.request.road_width_m != expected.width_m {
+            return Err(err(format!(
+                "road_tier_width_mismatch:{id}:{}:{}",
+                extension.design.request.road_width_m, expected.width_m
+            )));
+        }
+        if extension.tier.as_ref() != Some(tier) {
+            return Err(err(format!("road_tier_edge_extension_mismatch:{id}")));
+        }
+        if extension.parent_road_ids.is_empty() {
+            return Err(err(format!("road_tier_parent_missing:{id}")));
+        }
+        for parent in &extension.parent_road_ids {
+            if !plan.edges.iter().any(|edge| &edge.id == parent) {
+                return Err(err(format!(
+                    "road_tier_parent_unknown:{id}:{parent}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The commit gate, visible to the sibling supply module so its bounded
 /// production-derived fixture can drive the real guard.
 pub(super) fn commit_decision(
@@ -1873,6 +1995,9 @@ pub(super) fn commit_decision(
     baseline: &Realization,
     verified: &RoadNetworkPlan,
 ) -> Result<(), String> {
+    if let Some(report) = &verified.automatic_extensions {
+        audit_tier_provenance(verified, report).map_err(|error| error.0)?;
+    }
     // 1. Every identity this session has already committed — the entering
     //    baseline and each earlier round of this same phase — must survive with
     //    unchanged geometry and access.
@@ -2244,12 +2369,31 @@ mod tests {
             .collect();
         assert!(widths.contains(&16), "{widths:?}");
         for extension in &p.extensions {
+            let tier = extension
+                .tier
+                .as_ref()
+                .expect("hierarchy extension must carry tier provenance");
+            assert!(matches!(
+                tier.role.as_str(),
+                "collector" | "local" | "farm_access"
+            ));
+            assert!(!extension.parent_road_ids.is_empty());
+            for parent in &extension.parent_road_ids {
+                assert!(p.edges.iter().any(|edge| &edge.id == parent));
+            }
+            let edge = p
+                .edges
+                .iter()
+                .find(|edge| edge.id == extension.entity_id)
+                .expect("extension edge");
+            assert_eq!(edge.tier.as_ref(), Some(tier));
             let entity = p
                 .entities()
                 .into_iter()
                 .find(|e| e.entity_id == extension.entity_id)
                 .unwrap();
             assert_eq!(entity.depth_m, extension.design.request.road_width_m as f32);
+            assert_eq!(entity.grounding.road_tier.as_ref(), Some(tier));
             entity
                 .grounding
                 .road_profile
@@ -2258,6 +2402,15 @@ mod tests {
                 .validate_entity(&entity)
                 .unwrap();
         }
+        let report = p.automatic_extensions.as_ref().unwrap();
+        audit_tier_provenance(&p, report).unwrap();
+        let mut forged = p.clone();
+        forged.extensions[0].tier.as_mut().unwrap().role = "local".into();
+        forged.extensions[0].tier.as_mut().unwrap().id = "collector-16".into();
+        assert!(
+            audit_tier_provenance(&forged, report).is_err(),
+            "a forged role must fail the tier audit"
+        );
     }
     #[test]
     fn winner_priority_purpose_and_tier_are_atomic() {
