@@ -911,16 +911,16 @@ pub fn compile(style: &Value, scenes: &[SceneSpec]) -> Result<Option<CompiledSty
         "serviceRadiusM",
         "worldgen audits every realized dwelling against every realized service at this radius; it never places facilities",
     ));
-    for (field, reason) in [
-        (
-            "coverageRatio",
-            "no consumer: the pipeline does not implement a footprint-coverage target",
-        ),
-        (
-            "terrain",
-            "descriptive profile metadata; the manifest terrain profile stays authoritative",
-        ),
-    ] {
+    field_sources.push(FieldSource::new(
+        "morphology-coverage-audit.json.targetCoverageRatio",
+        SOURCE_DERIVED,
+        "coverageRatio",
+        "opt-in worldgen audit measures each realized building footprint against its parcel; it never resizes authored geometry",
+    ));
+    for (field, reason) in [(
+        "terrain",
+        "descriptive profile metadata; the manifest terrain profile stays authoritative",
+    )] {
         unsupported.push(FieldSource::new(
             format!("profile.{field}"),
             SOURCE_UNSUPPORTED,
@@ -1165,7 +1165,7 @@ mod tests {
                 "{id} must not declare a consumed field unsupported"
             );
             // Unsupported fields are declared, never silently claimed.
-            for field in ["coverageRatio", "terrain"] {
+            for field in ["terrain"] {
                 assert!(
                     compiled
                         .report
@@ -1176,6 +1176,16 @@ mod tests {
                     "{id} must declare {field} unsupported"
                 );
             }
+            assert!(
+                compiled.report.field_sources.iter().any(|entry| {
+                    entry.profile_field == "coverageRatio"
+                        && entry.source == SOURCE_DERIVED
+                        && entry
+                            .path
+                            .ends_with("morphology-coverage-audit.json.targetCoverageRatio")
+                }),
+                "{id} must report the opt-in coverage audit consumer"
+            );
             assert!(
                 compiled
                     .report
@@ -1221,8 +1231,8 @@ mod tests {
     /// pre-wiring style byte for byte (checked below), so a drift anywhere else
     /// (an authored setback included) is a hard failure instead of a silent
     /// world-revision change. The report digest moved once when
-    /// `serviceRadiusM` gained its coverage-audit consumer; the effective style
-    /// itself did not move.
+    /// `serviceRadiusM` and `coverageRatio` gained audit consumers; the
+    /// effective style itself did not move.
     #[test]
     fn authored_setback_documents_keep_their_pre_wiring_digests() {
         for (profile_id, pre_wiring_style_digest, style_digest, report_digest) in [
@@ -1230,13 +1240,13 @@ mod tests {
                 "compact-mixed-block",
                 "7b2b48790a5338e64dad1549386aaf838191fa7f9b6c9f568c7cd5df4a96eaaa",
                 "98a6499ef8de3f2b54d34f0033e9a9b26ce0551b23441762f1b3ddf2f3eea96c",
-                "32f5adf0dd81ea9329dc1e7206a616810150848eeae1243c3eaaec63cb617cdd",
+                "b50f7972dd808e1ef27b880e57a87acd91b22d88a1a710a4661152dc79787abf",
             ),
             (
                 "village-field",
                 "75620dee9131ac7df0d72319c060df79e0ace7ccb4d5ba72bf8ccbe4f1b6a0b0",
                 "f921ae85a58e9a83dc0730cd525915d16c1e41e9390c7534814a5ca010ffc298",
-                "cbf5cd2ec6e5b05be4c13080507a0ef0d8d53ee683a2cda130bab401dc9318be",
+                "bad07d324860abaa30379334e5992ebdc9dfc74ca8f93dc9f6062164f7523f30",
             ),
         ] {
             let compiled = compile(&style(profile_id), &[scene()]).unwrap().unwrap();

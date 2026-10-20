@@ -16,6 +16,7 @@ pub mod landcover;
 pub mod landuse_ledger;
 pub mod morphology;
 pub mod morphology_compile;
+pub mod morphology_coverage;
 pub mod proposals;
 pub mod residual_land;
 pub mod service_relations;

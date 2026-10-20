@@ -3313,6 +3313,31 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 serde_json::to_vec_pretty(&coverage)?,
             )?;
         }
+        let morphology_coverage_requested = effective_style
+            .get("morphologyCoverage")
+            .and_then(serde_json::Value::as_str)
+            == Some("audit");
+        if morphology_coverage_requested {
+            let profile = super::settlement::morphology::resolve(&effective_style)
+                .map_err(WorldgenError::InvalidRules)?
+                .ok_or_else(|| {
+                    WorldgenError::InvalidRules(
+                        "morphologyCoverage=audit requires a morphologyProfile".into(),
+                    )
+                })?;
+            let development = index.development_plan.as_ref().ok_or_else(|| {
+                WorldgenError::InvalidRules(
+                    "morphologyCoverage=audit requires a realized development plan".into(),
+                )
+            })?;
+            let coverage =
+                super::settlement::morphology_coverage::audit(development, &profile)
+                    .map_err(WorldgenError::InvalidRules)?;
+            fs::write(
+                scene_dir.join("morphology-coverage-audit.json"),
+                serde_json::to_vec_pretty(&coverage)?,
+            )?;
+        }
         trace.stage(&scene.scene_id,"scene-serialization");
         fs::write(
             scene_dir.join("scene.json"),
