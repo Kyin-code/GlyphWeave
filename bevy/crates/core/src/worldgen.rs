@@ -57,6 +57,7 @@ pub mod conversion_fringe;
 pub mod community_typology;
 pub mod epoch_evolution;
 pub mod engineering_scale;
+pub mod land_pressure;
 mod frontage_supply;
 pub mod parcel_geometry;
 pub mod planning_history;
@@ -1684,7 +1685,10 @@ pub fn water_geometry(
             depth_m: scene.depth_m,
         });
     let mut geography = natural_geography::controls_for_style(style).unwrap_or_default();
-    if let Ok(Some(slice)) = urban_slice::compile(style) {
+    if let Ok(Some(pressure)) = land_pressure::plan(style, None) {
+        geography.land_pressure = pressure.land_pressure_index;
+        geography.engineering_scale = pressure.engineering_scale;
+    } else if let Ok(Some(slice)) = urban_slice::compile(style) {
         geography.land_pressure = slice.land_pressure_index;
         geography.engineering_scale = slice.engineering_scale;
     }
@@ -2512,6 +2516,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             serde_json::to_vec_pretty(plan)?,
         )?;
     }
+    let land_pressure_plan = land_pressure::plan(&manifest.style, None)
+        .map_err(WorldgenError::InvalidRules)?;
+    if let Some(plan) = &land_pressure_plan {
+        fs::write(
+            output.join("land-pressure-plan.json"),
+            serde_json::to_vec_pretty(plan)?,
+        )?;
+    }
     if let Some(compiled) = &compiled_style {
         fs::write(
             output.join("effective-programs.json"),
@@ -2613,6 +2625,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             route_evolution::require_pass(&route_plan)
                 .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+            let route_centrality = land_pressure::route_centrality(route_plan);
+            if let Some(pressure_plan) =
+                land_pressure::plan(&effective_style, Some(route_centrality))
+                    .map_err(WorldgenError::InvalidRules)?
+            {
+                fs::write(
+                    scene_dir.join("land-pressure-route-plan.json"),
+                    serde_json::to_vec_pretty(&pressure_plan)?,
+                )?;
+            }
             if let Some(engineering_plan) =
                 engineering_scale::plan(route_plan, &effective_style)
                     .map_err(WorldgenError::InvalidRules)?

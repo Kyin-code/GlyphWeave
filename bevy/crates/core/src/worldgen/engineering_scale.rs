@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::land_pressure;
 use super::route_evolution::Plan as RoutePlan;
 use super::urban_slice;
 
@@ -44,6 +45,7 @@ pub struct Plan {
     pub version: u32,
     pub status: String,
     pub settlement_scale: String,
+    pub network_centrality: f32,
     pub land_pressure_index: f64,
     pub engineering_scale: f64,
     pub local_contracts: LocalContracts,
@@ -55,8 +57,18 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
     let Some(slice) = urban_slice::compile(style)? else {
         return Ok(None);
     };
-    let engineering_scale = f64::from(slice.engineering_scale);
-    let land_pressure_index = f64::from(slice.land_pressure_index);
+    let network_centrality = land_pressure::route_centrality(routes);
+    let pressure = land_pressure::plan(style, Some(network_centrality))?;
+    let engineering_scale = f64::from(
+        pressure
+            .as_ref()
+            .map_or(slice.engineering_scale, |plan| plan.engineering_scale),
+    );
+    let land_pressure_index = f64::from(
+        pressure
+            .as_ref()
+            .map_or(slice.land_pressure_index, |plan| plan.land_pressure_index),
+    );
     let mut operations = Vec::new();
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         if route.fill_volume_m3 > 0.0 {
@@ -73,9 +85,7 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
                 maximum_clearance_m: route.maximum_terrain_fill_m,
                 required_structure_volume_m3: required,
                 budget_m3: budget,
-                status: if route.maximum_terrain_fill_m <= 6.0 + 1e-6
-                    && required <= budget + 1e-6
-                {
+                status: if route.maximum_terrain_fill_m <= 6.0 + 1e-6 && required <= budget + 1e-6 {
                     "approved-within-local-fill-contract".into()
                 } else {
                     "rejected-local-fill-contract".into()
@@ -88,14 +98,10 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
                 .iter()
                 .map(|point| (point.design_height_m - point.natural_height_m).max(0.0))
                 .fold(0.0, f64::max);
-            let required = span.length_m
-                * f64::from(route.road_width_m)
-                * clearance.max(1.0)
-                * 0.32;
-            let budget = span.length_m
-                * f64::from(route.road_width_m)
-                * 12.0
-                * engineering_scale.max(0.1);
+            let required =
+                span.length_m * f64::from(route.road_width_m) * clearance.max(1.0) * 0.32;
+            let budget =
+                span.length_m * f64::from(route.road_width_m) * 12.0 * engineering_scale.max(0.1);
             operations.push(Operation {
                 id: format!("{}.{}.{}", route.id, span.kind, index),
                 route_id: route.id.clone(),
@@ -124,8 +130,13 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
     Ok(Some(Plan {
         format: "glyphweave.engineering-scale-plan".into(),
         version: 1,
-        status: if failures.is_empty() { "pass".into() } else { "fail".into() },
+        status: if failures.is_empty() {
+            "pass".into()
+        } else {
+            "fail".into()
+        },
         settlement_scale: slice.settlement_scale,
+        network_centrality,
         land_pressure_index,
         engineering_scale,
         local_contracts: LocalContracts {
@@ -156,9 +167,7 @@ pub fn require_pass(plan: &Plan) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worldgen::route_evolution::{
-        Anchor, BridgeSpan, Route, RoutePoint,
-    };
+    use crate::worldgen::route_evolution::{Anchor, BridgeSpan, Route, RoutePoint};
 
     fn route_plan() -> RoutePlan {
         RoutePlan {
@@ -171,8 +180,18 @@ mod tests {
             max_terrain_slope: 0.55,
             max_fill_m: 6.0,
             anchors: vec![
-                Anchor { id: "a".into(), x: 0, z: 0, role: String::new() },
-                Anchor { id: "b".into(), x: 100, z: 0, role: String::new() },
+                Anchor {
+                    id: "a".into(),
+                    x: 0,
+                    z: 0,
+                    role: String::new(),
+                },
+                Anchor {
+                    id: "b".into(),
+                    x: 100,
+                    z: 0,
+                    role: String::new(),
+                },
             ],
             routes: vec![Route {
                 id: "main".into(),
@@ -217,11 +236,7 @@ mod tests {
 
     fn style(scale: &str) -> Value {
         let (mode, focus, factors) = if scale == "town" {
-            (
-                "whole-settlement",
-                Value::Null,
-                serde_json::json!([]),
-            )
+            ("whole-settlement", Value::Null, serde_json::json!([]))
         } else {
             (
                 "feature-cut",
@@ -248,7 +263,11 @@ mod tests {
         let town = plan(&route_plan(), &style("town")).unwrap().unwrap();
         let metropolis = plan(&route_plan(), &style("metropolis")).unwrap().unwrap();
         assert!(metropolis.engineering_scale > town.engineering_scale);
-        assert!(metropolis.operations.iter().all(|operation| operation.status == "approved" || operation.status.starts_with("approved")));
+        assert!(metropolis
+            .operations
+            .iter()
+            .all(|operation| operation.status == "approved"
+                || operation.status.starts_with("approved")));
         assert_eq!(metropolis.local_contracts.max_fill_m, 6.0);
         assert_eq!(metropolis.local_contracts.max_road_grade, 0.08);
     }
