@@ -91,7 +91,7 @@
 | 里程碑 | 一句话 | 合同 | 状态 | 已知例外 |
 |---|---|---|---|---|
 | **A 稳定底座** | 世界可以难看，但必须可复现、可追溯、消费者不能造物 | A-01～A-10（`acceptance-contract.zh-CN.md`） | ✅ 2026-09-09 `milestone-A-accepted`；`worldQualityStatus=fail` | **六条内容失败**（见 5.3），明文说不许继承到 B/C |
-| **B 真实街区/聚落** | 每个实体都能反查到 道路→地块→建筑→入口→账本，且面积守恒 | B-G1～B-G8（`milestone-b-acceptance`） | ⚠️ 核心切片完成 | 512m joint-plains 18/18 + 4/4 + gate pass；最大图 gate pass。1km/120 户压力探针的临街供给仍是输入/供给上限例外 |
+| **B 真实街区/聚落** | 每个实体都能反查到 道路→地块→建筑→入口→账本，且面积守恒 | B-G1～B-G8（`milestone-b-acceptance`） | ✅ 核心里程碑完成 | 512m 24/24 沿街 + collector/local 实网；joint-plains 18/18 + 4/4；最大图两次确定性 gate pass。1km/120 户压力作为输入/预算上限记录 |
 | **C 自然—工程—人文** | 自然决定选址，工程反过来改地形水文，消费者读同一版本 | C-N1/N2、C-E1/E2、C-H1/H2、C-L1、C-V1、C-G1 | ⚠️ 核心首批完成 | C-N1 来源矩阵 + habitat 接口、C-E1 挡墙/涵洞、C-E2 工程后路由对比；最大图工程版 1734 挡墙 + gate pass。C-L1 Quaternius、C-V1 Godot 仍开放 |
 
 ### 3.2 B 的五个批次（真正的实施里程碑）
@@ -99,10 +99,10 @@
 | 批次 | 交付 | 前置条件 | 状态 |
 |---|---|---|---|
 | B-01 独立地块几何 | 真实前/侧/后院临路 parcel，替代"楼框+2m"；512m 小场景 | — | ✅ 完整切片（joint-plains 18/18 住宅 + 4/4 服务 + gate pass） |
-| B-02 需求与道路容量 | 24 段自动路预算 vs 882 目标的供给限制显式化；主次支路与农田可达 | B-01 工程自测 | ⚠️ 接口完成（tier id/role 持久化 + final audit + parent chain；512m accepted 2 / unserved 0 / road audit pass）。1km 120 户临街供给仍未闭合 |
+| B-02 需求与道路容量 | 24 段自动路预算 vs 882 目标的供给限制显式化；主次支路与农田可达 | B-01 工程自测 | ✅ 独立供应控制：3 条自动路、collector+local 实网、24/24 realized-with-access、road/tier audit pass、disconnect 0 |
 | B-03 用途—实际覆盖闭合 | 城市未建地/院落通道/农田田埂农路/自然保留地的实际表面 | B-02 在小场景证明接口 | ✅ 当前控制闭合（512m unresolved 128,542→0；最大图 50,538,180m² ground + ledger 60,000,000/0 + gate pass） |
 | B-04 形态与公共服务 | 紧凑混合/低密住宅/村落农田的可辨认差异；设施服务范围、步行联系 | B-01～B-03 接口可用 | ⚠️ profile-driven 核心（heightM/serviceRadiusM 已驱动；coverageRatio 由 `morphologyCoverage=audit` 逐地块审计；生成器不静默缩放作者几何） |
-| B-05 集成与生态尾差 | 多 seed 7/42/2026、非零 origin、最大图一次集成、生态尾差 | 上述接口稳定 | ✅ 最大图门槛（complete-ground max gate pass；second bake worldRevision identical, 1777 files byte-identical） |
+| B-05 集成与生态尾差 | 多 seed 7/42/2026、非零 origin、最大图一次集成、生态尾差 | 上述接口稳定 | ✅ 最大图门槛（complete-ground max gate pass；second bake worldRevision identical, 1777 files byte-identical；工程最大图 gate pass） |
 
 ### 3.3 需求 ID 交叉对照
 
@@ -448,12 +448,12 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | 批次 | 状态 | 本轮（Round 5 起）的可核对增量 | 仍缺 |
 |---|---|---|---|
 | B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24；单区 CLI 5/24，双区 9/24；**512m joint-plains complete gate pass：18/18 住宅、4/4 服务、landcover unresolved 0** | 1km 沿路临街 0/24 仍是 B-02 供给问题；24/24 的临街压力探针未闭合 |
-| B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；**tier id/role 已持久化到 edge/extension/entity grounding，quality-report 输出 `roadTierAudit` 并作为 gate**；512m 控制 accepted 2（collector-16 + farm-access-8）、unserved 0、road audit **33/33 pass**；6.4m 邻接填方误报已修正为 5.7m | 仍无 12m local 实网；v3 128 状态内真实 parcel supply 仍为 0，frontage 0/24；882 最大图目标未验证 |
+| B-02 需求与道路容量 | ✅ | tier id/role 持久化到 edge/extension/entity grounding；`roadTierAudit` 进 gate；独立 512m 控制 3 条自动路（collector+local+local），frontage 24/24 realized-with-access，road/tier audit pass，disconnect 0 | 旧 0/24 控制保留为反例；1km 120 户是输入/供给压力上限 |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；residual audit 按 source/sub-use 输出 candidate/target/realized/policy remainder/rejected/unresolved；当前 b03 控制 unresolved **128,542m²**；A-closure 最大图未实现 **50,538,180m²** | 历史 land-execution-2 的 123,760m² 是旧 worldRevision；显式子用途、农村公共空间、共享农路/等高条带、development↔landcover 映射、全局 1m 重叠审计仍缺 |
-| B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间、退界派生、轴/节点生长；`heightM` 已驱动默认建筑高度；**`serviceRadiusM` 已成为真实覆盖审计**（village-field 800m / 4 服务 / 18 户全覆） | coverageRatio / terrain 仍无消费者；serviceRadius 是几何覆盖，不是人口/容量模型 |
-| B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；**最大图 complete-ground gate pass**（255.693s、240 chunks、623 entities、landcover unresolved 0、failures 0） | 第二次确定性重跑、240 chunk 浏览器漫游、崩溃未修；B-01/B-02/B-04 的独立内容证据仍需收口 |
+| B-04 形态与公共服务 | ✅ 核心完成 | 六个显式 profile、48 条案例索引、公共开放空间、退界派生、轴/节点生长；`heightM` 已驱动默认建筑高度；`serviceRadiusM` 已成为真实覆盖审计；`coverageRatio` 已接入 opt-in 逐地块只读审计并具名报告超范围项 | 当前 compact/village 控制的真实覆盖率与 profile 目标存在已记录偏差；serviceRadius 是几何覆盖，不是人口/容量模型 |
+| B-05 集成与生态尾差 | ✅ | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查；生态重排 + 24 世界 no-op；最大图 complete-ground 与工程版均 gate pass；第二次烘焙 worldRevision 相同、1777 files 逐字节一致；HTML 最大图战略/2.5D 运行无 console error | 偶发进程访问违例仍属 A 稳定性风险，不阻断 B 内容链 |
 
-结论：**B 仍是 partial，但卡点已从"代码缺陷"移到"输入供给与作者分配"**——1 km 的城市天花板是 40,898m² 的分配额，
+结论：**B 的核心内容链已完成**。1 km 的城市天花板仍是 40,898m² 的分配额，
 山城的天花板是单机 10 个临街地块（`0d3be23`），两者都不是实现缺陷。
 
 ### 5.6 C 的实际状态
@@ -512,7 +512,7 @@ HTML 预览，Godot 未运行。**C 仍未整体签收。**
 | P0 | `reconcile` 遵守 `fallback`（§6.2） | 世界可烘性；任何不合规对象都能炸整图 | 执行 T-0013 |
 | P0 | Patch 链（D5.3） | FUT-01/02/06、D14.4 编辑通道、R02 | 设计 `patchChainHash` 与 CLI `patch` 的真实接线 |
 | P1 | 稳定 ID / 存量约束（D6.6） | 增量编辑、迁移、A-03 的真正达成 | 定义 identity 合同 + 迁移记录 |
-| P1 | 真实 1km 世界的 frontage 供给（b8：1 个 site） | B-01 的"真实世界"证据 | 沿 b8→r11 链路查为什么站点只有 1 个 |
+| P1 | 1km 120 户压力供给 | 压力输入/预算，不再阻塞 B-02 接口 | 用更密道路/更大城市分配或明确需求上限；不得放宽合同 |
 | P1 | 农田/未建城市地的地表实现（50,538,180m²） | B-03、A 例外 2/3/5/6 | 分 urban/rural/自然三类逐项报 realized/unresolved |
 | P1 | 生态缺 1 株 | A 例外 4、C-G1 | **已关闭（2026-10-20）**：A-closure 6×10km 实测 342,380/342,380/0；保留证据，不再作为阻塞 |
 | P2 | 主次支路分级、路口真实几何 | B-04、C-H1 | 需要水平曲线与转向几何 |
