@@ -10,8 +10,8 @@
 |---|---|
 | 分支 / HEAD | `refactor/authoritative-baked-audit` / `32739b2`，已推送 |
 | A | 最大图 complete-ground：240 chunks / 623 entities / **gate pass 0 failures**；第二次烘焙 worldRevision 相同，1777 个数据文件逐字节相同；整包测试曾 exit 0（1613.77s） |
-| B | 512m joint-plains **18/18 住宅 + 4/4 服务 + gate pass**；B-02 tier provenance/final audit pass；B-03 最大图 50,538,180m² ground + ledger 60,000,000/0；B-04 height/serviceRadius/coverage audit；B-05 最大图 pass |
-| C | C-N1 来源矩阵 + habitat 接口；C-E1 最大图 **1,734 挡墙**；C-E2 **734 改向节点 / 54 raised terminals**；最大图工程版 **gate pass**；C-L1 Quaternius 已定位 Ultimate Buildings Pack (Dec 2019) |
+| B | 512m 供应控制 **24/24 沿街 realized-with-access + collector/local 实网**；joint-plains **18/18 住宅 + 4/4 服务 + gate pass**；B-03 最大图 50,538,180m² ground + ledger 60,000,000/0；B-04 height/serviceRadius/coverage audit；B-05 最大图两次确定性 pass |
+| C | C-N1 来源矩阵 + habitat 接口；C-E1 最大图 **1,734 挡墙**；C-E2 **734 改向节点 / 54 raised terminals**；最大图工程版 **gate pass**；C-L1 Quaternius 已定位 Ultimate Buildings Pack (Dec 2019)，历史下载日期未知 |
 | 预览 | 战略图/2.5D 已实测；2.5D 加载时显示 loading overlay；最大图 2.5D 首屏约 40s 后出现地形/建筑/植被 |
 | 仍开放 | 偶发 `0xC0000005`；B-02 1km/120 户临街供给压力探针；Godot 4.7 未运行；Quaternius 精确历史下载日期未知 |
 
