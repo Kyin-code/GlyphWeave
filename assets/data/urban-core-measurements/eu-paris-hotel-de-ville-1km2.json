@@ -1,0 +1,67 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-paris-hotel-de-ville",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Hôtel de Ville, Paris",
+    "displayName": "Hôtel de ville, Place de l'Hôtel de Ville, Quartier Saint-Merri, Paris 4e Arrondissement, Paris, Île-de-France, France métropolitaine, 75004, France",
+    "osmType": "relation",
+    "osmId": 284089,
+    "lat": 48.8564263,
+    "lon": 2.3525276
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 123029.421,
+    "roadDensityKmPerKm2": 123.029,
+    "drivableCenterlineLengthM": 20680.838,
+    "drivableDensityKmPerKm2": 20.681,
+    "roadLengthByClassM": {
+      "living_street": 5197.812,
+      "pedestrian": 9589.071,
+      "tertiary": 1102.845,
+      "residential": 6212.362,
+      "primary": 1774.291,
+      "secondary": 1623.495,
+      "footway": 86243.649,
+      "service": 4349.515,
+      "cycleway": 4983.688,
+      "unclassified": 420.517,
+      "steps": 1303.71,
+      "elevator": 45.879,
+      "corridor": 182.587,
+      "path": 0
+    },
+    "buildingCountInsideCircleCentroid": 1085,
+    "estimatedBuildingFootprintM2": 246480.048,
+    "estimatedBuildingCoverageRatio": 0.246,
+    "freshFoodFacilityCounts": {
+      "marketplace": 2,
+      "convenience": 24,
+      "bakery": 27,
+      "greengrocer": 3,
+      "supermarket": 4,
+      "seafood": 2,
+      "butcher": 4
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

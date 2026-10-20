@@ -1,0 +1,67 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-prague-old-town",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Old Town Square, Prague",
+    "displayName": "Staroměstské náměstí, Josefov, obvod Praha 1, Praha, Česko",
+    "osmType": "relation",
+    "osmId": 2362716,
+    "lat": 50.0874453,
+    "lon": 14.4209714
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 67676.075,
+    "roadDensityKmPerKm2": 67.676,
+    "drivableCenterlineLengthM": 18282.964,
+    "drivableDensityKmPerKm2": 18.283,
+    "roadLengthByClassM": {
+      "living_street": 2797.404,
+      "pedestrian": 12496.238,
+      "residential": 12701.704,
+      "footway": 34167.791,
+      "service": 2783.857,
+      "steps": 1307.043,
+      "tertiary": 0,
+      "platform": 1122.207,
+      "path": 37.886,
+      "busway": 100.399,
+      "corridor": 18.894,
+      "cycleway": 134.15,
+      "elevator": 8.503,
+      "proposed": 0
+    },
+    "buildingCountInsideCircleCentroid": 942,
+    "estimatedBuildingFootprintM2": 371887.15,
+    "estimatedBuildingCoverageRatio": 0.372,
+    "freshFoodFacilityCounts": {
+      "marketplace": 3,
+      "convenience": 37,
+      "bakery": 14,
+      "butcher": 5,
+      "greengrocer": 1,
+      "seafood": 1,
+      "supermarket": 2
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-chicago-loop",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Chicago Loop, Chicago",
+    "displayName": "The Art Institute of Chicago, 111, South Michigan Avenue, Jewelers Row, Loop, Chicago, South Chicago Township, Cook County, Illinois, 60603, United States",
+    "osmType": "relation",
+    "osmId": 1870546,
+    "lat": 41.879605,
+    "lon": -87.6230716
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 81932.698,
+    "roadDensityKmPerKm2": 81.933,
+    "drivableCenterlineLengthM": 20497.662,
+    "drivableDensityKmPerKm2": 20.498,
+    "roadLengthByClassM": {
+      "secondary": 11498.571,
+      "service": 6954.817,
+      "trunk_link": 0,
+      "tertiary": 638.447,
+      "residential": 17.011,
+      "pedestrian": 12840.896,
+      "footway": 43477.529,
+      "unclassified": 230.358,
+      "secondary_link": 271.125,
+      "steps": 1569.231,
+      "trunk": 1158.459,
+      "cycleway": 1241.22,
+      "elevator": 148.361,
+      "path": 1107.885,
+      "platform": 450.232,
+      "track": 328.558
+    },
+    "buildingCountInsideCircleCentroid": 325,
+    "estimatedBuildingFootprintM2": 230860.264,
+    "estimatedBuildingCoverageRatio": 0.231,
+    "freshFoodFacilityCounts": {
+      "convenience": 3,
+      "bakery": 3
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

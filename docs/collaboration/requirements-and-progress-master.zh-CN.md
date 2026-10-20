@@ -638,12 +638,16 @@ N0 纯自然基线
 状态：**待项目负责人审核；审核通过前继续扩大普通城区实现范围属于越界。**
 
 W0 来源调查已开始：12 个代表核心切面已有至少两个不同发布者的公开来源入口，
-32 个来源已登记 URL、访问日期、直接访问状态和支持断言；全部 48 案都有
-`source-audited-core-cut` 或 `screened-heuristic` 覆盖状态。尚无案例达到
-`measured-core-window`。机器数据与校验：
+33 个来源已登记 URL、访问日期、直接访问状态和支持断言；全部 48 案都有
+`source-audited-core-cut` 或 `screened-heuristic` 覆盖状态。12 个代表窗口
+已完成首轮 OSM 观测：可驾驶道路中心线密度中位数 20.59 km/km²
+（14.26–36.70），建筑覆盖率中位数 0.3075（0.193–0.569）。这些只是当前
+地图快照，尚无案例达到完整 `measured-core-window`。机器数据与校验：
 
 - `assets/data/urban-case-evidence-12.json`
+- `assets/data/urban-core-measurements/`
 - `scripts/check-urban-case-evidence.mjs`
+- `scripts/check-urban-core-measurements.mjs`
 - `rk-x/URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`
 
 ---

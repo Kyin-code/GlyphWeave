@@ -1,0 +1,62 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-shanghai-bund",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "The Bund, Shanghai",
+    "displayName": "外滩, 新北门, 外滩街道, 上海市, 黄浦区, 上海市, 200002, 中国",
+    "osmType": "relation",
+    "osmId": 2142077,
+    "lat": 31.2353356,
+    "lon": 121.487632
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 28532.756,
+    "roadDensityKmPerKm2": 28.533,
+    "drivableCenterlineLengthM": 21422.378,
+    "drivableDensityKmPerKm2": 21.422,
+    "roadLengthByClassM": {
+      "trunk_link": 706.828,
+      "tertiary": 1886.393,
+      "residential": 3287.718,
+      "pedestrian": 359.113,
+      "secondary": 3971.357,
+      "service": 3901.396,
+      "primary": 5735.333,
+      "footway": 5356.2,
+      "secondary_link": 267.529,
+      "cycleway": 331.813,
+      "trunk": 2640.181,
+      "steps": 16.971,
+      "primary_link": 36.823,
+      "path": 35.1
+    },
+    "buildingCountInsideCircleCentroid": 301,
+    "estimatedBuildingFootprintM2": 192609.172,
+    "estimatedBuildingCoverageRatio": 0.193,
+    "freshFoodFacilityCounts": {
+      "convenience": 7,
+      "bakery": 1
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

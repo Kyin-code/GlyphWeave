@@ -1,0 +1,70 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "hk-central-statue-square",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Statue Square, Hong Kong",
+    "displayName": "皇后像廣場 Statue Square, 政府山 Government Hill, 中環 Central, 中西區 Central and Western District, 香港島 Hong Kong Island, 香港 Hong Kong, 中国",
+    "osmType": "relation",
+    "osmId": 6970394,
+    "lat": 22.2817753,
+    "lon": 114.1601175
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 86705.066,
+    "roadDensityKmPerKm2": 86.705,
+    "drivableCenterlineLengthM": 32718.615,
+    "drivableDensityKmPerKm2": 32.719,
+    "roadLengthByClassM": {
+      "primary": 1924.792,
+      "secondary": 9223.114,
+      "secondary_link": 1757.325,
+      "tertiary": 4920.124,
+      "service": 11104.168,
+      "construction": 549.263,
+      "footway": 44272.578,
+      "residential": 994.292,
+      "trunk": 2916.584,
+      "unclassified": 1635.541,
+      "pedestrian": 2791.023,
+      "trunk_link": 460.309,
+      "primary_link": 92.447,
+      "steps": 2956.956,
+      "tertiary_link": 88.558,
+      "path": 67.865,
+      "platform": 70.435,
+      "traffic_island": 31.24,
+      "junction": 743.592,
+      "corridor": 104.857
+    },
+    "buildingCountInsideCircleCentroid": 410,
+    "estimatedBuildingFootprintM2": 301684.154,
+    "estimatedBuildingCoverageRatio": 0.302,
+    "freshFoodFacilityCounts": {
+      "convenience": 7,
+      "supermarket": 10,
+      "bakery": 1,
+      "marketplace": 3
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "hk-sha-tin-station",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Sha Tin Station, Hong Kong",
+    "displayName": "沙田站 Sha Tin Station, 沙田車站圍 Sha Tin Station Circuit, 沙田貨場 Sha Tin Freight Terminal, 沙田市中心 Sha Tin Town Centre, 沙田區 Sha Tin District, 新界 New Territories, 香港 Hong Kong, 中国",
+    "osmType": "node",
+    "osmId": 11155476754,
+    "lat": 22.3832711,
+    "lon": 114.1875888
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 49471.99,
+    "roadDensityKmPerKm2": 49.472,
+    "drivableCenterlineLengthM": 14257.805,
+    "drivableDensityKmPerKm2": 14.258,
+    "roadLengthByClassM": {
+      "secondary": 2575.256,
+      "residential": 1504.857,
+      "footway": 26601.942,
+      "primary": 893.142,
+      "tertiary": 355.571,
+      "trunk_link": 1184.944,
+      "service": 5198.94,
+      "unclassified": 971.433,
+      "trunk": 2758.606,
+      "secondary_link": 179.897,
+      "pedestrian": 1839.021,
+      "steps": 1939.548,
+      "cycleway": 2613.901,
+      "construction": 0,
+      "platform": 770.617,
+      "path": 84.315
+    },
+    "buildingCountInsideCircleCentroid": 379,
+    "estimatedBuildingFootprintM2": 222842.848,
+    "estimatedBuildingCoverageRatio": 0.223,
+    "freshFoodFacilityCounts": {
+      "marketplace": 2,
+      "bakery": 2,
+      "supermarket": 5,
+      "convenience": 1
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-shenzhen-futian-cbd",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Futian CBD, Shenzhen",
+    "displayName": "深圳会展中心, 111, 福华三路, 福安社区, 福田街道, 福田区, 深圳市, 广东省, 518048, 中国",
+    "osmType": "way",
+    "osmId": 146862823,
+    "lat": 22.5335041,
+    "lon": 114.0547472
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 41608.407,
+    "roadDensityKmPerKm2": 41.608,
+    "drivableCenterlineLengthM": 22694.209,
+    "drivableDensityKmPerKm2": 22.694,
+    "roadLengthByClassM": {
+      "trunk": 2073.145,
+      "primary": 5552.997,
+      "secondary": 1399.1,
+      "unclassified": 1831.656,
+      "primary_link": 5016.245,
+      "trunk_link": 277.342,
+      "residential": 1804.87,
+      "service": 5657.782,
+      "footway": 11307,
+      "path": 0,
+      "steps": 668.824,
+      "tertiary": 3888.08,
+      "cycleway": 1404.327,
+      "living_street": 486.579,
+      "pedestrian": 240.46
+    },
+    "buildingCountInsideCircleCentroid": 177,
+    "estimatedBuildingFootprintM2": 351374.143,
+    "estimatedBuildingCoverageRatio": 0.351,
+    "freshFoodFacilityCounts": {
+      "supermarket": 2,
+      "convenience": 3
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

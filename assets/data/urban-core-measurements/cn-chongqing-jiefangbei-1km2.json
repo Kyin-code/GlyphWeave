@@ -1,0 +1,62 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-chongqing-jiefangbei",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Jiefangbei, Chongqing",
+    "displayName": "解放碑, 解放碑街道, 渝中区, 重庆市, 400010, 中国",
+    "osmType": "node",
+    "osmId": 12076308918,
+    "lat": 29.5601078,
+    "lon": 106.5733671
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 32569.141,
+    "roadDensityKmPerKm2": 32.569,
+    "drivableCenterlineLengthM": 20281.546,
+    "drivableDensityKmPerKm2": 20.282,
+    "roadLengthByClassM": {
+      "secondary": 9115.475,
+      "tertiary": 4254.939,
+      "residential": 1629.82,
+      "footway": 6200.155,
+      "pedestrian": 2151.663,
+      "primary": 1095.89,
+      "living_street": 182.055,
+      "service": 3156.89,
+      "steps": 841.513,
+      "primary_link": 120.365,
+      "secondary_link": 2446.089,
+      "unclassified": 846.478,
+      "corridor": 527.81
+    },
+    "buildingCountInsideCircleCentroid": 233,
+    "estimatedBuildingFootprintM2": 312900.121,
+    "estimatedBuildingCoverageRatio": 0.313,
+    "freshFoodFacilityCounts": {
+      "supermarket": 3,
+      "convenience": 9,
+      "bakery": 4
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

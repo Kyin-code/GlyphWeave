@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const evidencePath = resolve(
@@ -75,6 +75,7 @@ for (const [index, source] of (evidence.sources ?? []).entries()) {
 const priorIds = new Set((priors.cases ?? []).map((item) => item.id))
 const coverageIds = new Set()
 const auditedIds = []
+let partialOsmWindows = 0
 for (const [index, item] of (evidence.coverage ?? []).entries()) {
   if (typeof item.caseId !== 'string' || item.caseId === '') {
     failures.push(`coverage ${index}: missing caseId`)
@@ -119,6 +120,40 @@ for (const [index, item] of (evidence.coverage ?? []).entries()) {
     ) {
       failures.push(`${item.caseId}: supportedMechanisms must not be empty`)
     }
+    if (item.measurementStatus) {
+      if (item.measurementStatus !== 'partial-osm') {
+        failures.push(`${item.caseId}: unsupported measurementStatus`)
+      }
+      partialOsmWindows += 1
+      if (typeof item.measurementFile !== 'string') {
+        failures.push(`${item.caseId}: measurementFile must be a path`)
+      } else {
+        try {
+          const measurementPath = resolve(item.measurementFile)
+          await access(measurementPath)
+          const measurement = JSON.parse(await readFile(measurementPath, 'utf8'))
+          if (measurement.format !== 'glyphweave.urban-core-osm-measurement') {
+            failures.push(`${item.caseId}: unsupported measurement format`)
+          }
+          if (
+            typeof item.measurementCaseId !== 'string'
+            || measurement.caseId !== item.measurementCaseId
+          ) {
+            failures.push(`${item.caseId}: measurement caseId does not match`)
+          }
+        } catch {
+          failures.push(
+            `${item.caseId}: missing measurement file ${item.measurementFile}`,
+          )
+        }
+      }
+      if (
+        !Array.isArray(item.observedFields)
+        || item.observedFields.length === 0
+      ) {
+        failures.push(`${item.caseId}: observedFields must not be empty`)
+      }
+    }
   } else if (item.level !== 'screened-heuristic') {
     failures.push(`${item.caseId}: unsupported coverage level`)
   }
@@ -148,6 +183,7 @@ if (failures.length) {
     cases: coverageIds.size,
     sourceAuditedCases: auditedIds.length,
     screenedCases: coverageIds.size - auditedIds.length,
+    partialOsmWindows,
     sources: sourceById.size,
     evidencePath,
     priorsPath,

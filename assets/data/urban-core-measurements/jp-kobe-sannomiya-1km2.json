@@ -1,0 +1,61 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "jp-kobe-sannomiya",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Sannomiya, Kobe",
+    "displayName": "三ノ宮, 若菜神戸駅線, 琴ノ緒町二丁目, 中央区, 神戸市, 兵庫県, 651-0094, 日本",
+    "osmType": "node",
+    "osmId": 3999683422,
+    "lat": 34.6948605,
+    "lon": 135.1950871
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 53729.583,
+    "roadDensityKmPerKm2": 53.73,
+    "drivableCenterlineLengthM": 33298.029,
+    "drivableDensityKmPerKm2": 33.298,
+    "roadLengthByClassM": {
+      "tertiary": 6734.295,
+      "primary": 4892.887,
+      "unclassified": 16069.457,
+      "pedestrian": 2548.719,
+      "service": 1548.514,
+      "residential": 2296.198,
+      "footway": 16656.034,
+      "path": 709.172,
+      "trunk": 1756.677,
+      "steps": 412.269,
+      "primary_link": 105.36,
+      "proposed": 0
+    },
+    "buildingCountInsideCircleCentroid": 2406,
+    "estimatedBuildingFootprintM2": 375787.066,
+    "estimatedBuildingCoverageRatio": 0.376,
+    "freshFoodFacilityCounts": {
+      "convenience": 46,
+      "bakery": 12,
+      "supermarket": 7
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

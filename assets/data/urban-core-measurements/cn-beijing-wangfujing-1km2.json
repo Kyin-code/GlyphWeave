@@ -1,0 +1,60 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-beijing-wangfujing",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Wangfujing, Beijing",
+    "displayName": "王府井, 王府井大街, 台基厂社区, 东华门街道, 首都功能核心区, 东城区, 北京市, 100010, 中国",
+    "osmType": "node",
+    "osmId": 6617849503,
+    "lat": 39.9069496,
+    "lon": 116.4052789
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 22295.67,
+    "roadDensityKmPerKm2": 22.296,
+    "drivableCenterlineLengthM": 15365.674,
+    "drivableDensityKmPerKm2": 15.366,
+    "roadLengthByClassM": {
+      "trunk": 2254.12,
+      "tertiary": 2899.098,
+      "residential": 3543.869,
+      "service": 5132.629,
+      "unclassified": 692.386,
+      "pedestrian": 380.184,
+      "footway": 3079.508,
+      "path": 707.189,
+      "steps": 346.003,
+      "primary": 292.666,
+      "cycleway": 2417.112,
+      "secondary": 434.329,
+      "living_street": 116.575
+    },
+    "buildingCountInsideCircleCentroid": 283,
+    "estimatedBuildingFootprintM2": 286417.438,
+    "estimatedBuildingCoverageRatio": 0.286,
+    "freshFoodFacilityCounts": {
+      "convenience": 2
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

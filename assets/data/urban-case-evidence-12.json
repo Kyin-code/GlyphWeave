@@ -2,7 +2,7 @@
   "format": "glyphweave.urban-case-evidence",
   "version": 1,
   "retrievedAt": "2026-10-21",
-  "purpose": "W0 source audit for twelve representative core cuts. Mechanism priors exist for all 48 cases; this file records which cases have verified public-source entry points and which still require measured core-window data.",
+  "purpose": "W0 source audit for twelve representative core cuts. Mechanism priors exist for all 48 cases; this file records verified source entry points, partial OSM core-window measurements, and remaining measurement gaps.",
   "policy": {
     "caseUnit": "core-cut-not-whole-city",
     "minimumSourceCountForAuditedCase": 2,
@@ -404,6 +404,18 @@
       "supportedClaims": [
         "The Housing Authority provides official estate and public-housing information relevant to Sha Tin."
       ]
+    },
+    {
+      "id": "osm-map-api",
+      "publisher": "OpenStreetMap contributors",
+      "title": "OpenStreetMap map data API",
+      "url": "https://api.openstreetmap.org/api/0.6/map",
+      "retrievedAt": "2026-10-21",
+      "kind": "open-map-data",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Current road centreline, building footprint and food-facility point observations can be downloaded for a bounded core window."
+      ]
     }
   ],
   "coverage": [
@@ -416,7 +428,11 @@
         "hutong fine grain and adaptive reuse",
         "municipal urban-design control"
       ],
-      "measurementGaps": ["core-window crop", "road density", "parcel frontage", "FAR", "fresh-food access time"]
+      "measurementFile": "assets/data/urban-core-measurements/cn-beijing-wangfujing-1km2.json",
+      "measurementCaseId": "cn-beijing-wangfujing",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
+      "measurementGaps": ["additional core-window comparison", "parcel frontage", "FAR", "fresh-food access time", "boundary sensitivity"]
     },
     {
       "caseId": "cn-shanghai",
@@ -427,7 +443,11 @@
         "lilong fine-grain housing and redevelopment pressure",
         "commercial, residential and mixed lilong rehabilitation"
       ],
-      "measurementGaps": ["core-window crop", "lilong parcel distribution", "road density", "FAR", "market access time"]
+      "measurementFile": "assets/data/urban-core-measurements/cn-shanghai-bund-1km2.json",
+      "measurementCaseId": "cn-shanghai-bund",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
+      "measurementGaps": ["lilong parcel distribution", "FAR", "market access time", "boundary sensitivity"]
     },
     {
       "caseId": "cn-chongqing",
@@ -437,6 +457,10 @@
         "national spatial-plan approval",
         "green and low-carbon development pressure"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-chongqing-jiefangbei-1km2.json",
+      "measurementCaseId": "cn-chongqing-jiefangbei",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["two-river crop", "slope distribution", "terrace/retaining-wall density", "road grade", "engineering volumes"]
     },
     {
@@ -448,7 +472,11 @@
         "state-level planning approval",
         "forward-looking urban planning"
       ],
-      "measurementGaps": ["urban-village parcel sample", "reclaimed land area", "bayfront public access", "road density", "market access time"]
+      "measurementFile": "assets/data/urban-core-measurements/cn-shenzhen-futian-cbd-1km2.json",
+      "measurementCaseId": "cn-shenzhen-futian-cbd",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
+      "measurementGaps": ["urban-village parcel sample", "reclaimed land area", "bayfront public access", "market access time"]
     },
     {
       "caseId": "us-new-york",
@@ -459,6 +487,10 @@
         "street and pedestrian design guidance",
         "open spatial data"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/us-new-york-times-square-1km2.json",
+      "measurementCaseId": "us-new-york-times-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["Manhattan crop", "block and parcel distribution", "FAR/height", "market access time"]
     },
     {
@@ -470,6 +502,10 @@
         "parcel/zoning/public-infrastructure data",
         "independent urban history"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/us-chicago-loop-1km2.json",
+      "measurementCaseId": "us-chicago-loop",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["lakefront crop", "grid block dimensions", "rail/industrial layers", "FAR/height", "market access time"]
     },
     {
@@ -481,6 +517,10 @@
         "Paris/Greater Paris planning analysis",
         "periodic open-air market network"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-paris-hotel-de-ville-1km2.json",
+      "measurementCaseId": "eu-paris-hotel-de-ville",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["Seine crop", "perimeter-block parcel data", "FAR/height", "market access time"]
     },
     {
@@ -492,6 +532,10 @@
         "municipal open data",
         "medieval river-crossing urbanism and preserved street pattern"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-prague-old-town-1km2.json",
+      "measurementCaseId": "eu-prague-old-town",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["river-valley crop", "medieval parcel pattern", "panel-estate sample", "FAR/height", "market access time"]
     },
     {
@@ -503,6 +547,10 @@
         "walkable street-design guidance",
         "local disaster and community context"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-tokyo-asakusa-1km2.json",
+      "measurementCaseId": "jp-tokyo-asakusa",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["Taito crop", "fine parcel/street distribution", "FAR/height", "station access", "market access time"]
     },
     {
@@ -514,6 +562,10 @@
         "municipal planning portal",
         "walkable street-design guidance"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-kobe-sannomiya-1km2.json",
+      "measurementCaseId": "jp-kobe-sannomiya",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["mountain-sea crop", "slope/steep-lane sample", "port interface", "block/parcel data", "market access time"]
     },
     {
@@ -525,6 +577,10 @@
         "statutory planning information",
         "heritage protection layer"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-central-statue-square-1km2.json",
+      "measurementCaseId": "hk-central-statue-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["Central/Admiralty crop", "steep slope and podium sample", "pedestrian network elevation", "FAR/height", "market access time"]
     },
     {
@@ -536,6 +592,10 @@
         "statutory planning information",
         "public housing estate layer"
       ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-sha-tin-station-1km2.json",
+      "measurementCaseId": "hk-sha-tin-station",
+      "measurementStatus": "partial-osm",
+      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
       "measurementGaps": ["Shing Mun River crop", "new-town block and estate data", "school/retail access", "riverfront access", "market access time"]
     },
     {

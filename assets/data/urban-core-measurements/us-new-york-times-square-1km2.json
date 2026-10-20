@@ -1,0 +1,63 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-new-york-times-square",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Times Square, New York",
+    "displayName": "Times Square, Manhattan Community Board 5, Manhattan, New York County, New York, 10036, United States",
+    "osmType": "relation",
+    "osmId": 14942838,
+    "lat": 40.7570095,
+    "lon": -73.9859724
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 63953.501,
+    "roadDensityKmPerKm2": 63.954,
+    "drivableCenterlineLengthM": 18497.101,
+    "drivableDensityKmPerKm2": 18.497,
+    "roadLengthByClassM": {
+      "secondary": 6859.051,
+      "residential": 6865.799,
+      "pedestrian": 8365.824,
+      "primary": 1096.965,
+      "service": 2505.379,
+      "footway": 35832.927,
+      "unclassified": 770.075,
+      "steps": 914.176,
+      "elevator": 51.985,
+      "living_street": 273.974,
+      "cycleway": 168.641,
+      "tertiary": 125.858,
+      "corridor": 122.846
+    },
+    "buildingCountInsideCircleCentroid": 784,
+    "estimatedBuildingFootprintM2": 568697.266,
+    "estimatedBuildingCoverageRatio": 0.569,
+    "freshFoodFacilityCounts": {
+      "marketplace": 8,
+      "supermarket": 4,
+      "bakery": 20,
+      "convenience": 10
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

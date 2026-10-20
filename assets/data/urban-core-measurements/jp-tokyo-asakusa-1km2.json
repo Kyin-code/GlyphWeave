@@ -1,0 +1,67 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "jp-tokyo-asakusa",
+  "retrievedAt": "2026-10-20",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Senso-ji, Tokyo",
+    "displayName": "Храм Сенсодзи 金龍山 浅草寺, 1, 浅草二丁目, 浅草, 台東区, 東京都, 111-0032, 日本",
+    "osmType": "way",
+    "osmId": 173154847,
+    "lat": 35.7134032,
+    "lon": 139.7955265
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 70594.85,
+    "roadDensityKmPerKm2": 70.595,
+    "drivableCenterlineLengthM": 36702.208,
+    "drivableDensityKmPerKm2": 36.702,
+    "roadLengthByClassM": {
+      "secondary": 3098.778,
+      "tertiary": 5365.914,
+      "residential": 19278.66,
+      "footway": 29398.901,
+      "pedestrian": 3173.39,
+      "unclassified": 991.04,
+      "service": 4078.68,
+      "motorway": 552.839,
+      "primary": 1554.382,
+      "steps": 513.222,
+      "trunk": 1781.916,
+      "tertiary_link": 102.71,
+      "primary_link": 15.289,
+      "trunk_link": 21.311,
+      "path": 641.404,
+      "elevator": 26.415
+    },
+    "buildingCountInsideCircleCentroid": 4153,
+    "estimatedBuildingFootprintM2": 367609.848,
+    "estimatedBuildingCoverageRatio": 0.368,
+    "freshFoodFacilityCounts": {
+      "convenience": 30,
+      "supermarket": 9,
+      "greengrocer": 2,
+      "bakery": 8,
+      "seafood": 1
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "The circular window is a measurement sample and must not be described as the whole city."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}
