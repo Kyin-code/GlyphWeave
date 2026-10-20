@@ -145,6 +145,18 @@
       "floorAreaRatio": 1.2,
       "maxFloors": 4
     },
+    "marketCatchment": {
+      "version": 1,
+      "enabled": true,
+      "beta": 0.08,
+      "maxTravelMinutes": 15,
+      "walkSpeedMps": 1.3,
+      "marketCapacity": 280,
+      "marketQuality": 1.0,
+      "coverageTarget": 0.85,
+      "maxMarkets": 3,
+      "candidateSpacingM": 120
+    },
     "water": {
       "waterType": "lake",
       "levelPolicy": "horizontal-datum",

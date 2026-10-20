@@ -60,6 +60,7 @@ pub mod road_parcel_feasibility;
 pub mod services;
 pub mod natural_geography;
 pub mod natural_only;
+pub mod market_catchment;
 pub mod route_evolution;
 pub mod settlement_evolution;
 pub mod urban_slice;
@@ -2012,6 +2013,7 @@ impl WorldManifest {
         height_encoding_from_style(&self.style)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        market_catchment::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         route_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         settlement_evolution::validate_style(&self.style)
             .map_err(WorldgenError::InvalidRules)?;
@@ -2613,6 +2615,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     scene_dir.join("settlement-evolution-plan.json"),
                     serde_json::to_vec_pretty(&settlement_plan)?,
                 )?;
+                if let Some(market_plan) =
+                    market_catchment::plan(route_plan, &settlement_plan, &effective_style)
+                        .map_err(WorldgenError::InvalidRules)?
+                {
+                    fs::write(
+                        scene_dir.join("market-catchment-plan.json"),
+                        serde_json::to_vec_pretty(&market_plan)?,
+                    )?;
+                }
             }
         }
         trace.stage(&scene.scene_id,"road-and-service-planning");

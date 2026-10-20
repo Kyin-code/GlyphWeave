@@ -330,6 +330,9 @@ async function loadScene() {
   loaded.settlementEvolutionPlan = await fetch(`../scenes/${loaded.sceneId}/settlement-evolution-plan.json`)
     .then(response => response.ok ? response.json() : null)
     .catch(() => null)
+  loaded.marketCatchmentPlan = await fetch(`../scenes/${loaded.sceneId}/market-catchment-plan.json`)
+    .then(response => response.ok ? response.json() : null)
+    .catch(() => null)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
   nearBuildToken++
@@ -386,6 +389,31 @@ function drawStrategicOverlays(ox, oz, scale) {
     context.strokeStyle = 'rgba(24,34,38,.55)'
     context.lineWidth = 1
     context.strokeRect(x, z, Math.max(2, building.widthM * scale), Math.max(2, building.depthM * scale))
+  }
+  const marketDemand = new Map((scene.marketCatchmentPlan?.demandPoints ?? []).map(point => [point.id, point]))
+  for (const access of scene.marketCatchmentPlan?.accessibility ?? []) {
+    const point = marketDemand.get(access.demandId)
+    if (!point) continue
+    const x = ox + (point.worldX - scene.originX) * scale
+    const z = oz + (point.worldZ - scene.originZ) * scale
+    const deficitRatio = access.deficit / Math.max(1, point.demand)
+    context.beginPath()
+    context.arc(x, z, 5 + Math.min(5, point.demand / 40), 0, Math.PI * 2)
+    context.fillStyle = deficitRatio > .25 ? 'rgba(190,66,48,.38)'
+      : deficitRatio > .05 ? 'rgba(210,164,72,.32)'
+      : 'rgba(74,151,104,.28)'
+    context.fill()
+  }
+  for (const market of scene.marketCatchmentPlan?.markets ?? []) {
+    const x = ox + (market.worldX - scene.originX) * scale
+    const z = oz + (market.worldZ - scene.originZ) * scale
+    context.fillStyle = '#e0a73f'
+    context.strokeStyle = '#3a2d1d'
+    context.lineWidth = 1.5
+    context.beginPath()
+    context.roundRect(x - 6, z - 6, 12, 12, 2)
+    context.fill()
+    context.stroke()
   }
   const districts = scene.urbanDistrictAudit?.iterations ?? []
   if (districts.length) {
@@ -1078,6 +1106,22 @@ async function drawNear(buildToken) {
     )
     roof.position.set(mesh.position.x, mesh.position.y + building.heightM * .5 + .18, mesh.position.z)
     nearGroupRoot.add(roof)
+  }
+  for (const market of scene.marketCatchmentPlan?.markets ?? []) {
+    const ground = heightAt(market.worldX, market.worldZ)
+    const hall = new THREE.Mesh(
+      new THREE.BoxGeometry(18, 6, 22),
+      new THREE.MeshStandardMaterial({ color: '#b87938', roughness: .92 }),
+    )
+    hall.position.set(market.worldX - scene.originX, ground + 3, market.worldZ - scene.originZ)
+    hall.name = 'fresh-market:' + market.id
+    nearGroupRoot.add(hall)
+    const canopy = new THREE.Mesh(
+      new THREE.BoxGeometry(20, .5, 24),
+      new THREE.MeshStandardMaterial({ color: '#5d4630', roughness: .95 }),
+    )
+    canopy.position.set(hall.position.x, ground + 6.2, hall.position.z)
+    nearGroupRoot.add(canopy)
   }
   const groundedRenderY = entity => {
     const scale = Number.isFinite(entity.scale) ? entity.scale : 1
