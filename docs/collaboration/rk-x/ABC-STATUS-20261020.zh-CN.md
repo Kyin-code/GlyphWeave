@@ -11,6 +11,7 @@
 | 确定性 | 第二次烘焙 worldRevision 相同；1,777 个可比文件逐字节相同，mismatch 0 |
 | 生态 | 342,380 / 342,380 / unfilled 0 |
 | 预览 | HTML palette 已覆盖全部 landcover 材质，未知材质有具名 fallback，不再直接抛错 |
+| 套件 | `cargo test --workspace --no-fail-fast` **exit 0**，1613.77s；core lib **801 passed / 34 ignored**，所有 target 通过 |
 | 仍缺 | 偶发 `0xC0000005` 未修；240 chunk HTML 连续漫游未做 |
 
 ## B 真实街区/聚落
