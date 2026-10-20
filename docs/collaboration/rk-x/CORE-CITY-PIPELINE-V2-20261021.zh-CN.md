@@ -195,6 +195,7 @@ Rust Core 通过 `worldgen::urban_case_priors` 加载同一 JSON，并提供：
 输出 `planning-history-plan.json`，包含：
 
 - 网络中心及其角色；
+- 中心角色到静态中心建筑/广场的物化及拒绝原因；
 - 建筑到中心的网络距离和中心性；
 - 旧核心/更新扩张/新区边缘归类；
 - 社区类型、产权混合、停车策略和街面策略；
@@ -292,19 +293,20 @@ Manifest：
 
 输出：
 
-`bevy/work/rk-x/derived-core-slice-materialized-v9-20261021`
+`bevy/work/rk-x/derived-core-slice-materialized-v18-20261021`
 
 结果：
 
 | 项 | 结果 |
 |---|---:|
-| 最终实体 | 3,537 |
+| 最终实体 | 3,538 |
 | 道路段 | 147 |
 | 内部拓宽道路段 | 86 |
 | 最终建筑 | 6 |
 | 住宅 | 1 |
 | 店面 | 5 |
 | 最终公园 | 1 |
+| 最终中心广场 | 1 |
 | 已验证入口 | 6 |
 | 断开的入口 | 0 |
 | 计划路线 | 2 |
@@ -318,6 +320,12 @@ Manifest：
 `strict generated-facade access contract produced no verified route`
 
 这体现“建筑数量是结果”，而不是强行复制两栋来凑计划数。
+
+规划中心产生 2 个候选静态中心：
+
+- 混合中心广场成功落地；
+- 金融办公塔因严格入口合同失败，在
+  `planning-materialization-report.json.accessRejectedCentres` 中具名记录。
 
 预览：
 
@@ -339,7 +347,7 @@ Manifest：
 仍未完成：
 
 - 48 城全量代表性世界烘焙；
-- 金融/政治中心从角色计划落实为专属公共建筑与广场组合；
+- 金融塔入口工程、政治中心专属建筑组和更完整的中心公共空间组合；
 - 多层级市场设施实体；
 - 排水、挡墙、生态和建筑基础统一工程账本；
 - 真正接近最终产品的大量高密度城区视觉。
