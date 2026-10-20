@@ -822,13 +822,11 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "the policy is off, so no road entity may carry a cut cap"
     );
     let off_audit = read_json(scene_dir(&first).join("road-network-audit.json"));
-    assert_eq!(off_audit["status"], json!("fail"), "{off_audit}");
-    assert_eq!(
-        off_audit["failures"],
-        json!([
-            "road generated.road-auto.scene-0.0 changed after planning: design error 0m at (112,224), fill 6.705m, cut 0m",
-            "road generated.road-auto.scene-0.1 changed after planning: design error 0m at (112,288), fill 7.1499996m, cut 0m"
-        ])
+    assert_eq!(off_audit["status"], json!("pass"), "{off_audit}");
+    assert_eq!(off_audit["failures"], json!([]));
+    assert!(
+        off_audit["maxFinalRoadbedFillM"].as_f64().unwrap() <= 6.,
+        "the road's own profile must stay inside the 6m fill contract: {off_audit}"
     );
     let engineered = read_json(scene_dir(&first).join("engineered-terrain.json"));
     assert_eq!(
@@ -843,10 +841,10 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "two off-state bakes must publish the same bytes"
     );
     assert_eq!(
-        first_digest, "8fb373ef06a22b8efcfda386d4db4f3047a74f636ef3c5f3dd4190b02abcdf68",
-        "the frozen blake3 tree digest of the policy-off world (Round 44 re-took it: the \
-         scene now publishes the generator's candidate keys for its two rule buildings, so \
-         `development-audit.json` counts them apart instead of calling them unplanned; no \
-         terrain, road, pad or entity byte moved)"
+        first_digest, "6eab4494c1dabc2f8745881637b523e5b6f01ca04a81ffff3da3b58fef4f82eb",
+        "the frozen blake3 tree digest of the policy-off world (B-02 re-took it: the road \
+         audit now measures the road's own profile instead of a neighbour's carve, so the \
+         two false >6m failures become a pass; terrain, road, pad and entity geometry did \
+         not move)"
     );
 }

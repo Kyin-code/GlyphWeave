@@ -1910,9 +1910,6 @@ pub fn audit_tier_provenance(
     plan: &RoadNetworkPlan,
     report: &Report,
 ) -> Result<(), TerrainError> {
-    if let Some(base) = &report.base_road_program {
-        audit_tier_provenance(plan, base)?;
-    }
     fn collect(report: &Report, out: &mut BTreeSet<String>) {
         out.extend(report.generated_road_ids.iter().cloned());
         if let Some(base) = &report.base_road_program {
@@ -1921,6 +1918,23 @@ pub fn audit_tier_provenance(
     }
     let mut generated = BTreeSet::new();
     collect(report, &mut generated);
+    // Audit the base programme against only its own roads. A v3 report owns a
+    // superset of the base plan; passing the whole plan down would falsely
+    // accuse every new supply road of being "non-generated" by the base.
+    if let Some(base) = &report.base_road_program {
+        let mut base_ids = BTreeSet::new();
+        collect(base, &mut base_ids);
+        let mut base_plan = plan.clone();
+        base_plan
+            .edges
+            .retain(|edge| edge.tier.is_none() || base_ids.contains(edge.id.as_str()));
+        base_plan
+            .extensions
+            .retain(|extension| {
+                extension.tier.is_none() || base_ids.contains(extension.entity_id.as_str())
+            });
+        audit_tier_provenance(&base_plan, base)?;
+    }
     let Some(hierarchy) = &report.program.hierarchy else {
         if plan.edges.iter().any(|edge| edge.tier.is_some()) {
             return Err(err("road_tier_without_hierarchy"));
@@ -1995,9 +2009,9 @@ pub(super) fn commit_decision(
     baseline: &Realization,
     verified: &RoadNetworkPlan,
 ) -> Result<(), String> {
-    if let Some(report) = &verified.automatic_extensions {
-        audit_tier_provenance(verified, report).map_err(|error| error.0)?;
-    }
+    // Tier provenance is audited once, on the complete working plan after the
+    // candidate has been appended and credited. Auditing here would compare a
+    // staged road against the baseline report that predates it.
     // 1. Every identity this session has already committed — the entering
     //    baseline and each earlier round of this same phase — must survive with
     //    unchanged geometry and access.

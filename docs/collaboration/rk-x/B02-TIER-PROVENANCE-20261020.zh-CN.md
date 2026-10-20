@@ -69,6 +69,8 @@ carve/transition 的最终地表抬高，却被算在道路头上。现在道路
 - `derived_earthwork_blend` 山城：`730746db…` → `8cc7a100…`；
 - `derived_earthwork_blend` 滨水：`fb7d68d3…` → `cbc02389…`；
 - `development_provenance` 无 ledger 世界：`67d7e31b…` → `23c1e8d2…`。
+- `waterfront_road_first` / `waterfront_shorefront_row` 的 waterless 世界：
+  `841ae253…` → `49faeab9…`（scene 内道路 tier 字段）。
 
 原因是道路实体/边现在真实携带 `roadTier`，属于本功能要求的字段，不是随机漂移。
 
