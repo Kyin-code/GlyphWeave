@@ -67,6 +67,7 @@ pub mod natural_only;
 pub mod market_catchment;
 pub mod route_evolution;
 pub mod settlement_evolution;
+pub mod urban_case_priors;
 pub mod urban_slice;
 mod shorefront;
 mod terrain_context;
