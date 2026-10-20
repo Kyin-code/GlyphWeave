@@ -59,6 +59,7 @@ pub mod parcel_geometry;
 pub mod road_parcel_feasibility;
 pub mod services;
 pub mod natural_geography;
+pub mod natural_only;
 pub mod urban_slice;
 mod shorefront;
 mod terrain_context;
@@ -2008,6 +2009,7 @@ impl WorldManifest {
         frontage::validate_manifest(effective)?;
         height_encoding_from_style(&self.style)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         urban_slice::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
@@ -2506,6 +2508,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     let mut placement_reports = Vec::<serde_json::Value>::new();
     let mut pad_completion_reports = Vec::<serde_json::Value>::new();
     let mut engineering_reports = Vec::new();
+    let mut natural_only_reports = Vec::<natural_only::SceneAudit>::new();
     for scene in &manifest.scenes {
         let scene_dir = output.join("scenes").join(&scene.scene_id);
         fs::create_dir_all(&scene_dir)?;
@@ -3437,6 +3440,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 serde_json::to_vec_pretty(&coverage)?,
             )?;
         }
+        if natural_only::enabled(&effective_style) {
+            let audit = natural_only::audit_scene(
+                &scene.scene_id,
+                &index.entities,
+                index.engineered_terrain.operations.len(),
+                index.road_network_plan.is_some(),
+                index.development_plan.is_some(),
+            );
+            fs::write(
+                scene_dir.join("natural-audit.json"),
+                serde_json::to_vec_pretty(&audit)?,
+            )?;
+            natural_only::require_pass(&audit).map_err(WorldgenError::InvalidRules)?;
+            natural_only_reports.push(audit);
+        }
         trace.stage(&scene.scene_id,"scene-serialization");
         fs::write(
             scene_dir.join("scene.json"),
@@ -3444,6 +3462,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         )?;
         crate::preview_stream::write(&index,&revision,&scene_dir).map_err(|e|WorldgenError::InvalidRules(format!("preview projection: {e}")))?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
+    }
+    if natural_only::enabled(&effective_style) {
+        let audit = natural_only::aggregate(natural_only_reports);
+        fs::write(
+            output.join("natural-audit.json"),
+            serde_json::to_vec_pretty(&audit)?,
+        )?;
+        if audit.status != "pass" {
+            return Err(WorldgenError::InvalidRules(format!(
+                "natural-only audit failed: {}",
+                audit.failures.join("; ")
+            )));
+        }
     }
     if rules_mode {
         fs::write(
@@ -6568,7 +6599,26 @@ fn humidity_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
 fn lake_radius_at(x: f64, z: f64, water: WaterGeometry) -> f64 {
     let dx = (x - water.center_x) / water.half_width.max(1.0);
     let dz = (z - water.center_z) / water.half_depth.max(1.0);
-    dx * dx + dz * dz
+    let radial = (dx * dx + dz * dz).sqrt();
+    if radial <= f64::EPSILON {
+        return 0.0;
+    }
+    if !water.geography.authored {
+        return radial * radial;
+    }
+    // Authored lakes are landforms, not scaled discs. Three low-frequency
+    // harmonics bend bays and headlands while keeping the shoreline continuous
+    // and deterministic; the orogeny and wind axes make different regions
+    // produce different lake plans. The inverse-square form preserves the
+    // existing radius < 1 water and SHORE_RADIUS transition semantics.
+    let angle = dz.atan2(dx);
+    let tectonic = f64::from(water.geography.orogeny_axis_rad);
+    let wind = f64::from(water.geography.wind_rad);
+    let shore_scale = 1.0
+        + 0.105 * (3.0 * angle + tectonic).sin()
+        + 0.065 * (7.0 * angle - tectonic * 1.7 + wind * 0.4).sin()
+        + 0.035 * (13.0 * angle + wind * 0.9).sin();
+    (radial / shore_scale.max(0.72)).powi(2)
 }
 
 fn surface_kind_with_geometry(seed: u64, x: i32, z: i32, height: i16, water: WaterGeometry) -> u8 {
@@ -6796,6 +6846,7 @@ fn generate_entities_with_profile_report(
         geometry,
         &ids,
         shorefront_row,
+        natural_only::enabled(style),
     );
     ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
     // When a normalized settlement intent is present for a water scene, the
@@ -6966,12 +7017,17 @@ fn generate_entities_with_profile_report(
     // one predicate and the published audit are visibly the same rule.
     retain_shore_clearance(&mut entities, geometry);
     let explicit_settlement = generation_settlement(style);
-    if geometry.kind == WaterKind::None {
+    if natural_only::enabled(style) {
+        append_natural_content(seed, scene, geometry, &mut entities, &ids);
+        retain_shore_clearance(&mut entities, geometry);
+    } else if geometry.kind == WaterKind::None {
         // An explicit intent selects a generic planner. Fixture-free generation
         // is important here: the planner consumes normalized intent/profile
         // fields and never branches on a place name.
         match explicit_settlement {
-            Some("wilderness") => append_natural_content(seed, scene, &mut entities, &ids),
+            Some("wilderness") => {
+                append_natural_content(seed, scene, geometry, &mut entities, &ids)
+            }
             Some("pastoral") => append_pastoral_intent_content(seed, scene, &mut entities, &ids),
             Some("city" | "town") if style.get("landUseProfile").is_some() => {
                 append_modern_landuse_content(
@@ -6991,29 +7047,21 @@ fn generate_entities_with_profile_report(
             Some(_) => append_generic_land_content(seed, scene, &mut entities, &ids),
             None => {
                 // Legacy manifests retain their established behavior.
-                let natural_only = style
-                    .get("naturalOnly")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false);
-                if !natural_only {
-                    if style.get("landUseProfile").is_some() {
-                        append_modern_landuse_content(
-                            seed,
-                            scene,
-                            geometry,
-                            &mut entities,
-                            style,
-                            road_plan,
-                            development_plan,
-                            &mut development_proposals,
-                            &ids,
-                            zones,
-                        );
-                    } else {
-                        append_generic_land_content(seed, scene, &mut entities, &ids);
-                    }
+                if style.get("landUseProfile").is_some() {
+                    append_modern_landuse_content(
+                        seed,
+                        scene,
+                        geometry,
+                        &mut entities,
+                        style,
+                        road_plan,
+                        development_plan,
+                        &mut development_proposals,
+                        &ids,
+                        zones,
+                    );
                 } else {
-                    append_natural_content(seed, scene, &mut entities, &ids);
+                    append_generic_land_content(seed, scene, &mut entities, &ids);
                 }
             }
         }
@@ -7119,6 +7167,16 @@ fn generate_entities_with_profile_report(
         }
     }
     ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
+    if natural_only::enabled(style) {
+        let audit = natural_only::audit_scene(
+            &scene.scene_id,
+            &entities,
+            0,
+            road_plan.is_some(),
+            development_plan.is_some(),
+        );
+        natural_only::require_pass(&audit).map_err(WorldgenError::InvalidRules)?;
+    }
     Ok((
         entities,
         placement_outcome,
@@ -8504,22 +8562,20 @@ fn append_pastoral_intent_content(
 /// Natural-only filler for wild scenes (steppe / nature): sparse trees,
 /// bushes, rocks and grass clumps over a deterministic grid, with jitter.
 /// No roads, no buildings, no paths — just open wild land.
-fn append_natural_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>, ids: &CandidateIds) {
+fn append_natural_content(
+    seed: u64,
+    scene: &SceneSpec,
+    geometry: WaterGeometry,
+    entities: &mut Vec<EntityInstance>,
+    ids: &CandidateIds,
+) {
     for z in (20..scene.depth_m.saturating_sub(8)).step_by(16) {
         for x in (20..scene.width_m.saturating_sub(8)).step_by(16) {
             let jx = signed_noise(seed.rotate_left(211), x as i32, z as i32);
             let jz = signed_noise(seed.rotate_left(223), x as i32, z as i32);
             let wx = scene.origin_x + x as i32 + (jx.rem_euclid(19) - 9);
             let wz = scene.origin_z + z as i32 + (jz.rem_euclid(19) - 9);
-            let world_y = i32::from(terrain_height(
-                seed,
-                wx,
-                wz,
-                WaterKind::None,
-                scene.width_m,
-                scene.depth_m,
-                0.0,
-            )) / 4;
+            let world_y = i32::from(terrain_height_with_geometry(seed, wx, wz, geometry)) / 4;
             let roll = signed_noise(seed.rotate_left(239), wx, wz);
             // Steppe: grass dominant, sparse trees, occasional rocks/bushes.
             let kind = if roll < -84 {
@@ -9820,6 +9876,7 @@ fn generate_entities_template(
     // The bayfront fixture band then belongs to the plan's own shorefront row instead of
     // to this generator; for every other world it stays exactly as it was.
     shorefront_row: bool,
+    natural_only: bool,
 ) -> Vec<EntityInstance> {
     let mut entities = Vec::new();
     for landmark in landmarks {
@@ -9839,6 +9896,12 @@ fn generate_entities_template(
             depth_m: landmark.depth_m as f32,
             height_m: landmark.height_m as f32,
         });
+    }
+    // The natural stage is an authored landmark slice plus natural content only.
+    // In particular, a lake must not silently bring the legacy shore road,
+    // bridge and village template back into the "no human trace" snapshot.
+    if natural_only {
+        return entities;
     }
     // On a waterless mainland the modern profile owns all ordinary land; the
     // legacy river/lake street grids below are water-scene specials. If there
@@ -11080,6 +11143,78 @@ mod tests {
     }
 
     #[test]
+    fn natural_only_lake_excludes_the_legacy_human_template() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "terrainProfile": "mountain-foot",
+            "naturalOnly": true,
+            "water": {"waterType": "lake", "levelPolicy": "horizontal-datum"}
+        });
+        let geometry = water_geometry(WaterKind::Lake, &[], &scene, &style);
+        let entities = generate_entities_with_profile(11, &scene, &[], geometry, &style);
+        assert!(entities.iter().all(|entity| natural_only::is_natural_kind(&entity.kind)));
+        assert!(!entities.iter().any(|entity| {
+            matches!(
+                entity.kind.as_str(),
+                "road" | "sidewalk" | "bridge" | "building_cluster"
+            )
+        }));
+        assert!(entities.iter().any(|entity| entity.kind == "tree"));
+    }
+
+    #[test]
+    fn natural_only_rejects_an_authored_human_landmark() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "terrainProfile": "steppe",
+            "naturalOnly": true
+        });
+        let geometry = legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.0);
+        let cabin: LandmarkSpec = serde_json::from_value(serde_json::json!({
+            "entityId": "authored.cabin",
+            "name": "cabin",
+            "type": "building",
+            "purpose": "test",
+            "description": "must not enter a natural-only stage",
+            "sceneId": scene.scene_id,
+            "worldX": 128,
+            "worldZ": 128,
+            "worldY": 0,
+            "widthM": 8,
+            "depthM": 8,
+            "heightM": 4,
+            "assetId": "prop.building"
+        }))
+        .unwrap();
+        let error = generate_entities_with_profile_report(
+            11,
+            &scene,
+            &[cabin],
+            geometry,
+            &style,
+            None,
+            None,
+            None,
+        )
+        .expect_err("a human landmark must fail closed");
+        assert!(error.to_string().contains("natural-only audit failed"));
+    }
+
+    #[test]
     fn waterfront_does_not_place_land_entities_in_water() {
         let scene = SceneSpec {
             scene_id: "scene-0".to_owned(),
@@ -12060,6 +12195,55 @@ mod tests {
     }
 
     #[test]
+    fn authored_geography_gives_lakes_irregular_shorelines() {
+        let scene = SceneSpec {
+            scene_id: "scene-0".to_owned(),
+            width_m: 1_000,
+            depth_m: 1_000,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({
+            "water": {"waterType": "lake", "levelPolicy": "horizontal-datum"},
+            "naturalGeography": {
+                "version": 1,
+                "setting": "coastal-mountain",
+                "regionalReliefM": 900,
+                "orogenyAxisDeg": 28,
+                "upliftBias": 0.72,
+                "coast": {"type": "ria-bay", "waveExposure": "moderate", "trench": false},
+                "climate": {
+                    "band": "humid-subtropical",
+                    "prevailingWindDeg": 125,
+                    "monsoon": true,
+                    "rainfallBias": 0.65,
+                    "seasonality": 0.48
+                },
+                "hydrology": {
+                    "regime": "perennial",
+                    "historicChannelShiftM": 260,
+                    "wetlandBias": 0.3
+                },
+                "landform": {
+                    "karst": false,
+                    "aeolian": false,
+                    "glacial": false,
+                    "incisedValleys": 0.68
+                },
+                "hazards": ["flood"]
+            }
+        });
+        let geometry = water_geometry(WaterKind::Lake, &[], &scene, &style);
+        let east = lake_radius_at(800.0, 500.0, geometry);
+        let north_east = lake_radius_at(500.0 + 300.0 * 0.55, 500.0 - 300.0 * 0.55, geometry);
+        assert!(
+            (east - north_east).abs() > 0.08,
+            "an authored lake must not have a perfect elliptical shoreline"
+        );
+    }
+
+    #[test]
     fn generic_world_has_structured_content_without_landmarks() {
         let scene = SceneSpec {
             scene_id: "scene-0".to_owned(),
@@ -12900,14 +13084,15 @@ mod tests {
     #[test]
     fn stable_v1_candidate_keys_are_bound_before_movement_and_planned_ids_stay_explicit() {
         let scene=SceneSpec {scene_id:"slots".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
+        let geometry=legacy_water_geometry(WaterKind::None,scene.width_m,scene.depth_m,0.0);
         let a=CandidateIds::new(&scene.scene_id);
         let mut base=vec![];
-        append_natural_content(7,&scene,&mut base,&a);
+        append_natural_content(7,&scene,geometry,&mut base,&a);
         a.finish(&base).unwrap();
         let b=CandidateIds::new(&scene.scene_id);
         let extra=b.claim("unrelated-request","rock",&[1000,1000]);
         let mut expanded=vec![generated_intent_entity(extra,"rock",1000,1000,0,1.,1.,1.)];
-        append_natural_content(7,&scene,&mut expanded,&b);
+        append_natural_content(7,&scene,geometry,&mut expanded,&b);
         b.finish(&expanded).unwrap();
         assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&expanded[1..]).unwrap());
         let mut moved=base[0].clone();moved.world_x+=1;

@@ -579,6 +579,10 @@ async function drawNear(buildToken) {
   const farmPatch=farmField ? scene.landcoverSurfaces.patches.find(p=>p.parcelId===farmField.id&&p.material==='cultivated_soil') : null
   const focusOverride = window.__nearFocusOverride ?? (frontageEntity ? {x:frontageEntity.worldX-scene.originX,z:frontageEntity.worldZ-scene.originZ,y:frontageEntity.worldY+(frontageEntity.grounding.bottomOffsetM??0)} : gradedRoad ? {x:gradedRoad.worldX-scene.originX,z:gradedRoad.worldZ-scene.originZ,y:gradedRoad.worldY+(gradedRoad.grounding.bottomOffsetM??0)} : serviceEntity ? {x:serviceEntity.worldX-scene.originX,z:serviceEntity.worldZ-scene.originZ,y:serviceEntity.worldY} : yardEntity ? {x:yardEntity.worldX-scene.originX,z:yardEntity.worldZ-scene.originZ,y:yardEntity.worldY} : farmField ? {x:farmField.boundary.x+farmField.boundary.widthM/2-scene.originX,z:farmField.boundary.z+farmField.boundary.depthM/2-scene.originZ,y:farmPatch?.vertices[0]?.[1]??scene.landcoverSurfaces.agriculture.previewFocusHeights?.[farmField.id]??0} : null)
   const hasBridge = (scene.entities ?? []).some(entity => entity.kind === 'bridge') || (scene.landmarks ?? []).some(landmark => landmark.type === 'bridge')
+  const hasUrbanFabric = (scene.entities ?? []).some(entity => ['storefront', 'residential_block', 'residential_tower', 'building_tower', 'urban_building', 'resort_lodge', 'road', 'bridge'].includes(entity.kind)) || (scene.landmarks ?? []).some(entity => ['bridge', 'shopping_mall', 'office_tower', 'convenience_store', 'boardwalk', 'scenic_belt', 'community_plaza', 'night_market'].includes(entity.type))
+  const naturalFeature = !hasUrbanFabric
+    ? (scene.landmarks ?? []).find(landmark => ['lake', 'river', 'sea'].includes(landmark.type))
+    : null
   // Harbour's default 2.5D entry is the bridge inspection view. Only fall
   // back to a wide overview when a scene has no bridge landmark to focus.
   const isHarbourOverview = nearPreset === 'harbour' && !focusOverride
@@ -614,9 +618,10 @@ async function drawNear(buildToken) {
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
   const streetX = streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
   const streetZ = streetAnchor?.worldZ ?? scene.depthM * .5
-  const focusX = focusOverride ? focusOverride.x : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const focusX = focusOverride ? focusOverride.x : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const isNaturalExplore = isExplore && Boolean(naturalFeature)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
   const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : isHarbourOverview ? 10 : focusY + 6
@@ -625,9 +630,9 @@ async function drawNear(buildToken) {
   const viewOffsetZ = nearPreset === 'bridgehead' ? 105 : 72
   const landmarkViewDistance = Math.max(180, (focusLandmark?.heightM || 100) * 1.15)
   nearCamera.position.set(
-    focusX + viewOffsetX + (isExplore ? 130 : isStreet ? 150 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : isHarbourOverview ? orthoHeight * .46 : orthoHeight * .5),
-    focusY + (isExplore ? 16 : isStreet ? 64 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .64 : isHarbourOverview ? orthoHeight * .56 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
-    focusZ + (isExplore ? 125 : isStreet ? -160 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .40 : isHarbourOverview ? -orthoHeight * .18 : orthoHeight * .42),
+    focusX + viewOffsetX + (isNaturalExplore ? 190 : isExplore ? 130 : isStreet ? 150 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : isHarbourOverview ? orthoHeight * .46 : orthoHeight * .5),
+    focusY + (isNaturalExplore ? 42 : isExplore ? 16 : isStreet ? 64 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .64 : isHarbourOverview ? orthoHeight * .56 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
+    focusZ + (isNaturalExplore ? 210 : isExplore ? 125 : isStreet ? -160 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .40 : isHarbourOverview ? -orthoHeight * .18 : orthoHeight * .42),
   )
   // Harbour overview is an orientation shot, not a bridge close-up. Look
   // obliquely across the bay so the bridge, water and both shores can read in
@@ -647,8 +652,7 @@ async function drawNear(buildToken) {
     // painterly look inspired by Journey / Flower: a soft warm key light, a
     // gentle distance haze, and no hard shadows. Urban scenes keep the cool
     // clinical look.
-    const urban = (scene.entities ?? []).some(e => ['storefront', 'residential_block', 'residential_tower', 'building_tower', 'urban_building', 'resort_lodge', 'road', 'bridge'].includes(e.kind)) || (scene.landmarks ?? []).some(e => ['bridge', 'shopping_mall', 'office_tower', 'convenience_store', 'boardwalk', 'scenic_belt', 'community_plaza', 'night_market'].includes(e.type))
-    const steppe = !urban
+    const steppe = !hasUrbanFabric
     window.__steppe = steppe
     nearScene.background = makeSkyTexture(THREE)
     if (steppe) {
@@ -678,7 +682,7 @@ async function drawNear(buildToken) {
     }
   }
   nearControls = new OrbitControls(nearCamera, webglCanvas)
-  nearControls.target.set(focusX, isExplore ? focusY + 26 : isStreet ? focusY + 9 : focusTargetY, focusTargetZ)
+  nearControls.target.set(focusX, isNaturalExplore ? focusY + 2 : isExplore ? focusY + 26 : isStreet ? focusY + 9 : focusTargetY, focusTargetZ)
   nearControls.enableDamping = true
   nearControls.enablePan = true
   nearControls.enableRotate = true

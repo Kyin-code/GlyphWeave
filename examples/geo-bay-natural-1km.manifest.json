@@ -22,6 +22,22 @@
     "terrainProfile": "mountain-foot",
     "heightPrecision": "millimeter",
     "naturalOnly": true,
+    "referenceData": {
+      "sources": [
+        "docs/collaboration/b04-case-register.zh-CN.md",
+        "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+        "docs/design/natural-source-matrix.zh-CN.md"
+      ],
+      "caseIds": [
+        "cn-hangzhou",
+        "us-seattle",
+        "eu-zurich"
+      ],
+      "crop": "synthetic 1km mountain-lake natural snapshot",
+      "retrievedAt": "2026-10-21",
+      "seedBasis": "seed 42 supplies a deterministic natural-only control; it is not a reconstruction of a named real place",
+      "inferenceReason": "coastal mountain relief, humid monsoon climate, historic channel shift and an incised valley are combined to test a natural landscape before any human paths or settlement"
+    },
     "naturalGeography": {
       "version": 1,
       "setting": "coastal-mountain",
@@ -97,6 +113,49 @@
         "minWidthM": 2,
         "placement": "surface-grounded",
         "type": "tree"
+      },
+      "bush": {
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "maxDepthM": 2.6,
+        "maxHeightM": 2.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.6,
+        "minHeightM": 0.6,
+        "minWidthM": 0.6,
+        "placement": "surface-grounded",
+        "type": "bush"
+      },
+      "grass_clump": {
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "maxDepthM": 2.6,
+        "maxHeightM": 1.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.3,
+        "minHeightM": 0.5,
+        "minWidthM": 0.3,
+        "placement": "surface-grounded",
+        "type": "grass"
       },
       "rock": {
         "allowedSurfaces": [

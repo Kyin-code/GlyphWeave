@@ -20,6 +20,45 @@
     "family": "procedural-natural-steppe",
     "terrain": "continuous-heightfield",
     "terrainProfile": "steppe",
+    "naturalGeography": {
+      "version": 1,
+      "setting": "inland-steppe",
+      "regionalReliefM": 160,
+      "orogenyAxisDeg": 84,
+      "upliftBias": 0.24,
+      "coast": {
+        "type": "none",
+        "waveExposure": "sheltered",
+        "trench": false
+      },
+      "climate": {
+        "band": "cold-semi-arid",
+        "prevailingWindDeg": 315,
+        "monsoon": false,
+        "rainfallBias": 0.22,
+        "seasonality": 0.86
+      },
+      "hydrology": {
+        "regime": "endorheic-ephemeral",
+        "historicChannelShiftM": 18,
+        "wetlandBias": 0.12
+      },
+      "landform": {
+        "karst": false,
+        "aeolian": true,
+        "glacial": false,
+        "incisedValleys": 0.18
+      },
+      "hazards": [
+        "drought",
+        "erosion"
+      ],
+      "evidence": {
+        "source": "docs/collaboration/b04-case-register.zh-CN.md",
+        "confidence": "heuristic",
+        "inferenceReason": "synthetic cold semi-arid steppe; low relief, aeolian texture, seasonal drought and an endorheic lake"
+      }
+    },
     "layoutReference": "Inner Mongolia steppe: a wide, gently rolling grassland plain with soft hills, seasonal grass tones, scattered herds and a distant low horizon. No city, no buildings.",
     "referenceData": {
       "sources": [
