@@ -14,6 +14,10 @@
 > established/renewal/new district growth is implemented. See
 > [`ITERATIVE-DISTRICTS-20261021.zh-CN.md`](ITERATIVE-DISTRICTS-20261021.zh-CN.md).
 
+> **2026-10-21 审核稿**：用户要求重新按“纯自然 → 地形道路 → 聚落 → 新老城”
+> 设计，当前原型不作为该需求的最终方案。审核文档：
+> [`NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md`](NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md)。
+
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
 
 | 项 | 当前值 |

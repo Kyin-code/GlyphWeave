@@ -539,6 +539,7 @@ smoke（scene-0 / chunk 0,1 / loaded 6 / no script error）。C 核心里程碑�
 
 | 优先级 | 缺口 | 挡住什么 | 建议动作 |
 |---|---|---|---|
+| P0（待审核） | 生成链仍是“固定路网/frontage 数量优先”，未按“纯自然→沿谷路径→聚落→epoch”生成 | 现代感、合理性、新老城、市场辐射和建筑数量都会继续失真 | 先审核 `rk-x/NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md`；批准后从 Phase 0 纯自然快照开始实现 |
 | P0 | 基础边 profile 可行性闸门（§6.1） | 整个 B-01 收口与后续所有建筑内容 | 执行 T-0013 |
 | P0 | `reconcile` 遵守 `fallback`（§6.2） | 世界可烘性；任何不合规对象都能炸整图 | 执行 T-0013 |
 | P0 | Patch 链（D5.3） | FUT-01/02/06、D14.4 编辑通道、R02 | 设计 `patchChainHash` 与 CLI `patch` 的真实接线 |
