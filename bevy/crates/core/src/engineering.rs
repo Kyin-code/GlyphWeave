@@ -19,8 +19,8 @@ pub struct EngineeredTerrainSnapshot {
     /// asked for a cut and did not get one is answered in writing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounded_cut: Option<super::worldgen::bounded_cut::CutLedger>,
-    /// C-E1 retaining-wall and cut-face records. Present only when the scene
-    /// opted into `style.engineeringWorks.retainingWalls = "auto"`.
+    /// C-E1 retaining-wall and culvert records. Present only when the scene
+    /// opted into `style.terrainWorks.retainingWalls/drainageStructures`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retaining_works: Option<crate::engineering_works::TerrainWorksPlan>,
     /// C-E2: the natural-vs-engineered sampled routing comparison. Present only

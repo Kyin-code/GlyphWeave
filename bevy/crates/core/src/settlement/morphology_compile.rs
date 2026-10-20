@@ -1220,7 +1220,9 @@ mod tests {
     /// `residualLandProgram` from the compiled document must still reproduce the
     /// pre-wiring style byte for byte (checked below), so a drift anywhere else
     /// (an authored setback included) is a hard failure instead of a silent
-    /// world-revision change.
+    /// world-revision change. The report digest moved once when
+    /// `serviceRadiusM` gained its coverage-audit consumer; the effective style
+    /// itself did not move.
     #[test]
     fn authored_setback_documents_keep_their_pre_wiring_digests() {
         for (profile_id, pre_wiring_style_digest, style_digest, report_digest) in [
