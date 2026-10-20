@@ -4059,6 +4059,7 @@ mod tests {
             terrain_origin_z: s.origin_z,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: super::super::natural_geography::GeographyControls::default(),
         };
         let mut wet = base.clone();
         append(&mut wet, &s, &n, lake, Some(&rural), &explicit_style).unwrap();

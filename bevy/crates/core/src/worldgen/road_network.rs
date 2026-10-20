@@ -4368,6 +4368,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: super::super::natural_geography::GeographyControls::default(),
         };
         let planned = plan(&scene, &natural, wet).unwrap();
         assert!(planned.edges.is_empty());

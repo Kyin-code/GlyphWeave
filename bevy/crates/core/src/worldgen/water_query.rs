@@ -295,6 +295,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: crate::worldgen::natural_geography::GeographyControls::default(),
         }
     }
     fn rect(x: f64, z: f64, hx: f64, hz: f64, angle: f64) -> Rect {

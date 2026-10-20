@@ -1,0 +1,167 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "Mountain-lake 1km: natural-only stage",
+    "seed": 42,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "mountain-foot",
+    "heightPrecision": "millimeter",
+    "naturalOnly": true,
+    "naturalGeography": {
+      "version": 1,
+      "setting": "coastal-mountain",
+      "regionalReliefM": 900,
+      "orogenyAxisDeg": 28,
+      "upliftBias": 0.72,
+      "coast": {
+        "type": "ria-bay",
+        "waveExposure": "moderate",
+        "trench": false
+      },
+      "climate": {
+        "band": "humid-subtropical",
+        "prevailingWindDeg": 125,
+        "monsoon": true,
+        "rainfallBias": 0.65,
+        "seasonality": 0.48
+      },
+      "hydrology": {
+        "regime": "perennial",
+        "historicChannelShiftM": 260,
+        "wetlandBias": 0.3
+      },
+      "landform": {
+        "karst": false,
+        "aeolian": false,
+        "glacial": false,
+        "incisedValleys": 0.68
+      },
+      "hazards": [
+        "flood",
+        "landslide",
+        "storm-surge"
+      ]
+    },
+    "water": {
+      "waterType": "lake",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "shoreProfile": {
+        "transitionRadius": 1.25,
+        "shallowBandM": 12,
+        "averageDepthM": 2.0
+      },
+      "waveModel": {
+        "preset": "calm-lake-breeze",
+        "amplitudeM": 0.04,
+        "wavelengthM": 8,
+        "roughness": 0.22
+      },
+      "flowDirection": null,
+      "flowSpeedMps": 0.0
+    },
+    "assetContracts": {
+      "tree": {
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "maxDepthM": 5.5,
+        "maxHeightM": 9,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "minHeightM": 4,
+        "minWidthM": 2,
+        "placement": "surface-grounded",
+        "type": "tree"
+      },
+      "rock": {
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "maxDepthM": 8,
+        "maxHeightM": 5,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "minHeightM": 0.2,
+        "minWidthM": 0.2,
+        "placement": "surface-grounded",
+        "type": "rock"
+      },
+      "lake": {
+        "allowedSurfaces": [
+          "water",
+          "deep_water"
+        ],
+        "forbiddenSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone",
+          "underground"
+        ],
+        "maxDepthM": 250,
+        "maxHeightM": 1,
+        "maxWidthM": 360,
+        "minDepthM": 250,
+        "minHeightM": 1,
+        "minWidthM": 360,
+        "placement": "water-surface",
+        "type": "water"
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.lakeside",
+      "name": "山间湖",
+      "type": "lake",
+      "purpose": "自然阶段的山间湖",
+      "description": "纯自然阶段的水体，无道路、聚落或人工构筑。",
+      "sceneId": "scene-0",
+      "worldX": 720,
+      "worldZ": 250,
+      "worldY": 0,
+      "widthM": 360,
+      "depthM": 250,
+      "heightM": 1,
+      "assetId": "water.modern-lakeside"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

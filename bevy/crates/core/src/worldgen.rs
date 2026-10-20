@@ -58,6 +58,8 @@ mod frontage_supply;
 pub mod parcel_geometry;
 pub mod road_parcel_feasibility;
 pub mod services;
+pub mod natural_geography;
+pub mod urban_slice;
 mod shorefront;
 mod terrain_context;
 mod water_query;
@@ -124,6 +126,9 @@ pub struct WaterGeometry {
     /// fill. Off for every input that did not opt in, so the raster path is
     /// byte-identical for them.
     road_water_crossings: bool,
+    /// Authored macro-geography expanded by `natural_geography`. Defaults are
+    /// byte-compatible with the legacy noise terrain.
+    geography: natural_geography::GeographyControls,
 }
 
 /// A terrain carve: a flat rectangular pad under a road or building footprint.
@@ -1669,6 +1674,11 @@ pub fn water_geometry(
             width_m: scene.width_m,
             depth_m: scene.depth_m,
         });
+    let mut geography = natural_geography::controls_for_style(style).unwrap_or_default();
+    if let Ok(Some(slice)) = urban_slice::compile(style) {
+        geography.land_pressure = slice.land_pressure_index;
+        geography.engineering_scale = slice.engineering_scale;
+    }
     WaterGeometry {
         kind,
         center_x,
@@ -1684,6 +1694,7 @@ pub fn water_geometry(
         // reads from the style. Both come from the one string, so generation and
         // audit cannot disagree about whether earthwork in the water is legal.
         road_water_crossings: road_network::allows_structured_water(style),
+        geography,
     }
 }
 
@@ -1706,6 +1717,7 @@ fn legacy_water_geometry(
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         },
         WaterKind::River => WaterGeometry {
             kind,
@@ -1719,6 +1731,7 @@ fn legacy_water_geometry(
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         },
         WaterKind::None => WaterGeometry {
             kind,
@@ -1732,6 +1745,7 @@ fn legacy_water_geometry(
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         },
     }
 }
@@ -1993,6 +2007,8 @@ impl WorldManifest {
         auto_roads::validate_manifest(effective)?;
         frontage::validate_manifest(effective)?;
         height_encoding_from_style(&self.style)?;
+        natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        urban_slice::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
             .map_err(WorldgenError::InvalidRules)?;
@@ -2462,6 +2478,22 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         return Err(WorldgenError::OutputNotEmpty(output.display().to_string()));
     }
     fs::create_dir_all(output)?;
+    let geography_plan = natural_geography::compile(&manifest.style)
+        .map_err(WorldgenError::InvalidRules)?;
+    if let Some(plan) = &geography_plan {
+        fs::write(
+            output.join("natural-geography-plan.json"),
+            serde_json::to_vec_pretty(plan)?,
+        )?;
+    }
+    let slice_plan =
+        urban_slice::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+    if let Some(plan) = &slice_plan {
+        fs::write(
+            output.join("urban-slice-plan.json"),
+            serde_json::to_vec_pretty(plan)?,
+        )?;
+    }
     if let Some(compiled) = &compiled_style {
         fs::write(
             output.join("effective-programs.json"),
@@ -4755,7 +4787,28 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
     let strength = near_channel * low_ground * wild;
     // Smoothstep so channel banks ease out instead of a hard V cut.
     let strength_s = strength * strength * (3.0 - 2.0 * strength);
-    -(strength_s * 30.0)
+    let geography = water.geography;
+    let incision = if geography.authored {
+        30.0 * (0.5 + f64::from(geography.incised_valleys))
+    } else {
+        30.0
+    };
+    let relict = if geography.authored && geography.historic_channel_shift_m > 0.0 {
+        let shift = f64::from(geography.historic_channel_shift_m);
+        let historical = value_noise2d(
+            seed.wrapping_add(0x9e37_79b9),
+            (xf + shift + warp_x * 0.8) / 760.0,
+            (zf - shift * 0.35 + warp_z * 0.8) / 760.0,
+        );
+        let d_historical = (historical.abs() * 760.0).min(120.0) / 120.0;
+        let floodplain = (1.0 - d_historical).powi(2)
+            * (shift / 1000.0).clamp(0.0, 0.75)
+            * (1.0 - urban * 1.8).clamp(0.0, 1.0);
+        -(floodplain * 9.0)
+    } else {
+        0.0
+    };
+    -(strength_s * incision) + relict
 }
 
 /// Deterministic terrain skeleton (peak / valley structure) in world space.
@@ -4843,7 +4896,7 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let dx = ((xf - cx) / scale).abs().min(1.0);
     let dz = ((zf - cz) / scale).abs().min(1.0);
     let radial = (dx * dx + dz * dz).sqrt();
-    if water.smooth_rolling {
+    let base = if water.smooth_rolling {
         // Steppe / prairie: soft rolling hills (wgen "Hills" generator).
         // Random hemispherical bumps (paraboloids) are stacked, each adding
         // height*(1 - dist²/radius²) inside its footprint, so the terrain is a
@@ -4862,7 +4915,45 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
         // fractal so both structure and texture are present.
         let rugged = skeleton * 0.72 + (1.0 - skeleton) * (0.5 + ridges) * 0.28;
         rugged.mul_add(60.0, -16.0) + radial * radial * 90.0
+    };
+    let geography = water.geography;
+    if !geography.authored {
+        return base;
     }
+    let theta = f64::from(geography.orogeny_axis_rad);
+    let across = (xf - cx) * theta.cos() + (zf - cz) * theta.sin();
+    let axis_band = (-(across / (scale * 0.42)).powi(2)).exp();
+    let uplift = axis_band * (12.0 + f64::from(geography.uplift_bias) * 42.0);
+    let glacial_trough = f64::from(geography.glacial)
+        * (-(across / (scale * 0.24)).powi(2)).exp()
+        * 13.0;
+    let karst = if geography.karst > 0.0 {
+        let sink = value_noise2d(
+            seed.wrapping_add(0x6a09_e667),
+            xf / 135.0,
+            zf / 135.0,
+        )
+        .abs();
+        f64::from(geography.karst) * (1.0 - sink).powi(2) * 7.0
+    } else {
+        0.0
+    };
+    let dune = if geography.aeolian > 0.0 {
+        let wind = f64::from(geography.wind_rad);
+        let along = xf * wind.cos() + zf * wind.sin();
+        f64::from(geography.aeolian)
+            * ((along / 145.0).sin() * 1.8
+                + value_noise2d(seed.wrapping_add(0xbb67_ae85), xf / 260.0, zf / 260.0) * 2.2)
+    } else {
+        0.0
+    };
+    (base * f64::from(geography.relief_scale) + uplift + radial * radial
+        * f64::from(geography.coastality)
+        * 26.0
+        - glacial_trough
+        - karst
+        + dune)
+        .clamp(-32.0, 512.0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -4904,7 +4995,8 @@ fn urbanization_field(seed: u64, x: i32, z: i32, water: WaterGeometry, urban_sca
     // comparable urban heart; the urban+suburban share only nudges the
     // envelope. Density is expressed by `core_density`/`suburban_density`
     // inside each region, not by shrinking the whole city.
-    let envelope = 0.75 + (urban_scale * 0.25);
+    let pressure = f64::from(water.geography.land_pressure).clamp(0.15, 1.8);
+    let envelope = (0.75 + (urban_scale * 0.25)) * (0.82 + pressure * 0.18);
     let city_radius = width.max(depth) * 0.5 * envelope;
     let dist = ((xf - cx).powi(2) + (zf - cz).powi(2)).sqrt();
     let t = (dist / city_radius).clamp(0.0, 1.0);
@@ -4916,7 +5008,7 @@ fn urbanization_field(seed: u64, x: i32, z: i32, water: WaterGeometry, urban_sca
     // kept small and blended as a fraction of the smooth value so it cannot
     // push a mid-field point to zero.
     let noise = (fbm2d(seed, xf, zf) * 0.35).clamp(-1.0, 1.0);
-    let urban = smooth * (1.0 + noise * 0.25);
+    let urban = smooth * (1.0 + noise * 0.25) * (0.88 + pressure * 0.12);
     urban.clamp(0.0, 1.0)
 }
 
@@ -6462,7 +6554,15 @@ fn humidity_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let landform = landform_field(seed, x, z, water);
     let ridge = (landform / 90.0).clamp(0.0, 1.0);
     let elevation_effect = (1.0 - ridge) * 0.15;
-    (shore_damp + band + elevation_effect).clamp(0.0, 1.0)
+    let geography = water.geography;
+    let authored = if geography.authored {
+        (f64::from(geography.rainfall_bias) - 0.5) * 0.42
+            + f64::from(geography.wetland_bias) * 0.18
+            + f64::from(geography.seasonality) * 0.06
+    } else {
+        0.0
+    };
+    (shore_damp + band + elevation_effect + authored).clamp(0.0, 1.0)
 }
 
 fn lake_radius_at(x: f64, z: f64, water: WaterGeometry) -> f64 {
@@ -8317,6 +8417,7 @@ fn append_pastoral_intent_content(
         terrain_origin_z: scene.origin_z,
         smooth_rolling: false,
         road_water_crossings: false,
+        geography: natural_geography::GeographyControls::default(),
     };
     let mut serial = 750_000_u32;
     for z in (scene.origin_z + 140..scene.origin_z + scene.depth_m as i32 - 140).step_by(180) {
@@ -9332,6 +9433,7 @@ fn append_modern_landuse_content(
                     terrain_origin_z: scene.origin_z,
                     smooth_rolling: false,
                     road_water_crossings: false,
+                    geography: natural_geography::GeographyControls::default(),
                 },
                 urban_scale,
             );
@@ -10408,6 +10510,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let tree = |id: &str, width_m: f32| -> EntityInstance {
             serde_json::from_value(serde_json::json!({
@@ -10505,6 +10608,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let registry = crate::rules::ObjectRegistry::load_dir(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"),
@@ -11555,6 +11659,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let entity = EntityInstance {
             entity_id: "edge-crossing".into(),
@@ -11705,6 +11810,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         with_rules_placement_context(42, &scene, water, |ctx| {
             assert!(ctx.water(500, 500).is_some());
@@ -12366,6 +12472,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let mut max_step = 0_i16;
         // Walk across a chunk seam at x=512 and confirm heights stay continuous.
@@ -12398,6 +12505,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let mut zones = BTreeSet::new();
         for z in (500..9_500).step_by(400) {
@@ -12462,6 +12570,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         };
         let mut farmland_on_mountain = 0_usize;
         let mut farmland_total = 0_usize;
@@ -12529,6 +12638,7 @@ mod tests {
             terrain_origin_z: 0,
             smooth_rolling: false,
             road_water_crossings: false,
+            geography: natural_geography::GeographyControls::default(),
         }
     }
 
