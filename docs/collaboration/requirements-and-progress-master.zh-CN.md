@@ -420,11 +420,11 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | # | 原文 | 现在 |
 |---|---|---|
 | 1 | `"scene-0" automatic road targets remain out of reach after "segment_budget_exhausted"` | 历史 r49 为 882 目标 / 满足 69；本次 A-closure manifest 未复现该失败，但 B-02 仍需在带自动路的新候选上单独验证，不能据此宣称 #1 关闭 |
-| 2 | `purpose-area allocation or realization remains incomplete` | r49 未实现 50,230,050m²；A-closure 同口径重算 **50,538,180m²**；1 km 侧城市分配已用尽（40,395/40,898，`5cd21b2` 实测）但 landcover 仍未实现 |
-| 3 | `landcover remains unrealized` | 1 km、山城、滨水与 A-closure 最大图的 gate 失败清单里仍在；属于 B-03 |
+| 2 | `purpose-area allocation or realization remains incomplete` | **最大图 complete-ground 已不再出现**：ledger 60,000,000 / 0 / pass；旧 A-closure 保留历史数值 |
+| 3 | `landcover remains unrealized` | **最大图 complete-ground 已不再出现**：planned 59,790,000 / resolved / unresolved 0；512m B-03 也已 pass |
 | 4 | `ecology density budget has 1 unfilled plants` | **已关闭（2026-10-20）**：A-closure 6×10km 实测 `342,380 / 342,380 / unfilled 0`；证据见 `rk-x/A-REBASELINE-20261020.zh-CN.md` |
-| 5 | `land-use planning or realization remains incomplete` | 同 2；A-closure 仍保留该项 |
-| 6 | `road-first land-use development remains incomplete` | 同 2；1 km 当前为 43 pad / 15 户 / 24 店，120 户需求仍只落 15 |
+| 5 | `land-use planning or realization remains incomplete` | **最大图 complete-ground 已不再出现**；budget entityCoverageStatus=realized；旧 A-closure 保留历史 |
+| 6 | `road-first land-use development remains incomplete` | **最大图 complete-ground 已不再出现**：development audit pass / incompleteReasons []；1 km 探针的供给问题另计 |
 
 ### 5.4 三个固定世界的实测（HEAD `74cdc1a` + A-closure）
 
@@ -433,6 +433,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | **1 km 探针** | 1000×1000m | **43 pad**（其中 15 户、24 店；需求 120 户 / 24 店）；自动路预算 24 段；入口未验证 **0**；gate **7 条**；由 `examples/b01-1km-probe-optin.manifest.json` 重放（Round 53：烘焙 17–18s、gate 约 9s；提交正文的 124.12s / 67.63s 保留原文不改） | `8d5b799`、`b01_1km_probe_optin`、Round 53 复现 |
 | **山城 hillside-town-512** | 512m | **22 pad**，其中 7 块带削方台地；**道路削方 675 格 / 150.657m³**；全场削方 2,237 格 / 907.597m³；路面填方 5.590m；gate **4 条** | `hillside_cut_city.rs`、`d40c2da`、`6038c33` |
 | **滨水 waterfront-city-512** | 512m | **22/22 户 + 4/4 设施**；60 条路 / **7 座桥**（273m 水面）；**岸线公共带 4,096m²**；湿面 19,968m² 逐格不变；gate **3 条** | `waterfront_city_512.rs`、`ecb174b`、`c8436b6` |
+| **最大图 complete-ground** | 6000×10000m | 240 chunks / 623 entities；**gate failures 0 / status pass**；landcover unresolved **0**；ground cover **50,538,180m²**；ecology 342,380/342,380/0；generate 255.693s / gate 30.61s | `examples/maximum-6x10km-complete.manifest.json`；`rk-x/B05-MAXIMUM-COMPLETE-20261020.zh-CN.md` |
 
 三条读法：
 
@@ -450,7 +451,7 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 | B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；双区控制出现 16m collector + 8m farm-access；山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 仍无 12m local 实网；v3 128 状态内无真实 parcel supply；tier provenance 与 final audit gate 未接；882 最大图目标未验证 |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；residual audit 按 source/sub-use 输出 candidate/target/realized/policy remainder/rejected/unresolved；当前 b03 控制 unresolved **128,542m²**；A-closure 最大图未实现 **50,538,180m²** | 历史 land-execution-2 的 123,760m² 是旧 worldRevision；显式子用途、农村公共空间、共享农路/等高条带、development↔landcover 映射、全局 1m 重叠审计仍缺 |
 | B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界派生（`c052838`）、轴/节点生长（`b59da3e`） | profile 参数尚未完整驱动 frontage/services/道路展开；coverageRatio / serviceRadiusM / terrain 仍无消费者 |
-| B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；滨水注册样本入册（`c9db3e6`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；A-closure 6×10km 已烘焙（255.941s、240 chunks、623 entities、生态 342,380/342,380/0） | B-05 的 B candidate 最大图集成仍未做；240 chunk 浏览器未跑；崩溃未修 |
+| B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；**最大图 complete-ground gate pass**（255.693s、240 chunks、623 entities、landcover unresolved 0、failures 0） | 第二次确定性重跑、240 chunk 浏览器漫游、崩溃未修；B-01/B-02/B-04 的独立内容证据仍需收口 |
 
 结论：**B 仍是 partial，但卡点已从"代码缺陷"移到"输入供给与作者分配"**——1 km 的城市天花板是 40,898m² 的分配额，
 山城的天花板是单机 10 个临街地块（`0d3be23`），两者都不是实现缺陷。
