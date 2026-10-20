@@ -48,8 +48,9 @@
 - HTML preview：战略图与 2.5D 均实测；2.5D 在 chunks 加载期间显示 loading
   overlay，不再是无提示黑屏。最大图 2.5D 首屏约 40s（9 个 chunk），最终
   显示地形/建筑/植被，无 console error。
-- Godot 4.7 未安装/未运行；按用户当前“渲染不做要求”，不把它当作 C 阻断，
-  但发布前仍需一次最小场景验收。
+- Godot 4.7.2 stable 已完成最大图 headless runtime smoke：
+  `scene-0 / chunk 0,1 / loaded 6`，exit 0、无脚本错误；
+  见 [`C03-GODOT-SMOKE-20261020.zh-CN.md`](C03-GODOT-SMOKE-20261020.zh-CN.md)。
 
 ## 5. 证据
 
