@@ -20,6 +20,8 @@ const context = canvas.getContext('2d')
 const title = document.querySelector('#title')
 const info = document.querySelector('#info')
 const sceneSelect = document.querySelector('#scene')
+const loadingOverlay = document.querySelector('#loading')
+function setNearLoading(active) { if (loadingOverlay) loadingOverlay.hidden = !active }
 let world
 let scene
 let mode = 'strategic'
@@ -132,6 +134,7 @@ Object.defineProperty(window, '__previewStats', {value: () => {
 function requestNearDraw() {
   const requested = ++nearBuildToken
   previewState = {...previewState, status: 'loading', requestedGeneration: requested, error: null}
+  setNearLoading(true)
   if (!nearDrawing) void drainNearDraws()
   return requested
 }
@@ -146,6 +149,7 @@ async function drainNearDraws() {
       } catch (error) {
         if (token === nearBuildToken) {
           previewState = {...previewState, status: 'failed', error: String(error.message || error)}
+          setNearLoading(false)
           info.textContent = '2.5D load failed; retry the same focus: ' + previewState.error
           console.error('2.5D render failed', error)
         }
@@ -1841,6 +1845,7 @@ async function drawNear(buildToken) {
   window.glyphweaveFeedback.visualChecks.nearCanvasReady = Boolean(webglCanvas.width && webglCanvas.height)
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   previewState = {...previewState, status: 'ready', completedGeneration: buildToken, error: null}
+  setNearLoading(false)
   renderNearFrame = () => {
     if (!nearRenderer || !nearCamera || !nearScene) return
     // Do not call OrbitControls.update() here: update() dispatches `change`,
@@ -1969,7 +1974,7 @@ const bindClick = (id, handler) => {
   const element = document.querySelector(id)
   if (element) element.onclick = handler
 }
-bindClick('#strategic', () => { mode = 'strategic'; if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() })
+bindClick('#strategic', () => { mode = 'strategic'; setNearLoading(false); if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() })
 bindClick('#close', () => { nearPreset = 'harbour'; mode = 'near'; draw() })
 // Optional preview modes are intentionally omitted from the compact UI, but
 // keep these bindings safe for older exported HTML pages that still include
