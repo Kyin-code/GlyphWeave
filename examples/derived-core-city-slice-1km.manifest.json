@@ -321,6 +321,18 @@
         "minHeightM": 12,
         "maxHeightM": 120
       },
+      "park": {
+        "type": "green",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 240,
+        "minDepthM": 16,
+        "maxDepthM": 240,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
       "lake": {
         "type": "water",
         "placement": "water-surface",

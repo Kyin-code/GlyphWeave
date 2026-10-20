@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
-use super::urban_slice;
+use super::{urban_slice, BakedTerrain, EntityInstance, SceneSpec};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Program {
     pub version: u32,
@@ -77,6 +77,21 @@ pub struct Plan {
     pub actions: Vec<Action>,
     pub assignments: Vec<Assignment>,
     pub failures: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Materialization {
+    pub entities: Vec<EntityInstance>,
+    pub skipped: Vec<SkippedAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedAction {
+    pub action_id: String,
+    pub kind: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone)]
@@ -377,6 +392,160 @@ pub fn plan(
         assignments,
         failures,
     }))
+}
+
+pub fn materialize_public_space(
+    planning: &Plan,
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    occupied: &[EntityInstance],
+) -> Materialization {
+    let mut entities = Vec::new();
+    let mut skipped = Vec::new();
+    for action in planning
+        .actions
+        .iter()
+        .filter(|action| action.kind == "public-park")
+    {
+        let side_m = action.area_m2.max(256.0).sqrt().clamp(16.0, 240.0) as i32;
+        let mut placed = None;
+        for ring in 0..=10 {
+            let radius = ring * 16;
+            for (dx, dz) in [
+                (0, 0),
+                (radius, 0),
+                (-radius, 0),
+                (0, radius),
+                (0, -radius),
+                (radius, radius),
+                (radius, -radius),
+                (-radius, radius),
+                (-radius, -radius),
+            ] {
+                let x = action.world_x + dx;
+                let z = action.world_z + dz;
+                let half = f64::from(side_m) * 0.5 + 6.0;
+                if f64::from(x) - half < f64::from(scene.origin_x)
+                    || f64::from(z) - half < f64::from(scene.origin_z)
+                    || f64::from(x) + half >= f64::from(scene.origin_x + scene.width_m as i32)
+                    || f64::from(z) + half >= f64::from(scene.origin_z + scene.depth_m as i32)
+                {
+                    continue;
+                }
+                let candidate = [x, z, side_m, side_m];
+                let free = occupied
+                    .iter()
+                    .chain(entities.iter())
+                    .filter(|entity| {
+                        matches!(
+                            entity.kind.as_str(),
+                            "road"
+                                | "sidewalk"
+                                | "storefront"
+                                | "office_tower"
+                                | "residential_home"
+                                | "residential_block"
+                                | "park"
+                        )
+                    })
+                    .all(|entity| {
+                        !footprints_overlap(
+                            candidate,
+                            [
+                                entity.world_x,
+                                entity.world_z,
+                                entity.width_m.round() as i32,
+                                entity.depth_m.round() as i32,
+                            ],
+                        )
+                    });
+                if free {
+                    placed = Some((x, z, side_m));
+                    break;
+                }
+            }
+            if placed.is_some() {
+                break;
+            }
+        }
+        let Some((x, z, side_m)) = placed else {
+            skipped.push(SkippedAction {
+                action_id: action.id.clone(),
+                kind: action.kind.clone(),
+                reason: "no park footprint clear of roads, buildings and scene edge".into(),
+            });
+            continue;
+        };
+        let world_y = terrain
+            .height(x, z)
+            .map_or(0.0, |height| height * 4.0)
+            .round() as i32;
+        entities.push(EntityInstance {
+            entity_id: format!("generated.planning-history.{}", action.id),
+            asset_id: "landscape.park".into(),
+            kind: "park".into(),
+            world_x: x,
+            world_z: z,
+            world_y,
+            scale: 1.0,
+            width_m: side_m as f32,
+            depth_m: side_m as f32,
+            height_m: 0.15,
+            rotation_y_deg: 0.0,
+            grounding: super::GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        });
+    }
+    Materialization { entities, skipped }
+}
+
+pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> Vec<String> {
+    let mut changed = Vec::new();
+    for action in planning
+        .actions
+        .iter()
+        .filter(|action| action.kind == "widen-and-rebuild-street")
+    {
+        if action.length_m <= 0.0 {
+            continue;
+        }
+        let target_width = (action.area_m2 / action.length_m).clamp(8.0, 32.0) as f32;
+        let prefix = format!("generated.route-evolution.{}.", action.target_id);
+        for entity in entities
+            .iter_mut()
+            .filter(|entity| entity.kind == "road" && entity.entity_id.starts_with(&prefix))
+        {
+            if entity.depth_m < target_width && !near_stream_chunk_boundary(entity, 48) {
+                entity.depth_m = target_width;
+                changed.push(entity.entity_id.clone());
+            }
+        }
+    }
+    changed.sort();
+    changed.dedup();
+    changed
+}
+
+fn near_stream_chunk_boundary(entity: &EntityInstance, margin_m: i32) -> bool {
+    const STREAM_CHUNK_M: i32 = 512;
+    let near = |value: i32| {
+        let rem = value.rem_euclid(STREAM_CHUNK_M);
+        rem < margin_m || rem > STREAM_CHUNK_M - margin_m
+    };
+    near(entity.world_x) || near(entity.world_z)
+}
+
+fn footprints_overlap(left: [i32; 4], right: [i32; 4]) -> bool {
+    let lx0 = f64::from(left[0]) - f64::from(left[2]) * 0.5;
+    let lz0 = f64::from(left[1]) - f64::from(left[3]) * 0.5;
+    let lx1 = lx0 + f64::from(left[2]);
+    let lz1 = lz0 + f64::from(left[3]);
+    let rx0 = f64::from(right[0]) - f64::from(right[2]) * 0.5;
+    let rz0 = f64::from(right[1]) - f64::from(right[3]) * 0.5;
+    let rx1 = rx0 + f64::from(right[2]);
+    let rz1 = rz0 + f64::from(right[3]);
+    lx0 < rx1 && lx1 > rx0 && lz0 < rz1 && lz1 > rz0
 }
 
 fn derive_centres(
@@ -713,5 +882,36 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn road_widening_actions_change_matching_materialized_segments() {
+        let planning = plan(&route_plan(true), &settlement(), &style("town", &[]))
+            .unwrap()
+            .unwrap();
+        let action = planning
+            .actions
+            .iter()
+            .find(|action| action.kind == "widen-and-rebuild-street")
+            .unwrap();
+        let mut roads = vec![EntityInstance {
+            entity_id: format!("generated.route-evolution.{}.0", action.target_id),
+            asset_id: "road.generated".into(),
+            kind: "road".into(),
+            world_x: 300,
+            world_z: 260,
+            world_y: 40,
+            scale: 1.0,
+            width_m: 8.0,
+            depth_m: 8.0,
+            height_m: 0.45,
+            rotation_y_deg: 0.0,
+            grounding: super::super::GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        }];
+        let changed = apply_road_widening(&mut roads, &planning);
+        assert!(!changed.is_empty());
+        assert!(roads[0].depth_m > 8.0);
     }
 }

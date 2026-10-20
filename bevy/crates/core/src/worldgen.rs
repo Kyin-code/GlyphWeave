@@ -2619,6 +2619,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let route_evolution_plan =
             route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
         let mut settlement_evolution_result = None;
+        let mut planning_history_result = None;
         if let Some(route_plan) = &route_evolution_plan {
             fs::write(
                 scene_dir.join("route-evolution-plan.json"),
@@ -2672,6 +2673,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     planning_history::plan(route_plan, &settlement_plan, &effective_style)
                         .map_err(WorldgenError::InvalidRules)?
                 {
+                    planning_history_result = Some(planning_plan.clone());
                     fs::write(
                         scene_dir.join("planning-history-plan.json"),
                         serde_json::to_vec_pretty(&planning_plan)?,
@@ -2805,6 +2807,25 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "phase": "settlement-evolution-materialization",
                 "materializedBuildings": count,
             }));
+        }
+        if let Some(plan) = &planning_history_result {
+            let widened = planning_history::apply_road_widening(&mut entities, plan);
+            let parks =
+                planning_history::materialize_public_space(plan, scene, &natural_samples, &entities);
+            let park_count = parks.entities.len();
+            entities.extend(parks.entities);
+            fs::write(
+                scene_dir.join("planning-materialization-report.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format": "glyphweave.planning-materialization-report",
+                    "version": 1,
+                    "sceneId": scene.scene_id,
+                    "widenedRoadSegments": widened.len(),
+                    "widenedRoadIds": widened,
+                    "materializedParks": park_count,
+                    "skippedActions": parks.skipped,
+                }))?,
+            )?;
         }
         if let Some(route_plan) = &route_evolution_plan {
             let removed = route_evolution::retain_clearance(&mut entities, route_plan, 2.0);
