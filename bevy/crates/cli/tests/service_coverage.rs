@@ -96,6 +96,7 @@ fn compact_supply_control_realizes_24_frontage_with_a_mixed_hierarchy() {
         .as_array_mut()
         .unwrap()
     {
+        request["widthM"] = serde_json::json!(18);
         request["stationSpacingM"] = serde_json::json!(16);
         request["setbackM"] = serde_json::json!(8);
     }
@@ -112,12 +113,25 @@ fn compact_supply_control_realizes_24_frontage_with_a_mixed_hierarchy() {
     .unwrap();
     assert_eq!(coverage["profileId"], "compact-mixed-block");
     assert!(coverage["parcels"].as_u64().unwrap() > 0);
-    assert_eq!(coverage["status"], "warn");
+    assert_eq!(coverage["status"], "pass", "{coverage}");
     assert!(
         coverage["weightedCoverageRatio"]
             .as_f64()
             .unwrap()
-            < coverage["targetCoverageRatio"][0].as_f64().unwrap()
+            >= coverage["targetCoverageRatio"][0].as_f64().unwrap()
+    );
+    assert!(
+        coverage["weightedCoverageRatio"]
+            .as_f64()
+            .unwrap()
+            <= coverage["targetCoverageRatio"][1].as_f64().unwrap()
+    );
+    assert!(
+        coverage["outOfRangeParcelIds"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "{coverage}"
     );
     let plan: Value = serde_json::from_slice(
         &fs::read(
@@ -149,6 +163,18 @@ fn compact_supply_control_realizes_24_frontage_with_a_mixed_hierarchy() {
             .as_u64()
             .unwrap()
             > 0
+    );
+    assert!(
+        !plan["automaticExtensions"]["rejectedByReason"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !plan["automaticExtensions"]["stopReason"]
+            .as_str()
+            .unwrap()
+            .is_empty()
     );
     let quality_command = Command::new(env!("CARGO_BIN_EXE_glyphweave"))
         .arg("quality-report")

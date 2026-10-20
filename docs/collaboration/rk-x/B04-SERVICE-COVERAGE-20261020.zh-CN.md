@@ -9,6 +9,8 @@
 - output：`bevy/work/rk-x/b04-service-coverage-20261020b/world/`
 - 生成：exit 0，debug 约 17s
 - 开关：`style.serviceCoverage = "audit"`（旧 morphology 世界不带该键时不新增文件）
+- coverage 控制：同一 compact 供应控制使用 `morphologyCoverage="audit"`、
+  `widthM=18`、`stationSpacingM=16`、`setbackM=8`
 
 ## 2. 实测
 
@@ -51,6 +53,7 @@
 1. coverageRatio 当前是审计消费者，不是生成器强制缩放；若要让 profile 直接
    改建筑密度，需单独设计“作者尺寸 vs profile 建议”的冲突合同。
 2. serviceRadiusM 目前是几何覆盖审计，不是人口/通勤/容量模型。
-3. compact-mixed 控制的 weightedCoverageRatio 低于 profile 下界，测试会具名
-   报告；village-field 控制有 18/18 户 + 4/4 服务。
+3. compact-mixed 供应控制使用作者尺寸 18×10m 后，
+   `weightedCoverageRatio` 落入 profile 的 `0.45..0.75` 范围，24 个地块
+   全部在范围内且 `status=pass`；village-field 控制有 18/18 户 + 4/4 服务。
 4. 尚未在 1km / 最大图上重跑 B-04 coverage。

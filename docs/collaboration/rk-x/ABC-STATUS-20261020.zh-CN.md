@@ -11,8 +11,8 @@
 | 确定性 | 第二次烘焙 worldRevision 相同；1,777 个可比文件逐字节相同，mismatch 0 |
 | 生态 | 342,380 / 342,380 / unfilled 0 |
 | 预览 | HTML palette 已覆盖全部 landcover 材质，未知材质有具名 fallback，不再直接抛错 |
-| 套件 | `cargo test --workspace --no-fail-fast` **exit 0**，1613.77s；core lib **801 passed / 34 ignored**，所有 target 通过 |
-| 仍缺 | 偶发 `0xC0000005` 未修；最大图 HTML 已做全战略图与 2.5D focus smoke，未做逐块手工长漫游 |
+| 套件 | 第二次 `cargo test --workspace --no-fail-fast --quiet` **exit 0**；core lib **805 passed / 34 ignored**，所有 target 通过 |
+| 仍缺 | 已知偶发 `0xC0000005` 未复现但也未修复；最大图 HTML 已做全战略图与 2.5D focus smoke，未做逐块手工长漫游 |
 
 ## B 真实街区/聚落
 
@@ -28,8 +28,8 @@
 
 1. B-02 的旧失败控制保留为反例；新供应控制已 24/24 闭合。
 2. 1km 探针的 120 户压力仍是输入/供给上限问题，不再作为 B-02 接口缺口。
-3. `coverageRatio` 已接入 opt-in 只读审计；当前 compact/village 控制真实结果
-   低于 profile 目标，审计如实报 `warn`。
+3. `coverageRatio` 已接入 opt-in 只读审计；compact 24/24 地块控制已落入
+   profile 范围并 `pass`，village-field 服务覆盖 18/18 户。
 
 ## C 自然—工程—人文
 

@@ -12,6 +12,7 @@
 控制覆盖：
 
 - `automaticRoadExtensions.scenes[0].segmentLengthsM = [256, 128, 64]`
+- `frontageProgram.requests[*].widthM = 18`
 - `frontageProgram.requests[*].stationSpacingM = 16`
 - `frontageProgram.requests[*].setbackM = 8`
 - `morphologyCoverage = "audit"`
