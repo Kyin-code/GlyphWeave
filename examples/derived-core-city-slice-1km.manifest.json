@@ -321,6 +321,42 @@
         "minHeightM": 12,
         "maxHeightM": 120
       },
+      "town_hall": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 24,
+        "maxWidthM": 100,
+        "minDepthM": 20,
+        "maxDepthM": 80,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "industrial": {
+        "type": "industrial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 30,
+        "maxWidthM": 180,
+        "minDepthM": 24,
+        "maxDepthM": 120,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "community_plaza": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 160,
+        "minDepthM": 20,
+        "maxDepthM": 120,
+        "minHeightM": 0.1,
+        "maxHeightM": 2
+      },
       "park": {
         "type": "green",
         "placement": "surface-grounded",

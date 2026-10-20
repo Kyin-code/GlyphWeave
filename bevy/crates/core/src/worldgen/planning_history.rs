@@ -667,6 +667,164 @@ pub fn materialize_public_space(
     Materialization { entities, skipped }
 }
 
+pub fn materialize_centres(
+    planning: &Plan,
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    occupied: &[EntityInstance],
+) -> Materialization {
+    let mut entities = Vec::new();
+    let mut skipped = Vec::new();
+    for action in &planning.actions {
+        let Some((kind, width, depth, height, asset_id)) = centre_entity_spec(action.kind.as_str())
+        else {
+            continue;
+        };
+        let mut placed = None;
+        for ring in 0..=16 {
+            let radius = ring * 16;
+            for (dx, dz) in [
+                (0, 0),
+                (radius, 0),
+                (-radius, 0),
+                (0, radius),
+                (0, -radius),
+                (radius, radius),
+                (radius, -radius),
+                (-radius, radius),
+                (-radius, -radius),
+            ] {
+                let x = action.world_x + dx;
+                let z = action.world_z + dz;
+                let half_x = f64::from(width) * 0.5 + 6.0;
+                let half_z = f64::from(depth) * 0.5 + 6.0;
+                if f64::from(x) - half_x < f64::from(scene.origin_x)
+                    || f64::from(z) - half_z < f64::from(scene.origin_z)
+                    || f64::from(x) + half_x >= f64::from(scene.origin_x + scene.width_m as i32)
+                    || f64::from(z) + half_z >= f64::from(scene.origin_z + scene.depth_m as i32)
+                {
+                    continue;
+                }
+                let candidate = [x, z, width, depth];
+                let free = occupied
+                    .iter()
+                    .chain(entities.iter())
+                    .filter(|entity| {
+                        matches!(
+                            entity.kind.as_str(),
+                            "road"
+                                | "sidewalk"
+                                | "storefront"
+                                | "office_tower"
+                                | "residential_home"
+                                | "residential_block"
+                                | "park"
+                                | "market"
+                                | "town_hall"
+                                | "industrial"
+                                | "resort_lodge"
+                                | "community_plaza"
+                                | "commercial_center"
+                        )
+                    })
+                    .all(|entity| {
+                        !footprints_overlap(
+                            candidate,
+                            [
+                                entity.world_x,
+                                entity.world_z,
+                                entity.width_m.round() as i32,
+                                entity.depth_m.round() as i32,
+                            ],
+                        )
+                    });
+                if !free {
+                    continue;
+                }
+                let mut low = f64::INFINITY;
+                let mut high = f64::NEG_INFINITY;
+                let mut complete = true;
+                for (sx, sz) in [
+                    (-half_x, -half_z),
+                    (half_x, -half_z),
+                    (-half_x, half_z),
+                    (half_x, half_z),
+                ] {
+                    if let Some(height) =
+                        terrain.height(x + sx.round() as i32, z + sz.round() as i32)
+                    {
+                        low = low.min(f64::from(height));
+                        high = high.max(f64::from(height));
+                    } else {
+                        complete = false;
+                    }
+                }
+                if complete && (high - low) / f64::from(width.min(depth)) <= 0.16 {
+                    placed = Some((x, z));
+                    break;
+                }
+            }
+            if placed.is_some() {
+                break;
+            }
+        }
+        let Some((x, z)) = placed else {
+            skipped.push(SkippedAction {
+                action_id: action.id.clone(),
+                kind: action.kind.clone(),
+                reason: "no centre footprint clear of roads/buildings with a buildable grade"
+                    .into(),
+            });
+            continue;
+        };
+        let world_y = occupied
+            .iter()
+            .filter(|entity| entity.kind == "road")
+            .min_by_key(|entity| {
+                let dx = i64::from(entity.world_x - x);
+                let dz = i64::from(entity.world_z - z);
+                dx * dx + dz * dz
+            })
+            .map_or_else(
+                || {
+                    terrain
+                        .height(x, z)
+                        .map_or(0.0, |height| height * 4.0)
+                        .round() as i32
+                },
+                |road| road.world_y,
+            );
+        entities.push(EntityInstance {
+            entity_id: format!("generated.planning-history.centre.{}", action.id),
+            asset_id: asset_id.into(),
+            kind: kind.into(),
+            world_x: x,
+            world_z: z,
+            world_y,
+            scale: 1.0,
+            width_m: width as f32,
+            depth_m: depth as f32,
+            height_m: height as f32,
+            rotation_y_deg: 0.0,
+            grounding: super::GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        });
+    }
+    Materialization { entities, skipped }
+}
+
+fn centre_entity_spec(kind: &str) -> Option<(&'static str, i32, i32, i32, &'static str)> {
+    match kind {
+        "office-and-transit-cluster" => Some(("office_tower", 20, 20, 72, "building.office_tower")),
+        "civic-axis" => Some(("town_hall", 36, 28, 18, "building.town_hall")),
+        "port-logistics-district" => Some(("industrial", 60, 40, 16, "building.industrial")),
+        "scenic-gateway" => Some(("community_plaza", 48, 36, 1, "landscape.tourism-gateway")),
+        "mixed-use-centre" => Some(("community_plaza", 48, 36, 1, "landscape.community-plaza")),
+        _ => None,
+    }
+}
+
 pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> Vec<String> {
     let mut changed = Vec::new();
     for action in planning

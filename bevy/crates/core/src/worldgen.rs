@@ -2620,6 +2620,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
         let mut settlement_evolution_result = None;
         let mut planning_history_result = None;
+        let mut planning_materialization_report: Option<serde_json::Value> = None;
         if let Some(route_plan) = &route_evolution_plan {
             fs::write(
                 scene_dir.join("route-evolution-plan.json"),
@@ -2810,22 +2811,31 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         }
         if let Some(plan) = &planning_history_result {
             let widened = planning_history::apply_road_widening(&mut entities, plan);
+            let centres =
+                planning_history::materialize_centres(plan, scene, &natural_samples, &entities);
+            let centre_count = centres.entities.len();
+            let centre_ids = centres
+                .entities
+                .iter()
+                .map(|entity| entity.entity_id.clone())
+                .collect::<Vec<_>>();
+            entities.extend(centres.entities);
             let parks =
                 planning_history::materialize_public_space(plan, scene, &natural_samples, &entities);
             let park_count = parks.entities.len();
             entities.extend(parks.entities);
-            fs::write(
-                scene_dir.join("planning-materialization-report.json"),
-                serde_json::to_vec_pretty(&serde_json::json!({
+            planning_materialization_report = Some(serde_json::json!({
                     "format": "glyphweave.planning-materialization-report",
                     "version": 1,
                     "sceneId": scene.scene_id,
                     "widenedRoadSegments": widened.len(),
                     "widenedRoadIds": widened,
+                    "materializedCentres": centre_count,
+                    "materializedCentreIds": centre_ids,
+                    "skippedCentres": centres.skipped,
                     "materializedParks": park_count,
                     "skippedActions": parks.skipped,
-                }))?,
-            )?;
+                }));
         }
         if let Some(route_plan) = &route_evolution_plan {
             let removed = route_evolution::retain_clearance(&mut entities, route_plan, 2.0);
@@ -3177,6 +3187,40 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }));
         }
         let access_surfaces = bake_access_surfaces(&access_graph, &baked_samples)?;
+        if let Some(mut report) = planning_materialization_report {
+            let final_ids = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let materialized_centres = report
+                .get("materializedCentreIds")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let retained = materialized_centres
+                .iter()
+                .filter(|id| {
+                    id.as_str()
+                        .is_some_and(|id| final_ids.contains(id))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let rejected = materialized_centres
+                .iter()
+                .filter(|id| {
+                    id.as_str()
+                        .is_some_and(|id| !final_ids.contains(id))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            report["materializedCentres"] = serde_json::json!(retained.len());
+            report["materializedCentreIds"] = serde_json::json!(retained);
+            report["accessRejectedCentres"] = serde_json::json!(rejected);
+            fs::write(
+                scene_dir.join("planning-materialization-report.json"),
+                serde_json::to_vec_pretty(&report)?,
+            )?;
+        }
         if let Some(plan) = &settlement_evolution_result {
             let final_ids = entities
                 .iter()
