@@ -59,6 +59,7 @@ pub mod epoch_evolution;
 pub mod engineering_scale;
 mod frontage_supply;
 pub mod parcel_geometry;
+pub mod planning_history;
 pub mod road_parcel_feasibility;
 pub mod services;
 pub mod natural_geography;
@@ -2016,6 +2017,8 @@ impl WorldManifest {
         height_encoding_from_style(&self.style)?;
         community_typology::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         epoch_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        planning_history::validate_style(&self.style)
+            .map_err(WorldgenError::InvalidRules)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         market_catchment::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
@@ -2638,6 +2641,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     fs::write(
                         scene_dir.join("epoch-evolution-plan.json"),
                         serde_json::to_vec_pretty(&epoch_plan)?,
+                    )?;
+                }
+                if let Some(planning_plan) =
+                    planning_history::plan(route_plan, &settlement_plan, &effective_style)
+                        .map_err(WorldgenError::InvalidRules)?
+                {
+                    fs::write(
+                        scene_dir.join("planning-history-plan.json"),
+                        serde_json::to_vec_pretty(&planning_plan)?,
                     )?;
                 }
                 if let Some(market_plan) =
