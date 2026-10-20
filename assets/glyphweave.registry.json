@@ -42,8 +42,8 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
-      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "license": "Ultimate Buildings Pack page declares CC0-1.0; current QAL v1.0 permits product use but forbids standalone redistribution. Exact historical download date unknown.",
+      "source": "Quaternius Ultimate Buildings Pack (Dec 2019); local file is a renamed/single-material derivative",
       "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.small": {
@@ -54,8 +54,8 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
-      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "license": "Ultimate Buildings Pack page declares CC0-1.0; current QAL v1.0 permits product use but forbids standalone redistribution. Exact historical download date unknown.",
+      "source": "Quaternius Ultimate Buildings Pack (Dec 2019); local file is a renamed/single-material derivative",
       "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.wide": {
@@ -66,8 +66,8 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
-      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "license": "Ultimate Buildings Pack page declares CC0-1.0; current QAL v1.0 permits product use but forbids standalone redistribution. Exact historical download date unknown.",
+      "source": "Quaternius Ultimate Buildings Pack (Dec 2019); local file is a renamed/single-material derivative",
       "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     },
     "prop.building.round": {
@@ -78,8 +78,8 @@
       "origin": "asset",
       "forward": "+z",
       "collision": "generated-box",
-      "license": "Unresolved local provenance; candidate Quaternius pack pages declare CC0 but their OBJ listings do not match these filenames",
-      "source": "Quaternius building assets; exact pack unresolved after 2026-10-20 folder check",
+      "license": "Ultimate Buildings Pack page declares CC0-1.0; current QAL v1.0 permits product use but forbids standalone redistribution. Exact historical download date unknown.",
+      "source": "Quaternius Ultimate Buildings Pack (Dec 2019); local file is a renamed/single-material derivative",
       "provenance": "see assets/third_party/quaternius/buildings/NOTICE.txt"
     }
   }

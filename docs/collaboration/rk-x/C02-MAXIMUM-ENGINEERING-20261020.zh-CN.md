@@ -42,8 +42,9 @@
 
 - `@cloudflare/workerd-windows-64`：已按 Apache-2.0 记录，见
   [`C-L1-WORKERD-20261020.zh-CN.md`](C-L1-WORKERD-20261020.zh-CN.md)。
-- Quaternius 建筑资产：已把“精确上游包”缩小到本地 NOTICE 能证明的范围，
-  仍不是完全解析，见 [`C-L1-QUATERNIUS-20261020.zh-CN.md`](C-L1-QUATERNIUS-20261020.zh-CN.md)。
+- Quaternius 建筑资产：已定位到 **Ultimate Buildings Pack (Dec 2019)**，本地文件为
+  改名/单材质派生；页面 CC0-1.0，当前 QAL v1.0 禁止单独再分发原包。精确历史
+  下载日期仍未知，见 [`C-L1-QUATERNIUS-20261020.zh-CN.md`](C-L1-QUATERNIUS-20261020.zh-CN.md)。
 - HTML preview：战略图与 2.5D 均实测；2.5D 在 chunks 加载期间显示 loading
   overlay，不再是无提示黑屏。最大图 2.5D 首屏约 40s（9 个 chunk），最终
   显示地形/建筑/植被，无 console error。

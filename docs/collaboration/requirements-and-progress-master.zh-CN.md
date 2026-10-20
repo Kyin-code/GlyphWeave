@@ -101,7 +101,7 @@
 | B-01 独立地块几何 | 真实前/侧/后院临路 parcel，替代"楼框+2m"；512m 小场景 | — | ✅ 完整切片（joint-plains 18/18 住宅 + 4/4 服务 + gate pass） |
 | B-02 需求与道路容量 | 24 段自动路预算 vs 882 目标的供给限制显式化；主次支路与农田可达 | B-01 工程自测 | ⚠️ 接口完成（tier id/role 持久化 + final audit + parent chain；512m accepted 2 / unserved 0 / road audit pass）。1km 120 户临街供给仍未闭合 |
 | B-03 用途—实际覆盖闭合 | 城市未建地/院落通道/农田田埂农路/自然保留地的实际表面 | B-02 在小场景证明接口 | ✅ 当前控制闭合（512m unresolved 128,542→0；最大图 50,538,180m² ground + ledger 60,000,000/0 + gate pass） |
-| B-04 形态与公共服务 | 紧凑混合/低密住宅/村落农田的可辨认差异；设施服务范围、步行联系 | B-01～B-03 接口可用 | ⚠️ 部分（heightM/serviceRadiusM 已驱动；coverageRatio 仍 unsupported） |
+| B-04 形态与公共服务 | 紧凑混合/低密住宅/村落农田的可辨认差异；设施服务范围、步行联系 | B-01～B-03 接口可用 | ⚠️ profile-driven 核心（heightM/serviceRadiusM 已驱动；coverageRatio 由 `morphologyCoverage=audit` 逐地块审计；生成器不静默缩放作者几何） |
 | B-05 集成与生态尾差 | 多 seed 7/42/2026、非零 origin、最大图一次集成、生态尾差 | 上述接口稳定 | ✅ 最大图门槛（complete-ground max gate pass；second bake worldRevision identical, 1777 files byte-identical） |
 
 ### 3.3 需求 ID 交叉对照
@@ -312,7 +312,7 @@
 | D15.1 | 生成器不得覆盖用户 `assets/`；生成物进 `generated/`、参考素材进 `references/`、正式素材进 `assets/` | 生产可用 | 输出目录约定 |
 | D15.2 | 格式：3D 优先 `.glb`，兼容 `.gltf + .bin + textures`；Godot 支持 `.tscn`/`.tres`；2D 支持 `.png`/`.webp` | 部分 | 当前资产为 `.obj`+`.mtl` 与 `.gltf`；`.glb` 无 |
 | D15.3 | 每个素材登记 `asset_id`、格式、单位、原点、朝向、缩放、碰撞规则；`glyphweave.registry.json` 按 id 覆盖占位 | 部分 | `assets/glyphweave.registry.json` 存在；字段面未核对 |
-| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ **一项未完成** | `workerd-windows-64` 已解析为 Apache-2.0；**Quaternius 建筑资产**：已核对 Buildings Pack 与 Simple Buildings Pack 的公开 OBJ 列表，均不匹配本地文件名，精确上游包仍未知 |
+| D15.4 | C-L1 开源合规：顶层 MIT 核实；依赖/复制代码/vendor/模型/纹理/GIS/算法版本与许可清单、NOTICE、**未决项清零** | ⚠️ 来源已解析、历史日期未证明 | `workerd-windows-64` 为 Apache-2.0；**Quaternius 建筑资产**已定位到 **Ultimate Buildings Pack (Dec 2019)**，页面 CC0-1.0，本地为改名/单材质派生；精确下载日期仍未由仓库历史证明，当前 QAL v1.0 禁止单独再分发原包 |
 | D15.5 | 引入外部代码/算法前先做来源矩阵与许可预检（如 Mapgen4 Apache-2.0） | ⚠️ 初版完成 | `docs/design/natural-source-matrix.zh-CN.md` 已登记当前算法来源与未复制声明；workerd 已解析，Quaternius 仍未解析 |
 | D15.6 | 视觉 `warn/fail` 不得被 Agent 解释成生成成功；视觉反馈须经 preview 写入 `visual-feedback.json` | 部分 | 脚本存在；视觉从未通过人工验收（"地面偏白/草过密/资产简陋"从 r21 一直记到 r49） |
 | D15.7 | 正式版本存档：证据归档、runtime 与 world 冻结、可复现说明 | 部分 | `release-reproducibility.zh-CN.md` 有要求；A 签收时明确"本次尚未执行证据归档或 Git 提交" |

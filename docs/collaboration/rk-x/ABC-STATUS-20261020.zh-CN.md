@@ -38,7 +38,7 @@
 | 地貌生态接口 | `HabitatContext`/`HabitatSuitability` 纯函数 + 5 测试 | 接口完成，默认不改旧世界 |
 | C-E1 挡墙/涵洞 | 山城控制 232 挡墙 / 5 涵洞，status pass；gate 检查 retainingWorks | 首版 |
 | C-E2 工程后水文 | 自然 vs 最终 D8：87 changed flows / 5 raised terminals，status pass | 首版（路由完整性，不是洪泛模型） |
-| C-L1 许可 | workerd-windows 已按 Apache-2.0 记录；Quaternius 上游范围已缩小到本地 NOTICE 可证明的部分 | 部分完成 |
+| C-L1 许可 | workerd-windows 已按 Apache-2.0 记录；Quaternius 已定位 Ultimate Buildings Pack (Dec 2019)，本地为派生导出；精确历史下载日期未知 | 来源完成，历史日期留证 |
 | C-V1/G1 | HTML 战略图/2.5D 已实测；**最大图工程版 gate pass**；Godot 未运行 | C-G1 完成，C-V1 仅 HTML |
 
 ## 结论

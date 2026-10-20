@@ -39,7 +39,7 @@
 |---|---|---|---|
 | Three.js r178 | `adapters/html/vendor/three/**` | MIT，完整文本已随源码和导出的 preview 分发 | `adapters/html/vendor/three/LICENSE`，SHA256 `bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601`；上游 `https://raw.githubusercontent.com/mrdoob/three.js/r178/LICENSE` |
 | Quaternius Stylized Nature | `assets/third_party/quaternius/stylized-nature/**` | CC0-1.0 | `stylized-nature/License_Standard.txt`，SHA256 `120710e542c3ebaf83856c4eb55b4a1e680593b39302eba7fdc5d942dfe78c58`；上游 `https://quaternius.com/packs/stylizednaturemegakit.html` |
-| Quaternius building OBJ/MTL | `assets/third_party/quaternius/buildings/**` | **来源未证实**； Buildings Pack 与 Simple Buildings Pack 的公开 OBJ 列表均不含本地四个文件名 | `buildings/NOTICE.txt`（2026-10-20 追加 Drive OBJ 列表核对）；必须解决精确来源后再声明发布级许可完成 |
+| Quaternius building OBJ/MTL | `assets/third_party/quaternius/buildings/**` | **Ultimate Buildings Pack (Dec 2019)**；页面声明 CC0-1.0，当前 QAL v1.0 禁止单独再分发原始资产；本地为改名/单材质派生 | `buildings/NOTICE.txt`；精确下载日期仍未由仓库历史证明 |
 
 导出 preview 现在包含：
 
