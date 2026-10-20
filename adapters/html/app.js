@@ -1975,7 +1975,17 @@ const bindClick = (id, handler) => {
   if (element) element.onclick = handler
 }
 bindClick('#strategic', () => { mode = 'strategic'; setNearLoading(false); if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() })
-bindClick('#close', () => { nearPreset = 'harbour'; mode = 'near'; draw() })
+bindClick('#close', () => {
+  const harbour = (scene?.entities ?? []).some(entity => ['bridge', 'boardwalk', 'boat', 'quay'].includes(entity.kind))
+    || (scene?.landmarks ?? []).some(landmark => ['bridge', 'river', 'sea', 'lake', 'boardwalk'].includes(landmark.type))
+  // A non-harbour world must enter its near view around actual Rust content.
+  // The harbour overview cameras assume a full 3x3 shoreline composition; on
+  // a natural/steppe scene they exposed dark chunk frontiers and oversized
+  // coarse terrain tiles instead of a readable near view.
+  nearPreset = harbour ? 'harbour' : 'focus'
+  mode = 'near'
+  draw()
+})
 // Optional preview modes are intentionally omitted from the compact UI, but
 // keep these bindings safe for older exported HTML pages that still include
 // one or more of the buttons.

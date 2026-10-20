@@ -21,6 +21,8 @@
 | `b01-joint-plains-complete-512` | 战略图 / 2.5D | 2.5D 初帧显示加载层；3s 后出现道路、建筑、树木、田块；无 console error/warn |
 | `b01-1km-complete`（2×2 chunks） | 战略图 | 四块连续，无 chunk 接缝/空洞 |
 | `b01-1km-complete`（2×2 chunks） | 2.5D | 初帧加载层；约 8s 后出现连续近景；无 console error/warn |
+| `maximum-6x10km-engineering` | 战略图 | 全 6×10km 图幅可见，无空白 |
+| `maximum-6x10km-engineering` | 2.5D | 初帧加载层；约 40s 后出现地形/建筑/植被；非港口世界进入 `focus` 近景，不再使用会露出 chunk 边界的 harbour 全景 |
 
 ## 4. 注意
 
@@ -28,3 +30,7 @@
 `adapters/html` 后必须重新烘焙世界，或对测试世界显式复制新的
 `index.html`/`app.js`；否则旧 world 仍会显示旧 UI。生产路径会在
 `preview_stream::write` 时复制。
+
+非港口世界现在使用 `focus` 近景；只有含 bridge/boardwalk/quay/river/sea
+等实际元素的世界才使用 harbour 全景。这样自然/草原场景不会把 chunk
+边界和大块粗地形误显示成空世界。
