@@ -36,42 +36,19 @@
       "crop": "synthetic 1km mountain-lake natural snapshot",
       "retrievedAt": "2026-10-21",
       "seedBasis": "seed 42 supplies a deterministic natural-only control; it is not a reconstruction of a named real place",
-      "inferenceReason": "coastal mountain relief, humid monsoon climate, historic channel shift and an incised valley are combined to test a natural landscape before any human paths or settlement"
+      "inferenceReason": "a broad coastal-mountain sketch is deterministically expanded into tectonic, climatic, hydrologic and geomorphic processes before any human path or settlement"
     },
     "naturalGeography": {
       "version": 1,
+      "mode": "derived",
       "setting": "coastal-mountain",
       "regionalReliefM": 900,
-      "orogenyAxisDeg": 28,
-      "upliftBias": 0.72,
-      "coast": {
-        "type": "ria-bay",
-        "waveExposure": "moderate",
-        "trench": false
-      },
-      "climate": {
-        "band": "humid-subtropical",
-        "prevailingWindDeg": 125,
-        "monsoon": true,
-        "rainfallBias": 0.65,
-        "seasonality": 0.48
-      },
-      "hydrology": {
-        "regime": "perennial",
-        "historicChannelShiftM": 260,
-        "wetlandBias": 0.3
-      },
-      "landform": {
+      "climateBand": "humid-subtropical",
+      "derivationSeed": 42,
+      "hints": {
         "karst": false,
-        "aeolian": false,
-        "glacial": false,
-        "incisedValleys": 0.68
-      },
-      "hazards": [
-        "flood",
-        "landslide",
-        "storm-surge"
-      ]
+        "glacial": false
+      }
     },
     "water": {
       "waterType": "lake",
