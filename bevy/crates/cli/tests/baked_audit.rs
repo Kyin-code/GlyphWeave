@@ -505,7 +505,8 @@ fn quality_report_rebuilds_development_and_rejects_forged_ownership() {
     );
     let expected_area = (audit["roadUnionM2"].as_u64().unwrap()
         + audit["plannedBuildingFootprintM2"].as_u64().unwrap()) as f64
-        + realized_yard;
+        + realized_yard
+        + scene["landUseBudget"]["actualNatureM2"].as_f64().unwrap();
     assert!((scene["landUseBudget"]["assignedM2"].as_f64().unwrap() - expected_area).abs() < 1e-7);
     for b in plan["buildings"].as_array().unwrap() {
         assert!(
@@ -794,6 +795,7 @@ fn kilometer_development_preserves_cross_zone_parcels_and_graph_roundtrip() {
         budget["actualTransportM2"].as_f64().unwrap()
             + budget["actualUrbanM2"].as_f64().unwrap()
             + budget["actualRuralM2"].as_f64().unwrap()
+            + budget["actualNatureM2"].as_f64().unwrap()
     );
     let folder = dir.0.join("scenes").join(&m.scenes[0].scene_id);
     let mut forged = scene.clone();
@@ -1263,7 +1265,8 @@ fn zoned_bake_preserves_reserved_samples_and_rejects_forged_evidence() {
     let unresolved = ledger["unresolvedM2"].as_f64().unwrap();
     assert!((realized + unresolved - 512. * 512.).abs() < 1e-6);
     let developed = ledger["byPurpose"]["urban"]["realizedM2"].as_f64().unwrap()
-        + ledger["byPurpose"]["rural"]["realizedM2"].as_f64().unwrap();
+        + ledger["byPurpose"]["rural"]["realizedM2"].as_f64().unwrap()
+        + ledger["byPurpose"]["nature"]["realizedM2"].as_f64().unwrap();
     assert!((developed - q["landUseBudget"]["assignedM2"].as_f64().unwrap()).abs() < 1e-6);
     assert!(
         ledger["byPurpose"]["nature"]["realizedM2"]

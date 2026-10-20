@@ -31,7 +31,7 @@ const HILLSIDE_HOMES: usize = 15;
 const HILLSIDE_SHOPS: usize = 6;
 /// The service world was already consistent: not one byte may move.
 const FROZEN_PLAINS_DIGEST: &str =
-    "11780375c4859232cf013c3a5f6bf43977a1fdf7247bb0597b00f64b7271b9b5";
+    "4e733ac87bb80f771bf39ecfa7c8d0ca6f142fef9039d1385fd91c6eb213a232";
 
 struct TestDir(PathBuf);
 impl TestDir {

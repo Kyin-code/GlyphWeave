@@ -60,6 +60,10 @@ carve/transition 的最终地表抬高，却被算在道路头上。现在道路
 这不是放宽 6m 合同：`append_one` 仍按同一 `max_fill_mm` 拒绝；
 只是不再把邻居的填方重复记到道路上。
 
+**发布字节说明**：`assigned_road_access` 的 plains 冻结摘要从
+`11780375…` 移到 `4e733ac8…`。移动的是修正后的 road audit 证据，不是
+道路/地形几何；该测试仍逐文件比较整棵树，防止其他字段漂移。
+
 ## 4. 512m 控制实测
 
 manifest：`examples/b02-road-supply.manifest.json`（v2 hierarchy）
