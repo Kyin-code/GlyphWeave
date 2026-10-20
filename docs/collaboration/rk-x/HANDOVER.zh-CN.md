@@ -25,8 +25,9 @@
 
 > **2026-10-21 V2 生成链接入**：自然地理草图派生、48 城 v2 先验、切面关系
 > 语义、网络规划史、土地压力系数以及道路/建筑最终实体化已落地。核心切面
-> `derived-core-city-slice-1km` 通过 scale/quality，147 道路段、6 栋最终建筑、
-> 6/6 入口连通、断点 0；2 栋入口失败建筑具名进入 materialization report。
+> `derived-core-city-slice-1km` 通过 scale/quality，147 道路段、86 段内部道路
+> 拓宽、1 个公园、6 栋最终建筑、6/6 入口连通、断点 0；2 栋入口失败建筑
+> 具名进入 materialization report。
 > 证据见
 > [`CORE-CITY-PIPELINE-V2-20261021.zh-CN.md`](CORE-CITY-PIPELINE-V2-20261021.zh-CN.md)。
 
