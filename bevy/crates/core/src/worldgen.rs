@@ -7847,6 +7847,11 @@ fn rebase_generated_transport_to_baked_surface(
             // the audit's own below-ground clause.
             && e.grounding.road_profile.is_none()
             && !landmarks.iter().any(|l| l.entity_id == e.entity_id)
+            // A registered span owns its plan-authored deck level even when its
+            // centre station is on the dry bank. Re-grounding by the centre
+            // sample moved such bridges after planning and made the road audit
+            // report a zero-error "changed after planning" failure.
+            && !e.grounding.structure_deck
             // Opt-in waterfront: a road whose centre cell is inside the water
             // body is a structure deck. Its published `world_y` IS its deck level
             // (the plan's chosen level and the audit's `deckLevelMm`); re-deriving
@@ -13452,5 +13457,49 @@ mod morphology_profile_integration {
                 "PREFLIGHT {profile_id} baseEdges={base_edges} edges={edges} widths={widths:?} patches={patches} frontage={outcomes:?}"
             );
         }
+    }
+
+    #[test]
+    fn structure_deck_keeps_plan_level_when_centre_station_is_on_dry_bank() {
+        let scene = SceneSpec {
+            scene_id: "deck-rebase".into(),
+            width_m: 32,
+            depth_m: 32,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        let payload =
+            crate::height_payload::encode_millimetres(32, 32, vec![6.; 32 * 32]).unwrap();
+        terrain.insert_chunk(0, 0, 32, 32, &payload).unwrap();
+        let mut deck: EntityInstance = serde_json::from_value(serde_json::json!({
+            "entityId": "generated.road.deck",
+            "assetId": "prop.road",
+            "kind": "road",
+            "worldX": 16,
+            "worldZ": 16,
+            "worldY": 8,
+            "scale": 1.0,
+            "widthM": 64,
+            "depthM": 8,
+            "heightM": 0.24,
+            "rotationYDeg": 0.0,
+            "grounding": {
+                "structureDeck": true,
+                "roadbedOffsetM": 0.0
+            }
+        }))
+        .unwrap();
+        rebase_generated_transport_to_baked_surface(
+            std::slice::from_mut(&mut deck),
+            &[],
+            &terrain,
+            None,
+        );
+        assert_eq!(
+            deck.world_y, 8,
+            "a bridge deck must keep the level its water-span audit measured"
+        );
     }
 }

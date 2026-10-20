@@ -7479,20 +7479,29 @@ pub fn audit_water_crossings(
             ));
             continue;
         }
-        for (x, z) in [
-            (measured.span[0], measured.span[1]),
-            (measured.span[2], measured.span[3]),
-        ] {
-            let (Some(n), Some(f)) = (natural.height(x, z), final_terrain.height(x, z)) else {
-                failures.push(format!(
-                    "water crossing {road} has no raster sample at ({x},{z})"
-                ));
-                continue;
-            };
-            if f != n {
-                failures.push(format!(
-                    "water crossing {road} raised the water bed at ({x},{z}) from {n} m to {f} m; a span must place no earthwork in the water"
-                ));
+        // Check every WET cell under the pavement, not the corners of its
+        // bounding box. A diagonal span's two opposite corners are commonly dry
+        // bank cells; treating them as water both invented failures on legal
+        // shore fill and could miss a raised bed elsewhere in the span.
+        let (half_width, half_depth) = super::graded_pavement_half_extents(entity);
+        'wet_cells: for z in entity.world_z - half_depth..=entity.world_z + half_depth {
+            for x in entity.world_x - half_width..=entity.world_x + half_width {
+                if !water.contains_point(f64::from(x), f64::from(z)) {
+                    continue;
+                }
+                let (Some(n), Some(f)) = (natural.height(x, z), final_terrain.height(x, z))
+                else {
+                    failures.push(format!(
+                        "water crossing {road} has no raster sample at ({x},{z})"
+                    ));
+                    break 'wet_cells;
+                };
+                if f != n {
+                    failures.push(format!(
+                        "water crossing {road} raised the water bed at ({x},{z}) from {n} m to {f} m; a span must place no earthwork in the water"
+                    ));
+                    break 'wet_cells;
+                }
             }
         }
     }
