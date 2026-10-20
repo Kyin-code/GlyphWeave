@@ -28,6 +28,13 @@
 最终实体数：3,386 个自然实体；规划建筑与设施由独立 Rust 计划表达并由 HTML
 直接读取，不另行伪造浏览器侧布局。
 
+48 城先验已同时落在机器可读数据：
+
+`assets/data/urban-case-priors-48.json`
+
+`node scripts/check-urban-case-priors.mjs` 已验证 48 条、ID 唯一、字段完整，
+地区分布为中国/美国/欧洲各 12、日本/香港各 6。
+
 ## 2. 验收
 
 - `scale-audit`：pass，4/4 chunk；

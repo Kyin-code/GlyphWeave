@@ -831,6 +831,7 @@ landPressure_i =
 | 项目 | 当前状态 | 证据 / 边界 |
 |---|---|---|
 | 48 城机制与自然地理表 | 审核稿完成 | 本文件 §2、§13；各 12/12/12/6/6 条，共 48 |
+| 48 城机器可读先验 | **数据与校验完成** | `assets/data/urban-case-priors-48.json`；`node scripts/check-urban-case-priors.mjs` 验证 48/48、ID 唯一、字段非空 |
 | `naturalGeography` 编译 | 脚手架已编译通过 | `natural-geography-plan.json` 与单元测试；尚未证明能覆盖全部地貌机制 |
 | `urbanSlice` 编译 | 脚手架已编译通过 | `urban-slice-plan.json`、整城/切面校验与系数测试 |
 | 纯自然 `humanTraceCount=0` 硬审计 | **P0 核心切片完成** | 最终实体/工程/道路/开发计划联合审计；山地湖谷样例 3,426 个实体、0 人工痕迹，见 `NATURAL-ONLY-P0-20261021.zh-CN.md` |
@@ -841,6 +842,6 @@ landPressure_i =
 | 宏观工程强度接入 | **P6 核心切片完成** | 土地压力 0.59 → engineeringScale 0.9515；2 路堤 + 3 高架进入预算账本，硬合同不变；见 `ENGINEERING-SCALE-P6-20261021.zh-CN.md`。统一排水/生态/建筑基础账本仍未完成 |
 | 完整链单场景控制 | **P7 通过** | 自然、道路、15 栋容量建筑、epoch、市场、5 项工程同一 bake；scale/quality/visual pass，113 文件复烘焙一致；见 `FULL-CHAIN-P7-20261021.zh-CN.md` |
 
-结论：P0–P7 的单地理完整链控制已经落地并验证；48 城全量机器数据/烘焙、
-P3 最终 AccessGraph 实体接入和统一工程账本仍未完成，不能宣称整个项目
-目标完成。
+结论：P0–P7 的单地理完整链控制已经落地并验证，48 城机器先验与校验已完成；
+48 城全量烘焙、P3 最终 AccessGraph 实体接入和统一工程账本仍未完成，不能
+宣称整个项目目标完成。

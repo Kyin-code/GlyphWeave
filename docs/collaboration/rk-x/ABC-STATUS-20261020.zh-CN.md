@@ -66,7 +66,8 @@
 - 审核稿 `NATURAL-TO-URBAN-REDESIGN-REVIEW-20261021.zh-CN.md` 已按
   “零人工痕自然 → 地形道路 → 聚落 → epoch → 功能/市场”重排主链。
 - 48 个核心区样本已补自然地理、历史发展层与适合切面：中国/美国/欧洲各 12，
-  日本/香港各 6；用于参数先验，不复制整城。
+  日本/香港各 6；已生成 `assets/data/urban-case-priors-48.json` 并通过结构
+  校验，用于参数先验，不复制整城。
 - `naturalGeography` 与 `urbanSlice` 已有可编译计划和 4 个单元测试，`cargo
   check -p glyphweave-core --tests` 通过。
 - P0 纯自然切片已完成：山地湖谷样例 3,426 实体全部为自然类型，

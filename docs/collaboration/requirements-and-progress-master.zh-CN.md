@@ -513,6 +513,10 @@ smoke（scene-0 / chunk 0,1 / loaded 6 / no script error）。C 核心里程碑�
 - 城市规模、特区、旅游、山地、填海等因子对宏观工程强度的影响，同时明确
   不放宽 6m 填方、8% 纵坡、25% 步行坡、2m pad 削方等局部硬合同。
 
+48 条记录已从 Markdown 转成 `assets/data/urban-case-priors-48.json`；
+`node scripts/check-urban-case-priors.mjs` 验证数量、地区分布、ID 唯一和字段
+完整性。
+
 当前 P0 纯自然切片已通过：山地湖谷样例 3,426 个实体全部属于自然白名单，
 `humanTraceCount=0`、地形工程/道路/开发计划均为 0，scale audit 与 quality
 report pass，109 个可比数据文件复烘焙一致。证据见
