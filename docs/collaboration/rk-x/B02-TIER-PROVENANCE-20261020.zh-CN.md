@@ -64,6 +64,14 @@ carve/transition 的最终地表抬高，却被算在道路头上。现在道路
 `11780375…` 移到 `4e733ac8…`。移动的是修正后的 road audit 证据，不是
 道路/地形几何；该测试仍逐文件比较整棵树，防止其他字段漂移。
 
+另外两个携带自动道路的冻结控制也按新契约移动：
+
+- `derived_earthwork_blend` 山城：`730746db…` → `8cc7a100…`；
+- `derived_earthwork_blend` 滨水：`fb7d68d3…` → `cbc02389…`；
+- `development_provenance` 无 ledger 世界：`67d7e31b…` → `23c1e8d2…`。
+
+原因是道路实体/边现在真实携带 `roadTier`，属于本功能要求的字段，不是随机漂移。
+
 ## 4. 512m 控制实测
 
 manifest：`examples/b02-road-supply.manifest.json`（v2 hierarchy）

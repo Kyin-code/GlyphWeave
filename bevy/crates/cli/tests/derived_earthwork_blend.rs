@@ -135,9 +135,9 @@ const PLANNED_PADS: usize = 19;
 /// ledger-less world, which publishes neither the array nor the count and is frozen
 /// to its own constant measured from the HEAD binary.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "730746dbd335467defe5f1398581d27e4b9acc12e910c7f9e78748ff70985cea";
+    "8cc7a1008dc52f924cbb6f777588ec7b9131a175ca966e838aba0de1f4e7d2ab";
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "fb7d68d38580547bf81a21c09a97557d12c96f9a1ffee785e283d4a97b0aadbd";
+    "cbc0238926b7254df96d31f4604c35087273aa8347a0984884fcc5229bfe5328";
 /// The ring every planned pad of the grown hillside town derives, by kind:
 /// `(width_m, depth_m, height_m, ring_m, count)`. A pad's ring reads its OWN
 /// published width and height - never its depth, never its elevation.
