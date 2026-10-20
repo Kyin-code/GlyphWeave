@@ -23,6 +23,13 @@
 > [`CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md`](CORE-CITY-NATURAL-EVOLUTION-PLAN-REVIEW-20261021.zh-CN.md)。
 > 该稿状态为待审核；审核通过前不得把 P0–P7 技术切片当作最终城区方案。
 
+> **2026-10-21 V2 生成链接入**：自然地理草图派生、48 城 v2 先验、切面关系
+> 语义、网络规划史、土地压力系数以及道路/建筑最终实体化已落地。核心切面
+> `derived-core-city-slice-1km` 通过 scale/quality，147 道路段、6 栋最终建筑、
+> 6/6 入口连通、断点 0；2 栋入口失败建筑具名进入 materialization report。
+> 证据见
+> [`CORE-CITY-PIPELINE-V2-20261021.zh-CN.md`](CORE-CITY-PIPELINE-V2-20261021.zh-CN.md)。
+
 > **2026-10-21 自然—城市重构状态**：审核稿已完成 48 城核心区机制、自然地理、
 > 规划史、大都市切面、土地紧张和生鲜市场辐射模型，并把执行顺序细化为
 > P0–P7。P0 纯自然切片已通过零人工痕、工程/道路/开发计划为零、scale/
