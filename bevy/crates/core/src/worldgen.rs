@@ -4863,18 +4863,33 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
     let zf = f64::from(z);
     // Domain-warped field: warping makes the zero lines meander like rivers
     // instead of straight grid lines.
-    let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0) * 60.0;
-    let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0) * 60.0;
+    let geography = water.geography;
+    let sinuosity = if geography.authored {
+        f64::from(geography.channel_sinuosity.clamp(1.0, 4.0))
+    } else {
+        1.0
+    };
+    let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0)
+        * 60.0
+        * sinuosity;
+    let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0)
+        * 60.0
+        * sinuosity;
+    let drainage_spacing = if geography.authored {
+        0.72 + (1.0 - f64::from(geography.river_density)).clamp(0.0, 1.0) * 1.35
+    } else {
+        1.0
+    };
     // Two river scales: major channels (broad valleys) + minor streams.
     let major = value_noise2d(
         seed.wrapping_add(0x6a09_e667),
-        (xf + warp_x) / 640.0,
-        (zf + warp_z) / 640.0,
+        (xf + warp_x) / (640.0 * drainage_spacing),
+        (zf + warp_z) / (640.0 * drainage_spacing),
     );
     let minor = value_noise2d(
         seed.wrapping_add(0xbb67_ae85),
-        (xf + warp_x * 1.4) / 190.0,
-        (zf + warp_z * 1.4) / 190.0,
+        (xf + warp_x * 1.4) / (190.0 * drainage_spacing),
+        (zf + warp_z * 1.4) / (190.0 * drainage_spacing),
     );
     // Distance to the nearest channel (field near zero) - closer = stronger flow.
     let d_major = (major.abs() * 640.0).min(90.0) / 90.0;
@@ -4889,9 +4904,10 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
     let strength = near_channel * low_ground * wild;
     // Smoothstep so channel banks ease out instead of a hard V cut.
     let strength_s = strength * strength * (3.0 - 2.0 * strength);
-    let geography = water.geography;
     let incision = if geography.authored {
-        30.0 * (0.5 + f64::from(geography.incised_valleys))
+        14.0
+            + f64::from(geography.fluvial_incision) * 38.0
+            + f64::from(geography.incised_valleys) * 10.0
     } else {
         30.0
     };
@@ -4902,11 +4918,14 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
             (xf + shift + warp_x * 0.8) / 760.0,
             (zf - shift * 0.35 + warp_z * 0.8) / 760.0,
         );
-        let d_historical = (historical.abs() * 760.0).min(120.0) / 120.0;
+        let floodplain_radius =
+            f64::from(geography.floodplain_width_m.clamp(40.0, 1800.0)) * 0.18;
+        let d_historical =
+            (historical.abs() * 760.0).min(floodplain_radius) / floodplain_radius.max(1.0);
         let floodplain = (1.0 - d_historical).powi(2)
             * (shift / 1000.0).clamp(0.0, 0.75)
             * (1.0 - urban * 1.8).clamp(0.0, 1.0);
-        -(floodplain * 9.0)
+        -(floodplain * (7.0 + f64::from(geography.fluvial_deposition) * 6.0))
     } else {
         0.0
     };
@@ -5049,11 +5068,33 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     } else {
         0.0
     };
+    let tectonic_subsidence = f64::from(geography.tectonic_subsidence)
+        * (-(across / (scale * 0.6)).powi(2)).exp()
+        * 10.0;
+    let fluvial_deposition = f64::from(geography.fluvial_deposition)
+        * (-(across / (scale * 0.34)).powi(2)).exp()
+        * 5.5;
+    let coastal_wave_erosion = f64::from(geography.coastal_erosion)
+        * radial.powi(4)
+        * 9.0
+        * (1.0 - across.abs() / scale.max(1.0)).clamp(0.0, 1.0);
+    let mass_wasting = f64::from(geography.mass_wasting)
+        * fbm2d(
+            seed.wrapping_add(0x517c_c1b7),
+            xf / 115.0,
+            zf / 115.0,
+        )
+        .abs()
+        * 3.5;
     (base * f64::from(geography.relief_scale) + uplift + radial * radial
         * f64::from(geography.coastality)
         * 26.0
         - glacial_trough
         - karst
+        - tectonic_subsidence
+        - fluvial_deposition
+        - coastal_wave_erosion
+        - mass_wasting
         + dune)
         .clamp(-32.0, 512.0)
 }
@@ -6658,9 +6699,17 @@ fn humidity_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let elevation_effect = (1.0 - ridge) * 0.15;
     let geography = water.geography;
     let authored = if geography.authored {
+        let wind = f64::from(geography.wind_rad);
+        let width = f64::from(water.scene_width_m.max(1));
+        let depth = f64::from(water.scene_depth_m.max(1));
+        let cx = f64::from(water.terrain_origin_x) + width * 0.5;
+        let cz = f64::from(water.terrain_origin_z) + depth * 0.5;
+        let across_wind = (xf - cx) * wind.cos() + (zf - cz) * wind.sin();
+        let lee_fraction = (0.5 - across_wind / width.max(depth).max(1.0)).clamp(0.0, 1.0);
         (f64::from(geography.rainfall_bias) - 0.5) * 0.42
             + f64::from(geography.wetland_bias) * 0.18
             + f64::from(geography.seasonality) * 0.06
+            - f64::from(geography.rain_shadow) * lee_fraction * 0.32
     } else {
         0.0
     };
