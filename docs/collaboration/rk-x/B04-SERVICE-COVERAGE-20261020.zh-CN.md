@@ -7,6 +7,7 @@
 - manifest：`examples/morphology/b04-village-field-coverage.manifest.json`
 - output：`bevy/work/rk-x/b04-service-coverage-20261020b/world/`
 - 生成：exit 0，debug 约 17s
+- 开关：`style.serviceCoverage = "audit"`（旧 morphology 世界不带该键时不新增文件）
 
 ## 2. 实测
 
