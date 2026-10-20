@@ -7,6 +7,7 @@
 pub mod agriculture;
 pub mod development;
 pub mod ecology;
+pub mod ecology_habitat;
 mod farm_access;
 mod pedestrian_index;
 pub mod farm_program;
