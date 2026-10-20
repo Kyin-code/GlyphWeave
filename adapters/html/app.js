@@ -474,6 +474,7 @@ function drawStrategic() {
 }
 
 async function drawNear(buildToken) {
+  const hiddenRenderLayers = new Set((new URLSearchParams(location.search).get('hide') ?? '').split(',').filter(Boolean))
   const THREE = await import('three')
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
@@ -629,11 +630,16 @@ async function drawNear(buildToken) {
       nearScene.add(new THREE.AmbientLight(0xffffff, .28))
     } else {
       nearScene.fog = new THREE.Fog('#294658', 900, 3600)
-      nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, 2))
-      const sun = new THREE.DirectionalLight(0xffe6b0, 2.8)
+      // A 2.8 directional key stacked on a 2.0 hemisphere light drove the
+      // already-bright ground palette several stops over white. The resulting
+      // clip looked like irregular holes in the terrain. Keep urban scenes
+      // cool and legible, but leave headroom for the baked vertex colours.
+      nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, .35))
+      const sun = new THREE.DirectionalLight(0xffe6b0, .72)
       sun.position.set(-500, 900, 420)
       sun.castShadow = false
       nearScene.add(sun)
+      nearScene.add(new THREE.AmbientLight(0xffffff, .12))
     }
   }
   nearControls = new OrbitControls(nearCamera, webglCanvas)
@@ -799,6 +805,9 @@ async function drawNear(buildToken) {
   const animatedActors = []
   const animatedWater = []
   const sceneCacheKey = scene.sceneId
+  const urbanScene = (scene.entities ?? []).some(entity =>
+    ['residential_home', 'residential_block', 'residential_tower', 'storefront',
+      'commercial_center', 'office_tower', 'town_hall', 'road'].includes(entity.kind))
   for (const chunk of activeChunks) {
     const cacheKey = `${sceneCacheKey}/${chunk.chunkX}/${chunk.chunkZ}`
     const chunkGroup = chunkGroupMap.get(cacheKey)
@@ -852,14 +861,18 @@ async function drawNear(buildToken) {
         // contain water keep a plain vertex-colour PBR material so the water
         // datum remains blue and is not tinted by moss/grass grading.
         const hasWater = surface.some(value => value === 3)
-        const material = hasWater
-          ? new THREE.MeshBasicMaterial({ color: '#4f9dab', vertexColors: true, transparent: false, side: THREE.DoubleSide })
+        // Urban ground is a base under the Rust-authored land-cover surfaces.
+        // Its baked vertex colours must stay stable in the gaps between those
+        // polygons; a lit PBR material turned exposed ground cells cream and
+        // made ordinary surface seams look like white holes.
+        const material = urbanScene || hasWater
+          ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: false, side: THREE.DoubleSide })
           : makeSteppeGroundMaterial(THREE, '#5a8a3e', '#9bc24a')
         // Mixed water/land chunks use a single vertex-colour material. Do not
         // apply the land tangent normal to water cells: that made the baked
         // water plane receive near-black lighting and visually swallowed the
         // bridge. Land-only chunks retain the normal/roughness PBR contract.
-        if (!hasWater) {
+        if (!urbanScene && !hasWater) {
           material.normalMap = maps.normalTexture
           material.normalScale = new THREE.Vector2(.34, .34)
           material.roughnessMap = maps.roughnessTexture
@@ -873,7 +886,7 @@ async function drawNear(buildToken) {
     meshClone.userData.heightEncoding=heightView.encoding
     meshClone.userData.chunkX=chunk.chunkX;meshClone.userData.chunkZ=chunk.chunkZ
     meshClone.position.set(chunk.worldX - scene.originX + width / 2, 0, chunk.worldZ - scene.originZ + depth / 2)
-    chunkGroup.add(meshClone)
+    if (!hiddenRenderLayers.has('terrain')) chunkGroup.add(meshClone)
     chunkGroup.userData.meshStep = meshStep
   }
   const heightFieldMap = new Map()
@@ -1014,9 +1027,6 @@ async function drawNear(buildToken) {
     // created >1.5m CPU instances before the first frame and could kill the tab.
     // One detailed focus field plus small neighbour fields gives continuity
     // without turning a preview into a multi-million-blade allocation.
-    const urbanScene = (scene.entities ?? []).some(entity =>
-      ['residential_home', 'residential_block', 'residential_tower', 'storefront',
-        'commercial_center', 'office_tower', 'town_hall'].includes(entity.kind))
     const focusBudget = urbanScene
       ? (sky ? 38000 : 32000)
       : sky ? (window.__steppe ? 110000 : 90000) : (window.__steppe ? 100000 : 80000)
@@ -1674,6 +1684,7 @@ async function drawNear(buildToken) {
   // Pavement meshes are authored by Rust on the final raster. Do not round
   // coordinates, divide Y by four, re-ground, or invent missing paths here.
   for (const surface of scene.accessSurfaces ?? []) {
+    if (hiddenRenderLayers.has('access')) continue
     if (surface.version !== 1) throw new Error('Unsupported access surface version')
     const vertices = surface.vertices
     if (!verticesOverlapChunks(vertices,activeChunks)) continue
@@ -1685,7 +1696,7 @@ async function drawNear(buildToken) {
       geometry.setIndex(surface.triangles.flat())
       geometry.computeVertexNormals()
       pavement = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-        color: 0x6f675b, roughness: 1, metalness: 0,
+        color: 0x4a4941, roughness: 1, metalness: 0,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       }))
       pavement.name = key
@@ -1697,6 +1708,9 @@ async function drawNear(buildToken) {
   const landscaping=scene.landcoverSurfaces
   let renderedYardPatches=0
   if (landscaping) {
+    if (hiddenRenderLayers.has('landcover')) {
+      // Diagnostic layer switch; ordinary previews keep every baked surface.
+    } else
     if(![1,2].includes(landscaping.version)) throw new Error('Unsupported landcover surface version')
     for(const patch of landscaping.patches) {
       // Pavement patches only account for clipped areas of the existing

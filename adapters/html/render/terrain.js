@@ -1,6 +1,14 @@
 import { colorRgb, fractalNoise, hashNoise, smoothNoise } from '../core/shared.js'
 import { groundPresets, seasonPalettes } from './presets/materials.js'
 
+// Three's BufferAttribute colors are consumed in linear space. The authored
+// palettes are sRGB bytes; storing 128 directly as 0.5 made the renderer apply
+// output conversion a second time and lifted ordinary grass into pale cream.
+export function srgbChannelToLinear(value) {
+  const c = Math.min(1, Math.max(0, value))
+  return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4
+}
+
 export function makeSurfaceTexture(surface, width, depth, THREE) {
   const textureCanvas = document.createElement('canvas')
   const textureScale = 3
@@ -377,9 +385,9 @@ export function makeMCTerrain(heightView, surfaceView, terrainView, width, depth
     rgb = rgb.map(v => v * tonal)
     if (moss > 0) rgb = mixRgb(rgb, groundPresets.mossColor, moss * .45)
     const v = ((x * 31 + z * 17) % 13) / 13 - .5
-    colors[i * 3] = Math.max(0, Math.min(1, rgb[0] / 255 + v * .012))
-    colors[i * 3 + 1] = Math.max(0, Math.min(1, rgb[1] / 255 + v * .012))
-    colors[i * 3 + 2] = Math.max(0, Math.min(1, rgb[2] / 255 + v * .012))
+    colors[i * 3] = srgbChannelToLinear(rgb[0] / 255 + v * .012)
+    colors[i * 3 + 1] = srgbChannelToLinear(rgb[1] / 255 + v * .012)
+    colors[i * 3 + 2] = srgbChannelToLinear(rgb[2] / 255 + v * .012)
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geo.computeVertexNormals()
