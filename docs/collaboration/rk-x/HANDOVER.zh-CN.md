@@ -35,7 +35,10 @@
 > P4 静态规划史切片含 5 个历史基座、3 modify、2 demolish、2 带父 ID
 > replace，见
 > [`EPOCH-EVOLUTION-P4-20261021.zh-CN.md`](EPOCH-EVOLUTION-P4-20261021.zh-CN.md)。
-> 宏观工程接线仍未完成；
+> P6 宏观工程预算切片含 2 路堤 + 3 高架，工程系数 0.9515，局部硬合同
+> 不变，见
+> [`ENGINEERING-SCALE-P6-20261021.zh-CN.md`](ENGINEERING-SCALE-P6-20261021.zh-CN.md)。
+> 统一排水/生态/基础工程账本仍未完成；
 > 审核稿 §20 是当前状态准绳，不能把旧 B/C 完成标志当成新要求完成。
 
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
