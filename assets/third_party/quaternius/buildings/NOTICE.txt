@@ -27,10 +27,43 @@ download date and the license version that applied on that date are not known
 from repository evidence. Resolve the exact source archive and applicable
 license before claiming release-grade legal clearance.
 
-2026-10-20 follow-up:
+2026-10-20 source resolution:
 
-The public Google Drive OBJ folders linked from both candidate pages were
-checked:
+The exact pack was identified as Quaternius "Ultimate Buildings Pack"
+(December 2019):
+
+- https://quaternius.com/packs/ultimatetexturedbuildings.html
+- Official Drive folder:
+  https://drive.google.com/drive/folders/1RE3qXhbE5yGS3t-xGFJ8GmOtTgCUF3LQ
+- Models with Materials / OBJ folder:
+  https://drive.google.com/drive/folders/1MfEng5EbtFU0-L9SHqcU6Mm3gKlUk37k
+
+The official OBJ folder lists the corresponding upstream names:
+
+- 1Story_GableRoof_Mat.obj / .mtl
+- 2Story_GableRoof_Mat.obj / .mtl
+- 2Story_Wide_Mat.obj / .mtl
+- 2Story_RoundRoof_Mat.obj / .mtl
+
+The local files are derived exports: the "_Mat" suffix is removed and the
+material list is simplified to one material. Geometry evidence from the public
+awplanet mirror at commit 40c01a6984e35b24bad0c1222c6c5970b64f18d2 matches
+1Story_GableRoof (1227 vertices / 831 faces / 2852 texture coordinates) and
+2Story_Wide (3577 / 2505, with 7678 local vs 7680 mirrored texture
+coordinates). The mirror also names the source as "Ultimate Buildings Pack".
+
+The official pack page still declares CC0:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The current global Quaternius Asset License (QAL v1.0), checked 2026-10-20,
+permits use in personal, educational, and commercial products without
+attribution, but prohibits redistributing the raw assets as a standalone asset
+pack. QAL section 7 says later versions do not apply retroactively. The exact
+download date is still unknown from repository history, so this notice records
+both the pack's publication-time CC0 declaration and the current QAL terms
+instead of asserting a single historical grant date.
+
+Earlier candidate-pack check retained for audit:
 
 - Buildings Pack (Jan 2019): Building1_Large.obj, Building1_Small.obj,
   Building2_Large.obj, Building2_Small.obj, Building3_Big.obj,
@@ -39,7 +72,5 @@ checked:
   Hospital.obj, House.obj, House2.obj, House3.obj, House4.obj, House5.obj,
   Shop.obj.
 
-Neither list contains 1Story_GableRoof, 2Story_GableRoof, 2Story_Wide or
-2Story_RoundRoof. The local files therefore do not match either published pack
-listing and their exact Quaternius pack/archive remains unknown. Both candidate
-pages declare CC0, but that cannot be transferred to these unproven local files.
+Neither candidate list contains these names. They belong to the Ultimate
+Buildings Pack rather than those two earlier packs.
