@@ -215,7 +215,8 @@ pub fn plan(
                 .enumerate()
                 .filter(|(index, point)| served[*index] < point.demand)
                 .map(|(index, point)| {
-                    let minutes = times[demand_nodes[index]] + point.access_walk_m / program.walk_speed_mps / 60.0;
+                    let minutes = times[demand_nodes[index]]
+                        + point.access_walk_m / program.walk_speed_mps / 60.0;
                     if minutes <= program.max_travel_minutes {
                         (point.demand - served[index]).max(0.0)
                     } else {
@@ -330,7 +331,11 @@ pub fn plan(
     Ok(Some(Plan {
         format: "glyphweave.market-catchment-plan".into(),
         version: 1,
-        status: if failures.is_empty() { "pass".into() } else { "incomplete".into() },
+        status: if failures.is_empty() {
+            "pass".into()
+        } else {
+            "incomplete".into()
+        },
         model: "capacity-quality-exp-decay-over-route-network".into(),
         beta: program.beta,
         total_demand,
@@ -398,12 +403,7 @@ impl Graph {
         self.nodes
             .iter()
             .enumerate()
-            .map(|(index, node)| {
-                (
-                    index,
-                    (x - f64::from(node.x)).hypot(z - f64::from(node.z)),
-                )
-            })
+            .map(|(index, node)| (index, (x - f64::from(node.x)).hypot(z - f64::from(node.z))))
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
             .unwrap_or((0, 0.0))
     }
@@ -503,8 +503,18 @@ mod tests {
             max_terrain_slope: 0.5,
             max_fill_m: 6.0,
             anchors: vec![
-                Anchor { id: "a".into(), x: 40, z: 256, role: String::new() },
-                Anchor { id: "b".into(), x: 400, z: 256, role: String::new() },
+                Anchor {
+                    id: "a".into(),
+                    x: 40,
+                    z: 256,
+                    role: String::new(),
+                },
+                Anchor {
+                    id: "b".into(),
+                    x: 400,
+                    z: 256,
+                    role: String::new(),
+                },
             ],
             routes: vec![Route {
                 id: "main".into(),
@@ -600,9 +610,7 @@ mod tests {
                 "candidateSpacingM": 100
             }
         });
-        let plan = plan(&route_plan(), &settlement(), &style)
-            .unwrap()
-            .unwrap();
+        let plan = plan(&route_plan(), &settlement(), &style).unwrap().unwrap();
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
