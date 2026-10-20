@@ -1091,6 +1091,22 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
+            if let Some(works) = scene.pointer("/engineeredTerrain/retainingWorks") {
+                if works["status"] != "pass" {
+                    failures.push(format!(
+                        "{} retaining works failed their named engineering audit",
+                        scene["sceneId"]
+                    ));
+                }
+            }
+            if let Some(impact) = scene.pointer("/engineeredTerrain/drainageImpact") {
+                if impact["status"] != "pass" {
+                    failures.push(format!(
+                        "{} engineered drainage failed its routing-integrity audit",
+                        scene["sceneId"]
+                    ));
+                }
+            }
             if scene["jointLayoutAudit"].is_object()
                 && scene["jointLayoutAudit"]["status"] != "pass"
             {

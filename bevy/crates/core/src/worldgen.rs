@@ -2643,7 +2643,6 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             &earthwork_blend::planned_ids(development_plan.as_ref()),
             &natural_samples,
         );
-        drop(natural_samples);
         if let Some((proposed_count, outcome)) = placement_outcome {
             let mut by_reason = BTreeMap::<String, usize>::new();
             for reject in &outcome.rejected {
@@ -3051,7 +3050,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             });
         }
         let engineered_terrain = {
-            let operations = carves
+            let operations: Vec<EngineeredTerrainOperation> = carves
                 .iter()
                 .enumerate()
                 .map(|(index, carve)| EngineeredTerrainOperation {
@@ -3074,10 +3073,53 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     status: "applied-to-final-heightfield".into(),
                 })
                 .collect();
+            let works_policy = crate::engineering_works::policy_from_style(&manifest.style)
+                .map_err(WorldgenError::InvalidRules)?;
+            let crossings: &[road_network::WaterCrossing] = road_plan
+                .as_ref()
+                .map(|plan| plan.water_crossings.as_slice())
+                .unwrap_or(&[]);
+            let terrain_works = crate::engineering_works::plan(
+                &operations,
+                &natural_samples,
+                &baked_samples,
+                crossings,
+                works_policy,
+            );
             let snapshot = EngineeredTerrainSnapshot::new(operations);
             let snapshot = match bounded_cut_ledger.take() {
                 Some(ledger) => snapshot.with_bounded_cut(ledger),
                 None => snapshot,
+            };
+            let snapshot = match terrain_works {
+                Some(works) => {
+                    fs::write(
+                        scene_dir.join("terrain-works.json"),
+                        serde_json::to_vec_pretty(&works)?,
+                    )?;
+                    snapshot.with_terrain_works(works)
+                }
+                None => snapshot,
+            };
+            let drainage_feedback = manifest
+                .style
+                .get("engineeringDrainage")
+                .and_then(serde_json::Value::as_str)
+                == Some("audit");
+            let snapshot = if drainage_feedback {
+                let engineered_graph = crate::natural::derive_drainage_graph(&baked_samples, scene)
+                    .map_err(|e| WorldgenError::InvalidRules(e.to_string()))?;
+                let impact = crate::engineering_drainage::compare(
+                    &natural_terrain.drainage,
+                    &engineered_graph,
+                );
+                fs::write(
+                    scene_dir.join("engineered-drainage.json"),
+                    serde_json::to_vec_pretty(&impact)?,
+                )?;
+                snapshot.with_drainage_impact(impact)
+            } else {
+                snapshot
             };
             fs::write(
                 scene_dir.join("engineered-terrain.json"),

@@ -19,6 +19,15 @@ pub struct EngineeredTerrainSnapshot {
     /// asked for a cut and did not get one is answered in writing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounded_cut: Option<super::worldgen::bounded_cut::CutLedger>,
+    /// C-E1 retaining-wall and cut-face records. Present only when the scene
+    /// opted into `style.engineeringWorks.retainingWalls = "auto"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retaining_works: Option<crate::engineering_works::TerrainWorksPlan>,
+    /// C-E2: the natural-vs-engineered sampled routing comparison. Present only
+    /// when a world opts into drainage feedback, so every existing snapshot keeps
+    /// its exact bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drainage_impact: Option<crate::engineering_drainage::EngineeringDrainageImpact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +63,8 @@ impl EngineeredTerrainSnapshot {
             source_heightfield: "natural-terrain-snapshot".into(),
             operations,
             bounded_cut: None,
+            retaining_works: None,
+            drainage_impact: None,
         }
     }
 
@@ -72,6 +83,35 @@ impl EngineeredTerrainSnapshot {
             };
         }
         self.bounded_cut = Some(ledger);
+        self
+    }
+
+    /// Attach the C-E2 comparison and bump the format only for an opted-in
+    /// world. The impact itself remains a separate, independently auditable
+    /// document.
+    pub fn with_drainage_impact(
+        mut self,
+        impact: crate::engineering_drainage::EngineeringDrainageImpact,
+    ) -> Self {
+        if self.version < 4 {
+            self.version = 4;
+        }
+        self.status = format!("{}-with-drainage-feedback", self.status);
+        self.drainage_impact = Some(impact);
+        self
+    }
+
+    /// Attach the C-E1 retaining-wall / culvert plan. The snapshot version is
+    /// bumped only for a world that actually opted in.
+    pub fn with_terrain_works(
+        mut self,
+        works: crate::engineering_works::TerrainWorksPlan,
+    ) -> Self {
+        if self.version < 5 {
+            self.version = 5;
+        }
+        self.status = format!("{}-with-terrain-works", self.status);
+        self.retaining_works = Some(works);
         self
     }
 }
