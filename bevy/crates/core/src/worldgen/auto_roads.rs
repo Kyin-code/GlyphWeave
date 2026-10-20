@@ -1263,6 +1263,7 @@ fn run_supply_phase(
         states.sort_by_key(|s| {
             (
                 supply_order(zones, &session, s),
+                s.tier_rank(),
                 s.node,
                 s.end,
                 s.length,
@@ -1672,21 +1673,41 @@ fn supply_states(
     session: &SupplySession,
     attempted: &BTreeSet<[i32; 5]>,
 ) -> Result<Vec<SupplyState>, TerrainError> {
+    // Every tier authorized for an outstanding purpose is a candidate. Taking
+    // only the first tier (which is local for urban) made collector roads
+    // unreachable in the demand-led phase even when the hierarchy authorized
+    // them. The measured supply, not the tier name, decides which road wins.
     let mut tiers: Vec<(u8, String, u32)> = vec![];
     for request in session.budgets.iter().filter(|b| b.remaining() > 0) {
-        let tier = hierarchy
-            .tier_for(&request.request.purpose, false)
-            .ok_or_else(|| err("outstanding purpose has no authorized tier"))?;
-        let rank = match tier.role.as_str() {
+        let mut authorized: Vec<_> = hierarchy
+            .tiers
+            .iter()
+            .filter(|tier| {
+                tier.purposes
+                    .iter()
+                    .any(|purpose| purpose == &request.request.purpose)
+            })
+            .collect();
+        authorized.sort_by_key(|tier| match tier.role.as_str() {
             "collector" => 0_u8,
             "local" => 1,
             _ => 2,
-        };
-        if !tiers
-            .iter()
-            .any(|(_, role, width)| *role == tier.role && *width == tier.width_m)
-        {
-            tiers.push((rank, tier.role.clone(), tier.width_m));
+        });
+        if authorized.is_empty() {
+            return Err(err("outstanding purpose has no authorized tier"));
+        }
+        for tier in authorized {
+            let rank = match tier.role.as_str() {
+                "collector" => 0_u8,
+                "local" => 1,
+                _ => 2,
+            };
+            if !tiers
+                .iter()
+                .any(|(_, role, width)| *role == tier.role && *width == tier.width_m)
+            {
+                tiers.push((rank, tier.role.clone(), tier.width_m));
+            }
         }
     }
     tiers.sort();
@@ -3202,6 +3223,38 @@ mod tests {
             }]},
         });
         (s, t, w, zones, p, style)
+    }
+
+    #[test]
+    fn supply_states_consider_every_authorized_tier() {
+        let (s, t, w, z, p, style) = steal_fixture();
+        let v3 = supply_style(&style, 32);
+        let program = from_style(&v3).unwrap().unwrap();
+        let scene_program = &program.scenes[0];
+        let hierarchy = scene_program.hierarchy.as_ref().unwrap();
+        let mut base = p.clone();
+        append(&mut base, &s, &t, w, &z, &style).unwrap();
+        let session = SupplySession::for_scene(&v3, "steal", &base).unwrap();
+        let states = supply_states(
+            &base,
+            &s,
+            scene_program,
+            hierarchy,
+            &session,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        let roles: BTreeSet<&str> = states.iter().map(|s| s.tier_role.as_str()).collect();
+        assert!(roles.contains("collector"), "collector must be a candidate: {roles:?}");
+        assert!(roles.contains("local"), "local must be a candidate: {roles:?}");
+        assert_eq!(
+            states.iter().find(|s| s.tier_role == "collector").unwrap().width_m,
+            16
+        );
+        assert_eq!(
+            states.iter().find(|s| s.tier_role == "local").unwrap().width_m,
+            12
+        );
     }
 
     #[test]

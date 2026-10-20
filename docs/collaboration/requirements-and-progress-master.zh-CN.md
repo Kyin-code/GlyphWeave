@@ -446,8 +446,8 @@ A 于 2026-09-09 签收，但**签收范围是"当时记录的候选与证据"**
 
 | 批次 | 状态 | 本轮（Round 5 起）的可核对增量 | 仍缺 |
 |---|---|---|---|
-| B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24，CLI 控制 5/24 | 真实低地世界仍受 B-02/B-03 供给限制，未达到 24/24；不再表述为"只有 bbox+2m" |
-| B-02 需求与道路容量 | ⚠️ 部分 | collector/local 宽度接口、共享节点与真实小场景选择测试已落地；山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 真实 B-02 小场景只形成 8m farm-access，collector/local 实际拓扑未证明；882 最大图目标未验证 |
+| B-01 独立地块几何 | ⚠️ 部分 | `parcel_geometry`、非对称 `parcelInsets`、yard/ledger、四朝向与 tamper-evident 测试已落地；纯 Rust 24/24；单区 CLI 5/24，双区控制 9/24 | 真实低地世界仍受 B-02/B-03 供给限制，未达到 24/24；不再表述为"只有 bbox+2m" |
+| B-02 需求与道路容量 | ⚠️ 部分 | v3 `supply_states` 已枚举全部授权 tier；双区控制出现 16m collector + 8m farm-access；山城道路审计 fail(2) → pass(0)（`9d0cd79`） | 仍无 12m local 实网；v3 128 状态内无真实 parcel supply；tier provenance 与 final audit gate 未接；882 最大图目标未验证 |
 | B-03 用途—实际覆盖闭合 | ⚠️ 部分 | 转换机制 + 账本守恒（`bac3b76`）；1 km `b8-conv` 农田 103 → 134、农村实现 +23,797m²（`4fa7234`）；A-closure 同口径最大图未实现 **50,538,180m²** | 1 km B-03 控制仍有 123,760m² unresolved（urban 11,999 + rural 111,761）；三份世界 landcover 仍 fail |
 | B-04 形态与公共服务 | ⚠️ 部分 | 六个显式 profile、48 条案例索引、公共开放空间 16,387m² / 40 patch（`f8998c9`）、退界派生（`c052838`）、轴/节点生长（`b59da3e`） | profile 参数尚未完整驱动 frontage/services/道路展开；coverageRatio / serviceRadiusM / terrain 仍无消费者 |
 | B-05 集成与生态尾差 | ⚠️ 部分 | 多 seed L2 矩阵 14 次 512m 烘焙 / 194 检查（`a051339`）；滨水注册样本入册（`c9db3e6`）；生态重排 + 24 世界 no-op（`2eb5e78`、`1bce274`）；A-closure 6×10km 已烘焙（255.941s、240 chunks、623 entities、生态 342,380/342,380/0） | B-05 的 B candidate 最大图集成仍未做；240 chunk 浏览器未跑；崩溃未修 |
@@ -543,6 +543,7 @@ C-N1（来源矩阵）未做；C-N2（真实地貌）只有近似；C-E1（工�
 | 最大图历史世界 | `bevy/work/r43-maximum-baseline`、`r46-maximum-extensions-v2`、`r47-maximum-auto-final`、`r49-frontage-maximum` |
 | 输入矩阵 | `examples/*.manifest.json`（32 份） |
 | 1 km 探针的开启态（唯一可重放入口） | `examples/b01-1km-probe-optin.manifest.json` + `bevy/crates/cli/tests/b01_1km_probe_optin.rs`（默认两条测试校验开关与"除开关外无差异"；`-- --ignored` 烘焙并断言数字） |
+| B-02 当前审计 | `docs/collaboration/rk-x/B02-CURRENT-AUDIT-20261020.zh-CN.md` |
 | 独立检查脚本 | `scripts/check-*.mjs`（frontage/render-stream/automatic-roads/road-corridor/…） |
 
 ---

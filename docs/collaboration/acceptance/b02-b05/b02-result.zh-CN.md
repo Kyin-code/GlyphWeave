@@ -1,26 +1,23 @@
 # B-02 结果：需求驱动道路层级与可达性
 
-状态：`partial`。
+状态：`partial`。当前详细审计见
+[`rk-x/B02-CURRENT-AUDIT-20261020.zh-CN.md`](../../rk-x/B02-CURRENT-AUDIT-20261020.zh-CN.md)。
 
-## 实现
+## 已实现
 
-- `automaticRoadExtensions` 新增 version 2 和显式 `hierarchy`：collector/local/farm-access，宽度仅 8/12/16m，旧 version 1 与 8m 语义不变。
-- 候选优先按真实未满足目标、zone 进入、中心距离收益、服务数量、层级排序；预算仍为有限候选/段数。
-- `RoadProfile`、road entity、开发占地、保护/水体/支撑和独立审核统一消费显式宽度；没有另建脱离工程高程的路网。
-- 新样例 `examples/b02-road-supply.manifest.json` 选择 `maxNewSegments=64`、`maxCandidateAttempts=16384`，原 A manifest 未改。
+- `automaticRoadExtensions` v1/v2/v3；v3 使用真实 frontage parcel realization 测量供给。
+- collector/local/farm_access 层级与 8/12/16m 宽度链进入 road profile、entity、development 和独立道路审计。
+- `supply_states` 现在枚举一个 purpose 的全部授权 tier；新增单测
+  `supply_states_consider_every_authorized_tier`，证明 urban 同时产生 12m local 和 16m collector 候选。
 
-## 测试
+## 当前实测
 
-- `auto_roads`：旧版确定性/预算/保护回归继续通过；新 hierarchy 选择 collector 16m 并落成真实 entity/profile。
-- `road_extensions`：8/12/16m 均进入 entity 与 profile；10m 被拒绝。
-- 回归修复：自动候选包围盒恢复原纵向 `margin`，只按真实宽度扩大横向支撑；A frontage 测试恢复 5/8 行为。
-
-## ≤1km 生成
-
-- `bevy/work/collaboration/ds-b-run/b02/road-supply-1` generate exit 0，worldRevision `0156ab19...`。
-- automaticRoads accepted 5，unservedTargets 0；最终 frontage 4/24 realized，20 unfilled。
-- 实际新增段均为 8m farm-access；collector/local 的层级选择已由单元测试证明，但该小场景没有形成两级实网。
+- B-01 双 urban 网格控制：9/24 frontage（homes 6/16、shops 3/8），自动路 3 条 8m。
+- B-02 双 urban 网格 v3 控制：baseline 16m collector + 8m farm_access，无 12m local；
+  v3 sweep 已含 12m/16m，但 accepted 0，frontage 0/24。
+- 1km v3 控制触发 `invalid millimetre chunk dimensions` panic，保留为负例。
 
 ## 结论
 
-道路宽度/层级接口与安全链已实现；小场景内容供给仍不足，882 目标覆盖未证明，状态 partial。
+道路层级状态和宽度工程链已存在；真实两级拓扑仍被 B-01 临街供给、tier provenance 缺失和
+final audit gate 未接入阻塞。下一步先修 B-01 CLI 供给，再补 tier 持久化与最终审计门禁。
