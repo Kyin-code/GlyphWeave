@@ -5,7 +5,7 @@ import { createEcologyRenderer } from './render/ecology.js'
 import { loadLandUseLedger } from './core/world.js'
 import { decodeHeightPayload } from './core/height.js'
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain, makeSteppeGroundMaterial, makeTerrainPbrMaps } from './render/terrain.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makePolylineRibbonGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
 import { createWorldWind } from './render/wind.js'
 import { createPostFX } from './render/postfx.js'
@@ -324,6 +324,9 @@ async function loadScene() {
   loaded.urbanDistrictAudit = await fetch(`../scenes/${loaded.sceneId}/urban-district-audit.json`)
     .then(response => response.ok ? response.json() : null)
     .catch(() => null)
+  loaded.routeEvolutionPlan = await fetch(`../scenes/${loaded.sceneId}/route-evolution-plan.json`)
+    .then(response => response.ok ? response.json() : null)
+    .catch(() => null)
   loaded.landUseLedger = await loadLandUseLedger(loaded)
   if (token !== sceneLoadToken) return
   nearBuildToken++
@@ -335,6 +338,41 @@ async function loadScene() {
 
 function drawStrategicOverlays(ox, oz, scale) {
   const districtColors = ['#d8aa58', '#4f9d9a', '#6789c9']
+  for (const route of scene.routeEvolutionPlan?.routes ?? []) {
+    if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
+    context.save()
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.strokeStyle = '#5b5043'
+    context.lineWidth = Math.max(2, route.roadWidthM * scale)
+    context.beginPath()
+    route.polyline.forEach((point, index) => {
+      const x = ox + (point.x - scene.originX) * scale
+      const z = oz + (point.z - scene.originZ) * scale
+      if (index === 0) context.moveTo(x, z)
+      else context.lineTo(x, z)
+    })
+    context.stroke()
+    context.strokeStyle = '#c8b882'
+    context.lineWidth = Math.max(1, scale * .7)
+    context.stroke()
+    for (const span of route.bridgeSpans ?? []) {
+      if (span.kind !== 'bridge') continue
+      const points = route.polyline.slice(span.startIndex, span.endIndex + 1)
+      if (points.length < 2) continue
+      context.strokeStyle = '#cdbb92'
+      context.lineWidth = Math.max(3, route.roadWidthM * scale * 1.35)
+      context.beginPath()
+      points.forEach((point, index) => {
+        const x = ox + (point.x - scene.originX) * scale
+        const z = oz + (point.z - scene.originZ) * scale
+        if (index === 0) context.moveTo(x, z)
+        else context.lineTo(x, z)
+      })
+      context.stroke()
+    }
+    context.restore()
+  }
   const districts = scene.urbanDistrictAudit?.iterations ?? []
   if (districts.length) {
     const center = scene.urbanDistrictAudit.centerWorld
@@ -583,6 +621,11 @@ async function drawNear(buildToken) {
   const naturalFeature = !hasUrbanFabric
     ? (scene.landmarks ?? []).find(landmark => ['lake', 'river', 'sea'].includes(landmark.type))
     : null
+  const primaryRoute = scene.routeEvolutionPlan?.routes
+    ?.find(route => route.status === 'pass' && route.polyline?.length >= 2)
+  const routeFocus = primaryRoute
+    ? primaryRoute.polyline[Math.floor(primaryRoute.polyline.length / 2)]
+    : null
   // Harbour's default 2.5D entry is the bridge inspection view. Only fall
   // back to a wide overview when a scene has no bridge landmark to focus.
   const isHarbourOverview = nearPreset === 'harbour' && !focusOverride
@@ -618,10 +661,10 @@ async function drawNear(buildToken) {
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
   const streetX = streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
   const streetZ = streetAnchor?.worldZ ?? scene.depthM * .5
-  const focusX = focusOverride ? focusOverride.x : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
-  const isNaturalExplore = isExplore && Boolean(naturalFeature)
+  const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const isNaturalExplore = isExplore && Boolean(naturalFeature || routeFocus)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
   const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : isHarbourOverview ? 10 : focusY + 6
@@ -895,27 +938,21 @@ async function drawNear(buildToken) {
       // new grass/terrain look and making surface overlays hard to read.
       {
         const geometry = makeMCTerrain(heightView, surface, terrain, width, depth, meshStep, THREE, Number.isFinite(world.waterLevelM) ? world.waterLevelM : 0)
-        const maps = makeTerrainPbrMaps(heightView, surface, terrain, width, depth, THREE)
         // Use the tuned grass-ground shader on land-only chunks. Chunks that
         // contain water keep a plain vertex-colour PBR material so the water
         // datum remains blue and is not tinted by moss/grass grading.
         const hasWater = surface.some(value => value === 3)
-        // Urban ground is a base under the Rust-authored land-cover surfaces.
-        // Its baked vertex colours must stay stable in the gaps between those
-        // polygons; a lit PBR material turned exposed ground cells cream and
-        // made ordinary surface seams look like white holes.
-        const material = urbanScene || hasWater
-          ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: false, side: THREE.DoubleSide })
-          : makeSteppeGroundMaterial(THREE, '#5a8a3e', '#9bc24a')
-        // Mixed water/land chunks use a single vertex-colour material. Do not
-        // apply the land tangent normal to water cells: that made the baked
-        // water plane receive near-black lighting and visually swallowed the
-        // bridge. Land-only chunks retain the normal/roughness PBR contract.
-        if (!urbanScene && !hasWater) {
-          material.normalMap = maps.normalTexture
-          material.normalScale = new THREE.Vector2(.34, .34)
-          material.roughnessMap = maps.roughnessTexture
-        }
+        // Ground is a deterministic projection of the baked vertex colours.
+        // The previous custom steppe shader compiled inconsistently across
+        // Three.js revisions and left land-only chunks grey/white. Keep the
+        // authoritative Rust surface colours visible; grass instances provide
+        // the live detail instead of a browser-side colour rewrite.
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          transparent: false,
+          side: THREE.DoubleSide,
+        })
         mesh = new THREE.Mesh(geometry, material)
       }
       entityMeshCache.set(meshCacheKey, mesh)
@@ -960,6 +997,46 @@ async function drawNear(buildToken) {
     const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
     return field.heightView.readMetres(z * field.width + x)
+  }
+  for (const route of scene.routeEvolutionPlan?.routes ?? []) {
+    if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
+    const halfWidth = Math.max(2, route.roadWidthM * .5)
+    const bedGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth, heightAt, THREE, .86, scene.originX, scene.originZ)
+    if (!bedGeometry) continue
+    const bed = new THREE.Mesh(bedGeometry, new THREE.MeshStandardMaterial({
+      color: '#54483b',
+      roughness: .96,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }))
+    bed.name = 'route-evolution:' + route.id
+    nearGroupRoot.add(bed)
+    const centerGeometry = makePolylineRibbonGeometry(route.polyline, .32, heightAt, THREE, 1.08, scene.originX, scene.originZ)
+    if (centerGeometry) {
+      const center = new THREE.Mesh(centerGeometry, new THREE.MeshStandardMaterial({ color: '#d8c58e', roughness: .8 }))
+      center.name = 'route-centerline:' + route.id
+      nearGroupRoot.add(center)
+    }
+    for (const span of route.bridgeSpans ?? []) {
+      let sincePier = 0
+      for (let index = span.startIndex + 1; index <= span.endIndex; index++) {
+        const previous = route.polyline[index - 1]
+        const point = route.polyline[index]
+        sincePier += Math.hypot(point.x - previous.x, point.z - previous.z)
+        if (sincePier < 28) continue
+        sincePier = 0
+        const ground = heightAt(point.x, point.z)
+        const height = Math.max(.4, point.designHeightM - ground)
+        const support = new THREE.Mesh(
+          new THREE.BoxGeometry(span.kind === 'bridge' ? 2.2 : 1.5, height, span.kind === 'bridge' ? 2.2 : 1.5),
+          new THREE.MeshStandardMaterial({ color: span.kind === 'bridge' ? '#84745e' : '#756b5c', roughness: .95 }),
+        )
+        support.position.set(point.x - scene.originX, ground + height * .5, point.z - scene.originZ)
+        support.name = 'route-support:' + route.id
+        nearGroupRoot.add(support)
+      }
+    }
   }
   const groundedRenderY = entity => {
     const scale = Number.isFinite(entity.scale) ? entity.scale : 1
@@ -1080,9 +1157,22 @@ async function drawNear(buildToken) {
       for(let i=0;i<patch.vertices.length;i+=4){const [x,,z]=patch.vertices[i];farmTrackCells.add(x+','+z)}
     }
     const onFarmSurface=(x,z)=>farmRects.some(r=>x>=r.x&&x<r.x+r.widthM&&z>=r.z&&z<r.z+r.depthM)||farmTrackCells.has(Math.floor(x)+','+Math.floor(z))
+    const routeSegments = (scene.routeEvolutionPlan?.routes ?? [])
+      .filter(route => route.status === 'pass')
+      .flatMap(route => (route.polyline ?? []).slice(1).map((point, index) => ({
+        a: route.polyline[index],
+        b: point,
+        clearance: route.roadWidthM * .5 + 2,
+      })))
+    const onRouteFootprint = (x, z) => routeSegments.some(({ a, b, clearance }) => {
+      const dx = b.x - a.x; const dz = b.z - a.z
+      const lengthSq = dx * dx + dz * dz
+      const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / lengthSq)) : 0
+      return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t)) <= clearance
+    })
     // Suppress unowned procedural blades over Rust-managed yards/pavement.
     // Rust meshes below remain the only actual landscaping geometry there.
-    const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || roadFootprints.some(road => footprintContains(road, x, z)) ? { slope: 0, curvature: 0, wetness: 0, disturbance: 1, surface: 2 } : terrainAt(x, z)
+    const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || onRouteFootprint(x,z) || roadFootprints.some(road => footprintContains(road, x, z)) ? { slope: 0, curvature: 0, wetness: 0, disturbance: 1, surface: 2 } : terrainAt(x, z)
     // The terrain raster is authoritative for placement, but legacy semantic
     // bytes can be absent or overly conservative. Keep a deterministic neutral
     // fallback for genuinely land-covered chunks so the render adapter still

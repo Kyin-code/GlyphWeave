@@ -60,6 +60,7 @@ pub mod road_parcel_feasibility;
 pub mod services;
 pub mod natural_geography;
 pub mod natural_only;
+pub mod route_evolution;
 pub mod urban_slice;
 mod shorefront;
 mod terrain_context;
@@ -2010,6 +2011,7 @@ impl WorldManifest {
         height_encoding_from_style(&self.style)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
+        route_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         urban_slice::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
         crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
@@ -2588,6 +2590,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             snapshot
         };
+        let route_evolution_plan =
+            route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
+        if let Some(route_plan) = &route_evolution_plan {
+            fs::write(
+                scene_dir.join("route-evolution-plan.json"),
+                serde_json::to_vec_pretty(&route_plan)?,
+            )?;
+            route_evolution::require_pass(&route_plan)
+                .map_err(|error| WorldgenError::InvalidRules(error.to_string()))?;
+        }
         trace.stage(&scene.scene_id,"road-and-service-planning");
         let planned_zones = match LandUseProfile::from_style(&manifest.style) {
             Some(profile) => Some(
@@ -2670,6 +2682,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 development_plan.as_ref(),
                 planned_zones.as_deref(),
             )?;
+        if let Some(route_plan) = &route_evolution_plan {
+            let removed = route_evolution::retain_clearance(&mut entities, route_plan, 2.0);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "route-evolution-natural-clearance",
+                "removedNaturalEntities": removed,
+            }));
+        }
         // OPT-IN `style.terrainPolicy.earthworkBlend`: every structure of this
         // scene gets the fill-transition ring its own footprint
         // (`"derived-from-footprint"`) or its own measured fill depth
@@ -6846,7 +6866,7 @@ fn generate_entities_with_profile_report(
         geometry,
         &ids,
         shorefront_row,
-        natural_only::enabled(style),
+        natural_only::enabled(style) || route_evolution::enabled(style),
     );
     ids.finish(&entities).map_err(WorldgenError::InvalidRules)?;
     // When a normalized settlement intent is present for a water scene, the
@@ -7017,7 +7037,7 @@ fn generate_entities_with_profile_report(
     // one predicate and the published audit are visibly the same rule.
     retain_shore_clearance(&mut entities, geometry);
     let explicit_settlement = generation_settlement(style);
-    if natural_only::enabled(style) {
+    if natural_only::enabled(style) || route_evolution::enabled(style) {
         append_natural_content(seed, scene, geometry, &mut entities, &ids);
         retain_shore_clearance(&mut entities, geometry);
     } else if geometry.kind == WaterKind::None {

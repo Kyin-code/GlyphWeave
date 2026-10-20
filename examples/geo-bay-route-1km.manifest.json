@@ -1,0 +1,235 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "Mountain-lake 1km: terrain route stage",
+    "seed": 42,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "mountain-foot",
+    "heightPrecision": "millimeter",
+    "referenceData": {
+      "sources": [
+        "docs/collaboration/b04-case-register.zh-CN.md",
+        "docs/20260906-human-settlement-morphology-research.zh-CN.md",
+        "docs/design/natural-source-matrix.zh-CN.md"
+      ],
+      "caseIds": [
+        "cn-hangzhou",
+        "us-seattle",
+        "eu-zurich"
+      ],
+      "crop": "synthetic 1km mountain-lake route staging snapshot",
+      "retrievedAt": "2026-10-21",
+      "seedBasis": "seed 42 supplies a deterministic route-stage control; it is not a reconstruction of a named real place",
+      "inferenceReason": "terrain-led routes connect a lake ford, mountain saddle and valley using slope, curvature, water and bridge costs"
+    },
+    "naturalGeography": {
+      "version": 1,
+      "setting": "coastal-mountain",
+      "regionalReliefM": 900,
+      "orogenyAxisDeg": 28,
+      "upliftBias": 0.72,
+      "coast": {
+        "type": "ria-bay",
+        "waveExposure": "moderate",
+        "trench": false
+      },
+      "climate": {
+        "band": "humid-subtropical",
+        "prevailingWindDeg": 125,
+        "monsoon": true,
+        "rainfallBias": 0.65,
+        "seasonality": 0.48
+      },
+      "hydrology": {
+        "regime": "perennial",
+        "historicChannelShiftM": 260,
+        "wetlandBias": 0.3
+      },
+      "landform": {
+        "karst": false,
+        "aeolian": false,
+        "glacial": false,
+        "incisedValleys": 0.68
+      },
+      "hazards": [
+        "flood",
+        "landslide",
+        "storm-surge"
+      ]
+    },
+    "routeEvolution": {
+      "version": 1,
+      "enabled": true,
+      "gridStepM": 16,
+      "roadWidthM": 8,
+      "maxGrade": 0.08,
+      "maxTerrainSlope": 0.55,
+      "maxFillM": 6,
+      "allowBridge": true,
+      "maxBridgeSpanM": 260,
+      "turnPenalty": 1.4,
+      "anchors": [
+        {
+          "id": "west-basin",
+          "x": 448,
+          "z": 512,
+          "role": "valley-floor"
+        },
+        {
+          "id": "east-basin",
+          "x": 832,
+          "z": 576,
+          "role": "downstream-valley"
+        },
+        {
+          "id": "south-basin",
+          "x": 704,
+          "z": 640,
+          "role": "alluvial-basin"
+        },
+        {
+          "id": "north-basin",
+          "x": 384,
+          "z": 384,
+          "role": "upstream-valley"
+        }
+      ],
+      "routes": [
+        {
+          "id": "lake-valley-link",
+          "from": "west-basin",
+          "to": "east-basin",
+          "via": [
+            640,
+            576
+          ]
+        },
+        {
+          "id": "basin-to-upstream",
+          "from": "south-basin",
+          "to": "north-basin",
+          "via": [
+            448,
+            512
+          ]
+        }
+      ]
+    },
+    "water": {
+      "waterType": "lake",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "shoreProfile": {
+        "transitionRadius": 1.25,
+        "shallowBandM": 12,
+        "averageDepthM": 2.0
+      },
+      "waveModel": {
+        "preset": "calm-lake-breeze",
+        "amplitudeM": 0.04,
+        "wavelengthM": 8,
+        "roughness": 0.22
+      },
+      "flowDirection": null,
+      "flowSpeedMps": 0.0
+    },
+    "assetContracts": {
+      "tree": {
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "maxDepthM": 5.5,
+        "maxHeightM": 9,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "minHeightM": 4,
+        "minWidthM": 2,
+        "placement": "surface-grounded",
+        "type": "tree"
+      },
+      "bush": {
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "maxDepthM": 2.6,
+        "maxHeightM": 2.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.6,
+        "minHeightM": 0.6,
+        "minWidthM": 0.6,
+        "placement": "surface-grounded",
+        "type": "bush"
+      },
+      "grass_clump": {
+        "allowedSurfaces": ["grass", "forest", "soil", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "maxDepthM": 2.6,
+        "maxHeightM": 1.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.3,
+        "minHeightM": 0.5,
+        "minWidthM": 0.3,
+        "placement": "surface-grounded",
+        "type": "grass"
+      },
+      "rock": {
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "maxDepthM": 8,
+        "maxHeightM": 5,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "minHeightM": 0.2,
+        "minWidthM": 0.2,
+        "placement": "surface-grounded",
+        "type": "rock"
+      },
+      "lake": {
+        "allowedSurfaces": ["water", "deep_water"],
+        "forbiddenSurfaces": ["grass", "forest", "soil", "stone", "underground"],
+        "maxDepthM": 250,
+        "maxHeightM": 1,
+        "maxWidthM": 360,
+        "minDepthM": 250,
+        "minHeightM": 1,
+        "minWidthM": 360,
+        "placement": "water-surface",
+        "type": "water"
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.lakeside",
+      "name": "山间湖",
+      "type": "lake",
+      "purpose": "route-stage lake and crossing context",
+      "description": "自然湖体，供地形道路与桥渡阶段使用。",
+      "sceneId": "scene-0",
+      "worldX": 720,
+      "worldZ": 250,
+      "worldY": 0,
+      "widthM": 360,
+      "depthM": 250,
+      "heightM": 1,
+      "assetId": "water.modern-lakeside"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

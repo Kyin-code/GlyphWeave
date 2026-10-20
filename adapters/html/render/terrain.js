@@ -187,6 +187,40 @@ export function makeStripGeometry(entity, halfWidth, centerZ, heightAt, THREE, l
   return geometry
 }
 
+export function makePolylineRibbonGeometry(points, halfWidth, heightAt, THREE, lift, originX, originZ) {
+  if (!Array.isArray(points) || points.length < 2) return null
+  const vertices = []
+  const indices = []
+  for (let index = 0; index < points.length; index++) {
+    const point = points[index]
+    const before = points[Math.max(0, index - 1)]
+    const after = points[Math.min(points.length - 1, index + 1)]
+    const dx = after.x - before.x
+    const dz = after.z - before.z
+    const length = Math.hypot(dx, dz) || 1
+    const nx = -dz / length
+    const nz = dx / length
+    const designY = Number.isFinite(point.designHeightM) ? point.designHeightM : heightAt(point.x, point.z)
+    const y = Math.max(designY, heightAt(point.x, point.z)) + lift
+    for (const side of [-1, 1]) {
+      vertices.push(
+        point.x - originX + nx * halfWidth * side,
+        y,
+        point.z - originZ + nz * halfWidth * side,
+      )
+    }
+    if (index > 0) {
+      const a = (index - 1) * 2
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
 // Artistic steppe ground — painterly, Journey/Flower-style colour field.
 // Instead of per-cell noise texture, the ground is a soft gradient across a
 // warm steppe palette: dry grass yellow-greens on high ground, richer green

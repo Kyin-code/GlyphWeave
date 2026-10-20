@@ -1,0 +1,1160 @@
+//! Terrain-led route planning for the first human stage.
+//!
+//! Routes are searched on the natural heightfield with slope, curvature, water
+//! and bridge penalties. The result is an auditable polyline with a
+//! grade-limited longitudinal profile; it is not a straight urban axis and it
+//! does not depend on the legacy 64 m settlement grid.
+
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::baked_terrain::{BakedTerrain, TerrainError};
+
+use super::{EntityInstance, SceneSpec, WaterGeometry};
+
+const MAX_GRADE: f64 = 0.08;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Anchor {
+    pub id: String,
+    pub x: i32,
+    pub z: i32,
+    #[serde(default)]
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteRequest {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    /// Optional topological waypoint, for example a ford, pass or bridge
+    /// crossing. It is a location constraint, not a straight-line override.
+    #[serde(default)]
+    pub via: Option<[i32; 2]>,
+    #[serde(default)]
+    pub road_width_m: Option<u32>,
+    #[serde(default)]
+    pub allow_bridge: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Program {
+    pub version: u32,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_grid_step")]
+    pub grid_step_m: u32,
+    #[serde(default = "default_road_width")]
+    pub road_width_m: u32,
+    #[serde(default = "default_max_grade")]
+    pub max_grade: f64,
+    #[serde(default = "default_max_terrain_slope")]
+    pub max_terrain_slope: f64,
+    #[serde(default = "default_max_fill_m")]
+    pub max_fill_m: f64,
+    #[serde(default = "default_true")]
+    pub allow_bridge: bool,
+    #[serde(default = "default_max_bridge_span")]
+    pub max_bridge_span_m: f64,
+    #[serde(default = "default_turn_penalty")]
+    pub turn_penalty: f64,
+    #[serde(default)]
+    pub anchors: Vec<Anchor>,
+    #[serde(default)]
+    pub routes: Vec<RouteRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePoint {
+    pub x: i32,
+    pub z: i32,
+    pub natural_height_m: f64,
+    pub design_height_m: f64,
+    pub water: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeSpan {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub length_m: f64,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Route {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    pub status: String,
+    pub road_width_m: u32,
+    pub polyline: Vec<RoutePoint>,
+    pub length_m: f64,
+    pub direct_length_m: f64,
+    pub curve_deviation_m: f64,
+    pub maximum_grade: f64,
+    pub maximum_fill_m: f64,
+    pub maximum_terrain_fill_m: f64,
+    pub fill_volume_m3: f64,
+    pub bridge_spans: Vec<BridgeSpan>,
+    pub failure: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    pub format: String,
+    pub version: u32,
+    pub status: String,
+    pub grid_step_m: u32,
+    pub road_width_m: u32,
+    pub max_grade: f64,
+    pub max_terrain_slope: f64,
+    pub max_fill_m: f64,
+    pub anchors: Vec<Anchor>,
+    pub routes: Vec<Route>,
+    pub failures: Vec<String>,
+}
+
+const fn default_true() -> bool {
+    true
+}
+const fn default_grid_step() -> u32 {
+    16
+}
+const fn default_road_width() -> u32 {
+    8
+}
+const fn default_max_grade() -> f64 {
+    MAX_GRADE
+}
+const fn default_max_terrain_slope() -> f64 {
+    0.35
+}
+const fn default_max_fill_m() -> f64 {
+    6.0
+}
+const fn default_max_bridge_span() -> f64 {
+    300.0
+}
+const fn default_turn_penalty() -> f64 {
+    1.4
+}
+
+pub fn enabled(style: &Value) -> bool {
+    from_style(style).is_ok_and(|program| program.is_some_and(|program| program.enabled))
+}
+
+pub fn validate_style(style: &Value) -> Result<(), String> {
+    let Some(program) = from_style(style)? else {
+        return Ok(());
+    };
+    if !program.enabled {
+        return Ok(());
+    }
+    if style.get("naturalGeography").is_none() {
+        return Err("routeEvolution requires style.naturalGeography".into());
+    }
+    if !(8..=64).contains(&program.grid_step_m)
+        || !matches!(program.road_width_m, 4..=32)
+        || program.road_width_m % 2 != 0
+        || !(0.01..=MAX_GRADE).contains(&program.max_grade)
+        || !(0.03..=0.6).contains(&program.max_terrain_slope)
+        || !(0.5..=6.0).contains(&program.max_fill_m)
+        || !(40.0..=2_000.0).contains(&program.max_bridge_span_m)
+        || !(0.0..=8.0).contains(&program.turn_penalty)
+    {
+        return Err("invalid routeEvolution limits".into());
+    }
+    if program.anchors.len() < 2 && !program.anchors.is_empty() {
+        return Err("routeEvolution anchors must be empty for auto mode or contain at least two anchors".into());
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for anchor in &program.anchors {
+        if anchor.id.trim().is_empty() || !ids.insert(anchor.id.as_str()) {
+            return Err("routeEvolution anchor ids must be non-empty and unique".into());
+        }
+    }
+    for route in &program.routes {
+        if route.id.trim().is_empty()
+            || !ids.contains(route.from.as_str())
+            || !ids.contains(route.to.as_str())
+            || route.from == route.to
+        {
+            return Err("routeEvolution route endpoints must name two different anchors".into());
+        }
+        if route
+            .road_width_m
+            .is_some_and(|width| !(4..=32).contains(&width) || width % 2 != 0)
+        {
+            return Err("routeEvolution route width must be even and 4..=32m".into());
+        }
+    }
+    Ok(())
+}
+
+fn from_style(style: &Value) -> Result<Option<Program>, String> {
+    let Some(value) = style.get("routeEvolution") else {
+        return Ok(None);
+    };
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+pub fn plan(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    style: &Value,
+) -> Result<Option<Plan>, TerrainError> {
+    validate_style(style).map_err(TerrainError)?;
+    let Some(program) = from_style(style).map_err(TerrainError)? else {
+        return Ok(None);
+    };
+    if !program.enabled {
+        return Ok(None);
+    }
+    if !terrain.matches_scene(scene) {
+        return Err(TerrainError("routeEvolution scene/terrain mismatch".into()));
+    }
+    terrain.require_complete()?;
+
+    let margin = (program.road_width_m / 2 + 12).max(24) as i32;
+    let anchors = if program.anchors.is_empty() {
+        auto_anchors(scene, terrain, water, margin)?
+    } else {
+        program.anchors.clone()
+    };
+    if anchors.len() < 2 {
+        return Err(TerrainError(
+            "routeEvolution needs at least two usable anchors".into(),
+        ));
+    }
+    let requests = if program.routes.is_empty() {
+        vec![RouteRequest {
+            id: "route-auto-0".into(),
+            from: anchors[0].id.clone(),
+            to: anchors[1].id.clone(),
+            via: None,
+            road_width_m: None,
+            allow_bridge: None,
+        }]
+    } else {
+        program.routes.clone()
+    };
+    let water_level_m = style
+        .get("water")
+        .and_then(|water| water.get("levelM"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let grid = Grid::new(scene, terrain, water, &program, margin);
+    let mut routes = Vec::with_capacity(requests.len());
+    let mut failures = Vec::new();
+    for request in requests {
+        let from = anchors
+            .iter()
+            .find(|anchor| anchor.id == request.from)
+            .ok_or_else(|| TerrainError(format!("missing route anchor {}", request.from)))?;
+        let to = anchors
+            .iter()
+            .find(|anchor| anchor.id == request.to)
+            .ok_or_else(|| TerrainError(format!("missing route anchor {}", request.to)))?;
+        let route = solve_route(
+            &request,
+            from,
+            to,
+            &grid,
+            &program,
+            water_level_m,
+        );
+        if route.status != "pass" {
+            failures.push(format!(
+                "{}: {}",
+                route.id,
+                route.failure.as_deref().unwrap_or("route failed")
+            ));
+        }
+        routes.push(route);
+    }
+    Ok(Some(Plan {
+        format: "glyphweave.route-evolution-plan".into(),
+        version: 1,
+        status: if failures.is_empty() {
+            "pass".into()
+        } else {
+            "fail".into()
+        },
+        grid_step_m: program.grid_step_m,
+        road_width_m: program.road_width_m,
+        max_grade: program.max_grade,
+        max_terrain_slope: program.max_terrain_slope,
+        max_fill_m: program.max_fill_m,
+        anchors,
+        routes,
+        failures,
+    }))
+}
+
+struct Grid<'a> {
+    scene: &'a SceneSpec,
+    terrain: &'a BakedTerrain,
+    water: WaterGeometry,
+    step: i32,
+    margin: i32,
+    cols: i32,
+    rows: i32,
+    max_terrain_slope: f64,
+    turn_penalty: f64,
+}
+
+impl<'a> Grid<'a> {
+    fn new(
+        scene: &'a SceneSpec,
+        terrain: &'a BakedTerrain,
+        water: WaterGeometry,
+        program: &Program,
+        margin: i32,
+    ) -> Self {
+        let usable_width = scene.width_m as i32 - margin * 2;
+        let usable_depth = scene.depth_m as i32 - margin * 2;
+        Self {
+            scene,
+            terrain,
+            water,
+            step: program.grid_step_m as i32,
+            margin,
+            cols: usable_width / program.grid_step_m as i32 + 1,
+            rows: usable_depth / program.grid_step_m as i32 + 1,
+            max_terrain_slope: program.max_terrain_slope,
+            turn_penalty: program.turn_penalty,
+        }
+    }
+
+    fn point(&self, node: usize) -> (i32, i32) {
+        let col = node as i32 % self.cols;
+        let row = node as i32 / self.cols;
+        (
+            self.scene.origin_x + self.margin + col * self.step,
+            self.scene.origin_z + self.margin + row * self.step,
+        )
+    }
+
+    fn nearest_node(&self, x: i32, z: i32) -> usize {
+        let col = ((x - self.scene.origin_x - self.margin) as f64 / f64::from(self.step))
+            .round()
+            .clamp(0.0, f64::from(self.cols - 1)) as i32;
+        let row = ((z - self.scene.origin_z - self.margin) as f64 / f64::from(self.step))
+            .round()
+            .clamp(0.0, f64::from(self.rows - 1)) as i32;
+        (row * self.cols + col) as usize
+    }
+
+    fn water_at(&self, x: i32, z: i32) -> bool {
+        self.water.contains_point(f64::from(x), f64::from(z))
+            || self.water.shore_band_cell(x, z)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct QueueEntry {
+    cost: f64,
+    state: usize,
+}
+impl Eq for QueueEntry {}
+impl PartialEq for QueueEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.cost == other.cost && self.state == other.state
+    }
+}
+impl Ord for QueueEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost
+            .partial_cmp(&self.cost)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.state.cmp(&self.state))
+    }
+}
+impl PartialOrd for QueueEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+const DIRECTIONS: [(i32, i32); 8] = [
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
+
+fn direction_angle(direction: usize) -> f64 {
+    let (dx, dz) = DIRECTIONS[direction];
+    f64::from(dz).atan2(f64::from(dx))
+}
+
+fn turn_angle(a: usize, b: usize) -> f64 {
+    let mut angle = (direction_angle(a) - direction_angle(b)).abs();
+    if angle > std::f64::consts::PI {
+        angle = std::f64::consts::TAU - angle;
+    }
+    angle
+}
+
+fn solve_route(
+    request: &RouteRequest,
+    from: &Anchor,
+    to: &Anchor,
+    grid: &Grid<'_>,
+    program: &Program,
+    water_level_m: f64,
+) -> Route {
+    let direct_length_m = f64::from(from.x - to.x).hypot(f64::from(from.z - to.z));
+    let width = request.road_width_m.unwrap_or(program.road_width_m);
+    let allow_bridge = request.allow_bridge.unwrap_or(program.allow_bridge);
+    let failure = |message: String| Route {
+        id: request.id.clone(),
+        from: request.from.clone(),
+        to: request.to.clone(),
+        status: "fail".into(),
+        road_width_m: width,
+        polyline: Vec::new(),
+        length_m: 0.0,
+        direct_length_m,
+        curve_deviation_m: 0.0,
+        maximum_grade: 0.0,
+        maximum_fill_m: 0.0,
+        maximum_terrain_fill_m: 0.0,
+        fill_volume_m3: 0.0,
+        bridge_spans: Vec::new(),
+        failure: Some(message),
+    };
+    let start = grid.nearest_node(from.x, from.z);
+    let end = grid.nearest_node(to.x, to.z);
+    if start == end {
+        return failure("start and end resolve to the same grid node".into());
+    }
+    let nodes = if let Some([via_x, via_z]) = request.via {
+        let via = grid.nearest_node(via_x, via_z);
+        let first = match find_path_nodes(grid, start, via, allow_bridge) {
+            Ok(nodes) => nodes,
+            Err(error) => return failure(format!("cannot reach route waypoint: {error}")),
+        };
+        let second = match find_path_nodes(grid, via, end, allow_bridge) {
+            Ok(nodes) => nodes,
+            Err(error) => return failure(format!("cannot leave route waypoint: {error}")),
+        };
+        let mut nodes = first;
+        nodes.extend(second.into_iter().skip(1));
+        nodes
+    } else {
+        match find_path_nodes(grid, start, end, allow_bridge) {
+            Ok(nodes) => nodes,
+            Err(error) => return failure(error),
+        }
+    };
+    let mut points: Vec<RoutePoint> = nodes
+        .into_iter()
+        .map(|node| {
+            let (x, z) = grid.point(node);
+            let natural_height_m = grid.terrain.height(x, z).unwrap_or(0.0) as f64;
+            RoutePoint {
+                x,
+                z,
+                natural_height_m,
+                design_height_m: natural_height_m,
+                water: grid.water_at(x, z),
+            }
+        })
+        .collect();
+    if let Some(first) = points.first_mut() {
+        if (first.x, first.z) != (from.x, from.z) {
+            let height = grid
+                .terrain
+                .height(from.x, from.z)
+                .map(f64::from)
+                .unwrap_or(first.natural_height_m);
+            points.insert(
+                0,
+                RoutePoint {
+                    x: from.x,
+                    z: from.z,
+                    natural_height_m: f64::from(height),
+                    design_height_m: f64::from(height),
+                    water: grid.water_at(from.x, from.z),
+                },
+            );
+        }
+    }
+    if let Some(last) = points.last_mut() {
+        if (last.x, last.z) != (to.x, to.z) {
+            let height = grid
+                .terrain
+                .height(to.x, to.z)
+                .map(f64::from)
+                .unwrap_or(last.natural_height_m);
+            points.push(RoutePoint {
+                x: to.x,
+                z: to.z,
+                natural_height_m: f64::from(height),
+                design_height_m: f64::from(height),
+                water: grid.water_at(to.x, to.z),
+            });
+        }
+    }
+    points = smooth_polyline(&points, grid, 2);
+    grade_profile(&mut points, program, water_level_m);
+    let fill_point = points
+        .iter()
+        .max_by(|a, b| {
+            (a.design_height_m - a.natural_height_m)
+                .partial_cmp(&(b.design_height_m - b.natural_height_m))
+                .unwrap_or(Ordering::Equal)
+        })
+        .map(|point| (point.x, point.z, point.design_height_m - point.natural_height_m))
+        .unwrap_or((0, 0, 0.0));
+    let maximum_fill_m = fill_point.2.max(0.0);
+    let maximum_grade = points
+        .windows(2)
+        .map(|pair| {
+            let distance = f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z));
+            (pair[1].design_height_m - pair[0].design_height_m).abs() / distance.max(1e-9)
+        })
+        .fold(0.0, f64::max);
+    if maximum_grade > program.max_grade + 1e-6 {
+        return failure(format!(
+            "route grade {:.4} exceeds {:.4}",
+            maximum_grade, program.max_grade
+        ));
+    }
+    let length_m = path_length(&points);
+    let curve_deviation_m = maximum_deviation(&points, from, to);
+    let mut bridge_spans = bridge_spans(&points, width, program.max_bridge_span_m);
+    if points.iter().any(|point| point.water) && bridge_spans.is_empty() {
+        return failure("route enters water without an emitted bridge span".into());
+    }
+    bridge_spans.extend(viaduct_spans(
+        &points,
+        width,
+        program.max_fill_m,
+        program.max_bridge_span_m,
+    ));
+    if bridge_spans
+        .iter()
+        .any(|span| span.kind.starts_with("rejected-"))
+    {
+        return failure(format!(
+            "a bridge or viaduct exceeds the {}m maximum structure span",
+            program.max_bridge_span_m
+        ));
+    }
+    let structure = structure_mask(&points, &bridge_spans);
+    let maximum_terrain_fill_m = points
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !structure[*index])
+        .map(|(_, point)| (point.design_height_m - point.natural_height_m).max(0.0))
+        .fold(0.0, f64::max);
+    if maximum_terrain_fill_m > program.max_fill_m + 1e-6 {
+        return failure(format!(
+            "terrain-supported profile needs {:.3}m fill at {},{} above the {}m contract",
+            maximum_terrain_fill_m, fill_point.0, fill_point.1, program.max_fill_m
+        ));
+    }
+    let fill_volume_m3 = points
+        .windows(2)
+        .enumerate()
+        .map(|pair| {
+            let (index, pair) = pair;
+            if structure[index] || structure[index + 1] {
+                return 0.0;
+            }
+            let distance = f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z));
+            let fill = ((pair[0].design_height_m - pair[0].natural_height_m)
+                + (pair[1].design_height_m - pair[1].natural_height_m))
+                .max(0.0)
+                * 0.5;
+            fill * distance * f64::from(width)
+        })
+        .sum();
+    Route {
+        id: request.id.clone(),
+        from: request.from.clone(),
+        to: request.to.clone(),
+        status: "pass".into(),
+        road_width_m: width,
+        polyline: points,
+        length_m,
+        direct_length_m,
+        curve_deviation_m,
+        maximum_grade,
+        maximum_fill_m,
+        maximum_terrain_fill_m,
+        fill_volume_m3,
+        bridge_spans,
+        failure: None,
+    }
+}
+
+fn find_path_nodes(
+    grid: &Grid<'_>,
+    start: usize,
+    end: usize,
+    allow_bridge: bool,
+) -> Result<Vec<usize>, String> {
+    if start == end {
+        return Ok(vec![start]);
+    }
+    let states = grid.cols as usize * grid.rows as usize * DIRECTIONS.len();
+    let mut cost = vec![f64::INFINITY; states];
+    let mut previous = vec![usize::MAX; states];
+    let mut heap = BinaryHeap::new();
+    for direction in 0..DIRECTIONS.len() {
+        let state = start * DIRECTIONS.len() + direction;
+        cost[state] = 0.0;
+        heap.push(QueueEntry {
+            cost: 0.0,
+            state,
+        });
+    }
+    let mut best_end = None;
+    while let Some(entry) = heap.pop() {
+        if entry.cost > cost[entry.state] {
+            continue;
+        }
+        let node = entry.state / DIRECTIONS.len();
+        let direction = entry.state % DIRECTIONS.len();
+        if node == end {
+            best_end = Some(entry.state);
+            break;
+        }
+        let (x0, z0) = grid.point(node);
+        let h0 = grid
+            .terrain
+            .height(x0, z0)
+            .ok_or_else(|| format!("missing terrain at route grid point {x0},{z0}"))?;
+        let col = node as i32 % grid.cols;
+        let row = node as i32 / grid.cols;
+        for next_direction in 0..DIRECTIONS.len() {
+            let (dx, dz) = DIRECTIONS[next_direction];
+            let next_col = col + dx;
+            let next_row = row + dz;
+            if next_col < 0 || next_row < 0 || next_col >= grid.cols || next_row >= grid.rows {
+                continue;
+            }
+            let next = (next_row * grid.cols + next_col) as usize;
+            let (x1, z1) = grid.point(next);
+            let water = grid.water_at(x1, z1);
+            if water && !allow_bridge {
+                continue;
+            }
+            let Some(h1) = grid.terrain.height(x1, z1) else {
+                continue;
+            };
+            let distance = f64::from(grid.step).hypot(if dx != 0 && dz != 0 {
+                f64::from(grid.step)
+            } else {
+                0.0
+            });
+            let terrain_slope = f64::from(h1 - h0).abs() / distance;
+            if terrain_slope > grid.max_terrain_slope {
+                continue;
+            }
+            let turn = turn_angle(direction, next_direction);
+            let step_cost = distance
+                * if water { 1.5 } else { 1.0 }
+                * (1.0 + terrain_slope * 18.0 + grid.turn_penalty * turn);
+            let next_state = next * DIRECTIONS.len() + next_direction;
+            let candidate = entry.cost + step_cost;
+            if candidate + 1e-9 < cost[next_state] {
+                cost[next_state] = candidate;
+                previous[next_state] = entry.state;
+                heap.push(QueueEntry {
+                    cost: candidate,
+                    state: next_state,
+                });
+            }
+        }
+    }
+    let Some(mut state) = best_end else {
+        return Err("no terrain route satisfies the slope and crossing limits".into());
+    };
+    let mut nodes = Vec::new();
+    loop {
+        nodes.push(state / DIRECTIONS.len());
+        let prior = previous[state];
+        if prior == usize::MAX {
+            break;
+        }
+        state = prior;
+    }
+    nodes.reverse();
+    Ok(nodes)
+}
+
+fn sample_route_point(grid: &Grid<'_>, x: i32, z: i32) -> RoutePoint {
+    let natural_height_m = grid.terrain.height(x, z).map(f64::from).unwrap_or(0.0);
+    RoutePoint {
+        x,
+        z,
+        natural_height_m,
+        design_height_m: natural_height_m,
+        water: grid.water_at(x, z),
+    }
+}
+
+fn smooth_polyline(points: &[RoutePoint], grid: &Grid<'_>, iterations: usize) -> Vec<RoutePoint> {
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let mut current = points.to_vec();
+    for _ in 0..iterations {
+        let mut next = Vec::with_capacity(current.len() * 2);
+        next.push(current[0].clone());
+        for pair in current.windows(2) {
+            let qx = (pair[0].x as f64 * 0.75 + pair[1].x as f64 * 0.25).round() as i32;
+            let qz = (pair[0].z as f64 * 0.75 + pair[1].z as f64 * 0.25).round() as i32;
+            let rx = (pair[0].x as f64 * 0.25 + pair[1].x as f64 * 0.75).round() as i32;
+            let rz = (pair[0].z as f64 * 0.25 + pair[1].z as f64 * 0.75).round() as i32;
+            let q = sample_route_point(grid, qx, qz);
+            let r = sample_route_point(grid, rx, rz);
+            if next.last().is_none_or(|point: &RoutePoint| (point.x, point.z) != (q.x, q.z)) {
+                next.push(q);
+            }
+            if next.last().is_none_or(|point: &RoutePoint| (point.x, point.z) != (r.x, r.z)) {
+                next.push(r);
+            }
+        }
+        next.push(current.last().unwrap().clone());
+        current = next;
+    }
+    current
+}
+
+fn grade_profile(points: &mut [RoutePoint], program: &Program, water_level_m: f64) {
+    for point in points.iter_mut() {
+        if point.water {
+            point.design_height_m = point
+                .design_height_m
+                .max(point.natural_height_m)
+                .max(water_level_m + 4.0);
+        }
+    }
+    for index in 1..points.len() {
+        let distance = f64::from(points[index].x - points[index - 1].x)
+            .hypot(f64::from(points[index].z - points[index - 1].z));
+        let minimum = points[index - 1].design_height_m - program.max_grade * distance;
+        points[index].design_height_m = points[index].design_height_m.max(minimum);
+    }
+    for index in (0..points.len().saturating_sub(1)).rev() {
+        let distance = f64::from(points[index + 1].x - points[index].x)
+            .hypot(f64::from(points[index + 1].z - points[index].z));
+        let minimum = points[index + 1].design_height_m - program.max_grade * distance;
+        points[index].design_height_m = points[index].design_height_m.max(minimum);
+    }
+}
+
+fn path_length(points: &[RoutePoint]) -> f64 {
+    points
+        .windows(2)
+        .map(|pair| {
+            f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z))
+        })
+        .sum()
+}
+
+fn maximum_deviation(points: &[RoutePoint], from: &Anchor, to: &Anchor) -> f64 {
+    let ax = f64::from(from.x);
+    let az = f64::from(from.z);
+    let dx = f64::from(to.x - from.x);
+    let dz = f64::from(to.z - from.z);
+    let length = dx.hypot(dz).max(1e-9);
+    points
+        .iter()
+        .map(|point| {
+            ((f64::from(point.x) - ax) * dz - (f64::from(point.z) - az) * dx).abs() / length
+        })
+        .fold(0.0, f64::max)
+}
+
+fn bridge_spans(points: &[RoutePoint], width: u32, max_span_m: f64) -> Vec<BridgeSpan> {
+    let mut spans = Vec::new();
+    let mut start = None;
+    for index in 0..=points.len() {
+        let water = index < points.len() && points[index].water;
+        match (start, water) {
+            (None, true) => start = Some(index),
+            (Some(first), false) => {
+                let last = index.saturating_sub(1);
+                let length = if first < last {
+                    path_length(&points[first..=last])
+                } else {
+                    f64::from(width)
+                };
+                spans.push(BridgeSpan {
+                    start_index: first.saturating_sub(1),
+                    end_index: index.min(points.len() - 1),
+                    length_m: length,
+                    kind: if length > max_span_m {
+                        "rejected-bridge-span-too-long".into()
+                    } else {
+                        "bridge".into()
+                    },
+                });
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    spans
+}
+
+fn viaduct_spans(
+    points: &[RoutePoint],
+    width: u32,
+    max_fill_m: f64,
+    max_span_m: f64,
+) -> Vec<BridgeSpan> {
+    let mut spans = Vec::new();
+    let mut start = None;
+    for index in 0..=points.len() {
+        let needs_structure = index < points.len()
+            && !points[index].water
+            && points[index].design_height_m - points[index].natural_height_m > max_fill_m + 1e-6;
+        match (start, needs_structure) {
+            (None, true) => start = Some(index),
+            (Some(first), false) => {
+                let last = index.saturating_sub(1);
+                let length = if first < last {
+                    path_length(&points[first..=last]).max(f64::from(width))
+                } else {
+                    f64::from(width)
+                };
+                spans.push(BridgeSpan {
+                    start_index: first.saturating_sub(1),
+                    end_index: index.min(points.len() - 1),
+                    length_m: length,
+                    kind: if length > max_span_m {
+                        "rejected-viaduct-span-too-long".into()
+                    } else {
+                        "viaduct".into()
+                    },
+                });
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    spans
+}
+
+fn structure_mask(points: &[RoutePoint], spans: &[BridgeSpan]) -> Vec<bool> {
+    let mut mask = vec![false; points.len()];
+    for span in spans {
+        for value in &mut mask[span.start_index..=span.end_index] {
+            *value = true;
+        }
+    }
+    mask
+}
+
+fn auto_anchors(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    margin: i32,
+) -> Result<Vec<Anchor>, TerrainError> {
+    let positions = [
+        (
+            "auto-west",
+            scene.origin_x + scene.width_m as i32 / 5,
+            scene.origin_z + scene.depth_m as i32 / 2,
+        ),
+        (
+            "auto-east",
+            scene.origin_x + scene.width_m as i32 * 4 / 5,
+            scene.origin_z + scene.depth_m as i32 / 2,
+        ),
+        (
+            "auto-north",
+            scene.origin_x + scene.width_m as i32 / 2,
+            scene.origin_z + scene.depth_m as i32 / 5,
+        ),
+        (
+            "auto-south",
+            scene.origin_x + scene.width_m as i32 / 2,
+            scene.origin_z + scene.depth_m as i32 * 4 / 5,
+        ),
+    ];
+    let mut anchors = Vec::new();
+    for (id, x, z) in positions {
+        if let Some((x, z)) = find_land_near(terrain, water, x, z, margin) {
+            anchors.push(Anchor {
+                id: id.into(),
+                x,
+                z,
+                role: "auto-terrain-seed".into(),
+            });
+        }
+    }
+    Ok(anchors)
+}
+
+fn find_land_near(
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    x: i32,
+    z: i32,
+    margin: i32,
+) -> Option<(i32, i32)> {
+    let (origin_x, origin_z) = terrain.scene_origin();
+    let (width, depth) = terrain.scene_dimensions();
+    for radius in (0_i32..=256).step_by(16) {
+        for dz in (-radius..=radius).step_by(16) {
+            for dx in (-radius..=radius).step_by(16) {
+                if radius > 0 && dx.abs() != radius && dz.abs() != radius {
+                    continue;
+                }
+                let px = x + dx;
+                let pz = z + dz;
+                if px < origin_x + margin
+                    || pz < origin_z + margin
+                    || px >= origin_x + width as i32 - margin
+                    || pz >= origin_z + depth as i32 - margin
+                    || water.contains_point(f64::from(px), f64::from(pz))
+                    || water.shore_band_cell(px, pz)
+                {
+                    continue;
+                }
+                if terrain.height(px, pz).is_some() {
+                    return Some((px, pz));
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn require_pass(plan: &Plan) -> Result<(), TerrainError> {
+    if plan.status == "pass" {
+        Ok(())
+    } else {
+        Err(TerrainError(format!(
+            "route evolution failed: {}",
+            plan.failures.join("; ")
+        )))
+    }
+}
+
+/// Remove surface plants and rocks that would intersect a route footprint.
+/// Authored or generated structures are not silently moved; only natural
+/// decor is cleared, and the route plan remains the source of the corridor.
+pub fn retain_clearance(entities: &mut Vec<EntityInstance>, plan: &Plan, extra_m: f64) -> usize {
+    let before = entities.len();
+    entities.retain(|entity| {
+        if !matches!(
+            entity.kind.as_str(),
+            "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
+        ) {
+            return true;
+        }
+        let entity_radius_m = entity.width_m.max(entity.depth_m) as f64 * 0.5;
+        !plan.routes.iter().any(|route| {
+            if route.status != "pass" {
+                return false;
+            }
+            let clearance = route.road_width_m as f64 * 0.5 + extra_m + entity_radius_m;
+            route
+                .polyline
+                .windows(2)
+                .any(|segment| {
+                    point_segment_distance(
+                        f64::from(entity.world_x),
+                        f64::from(entity.world_z),
+                        f64::from(segment[0].x),
+                        f64::from(segment[0].z),
+                        f64::from(segment[1].x),
+                        f64::from(segment[1].z),
+                    ) <= clearance
+                })
+        })
+    });
+    before - entities.len()
+}
+
+fn point_segment_distance(px: f64, pz: f64, ax: f64, az: f64, bx: f64, bz: f64) -> f64 {
+    let dx = bx - ax;
+    let dz = bz - az;
+    let length_sq = dx * dx + dz * dz;
+    if length_sq <= f64::EPSILON {
+        return (px - ax).hypot(pz - az);
+    }
+    let t = (((px - ax) * dx + (pz - az) * dz) / length_sq).clamp(0.0, 1.0);
+    (px - (ax + dx * t)).hypot(pz - (az + dz * t))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::height_payload::encode_millimetres;
+    use crate::worldgen::{WaterKind, water_geometry};
+
+    fn terrain(scene: &SceneSpec) -> BakedTerrain {
+        let width = scene.width_m as usize;
+        let depth = scene.depth_m as usize;
+        let values = (0..depth).flat_map(|z| {
+            (0..width).map(move |x| {
+                let ridge = ((f64::from(x as i32 - 256) / 70.0).abs()).min(1.0);
+                let valley = if (170..=340).contains(&z) { 2.0 } else { 8.0 };
+                valley + ridge * 4.0
+            })
+        });
+        let payload = encode_millimetres(scene.width_m, scene.depth_m, values).unwrap();
+        let mut terrain = BakedTerrain::new(scene).unwrap();
+        terrain
+            .insert_chunk(
+                scene.origin_x,
+                scene.origin_z,
+                scene.width_m,
+                scene.depth_m,
+                &payload,
+            )
+            .unwrap();
+        terrain
+    }
+
+    fn style(allow_bridge: bool) -> Value {
+        serde_json::json!({
+            "naturalGeography": {
+                "version": 1,
+                "setting": "coastal-mountain",
+                "regionalReliefM": 900,
+                "orogenyAxisDeg": 28,
+                "upliftBias": 0.72,
+                "coast": {"type": "ria-bay", "waveExposure": "moderate", "trench": false},
+                "climate": {
+                    "band": "humid-subtropical",
+                    "prevailingWindDeg": 125,
+                    "monsoon": true,
+                    "rainfallBias": 0.65,
+                    "seasonality": 0.48
+                },
+                "hydrology": {
+                    "regime": "perennial",
+                    "historicChannelShiftM": 260,
+                    "wetlandBias": 0.3
+                },
+                "landform": {
+                    "karst": false,
+                    "aeolian": false,
+                    "glacial": false,
+                    "incisedValleys": 0.68
+                },
+                "hazards": ["flood"]
+            },
+            "water": {"waterType": "lake", "levelPolicy": "horizontal-datum", "levelM": 0},
+            "routeEvolution": {
+                "version": 1,
+                "enabled": true,
+                "gridStepM": 16,
+                "roadWidthM": 8,
+                "maxGrade": 0.08,
+                "maxTerrainSlope": 0.45,
+                "maxFillM": 6,
+                "allowBridge": allow_bridge,
+                "maxBridgeSpanM": 320,
+                "turnPenalty": 1.4,
+                "anchors": [
+                    {"id": "west", "x": 96, "z": 256},
+                    {"id": "east", "x": 416, "z": 256}
+                ],
+                "routes": [{"id": "crossing", "from": "west", "to": "east", "via": [256, 256]}]
+            }
+        })
+    }
+
+    fn lake(scene: &SceneSpec, style: &Value) -> WaterGeometry {
+        let lake: crate::worldgen::LandmarkSpec = serde_json::from_value(serde_json::json!({
+            "entityId": "lake",
+            "name": "lake",
+            "type": "lake",
+            "purpose": "test",
+            "description": "test lake",
+            "sceneId": scene.scene_id,
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": 120,
+            "depthM": 90,
+            "heightM": 1,
+            "assetId": "water.lake"
+        }))
+        .unwrap();
+        water_geometry(WaterKind::Lake, &[lake], scene, style)
+    }
+
+    #[test]
+    fn route_follows_terrain_with_a_bridge_and_grade_limited_profile() {
+        let scene = SceneSpec {
+            scene_id: "route".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let terrain = terrain(&scene);
+        let style = style(true);
+        let water = lake(&scene, &style);
+        let plan = plan(&scene, &terrain, water, &style).unwrap().unwrap();
+        require_pass(&plan).unwrap();
+        let route = &plan.routes[0];
+        assert!(route.polyline.len() > 3);
+        assert!(!route.bridge_spans.is_empty());
+        assert!(route.maximum_grade <= 0.08 + 1e-6);
+        assert!(route.maximum_terrain_fill_m <= 6.0 + 1e-6);
+        assert!(
+            route
+                .bridge_spans
+                .iter()
+                .all(|span| !span.kind.starts_with("rejected-"))
+        );
+    }
+
+    #[test]
+    fn water_is_refused_when_crossing_is_disabled() {
+        let scene = SceneSpec {
+            scene_id: "route".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let terrain = terrain(&scene);
+        let mut style = style(false);
+        style["routeEvolution"]["routes"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("via");
+        let water = lake(&scene, &style);
+        let plan = plan(&scene, &terrain, water, &style).unwrap().unwrap();
+        require_pass(&plan).unwrap();
+        assert!(plan.routes[0].bridge_spans.is_empty());
+    }
+}
