@@ -371,9 +371,10 @@ pub(super) fn append_one_with_tier(
         // junction, so a road the new corridor does not actually connect to
         // cannot be overlapped at all.
         if junctions.is_empty() {
-            return Err(err(
-                "extension overlaps road outside a matching endpoint junction",
-            ));
+            return Err(err(format!(
+                "extension overlaps road outside a matching endpoint junction:{}",
+                old.entity_id
+            )));
         }
         let continuation = junctions
             .iter()
@@ -437,7 +438,10 @@ pub(super) fn append_one_with_tier(
                         > 0.00001
                 {
                     return Err(err(
-                        "extension overlaps road outside a matching endpoint junction",
+                        format!(
+                            "extension overlaps road outside a matching endpoint junction:{}",
+                            old.entity_id
+                        ),
                     ));
                 }
             }
