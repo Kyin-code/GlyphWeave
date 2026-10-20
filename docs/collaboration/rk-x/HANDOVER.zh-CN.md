@@ -27,7 +27,10 @@
 > bridge/viaduct 显式记录，见
 > [`ROUTE-EVOLUTION-P1-20261021.zh-CN.md`](ROUTE-EVOLUTION-P1-20261021.zh-CN.md)；
 > quality 因道路条带和植被仍为占位视觉保持 warn。
-> 容量建筑、完整 epoch、市场辐射和宏观工程接线仍未完成；
+> P3 容量规划切片由需求与地块容量产出 15 栋建筑，不是固定 count；见
+> [`SETTLEMENT-CAPACITY-P3-20261021.zh-CN.md`](SETTLEMENT-CAPACITY-P3-20261021.zh-CN.md)。
+> 该计划尚未转回最终 AccessGraph 实体。
+> 完整 epoch、市场辐射和宏观工程接线仍未完成；
 > 审核稿 §20 是当前状态准绳，不能把旧 B/C 完成标志当成新要求完成。
 
 ## 0. 2026-10-20 最终快照（本文件以下内容是上一轮历史）
