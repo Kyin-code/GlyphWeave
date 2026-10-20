@@ -311,3 +311,35 @@ core lib **642 passed / 31 ignored**（+8 新测试，其中 1 个是 1 km 已�
 2. **生态缺 1 株**（A 例外 #4）：在 1 km 冻结输入上复现并定位该株的合法候选与拒绝原因。
 3. **B-03 用途闭合**：先只做"可数值化"的部分——把 50.23 km² 未实现按 urban/rural/nature
    分项报出 realized/unresolved，不引入新地表类型。
+
+---
+
+## Round 57 · 2026-10-20 · A 例外 #4 关闭（6×10km A-closure）
+
+**目的**：用当前源码重新烘焙 6×10km 最大图，关闭 A 例外 #4（生态缺 1 株），
+并给 B-03/B-05 留一份同源码快照的最大图基线。
+
+| 项 | 值 |
+|---|---|
+| HEAD | `74cdc1ad533c2200b72339c02110f46f10771ab7` |
+| manifest | `examples/maximum-6x10km.manifest.json` |
+| manifest SHA-256 | `26647877A2F3D18D8D243F0463CBFA3024D93433D3D41C4DE2E391028AC189A9` |
+| release binary SHA-256 | `03DD4D35BCC234B30529BC9423013AA67F5F81F4A35010D34B088E3C1A24E338` |
+| output | `bevy/work/rk-x/a-exception4-20261020/world/` |
+
+**实测**：
+
+- `generate-world` exit 0，**255.941s**，240 chunks，623 entities；
+- `quality-report` status `warn`，rules 623/623，access 156 connected / 0 disconnected，
+  scale 240/240 chunks；
+- `landcover-audit.json`：**ecologyPlannedPlants 342,380 / ecologyRealizedPlants 342,380 /
+  ecologyUnfilledPlants 0**；
+- `world-quality-gate` exit 1，**4 条失败**：
+  purpose-area、landcover、land-use planning、road-first；
+  生态配额项已不在 failures 中。
+
+**同口径账本**：realized 9,461,820m² / unresolved 50,538,180m²。
+历史 r49 的 50,230,050m² 是旧源码快照，不能与本轮混用。
+
+**未验证**：第二次确定性 6×10km 重跑、240 chunk 浏览器漫游、偶发 `0xC0000005` 修复。
+完整证据见 `A-REBASELINE-20261020.zh-CN.md`。

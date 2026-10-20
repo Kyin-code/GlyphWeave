@@ -9,9 +9,9 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `refactor/authoritative-baked-audit` |
-| HEAD | `ac2db35 feat(worldgen): a graded entry corridor for pads that own no frontage point` |
+| HEAD | `74cdc1a` + 2026-10-20 A-closure 证据提交 |
 | 工作树 | **干净**（`git status --porcelain` 为空） |
-| 本会话提交 | **48 次**（`0edabb3..HEAD`），全部通过一次性 `git commit -F`，无 merge |
+| 本会话提交 | **50 次**（`0edabb3..HEAD`），全部通过一次性 `git commit -F`，无 merge |
 | 仓库总提交 | 292 |
 | 测试规模 | 整包 **26 条 `test result` 全 ok**；core lib **781 passed / 34 ignored** |
 | 偶发缺陷 | 整包测试约 **1/27** 概率 `0xC0000005`（见 §6） |
@@ -90,13 +90,13 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 
 | # | 问题 | 现状 | 需要什么 |
 |---|---|---|---|
-| 1 | **A 例外 #4（生态缺 1 株）未关闭** | 修复已合并，24 个 512m 世界严格 no-op；真实唯一实例在 6×10km（342,380/342,379） | **一次 6×10km `generate-world`（约 380–420 s）**，未授权 |
-| 2 | 1km 住宅 15/18（缺口 12） | `urbanCoreRatio 0.02`（规划城市地 40,898 m² ≈ 4%）已耗尽 | 提高该比例（作者输入），或加相邻台面高差合同 |
+| 1 | **A 例外 #4（生态缺 1 株）已关闭** | 2026-10-20 6×10km A-closure：**255.941s、240 chunks、623 entities、342,380/342,380/0**；gate 仍 fail 4 项，均为 land-use | 保留证据；land-use 缺口转 B-03/B-05 |
+| 2 | 1km 住宅 15/18（整体差 3；joint recovery 6/18，差 12） | `urbanCoreRatio 0.02`（规划城市地 40,898 m² ≈ 4%）已耗尽 | 提高该比例（作者输入），或加相邻台面高差合同 |
 | 3 | 相邻台面高差无上限 | 两块 24×24 相距 32 m、台面差 2.3 m 时，各自环之间必成谷/崖 | 新增合同（"相邻台面 ≤ X m"）或挡墙 |
 | 4 | 分级走廊 0 次接受 | 1km 三次尝试全撤回：checked route 落在更近的街 / 天然坡 31.6% | 选路规则优先指派街；或允许走廊削坡 |
 | 5 | 山城临街 7/24 | 已证明是**输入上限**（24 需求 vs standalone 上限 10；21/33 条路无纵断面） | 作者改输入（更高需求→更多街道/更低住宅最小宽） |
 | 6 | 滨水 3 条 land-use 欠账 | frontage demand / purpose-area / landcover | 内容目标问题，非缺陷 |
-| 7 | 偶发 `0xC0000005`（~1/27） | 已解析到 road-network JSON serde 派生序列化；WER dump 显示读地址 −1；仓库零 `unsafe` ⇒ 疑依赖或编译器 | 整包循环取证（`tools/crash-hunt/`） |
+| 7 | 偶发 `0xC0000005`（~1/27） | 已解析到 road-network JSON serde 派生序列化；WER dump 显示读地址 −1；仓库零 `unsafe` ⇒ 疑依赖或编译器；本次 A-closure 单次烘焙成功不等于崩溃已修 | 整包循环取证（`tools/crash-hunt/`） |
 | 8 | C 里程碑未实质开工 | 有削方台账、挡墙/排水/涵洞/竖曲线均无 | Round 56 的"台地挡墙"被中断，未落地 |
 
 ## 6. 偶发崩溃的操作纪律（重要）
@@ -115,7 +115,8 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 |---|---|
 | `docs/collaboration/requirements-and-progress-master.zh-CN.md` | 基线账本（§5 进度、§6 七条待决策项，已追平到 43 次提交时） |
 | `docs/collaboration/rk-x/ROUND-LOG.zh-CN.md` | 逐轮证据日志（记到 Round 12；之后证据在提交正文与测试常量里） |
-| `docs/collaboration/rk-x/A-EXCEPTION-4-ECOLOGY.zh-CN.md` | 生态例外的证据状态与关闭条件 |
+| `docs/collaboration/rk-x/A-EXCEPTION-4-ECOLOGY.zh-CN.md` | 生态例外的证据状态与关闭记录 |
+| `docs/collaboration/rk-x/A-REBASELINE-20261020.zh-CN.md` | A-closure 6×10km 完整命令、数字、gate 与未验证项 |
 | `docs/collaboration/rk-x/KNOWN-ISSUE-intermittent-crash.zh-CN.md` | 偶发崩溃的已知事实、工具、下一步 |
 | `docs/collaboration/rk-x/DECISION-COST-SHEET.zh-CN.md` | 六项"需授权"改动的代价表 |
 | `tools/crash-hunt/` | 崩溃取证脚本（dump 捕获、偏移符号化、循环复现） |
@@ -124,9 +125,9 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 
 1. **跑一次基线确认**：`cargo test --workspace --no-fail-fast`（崩溃则重跑）+ 三个夹具测试，
    确认 §3 的数字仍成立。
-2. **拿授权做 6×10km 烘焙**，把 `342,380/342,379` 变成 `342,380/342,380`，然后更新
-   `A-EXCEPTION-4-ECOLOGY.zh-CN.md` 并关闭例外。
-3. **接着做 C 的内容**：先做"台地挡墙"（`terrainPolicy.retainingWalls`，opt-in，
+2. **A 例外 #4 已关闭**：保留 A-closure 证据；下一步按 B-02 → B-03 修复真实
+   collector/local 拓扑与 123,760m² 未实现，再进 B-04/B-05。
+3. **B 接口稳定后再做 C**：先做"台地挡墙"（`terrainPolicy.retainingWalls`，opt-in，
    高差 ≥ 阈值才生成、占地入账本、审计可复算），再做排水/涵洞/竖曲线。
 
 ## 9. 注意事项（别踩）
