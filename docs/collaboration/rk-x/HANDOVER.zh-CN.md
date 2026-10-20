@@ -44,6 +44,8 @@
 > 更新/保护/重建；该统计仍待逐案史料核实。
 > 土地压力分组见 `assets/data/urban-pressure-patterns.json`：city 地形稀缺
 > 中位 1.42、megacity 1.38、town 样本 1.72，说明规模与地形稀缺不能合并。
+> 核心库基线 `glyphweave-core --lib` 实测 854 passed / 0 failed / 34 ignored，
+> 耗时 478.09s；ignored 均需外部已发布世界或显式单次实验。
 
 > **2026-10-21 V2 生成链接入**：自然地理草图派生、48 城 v2 先验、切面关系
 > 语义、网络规划史、土地压力系数以及道路/建筑最终实体化已落地。核心切面

@@ -657,6 +657,10 @@ W0 来源调查已开始：48 个代表核心切面均已有至少两个不同�
 `.20` 山地、`.18` 填海、`.22` 特区权重与样本方向不冲突，但仍是待做
 sensitivity test 的先验，不是回归结论。
 
+基线验证：`cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib`
+于 2026-10-21 实测 `854 passed; 0 failed; 34 ignored`，耗时 `478.09s`。
+ignored 均需要已发布世界或显式单次实验。
+
 - `assets/data/urban-case-evidence.json`
 - `assets/data/urban-core-measurements/`
 - `assets/data/urban-history-patterns.json`

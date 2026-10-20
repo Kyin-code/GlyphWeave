@@ -52,6 +52,16 @@ node scripts/summarize-urban-pressure.mjs
 }
 ```
 
+核心库基线同时完成：
+
+```powershell
+$env:CARGO_TARGET_DIR="bevy\target-main"
+cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib
+```
+
+结果：`854 passed; 0 failed; 34 ignored`，耗时 `478.09s`。34 个 ignored
+均为需要已发布世界或显式单次实验的测试，不是跳过失败。
+
 ## 2. 证据分级
 
 | 等级 | 含义 | 当前用途 |
