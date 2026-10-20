@@ -647,10 +647,16 @@ W0 来源调查已开始：48 个代表核心切面均已有至少两个不同�
 零供给。这些只是当前地图快照，尚无案例达到完整 `measured-core-window`。
 机器数据与校验：
 
+历史阶段由 `scripts/summarize-urban-history.mjs` 复算：40/48 首段为水港/
+河湖/治水，26/48 中段出现铁路/轨道，26/48 第三段出现更新/保护/重建。
+该统计是关键词辅助总结，不替代逐案历史考证。
+
 - `assets/data/urban-case-evidence.json`
 - `assets/data/urban-core-measurements/`
+- `assets/data/urban-history-patterns.json`
 - `scripts/check-urban-case-evidence.mjs`
 - `scripts/check-urban-core-measurements.mjs`
+- `scripts/summarize-urban-history.mjs`
 - `rk-x/URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`
 
 ---

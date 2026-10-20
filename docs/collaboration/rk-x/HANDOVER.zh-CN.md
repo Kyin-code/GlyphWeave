@@ -39,6 +39,9 @@
 > 中位数 96.2%；缺失设施标注的窗口不得判定为零供给。见
 > [`URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`](URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md)
 > 与 `scripts/check-urban-case-evidence.mjs`。
+> 历史阶段统计见 `assets/data/urban-history-patterns.json`：
+> 40/48 首段为水港/河湖/治水，26/48 中段出现铁路/轨道，26/48 第三段出现
+> 更新/保护/重建；该统计仍待逐案史料核实。
 
 > **2026-10-21 V2 生成链接入**：自然地理草图派生、48 城 v2 先验、切面关系
 > 语义、网络规划史、土地压力系数以及道路/建筑最终实体化已落地。核心切面

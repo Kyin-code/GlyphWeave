@@ -474,6 +474,16 @@ siteScore(use) =
 `founding / old-core / expansion / industrial / modern-new / renewal` 的边界
 由建设 cohort、历史节点、道路升级和地块关系决定，不由 `distance < R` 决定。
 
+48 案先验的机器统计进一步支持这个顺序：
+
+- 40/48 案首段命中水港、河湖或治水；
+- 26/48 案中段出现铁路/轨道，22/48 案中段出现工业；
+- 26/48 案在第三段出现更新、保护、重建或城中村处理；
+- 旅游与农牧分别只有 6 案和 7 案，必须作为条件分支而非默认用途。
+
+数据见 `assets/data/urban-history-patterns.json`，统计脚本为
+`scripts/summarize-urban-history.mjs`。该统计来自先验文本，仍需逐案历史来源核实。
+
 增长触发包括：
 
 - 新渡口、铁路、车站、港口或快速路；

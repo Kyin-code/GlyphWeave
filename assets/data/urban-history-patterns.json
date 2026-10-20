@@ -1,0 +1,2083 @@
+{
+  "format": "glyphweave.urban-history-patterns",
+  "version": 1,
+  "generatedAt": "2026-10-20",
+  "input": "G:\\difyllmwiki\\GlyphWeave\\assets\\data\\urban-case-priors-48.json",
+  "method": "keyword-assisted-classification-over-prior-history",
+  "warning": "These counts summarize existing prior text. They are not yet a replacement for case-specific historical source verification.",
+  "categorySummary": {
+    "waterPort": {
+      "description": "river, lake, coast, port or water-management origin",
+      "caseCount": 41,
+      "byStage": [
+        40,
+        16,
+        21
+      ],
+      "byRegion": {
+        "china": 12,
+        "europe": 10,
+        "hong-kong": 5,
+        "japan": 5,
+        "united-states": 9
+      }
+    },
+    "railTransit": {
+      "description": "rail, station, tram or metro-driven growth",
+      "caseCount": 41,
+      "byStage": [
+        9,
+        26,
+        27
+      ],
+      "byRegion": {
+        "china": 10,
+        "europe": 9,
+        "hong-kong": 4,
+        "japan": 6,
+        "united-states": 12
+      }
+    },
+    "industry": {
+      "description": "industrial, warehouse, dock or mining layer",
+      "caseCount": 27,
+      "byStage": [
+        4,
+        22,
+        8
+      ],
+      "byRegion": {
+        "china": 8,
+        "europe": 8,
+        "hong-kong": 1,
+        "japan": 5,
+        "united-states": 5
+      }
+    },
+    "reclamationEngineering": {
+      "description": "reclamation, drainage, embankment or hydrological engineering",
+      "caseCount": 6,
+      "byStage": [
+        3,
+        2,
+        1
+      ],
+      "byRegion": {
+        "china": 2,
+        "europe": 1,
+        "hong-kong": 0,
+        "japan": 0,
+        "united-states": 3
+      }
+    },
+    "renewalProtection": {
+      "description": "renewal, preservation, reconstruction or urban-village treatment",
+      "caseCount": 28,
+      "byStage": [
+        0,
+        2,
+        26
+      ],
+      "byRegion": {
+        "china": 3,
+        "europe": 9,
+        "hong-kong": 4,
+        "japan": 4,
+        "united-states": 8
+      }
+    },
+    "plannedExpansion": {
+      "description": "planned expansion, new town, suburban growth or polycentric formation",
+      "caseCount": 32,
+      "byStage": [
+        2,
+        20,
+        22
+      ],
+      "byRegion": {
+        "china": 10,
+        "europe": 8,
+        "hong-kong": 2,
+        "japan": 4,
+        "united-states": 8
+      }
+    },
+    "capitalCivic": {
+      "description": "imperial, capital, colonial or civic-institutional origin",
+      "caseCount": 19,
+      "byStage": [
+        15,
+        5,
+        1
+      ],
+      "byRegion": {
+        "china": 7,
+        "europe": 5,
+        "hong-kong": 1,
+        "japan": 2,
+        "united-states": 4
+      }
+    },
+    "tourism": {
+      "description": "tourism, recreation, casino or entertainment economy",
+      "caseCount": 6,
+      "byStage": [
+        1,
+        2,
+        4
+      ],
+      "byRegion": {
+        "china": 1,
+        "europe": 0,
+        "hong-kong": 1,
+        "japan": 1,
+        "united-states": 3
+      }
+    },
+    "agriculturePasture": {
+      "description": "agriculture, irrigation, pasture or market-village origin",
+      "caseCount": 7,
+      "byStage": [
+        5,
+        1,
+        1
+      ],
+      "byRegion": {
+        "china": 2,
+        "europe": 1,
+        "hong-kong": 2,
+        "japan": 0,
+        "united-states": 2
+      }
+    }
+  },
+  "cases": [
+    {
+      "caseId": "cn-beijing",
+      "region": "china",
+      "focusFeature": "imperial-axis-to-cbd",
+      "stages": [
+        {
+          "order": 1,
+          "era": "imperial waterworks",
+          "change": "city walls and axial water management",
+          "categories": [
+            "waterPort",
+            "reclamationEngineering",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial capital",
+          "change": "danwei compounds and ring roads",
+          "categories": [
+            "industry",
+            "plannedExpansion",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "reform growth",
+          "change": "ring corridors, CBD and suburban new towns",
+          "categories": [
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "reclamationEngineering",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-shanghai",
+      "region": "china",
+      "focusFeature": "lilong-to-pudong-waterfront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "water town",
+          "change": "canals and river trade",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "treaty port",
+          "change": "gridded concessions and industrial waterfront",
+          "categories": [
+            "waterPort",
+            "industry",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metropolitan growth",
+          "change": "Pudong towers and riverfront reclamation",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-guangzhou",
+      "region": "china",
+      "focusFeature": "arcade-old-city-to-river-cbd",
+      "stages": [
+        {
+          "order": 1,
+          "era": "river port",
+          "change": "wharves and arcaded trade streets",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial expansion",
+          "change": "factories, rail and urban villages",
+          "categories": [
+            "railTransit",
+            "industry",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "reform growth",
+          "change": "Zhujiang New Town and metro corridors",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-shenzhen",
+      "region": "china",
+      "focusFeature": "shenzhen-bay-and-urban-village",
+      "stages": [
+        {
+          "order": 1,
+          "era": "fishing villages",
+          "change": "shore settlements and bays",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "special-zone industry",
+          "change": "planned industrial parks and urban villages",
+          "categories": [
+            "industry",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "innovation metropolis",
+          "change": "rail corridors, reclaimed CBD and mountain reserves",
+          "categories": [
+            "railTransit",
+            "reclamationEngineering"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "reclamationEngineering",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-chengdu",
+      "region": "china",
+      "focusFeature": "old-grid-to-tianfu-new-area",
+      "stages": [
+        {
+          "order": 1,
+          "era": "irrigation plain",
+          "change": "canal settlements and market towns",
+          "categories": [
+            "waterPort",
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial capital",
+          "change": "danwei compounds and ring roads",
+          "categories": [
+            "industry",
+            "plannedExpansion",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "Tianfu New Area and rail rings",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-chongqing",
+      "region": "china",
+      "focusFeature": "two-river-terrace-city",
+      "stages": [
+        {
+          "order": 1,
+          "era": "river ports",
+          "change": "stair streets and quay settlements",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "wartime and third-front industry",
+          "change": "factories on terraces",
+          "categories": []
+        },
+        {
+          "order": 3,
+          "era": "municipal growth",
+          "change": "bridges, tunnels, metro and high-rise clusters",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-xian",
+      "region": "china",
+      "focusFeature": "walled-city-to-qinling-front",
+      "stages": [
+        {
+          "order": 1,
+          "era": "imperial grid",
+          "change": "walled city and water channels",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial units",
+          "change": "rail yards and worker compounds",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "new districts",
+          "change": "high-tech parks and heritage buffers",
+          "categories": [
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-hangzhou",
+      "region": "china",
+      "focusFeature": "west-lake-old-city-and-qianjiang",
+      "stages": [
+        {
+          "order": 1,
+          "era": "lake city",
+          "change": "causeways, canals and market streets",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "grand canal",
+          "change": "commercial waterfront and old workshops",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "digital metropolis",
+          "change": "Qianjiang towers and rail-linked suburbs",
+          "categories": [
+            "railTransit"
+          ]
+        }
+      ],
+      "allCategories": [
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-wuhan",
+      "region": "china",
+      "focusFeature": "river-confluence-and-lakefront-city",
+      "stages": [
+        {
+          "order": 1,
+          "era": "triple river towns",
+          "change": "ferries, wharves and markets",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial hub",
+          "change": "rail, steel and workers' districts",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "bridges, tunnels and lakefront campuses",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-qingdao",
+      "region": "china",
+      "focusFeature": "mountain-coast-harbour",
+      "stages": [
+        {
+          "order": 1,
+          "era": "fishing and treaty port",
+          "change": "cliff streets and wharves",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "rail, shipyards and warehouses",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "tourism and new city",
+          "change": "coastal high-rise and suburban campuses",
+          "categories": [
+            "plannedExpansion",
+            "tourism"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "tourism",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-xiamen",
+      "region": "china",
+      "focusFeature": "island-old-town-and-reclaimed-bay",
+      "stages": [
+        {
+          "order": 1,
+          "era": "fishing and defence island",
+          "change": "small ports and lanes",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "treaty port",
+          "change": "arcaded waterfront",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "special-zone growth",
+          "change": "reclamation, ports and new districts",
+          "categories": [
+            "waterPort",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "plannedExpansion",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "cn-kunming",
+      "region": "china",
+      "focusFeature": "plateau-lake-basin-city",
+      "stages": [
+        {
+          "order": 1,
+          "era": "irrigated basin",
+          "change": "market towns and lakeside villages",
+          "categories": [
+            "waterPort",
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "provincial capital",
+          "change": "central grid and rail",
+          "categories": [
+            "railTransit",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metropolitan expansion",
+          "change": "lakefront new districts and mountain-edge growth",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "capitalCivic",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-new-york",
+      "region": "united-states",
+      "focusFeature": "manhattan-grid-harbour-and-redevelopment",
+      "stages": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "irregular waterfront and market streets",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial immigration",
+          "change": "tenement grids, rail and piers",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "modern redevelopment",
+          "change": "highways, towers and waterfront reuse",
+          "categories": [
+            "waterPort",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-san-francisco",
+      "region": "united-states",
+      "focusFeature": "steep-grid-bay-and-employment-core",
+      "stages": [
+        {
+          "order": 1,
+          "era": "gold-rush port",
+          "change": "irregular waterfront grid",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "1906 rebuild",
+          "change": "street grid over steep terrain",
+          "categories": []
+        },
+        {
+          "order": 3,
+          "era": "tech-era infill",
+          "change": "office campuses and transit-oriented housing",
+          "categories": [
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-los-angeles",
+      "region": "united-states",
+      "focusFeature": "commercial-strip-to-polycentric-core",
+      "stages": [
+        {
+          "order": 1,
+          "era": "ranch and rail",
+          "change": "linear settlements and land speculation",
+          "categories": [
+            "railTransit",
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "automobile growth",
+          "change": "streetcar suburbs and commercial strips",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "polycentric metropolis",
+          "change": "freeways, business clusters and infill",
+          "categories": [
+            "railTransit",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection"
+      ]
+    },
+    {
+      "caseId": "us-chicago",
+      "region": "united-states",
+      "focusFeature": "grid-loop-and-lakefront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "rail and river port",
+          "change": "regular grid and industrial corridors",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial metropolis",
+          "change": "L tracks, warehouses and lakefront parks",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "post-industrial growth",
+          "change": "loop offices and neighbourhood infill",
+          "categories": [
+            "industry",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-seattle",
+      "region": "united-states",
+      "focusFeature": "hill-bay-and-urban-village",
+      "stages": [
+        {
+          "order": 1,
+          "era": "timber port",
+          "change": "waterfront mills and skid roads",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "rail and aviation",
+          "change": "industrial corridors and streetcar suburbs",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "technology growth",
+          "change": "urban villages and waterfront renewal",
+          "categories": [
+            "waterPort",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-boston",
+      "region": "united-states",
+      "focusFeature": "colonial-lanes-to-filled-waterfront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "irregular lanes and wharves",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "land filling",
+          "change": "expanded downtown and rail terminals",
+          "categories": [
+            "railTransit",
+            "reclamationEngineering"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "knowledge economy",
+          "change": "university, hospital and seaport redevelopment",
+          "categories": [
+            "waterPort",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "railTransit",
+        "reclamationEngineering",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-miami",
+      "region": "united-states",
+      "focusFeature": "bayfront-towers-and-wetland-edge",
+      "stages": [
+        {
+          "order": 1,
+          "era": "rail tourism",
+          "change": "hotel strip and drainage canals",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "reclamationEngineering",
+            "tourism"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "immigrant growth",
+          "change": "canal suburbs and ethnic commercial corridors",
+          "categories": [
+            "waterPort",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "luxury waterfront",
+          "change": "high-rise islands and gated communities",
+          "categories": [
+            "waterPort",
+            "tourism"
+          ]
+        }
+      ],
+      "allCategories": [
+        "plannedExpansion",
+        "railTransit",
+        "reclamationEngineering",
+        "tourism",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-denver",
+      "region": "united-states",
+      "focusFeature": "plain-grid-to-front-range",
+      "stages": [
+        {
+          "order": 1,
+          "era": "mining rail town",
+          "change": "grid core and rail yards",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "streetcar and automobile growth",
+          "change": "annexed grid suburbs",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "transit-oriented growth",
+          "change": "infill around rail stations",
+          "categories": [
+            "railTransit",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection"
+      ]
+    },
+    {
+      "caseId": "us-portland",
+      "region": "united-states",
+      "focusFeature": "river-small-block-and-growth-boundary",
+      "stages": [
+        {
+          "order": 1,
+          "era": "timber port",
+          "change": "river industry and rail",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "small-block planning",
+          "change": "streetcar suburbs and gridded core",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "growth-boundary era",
+          "change": "light rail, infill and farmland protection",
+          "categories": [
+            "railTransit",
+            "renewalProtection",
+            "plannedExpansion",
+            "agriculturePasture"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-washington-dc",
+      "region": "united-states",
+      "focusFeature": "capital-axis-and-community-grid",
+      "stages": [
+        {
+          "order": 1,
+          "era": "planned capital",
+          "change": "baroque axes and civic reservations",
+          "categories": [
+            "plannedExpansion",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "rail and streetcar growth",
+          "change": "community grids and streetcar corridors",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metropolitan growth",
+          "change": "metro-oriented edge cities",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "plannedExpansion",
+        "railTransit"
+      ]
+    },
+    {
+      "caseId": "us-las-vegas",
+      "region": "united-states",
+      "focusFeature": "entertainment-corridor-and-desert-edge",
+      "stages": [
+        {
+          "order": 1,
+          "era": "rail and water stop",
+          "change": "small grid settlement",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "casino corridor",
+          "change": "entertainment mega-blocks and water spectacle",
+          "categories": [
+            "waterPort",
+            "tourism"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "suburban sprawl",
+          "change": "master-planned communities and freeway retail",
+          "categories": [
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "plannedExpansion",
+        "railTransit",
+        "tourism",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "us-new-orleans",
+      "region": "united-states",
+      "focusFeature": "delta-grid-levees-and-wetlands",
+      "stages": [
+        {
+          "order": 1,
+          "era": "colonial river port",
+          "change": "French grid and riverfront quays",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "drainage and rail",
+          "change": "expanded grid, canals and pumping",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "reclamationEngineering"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "tourism and port",
+          "change": "historic core, industrial corridor and wetland loss",
+          "categories": [
+            "waterPort",
+            "industry",
+            "tourism"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "railTransit",
+        "reclamationEngineering",
+        "tourism",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-london",
+      "region": "europe",
+      "focusFeature": "historic-city-to-docklands",
+      "stages": [
+        {
+          "order": 1,
+          "era": "Roman and medieval port",
+          "change": "irregular core and waterfront",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial docks",
+          "change": "rail, warehouses and terraced expansion",
+          "categories": [
+            "railTransit",
+            "industry",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "post-industrial metropolis",
+          "change": "docklands renewal, green belt and transit centres",
+          "categories": [
+            "railTransit",
+            "industry",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-paris",
+      "region": "europe",
+      "focusFeature": "seine-axis-and-perimeter-block",
+      "stages": [
+        {
+          "order": 1,
+          "era": "medieval river core",
+          "change": "dense irregular streets",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "Haussmann modernization",
+          "change": "uniform street walls and boulevards",
+          "categories": []
+        },
+        {
+          "order": 3,
+          "era": "postwar growth",
+          "change": "large peripheral estates and Grand Paris rail",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-amsterdam",
+      "region": "europe",
+      "focusFeature": "canal-ring-to-eastern-docklands",
+      "stages": [
+        {
+          "order": 1,
+          "era": "water management",
+          "change": "polders and canal settlements",
+          "categories": [
+            "waterPort",
+            "reclamationEngineering"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "Golden Age canal ring",
+          "change": "narrow plots and merchant docks",
+          "categories": [
+            "waterPort",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "industrial port and renewal",
+          "change": "canal expansion, harbour reuse and artificial islands",
+          "categories": [
+            "waterPort",
+            "industry",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "reclamationEngineering",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-berlin",
+      "region": "europe",
+      "focusFeature": "tenement-blocks-and-divided-city-update",
+      "stages": [
+        {
+          "order": 1,
+          "era": "Prussian capital",
+          "change": "tenement blocks and ceremonial axis",
+          "categories": [
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial and divided city",
+          "change": "rail, factories and separated centres",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "post-unification",
+          "change": "government quarter, infill and industrial reuse",
+          "categories": [
+            "industry",
+            "renewalProtection",
+            "capitalCivic"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "railTransit",
+        "renewalProtection"
+      ]
+    },
+    {
+      "caseId": "eu-zurich",
+      "region": "europe",
+      "focusFeature": "lakefront-old-town-and-hillside",
+      "stages": [
+        {
+          "order": 1,
+          "era": "medieval lake town",
+          "change": "compact core and guild streets",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "rail and industry",
+          "change": "station district and lakeside industry",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "knowledge city",
+          "change": "lakefront renewal, tram corridors and hillside housing",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-milan",
+      "region": "europe",
+      "focusFeature": "historic-courtyard-city-to-industrial-periphery",
+      "stages": [
+        {
+          "order": 1,
+          "era": "Roman and medieval core",
+          "change": "radial streets and canals",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial belt",
+          "change": "rail, factories and worker districts",
+          "categories": [
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "post-industrial growth",
+          "change": "expo, logistics and office periphery",
+          "categories": [
+            "industry",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-rome",
+      "region": "europe",
+      "focusFeature": "archaeological-core-and-modern-periphery",
+      "stages": [
+        {
+          "order": 1,
+          "era": "ancient core",
+          "change": "aqueducts, forums and walled centre",
+          "categories": []
+        },
+        {
+          "order": 2,
+          "era": "papal and modern growth",
+          "change": "axial streets and peripheral districts",
+          "categories": [
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "heritage metropolis",
+          "change": "archaeology-constrained growth and rail expansion",
+          "categories": [
+            "railTransit",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection"
+      ]
+    },
+    {
+      "caseId": "eu-barcelona",
+      "region": "europe",
+      "focusFeature": "gothic-core-eixample-and-waterfront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "Roman and medieval port",
+          "change": "walled old city",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "Eixample expansion",
+          "change": "chamfered grid and uniform blocks",
+          "categories": [
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "industrial and Olympic era",
+          "change": "industrial belts, waterfront renewal and 22@ innovation district",
+          "categories": [
+            "waterPort",
+            "industry",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "plannedExpansion",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-lisbon",
+      "region": "europe",
+      "focusFeature": "hillside-old-city-and-expo-waterfront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "medieval hillside port",
+          "change": "irregular lanes and stairs",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "1755 rebuild",
+          "change": "Baixa grid and earthquake-resistant blocks",
+          "categories": []
+        },
+        {
+          "order": 3,
+          "era": "modern port city",
+          "change": "industrial riverfront and Expo renewal",
+          "categories": [
+            "waterPort",
+            "industry",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-stockholm",
+      "region": "europe",
+      "focusFeature": "island-core-to-waterfront-new-town",
+      "stages": [
+        {
+          "order": 1,
+          "era": "island port",
+          "change": "medieval core and bridges",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial and garden-city growth",
+          "change": "rail suburbs and public housing",
+          "categories": [
+            "railTransit",
+            "industry",
+            "plannedExpansion",
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metro archipelago",
+          "change": "planned centres, waterfront regeneration and nature reserves",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-prague",
+      "region": "europe",
+      "focusFeature": "river-valley-core-to-panel-estates",
+      "stages": [
+        {
+          "order": 1,
+          "era": "medieval river core",
+          "change": "castle, bridge and dense lanes",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial growth",
+          "change": "rail, factories and tenement districts",
+          "categories": [
+            "railTransit",
+            "industry",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "socialist and market era",
+          "change": "panel estates, metro and office infill",
+          "categories": [
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "eu-vienna",
+      "region": "europe",
+      "focusFeature": "ringstrasse-public-housing-and-danube",
+      "stages": [
+        {
+          "order": 1,
+          "era": "imperial walled city",
+          "change": "Ringstrasse transformation",
+          "categories": [
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "social housing era",
+          "change": "public housing blocks and transit",
+          "categories": [
+            "railTransit"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "modern Danube city",
+          "change": "waterfront towers, rail and green networks",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "jp-tokyo-shitamachi",
+      "region": "japan",
+      "focusFeature": "shitamachi-lanes-and-station-renewal",
+      "stages": [
+        {
+          "order": 1,
+          "era": "Edo waterways",
+          "change": "canal markets and dense merchant districts",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial and rail growth",
+          "change": "factories, warehouses and narrow lanes",
+          "categories": [
+            "railTransit",
+            "industry",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "disaster renewal and redevelopment",
+          "change": "station complexes beside surviving small plots",
+          "categories": [
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "jp-tokyo-bay",
+      "region": "japan",
+      "focusFeature": "reclaimed-bay-waterfront",
+      "stages": [
+        {
+          "order": 1,
+          "era": "port and industry",
+          "change": "wharves, rail and warehouses",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "reclamation",
+          "change": "planned waterfront and transport infrastructure",
+          "categories": [
+            "waterPort",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "waterfront city",
+          "change": "towers, parks and event venues",
+          "categories": [
+            "waterPort"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "jp-osaka-namba",
+      "region": "japan",
+      "focusFeature": "canal-commerce-and-rail-hub",
+      "stages": [
+        {
+          "order": 1,
+          "era": "water trade",
+          "change": "canals, bridges and merchant districts",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial and rail growth",
+          "change": "dense commercial blocks and rail yards",
+          "categories": [
+            "railTransit",
+            "industry",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "postwar redevelopment",
+          "change": "covered arcades, towers and station complexes",
+          "categories": [
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "jp-kyoto-gion",
+      "region": "japan",
+      "focusFeature": "machiya-grid-and-temple-hills",
+      "stages": [
+        {
+          "order": 1,
+          "era": "planned capital",
+          "change": "Chinese-influenced grid",
+          "categories": [
+            "plannedExpansion",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "merchant and temple growth",
+          "change": "thatched townhouses and temple precincts",
+          "categories": [
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "modern tourism",
+          "change": "heritage controls, rail and visitor commerce",
+          "categories": [
+            "railTransit",
+            "renewalProtection",
+            "tourism"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "tourism"
+      ]
+    },
+    {
+      "caseId": "jp-yokohama-minato",
+      "region": "japan",
+      "focusFeature": "old-port-to-minato-mirai",
+      "stages": [
+        {
+          "order": 1,
+          "era": "opening of port",
+          "change": "foreign settlement, wharves and rail",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "warehouses, shipyards and coastal rail",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "Minato Mirai reclamation",
+          "change": "towers, convention centre and waterfront parks",
+          "categories": [
+            "waterPort"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "jp-kobe-sannomiya",
+      "region": "japan",
+      "focusFeature": "mountain-sea-city-section",
+      "stages": [
+        {
+          "order": 1,
+          "era": "treaty port",
+          "change": "foreign settlement and waterfront rail",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "industrial port",
+          "change": "shipyards, warehouses and hillside housing",
+          "categories": [
+            "waterPort",
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "post-earthquake reconstruction",
+          "change": "resilient rail, stepped neighbourhoods and waterfront parks",
+          "categories": [
+            "waterPort",
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "industry",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "hk-central",
+      "region": "hong-kong",
+      "focusFeature": "financial-waterfront-and-steep-hillside",
+      "stages": [
+        {
+          "order": 1,
+          "era": "colonial port",
+          "change": "waterfront godowns, military and administrative core",
+          "categories": [
+            "waterPort",
+            "capitalCivic"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "reclamation and rail",
+          "change": "financial district and vertical transport",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "global finance",
+          "change": "skybridges, metro and continuous waterfront reclamation",
+          "categories": [
+            "waterPort",
+            "railTransit"
+          ]
+        }
+      ],
+      "allCategories": [
+        "capitalCivic",
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "hk-mong-kok",
+      "region": "hong-kong",
+      "focusFeature": "dense-street-market-and-vertical-mix",
+      "stages": [
+        {
+          "order": 1,
+          "era": "market villages",
+          "change": "roadside commerce and small industry",
+          "categories": [
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "tenement growth",
+          "change": "extremely dense mixed blocks and street markets",
+          "categories": [
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "metro and redevelopment",
+          "change": "towers above retained fine-grained street commerce",
+          "categories": [
+            "railTransit",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection"
+      ]
+    },
+    {
+      "caseId": "hk-causeway-bay",
+      "region": "hong-kong",
+      "focusFeature": "reclaimed-retail-core",
+      "stages": [
+        {
+          "order": 1,
+          "era": "early shore settlement",
+          "change": "market and light industry",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "reclamation",
+          "change": "gridded shopping blocks",
+          "categories": []
+        },
+        {
+          "order": 3,
+          "era": "metro retail core",
+          "change": "department stores, towers and pedestrian congestion",
+          "categories": [
+            "railTransit"
+          ]
+        }
+      ],
+      "allCategories": [
+        "railTransit",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "hk-kwun-tong",
+      "region": "hong-kong",
+      "focusFeature": "industrial-hillside-to-waterfront-renewal",
+      "stages": [
+        {
+          "order": 1,
+          "era": "industrial satellite town",
+          "change": "factories, housing estates and port industry",
+          "categories": [
+            "waterPort",
+            "industry"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "deindustrialization",
+          "change": "vacant industrial buildings and logistics",
+          "categories": [
+            "industry"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "office and residential renewal",
+          "change": "waterfront parks and new towers",
+          "categories": [
+            "waterPort",
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "industry",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "hk-sha-tin",
+      "region": "hong-kong",
+      "focusFeature": "new-town-valley-and-river",
+      "stages": [
+        {
+          "order": 1,
+          "era": "agricultural valley",
+          "change": "fishing and farming villages",
+          "categories": [
+            "waterPort",
+            "agriculturePasture"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "new-town planning",
+          "change": "reclamation, public housing and rail",
+          "categories": [
+            "railTransit",
+            "plannedExpansion"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "mature new town",
+          "change": "estate renewal, riverside parks and commercial nodes",
+          "categories": [
+            "waterPort",
+            "renewalProtection",
+            "plannedExpansion"
+          ]
+        }
+      ],
+      "allCategories": [
+        "agriculturePasture",
+        "plannedExpansion",
+        "railTransit",
+        "renewalProtection",
+        "waterPort"
+      ]
+    },
+    {
+      "caseId": "hk-sai-kung",
+      "region": "hong-kong",
+      "focusFeature": "ria-fishing-village-and-country-park",
+      "stages": [
+        {
+          "order": 1,
+          "era": "fishing villages",
+          "change": "waterfront lanes and piers",
+          "categories": [
+            "waterPort"
+          ]
+        },
+        {
+          "order": 2,
+          "era": "tourism and recreation",
+          "change": "seafood market and marina activity",
+          "categories": [
+            "waterPort",
+            "tourism"
+          ]
+        },
+        {
+          "order": 3,
+          "era": "conservation era",
+          "change": "country-park boundary and low-rise village controls",
+          "categories": [
+            "renewalProtection"
+          ]
+        }
+      ],
+      "allCategories": [
+        "renewalProtection",
+        "tourism",
+        "waterPort"
+      ]
+    }
+  ]
+}
