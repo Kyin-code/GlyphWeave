@@ -18,6 +18,15 @@ use std::collections::BTreeMap;
 
 /// Named default the consumer applies to a ratio the source never stated.
 pub const ABSENT_RATIO_DEFAULT: f64 = 0.0;
+/// Opt-in complete land-cover baseline. The named shares above stay the
+/// authored policy for *managed* sub-uses; this switch additionally realizes
+/// the remaining ground as a terrain-conforming background surface, so a
+/// purpose row can close instead of carrying an unexplained residual forever.
+///
+/// It is a separate statement because "I planned 20% pasture" and "the rest of
+/// the rural zone is real meadow/woodland/rough ground" are different facts.
+/// Without it the remainder is deliberately left unresolved.
+pub const COMPLETE_GROUND: &str = "complete-ground-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -32,6 +41,11 @@ pub struct SceneResidualProgram {
     /// a public-space share is not a pasture share.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rural_pasture_ratio: Option<f64>,
+    /// Opt-in [`COMPLETE_GROUND`] baseline coverage. Absent keeps the historical
+    /// policy where only the stated ratios are realized and the remainder is
+    /// unresolved. Unknown values are refused rather than silently ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<String>,
 }
 impl SceneResidualProgram {
     /// Effective urban share: the stated value, or the named default.
@@ -41,6 +55,10 @@ impl SceneResidualProgram {
     /// Effective rural pasture share: the stated value, or the named default.
     pub fn rural_pasture_ratio(&self) -> f64 {
         self.rural_pasture_ratio.unwrap_or(ABSENT_RATIO_DEFAULT)
+    }
+    /// Whether the complete-ground background pass is enabled.
+    pub fn complete_ground(&self) -> bool {
+        self.coverage.as_deref() == Some(COMPLETE_GROUND)
     }
     /// Ratios this policy leaves unstated, in a fixed order. Reports name them
     /// together with [`ABSENT_RATIO_DEFAULT`]; nothing is silently zeroed.
@@ -54,6 +72,13 @@ impl SceneResidualProgram {
         .collect()
     }
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(coverage) = &self.coverage {
+            if coverage != COMPLETE_GROUND {
+                return Err(format!(
+                    "residual coverage must be \"{COMPLETE_GROUND}\" when stated"
+                ));
+            }
+        }
         // An unstated ratio consumes nothing, so it can never be out of bounds.
         for (value, bound, field) in [
             (self.urban_open_space_ratio, 0.25, "urbanOpenSpaceRatio"),
@@ -148,10 +173,30 @@ mod tests {
     fn ratios_are_explicit_bounded_and_legacy_default_is_off() {
         assert!(from_style(&serde_json::json!({})).unwrap().is_none());
         assert!(from_style(&serde_json::json!({"residualLandProgram":{"version":1,"scenes":{"s":{"urbanOpenSpaceRatio":0.1,"ruralPastureRatio":0.2}}}})).unwrap().is_some());
+        assert!(
+            from_style(&serde_json::json!({
+                "residualLandProgram": {
+                    "version": 1,
+                    "scenes": {"s": {"coverage": "complete-ground-v1"}}
+                }
+            }))
+            .unwrap()
+            .is_some()
+        );
+        assert!(
+            from_style(&serde_json::json!({
+                "residualLandProgram": {
+                    "version": 1,
+                    "scenes": {"s": {"coverage": "everything"}}
+                }
+            }))
+            .is_err()
+        );
         for value in [-0.1, 0.26, f64::NAN] {
             assert!(SceneResidualProgram {
                 urban_open_space_ratio: Some(value),
                 rural_pasture_ratio: Some(0.),
+                coverage: None,
             }
             .validate()
             .is_err());
@@ -159,6 +204,7 @@ mod tests {
         assert!(SceneResidualProgram {
             urban_open_space_ratio: Some(0.25),
             rural_pasture_ratio: Some(0.5),
+            coverage: None,
         }
         .validate()
         .is_ok());
@@ -182,6 +228,7 @@ mod tests {
         let stated_zero = SceneResidualProgram {
             urban_open_space_ratio: Some(0.1),
             rural_pasture_ratio: Some(0.0),
+            coverage: None,
         };
         assert!(stated_zero.unstated_ratios().is_empty());
         assert_eq!(stated_zero.rural_pasture_ratio(), 0.0);
@@ -195,6 +242,7 @@ mod tests {
         assert!(SceneResidualProgram {
             urban_open_space_ratio: Some(f64::INFINITY),
             rural_pasture_ratio: None,
+            coverage: None,
         }
         .validate()
         .is_err());
@@ -218,6 +266,7 @@ mod tests {
             Some(&SceneResidualProgram {
                 urban_open_space_ratio: Some(0.0),
                 rural_pasture_ratio: Some(0.0),
+                coverage: None,
             }),
             &style,
             &scene,

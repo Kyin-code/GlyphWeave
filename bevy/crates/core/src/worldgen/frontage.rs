@@ -2305,7 +2305,7 @@ pub(super) fn append(
         // The residual-land policy realizes public open space on the urban zone's own remainder, and
         // that share of the urban plan is not available to conversions (see `conversion_budget`).
         let residual_ratio =
-            conversion_budget::residual_open_space_ratio(style, scene).map_err(err)?;
+            conversion_budget::residual_landcover_ratio(style, scene).map_err(err)?;
         let mut account = UrbanAllocation::open(&staged, zones, residual_ratio);
         for site in &staged.roadside_sites {
             if site.purpose.as_deref() != Some(Conversion::URBAN) {

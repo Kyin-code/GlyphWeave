@@ -30,6 +30,16 @@ pub struct PhysicalCover {
     pub field_headland_m2: f64,
     pub farm_tracks_m2: f64,
     pub conservation_ground_m2: f64,
+    /// Opt-in complete-ground background surfaces. Absent (and therefore not
+    /// serialized) for legacy worlds, so their ledger bytes stay unchanged.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub ground_cover_m2: f64,
+    /// Terrain bed owned by authored water bodies in the complete-ground pass.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub water_surface_m2: f64,
+}
+fn is_zero_f64(value: &f64) -> bool {
+    *value == 0.
 }
 impl PhysicalCover {
     pub fn total(&self) -> f64 {
@@ -43,6 +53,8 @@ impl PhysicalCover {
             + self.field_headland_m2
             + self.farm_tracks_m2
             + self.conservation_ground_m2
+            + self.ground_cover_m2
+            + self.water_surface_m2
     }
     pub fn transport(&self) -> f64 {
         self.roads_m2 + self.farm_tracks_m2
@@ -183,20 +195,31 @@ pub fn residual_audit(
                 ) => true,
                 (
                     development::LandcoverRole::FutureDevelopment,
-                    landcover::Material::PublicOpenSpace,
+                    landcover::Material::PublicOpenSpace
+                    | landcover::Material::UrbanVacantGround
+                    | landcover::Material::WaterSurface,
                 ) => true,
                 (
                     development::LandcoverRole::AgricultureCandidate,
                     landcover::Material::PastureGround
                     | landcover::Material::CultivatedSoil
                     | landcover::Material::FieldHeadland
-                    | landcover::Material::FarmTrack,
+                    | landcover::Material::FarmTrack
+                    | landcover::Material::RuralMeadow
+                    | landcover::Material::RuralWoodlandFloor
+                    | landcover::Material::RuralRoughGround
+                    | landcover::Material::WaterSurface,
                 ) => true,
                 (
                     development::LandcoverRole::ConservationCandidate,
                     landcover::Material::ConservationGround
                     | landcover::Material::ConservationForestFloor
-                    | landcover::Material::ConservationWetland,
+                    | landcover::Material::ConservationWetland
+                    | landcover::Material::WaterSurface,
+                ) => true,
+                (
+                    development::LandcoverRole::Unmanaged,
+                    landcover::Material::UnassignedGround | landcover::Material::WaterSurface,
                 ) => true,
                 _ => false,
             };
@@ -762,6 +785,12 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
             Material::ConservationGround
             | Material::ConservationForestFloor
             | Material::ConservationWetland => row.physical.conservation_ground_m2 += size,
+            Material::RuralMeadow
+            | Material::RuralWoodlandFloor
+            | Material::RuralRoughGround
+            | Material::UrbanVacantGround
+            | Material::UnassignedGround => row.physical.ground_cover_m2 += size,
+            Material::WaterSurface => row.physical.water_surface_m2 += size,
         }
     }
     for (id, size) in source_totals {
@@ -914,8 +943,9 @@ mod tests {
         assert_eq!(ledger.by_purpose["nature"].unresolved_m2, 0.);
         assert!((ledger.realized_m2 + ledger.unresolved_m2 - 384. * 256.).abs() < EPS);
         let old = crate::worldgen::plan_landuse_budget(&scene, &profile);
-        let developed =
-            ledger.by_purpose["urban"].realized_m2 + ledger.by_purpose["rural"].realized_m2;
+        let developed = ledger.by_purpose["urban"].realized_m2
+            + ledger.by_purpose["rural"].realized_m2
+            + ledger.by_purpose["nature"].realized_m2;
         assert!((old.assigned_m2 - developed).abs() < EPS);
         // Conservation coverage is a separate natural realization introduced
         // by this ledger revision and was intentionally absent from r25.
@@ -1673,6 +1703,7 @@ mod tests {
             residual_program: Some(super::super::residual_land::SceneResidualProgram {
                 urban_open_space_ratio: Some(0.1),
                 rural_pasture_ratio: Some(0.2),
+                coverage: None,
             }),
         };
         let surfaces = landcover::SurfaceRealization {

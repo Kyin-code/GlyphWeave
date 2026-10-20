@@ -60,6 +60,19 @@ pub enum Material {
     ConservationGround,
     ConservationForestFloor,
     ConservationWetland,
+    /// Complete-ground baseline: low-slope rural meadow, woodland floor,
+    /// steep rough ground, urban vacant ground and unassigned ground. These
+    /// are real terrain-conforming meshes, not the existing purpose claim.
+    RuralMeadow,
+    RuralWoodlandFloor,
+    RuralRoughGround,
+    UrbanVacantGround,
+    UnassignedGround,
+    /// The terrain bed under an authored water body. The water surface itself
+    /// is a separate renderer layer; this material exists so the land ledger
+    /// can account for the bed as an owned physical surface without inventing a
+    /// second water mesh.
+    WaterSurface,
 }
 // Preserve the public type paths while moving ecology ownership out of surfaces.
 pub use super::ecology::{EcologyClassSummary, EcologyCommunity, EcologyPlant, EcologyRealization};
@@ -92,6 +105,13 @@ pub struct SurfaceAudit {
     pub pasture_area_m2: f64,
     #[serde(default)]
     pub conservation_ground_area_m2: f64,
+    /// Complete-ground baseline surfaces (meadow / woodland floor / rough
+    /// ground / urban vacant / unassigned). Additive: absent in legacy reports.
+    #[serde(default)]
+    pub ground_cover_area_m2: f64,
+    /// Terrain bed under authored water bodies. Additive as above.
+    #[serde(default)]
+    pub water_surface_area_m2: f64,
     /// Residual ratios the source left unstated, named in a fixed order. The
     /// residual-land consumer's default (`residual_land::ABSENT_RATIO_DEFAULT`,
     /// zero) applied to each of them, so the effective policy is fully readable
@@ -845,11 +865,279 @@ pub fn realize(
         }
     }
     trace("residual-land");
+    if plan
+        .residual_program
+        .as_ref()
+        .is_some_and(super::residual_land::SceneResidualProgram::complete_ground)
+    {
+        let baseline =
+            complete_ground_surfaces(scene, plan, terrain, water, &result.patches)?;
+        result.patches.extend(baseline);
+    }
+    trace("complete-ground");
     result.ecology = super::ecology::realize(scene, &result.patches, terrain, water, entities)?;
     trace("ecology");
 
     result.agriculture = agriculture;
     Ok(result)
+}
+
+fn bit_set(bits: &mut [u64], index: usize) {
+    bits[index / 64] |= 1_u64 << (index % 64);
+}
+
+fn bit_get(bits: &[u64], index: usize) -> bool {
+    bits[index / 64] & (1_u64 << (index % 64)) != 0
+}
+
+/// Opt-in complete-ground background pass.
+///
+/// It covers every square metre of the non-yard source cells that no earlier
+/// pass already owns. Existing meshes are rasterized into a one-bit-per-metre
+/// occupancy map first, so the baseline can never double-credit or z-fight an
+/// accepted yard/field/open-space/conservation patch. The pass deliberately
+/// groups uncovered run-lengths into at most 32 m quads: the result is a coarse
+/// terrain-conforming ground layer, not a claim about every square metre's
+/// biome. Material is chosen from the final terrain (slope) and the authored
+/// water body; the landform-conditioned ecology interface is a later C hook.
+fn complete_ground_surfaces(
+    scene: &SceneSpec,
+    plan: &LandcoverPlan,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    existing: &[SurfacePatch],
+) -> Result<Vec<SurfacePatch>, String> {
+    let width = i64::from(scene.width_m);
+    let depth = i64::from(scene.depth_m);
+    if width <= 0 || depth <= 0 {
+        return Err("complete ground requires a nonempty scene".into());
+    }
+    let cells = (width * depth) as usize;
+    let mut covered = vec![0_u64; cells.div_ceil(64)];
+    let mark = |covered: &mut [u64], x: f64, z: f64| -> Result<(), String> {
+        let lx = x.floor() as i64 - i64::from(scene.origin_x);
+        let lz = z.floor() as i64 - i64::from(scene.origin_z);
+        if lx < 0 || lz < 0 || lx >= width || lz >= depth {
+            return Ok(());
+        }
+        bit_set(covered, (lz * width + lx) as usize);
+        Ok(())
+    };
+    for patch in existing {
+        if patch.vertices.len() >= 4 && patch.vertices.len() % 4 == 0 {
+            for square in patch.vertices.chunks_exact(4) {
+                let min_x = square.iter().map(|v| v[0]).fold(f64::INFINITY, f64::min);
+                let max_x = square
+                    .iter()
+                    .map(|v| v[0])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let min_z = square.iter().map(|v| v[2]).fold(f64::INFINITY, f64::min);
+                let max_z = square
+                    .iter()
+                    .map(|v| v[2])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let x0 = min_x.floor() as i64;
+                let x1 = max_x.ceil() as i64;
+                let z0 = min_z.floor() as i64;
+                let z1 = max_z.ceil() as i64;
+                for z in z0..z1 {
+                    for x in x0..x1 {
+                        mark(&mut covered, x as f64, z as f64)?;
+                    }
+                }
+            }
+        } else {
+            // Clipped yard polygons are not quads. They never belong to a
+            // baseline cell (yards are excluded below), but mark their bounding
+            // box conservatively so an unusual future pass cannot be crossed.
+            let min_x = patch
+                .vertices
+                .iter()
+                .map(|v| v[0])
+                .fold(f64::INFINITY, f64::min);
+            let max_x = patch
+                .vertices
+                .iter()
+                .map(|v| v[0])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let min_z = patch
+                .vertices
+                .iter()
+                .map(|v| v[2])
+                .fold(f64::INFINITY, f64::min);
+            let max_z = patch
+                .vertices
+                .iter()
+                .map(|v| v[2])
+                .fold(f64::NEG_INFINITY, f64::max);
+            for z in min_z.floor() as i64..max_z.ceil() as i64 {
+                for x in min_x.floor() as i64..max_x.ceil() as i64 {
+                    mark(&mut covered, x as f64, z as f64)?;
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for cell in plan
+        .cells
+        .iter()
+        .filter(|cell| cell.role != LandcoverRole::ManagedYard)
+    {
+        let x0 = cell.boundary.x;
+        let x1 = x0 + i64::from(cell.boundary.width_m);
+        let z0 = cell.boundary.z;
+        let z1 = z0 + i64::from(cell.boundary.depth_m);
+        if x1 <= x0 || z1 <= z0 {
+            continue;
+        }
+        // A run is (start x, end x, is water). Runs are merged vertically while
+        // all three keys stay identical; a change closes the previous rectangle.
+        type Run = (i64, i64, bool);
+        let mut active: BTreeMap<Run, i64> = BTreeMap::new();
+        for z in z0..z1 {
+            let mut row: Vec<Run> = Vec::new();
+            let mut x = x0;
+            while x < x1 {
+                let lx = x - i64::from(scene.origin_x);
+                let lz = z - i64::from(scene.origin_z);
+                let inside = lx >= 0 && lz >= 0 && lx < width && lz < depth;
+                if !inside || bit_get(&covered, (lz * width + lx) as usize) {
+                    x += 1;
+                    continue;
+                }
+                let wet = water.intersects_axis_aligned(
+                    x as f64 + 0.5,
+                    z as f64 + 0.5,
+                    0.5,
+                    0.5,
+                );
+                let start = x;
+                x += 1;
+                while x < x1 {
+                    let lx = x - i64::from(scene.origin_x);
+                    let lz = z - i64::from(scene.origin_z);
+                    let inside = lx >= 0 && lz >= 0 && lx < width && lz < depth;
+                    if !inside || bit_get(&covered, (lz * width + lx) as usize) {
+                        break;
+                    }
+                    let next_wet = water.intersects_axis_aligned(
+                        x as f64 + 0.5,
+                        z as f64 + 0.5,
+                        0.5,
+                        0.5,
+                    );
+                    if next_wet != wet {
+                        break;
+                    }
+                    x += 1;
+                }
+                row.push((start, x, wet));
+            }
+            let closing: Vec<Run> = active
+                .keys()
+                .copied()
+                .filter(|run| !row.contains(run))
+                .collect();
+            for run in closing {
+                let start_z = active.remove(&run).expect("active run");
+                emit_ground_rect(cell, run, start_z, z, terrain, scene, &mut out)?;
+            }
+            for run in row {
+                active.entry(run).or_insert(z);
+            }
+        }
+        for (run, start_z) in active {
+            emit_ground_rect(cell, run, start_z, z1, terrain, scene, &mut out)?;
+        }
+    }
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_ground_rect(
+    cell: &development::LandcoverCell,
+    run: (i64, i64, bool),
+    z0: i64,
+    z1: i64,
+    terrain: &BakedTerrain,
+    scene: &SceneSpec,
+    out: &mut Vec<SurfacePatch>,
+) -> Result<(), String> {
+    let (x0, x1, wet) = run;
+    if x1 <= x0 || z1 <= z0 {
+        return Ok(());
+    }
+    // Bound each quad to 32 m so the coarse layer follows rolling terrain
+    // instead of spanning a whole 500 m cell with one plane.
+    const MAX_SPAN: i64 = 32;
+    let mut z = z0;
+    while z < z1 {
+        let b = (z + MAX_SPAN).min(z1);
+        let mut x = x0;
+        while x < x1 {
+            let r = (x + MAX_SPAN).min(x1);
+            let h00 = terrain_height(terrain, [x as f64, z as f64])?;
+            let h01 = terrain_height(terrain, [x as f64, b as f64])?;
+            let h11 = terrain_height(terrain, [r as f64, b as f64])?;
+            let h10 = terrain_height(terrain, [r as f64, z as f64])?;
+            let material = if wet {
+                Material::WaterSurface
+            } else {
+                let min_h = h00.min(h01).min(h11).min(h10);
+                let max_h = h00.max(h01).max(h11).max(h10);
+                let span = (r - x).min(b - z).max(1) as f64;
+                let grade = (max_h - min_h) / span;
+                match cell.role {
+                    LandcoverRole::FutureDevelopment => Material::UrbanVacantGround,
+                    LandcoverRole::AgricultureCandidate => {
+                        if grade <= 0.12 {
+                            Material::RuralMeadow
+                        } else if grade <= 0.35 {
+                            Material::RuralWoodlandFloor
+                        } else {
+                            Material::RuralRoughGround
+                        }
+                    }
+                    LandcoverRole::ConservationCandidate => {
+                        if grade < 0.04 && min_h < 1.0 {
+                            Material::ConservationWetland
+                        } else if grade < 0.18 {
+                            Material::ConservationForestFloor
+                        } else {
+                            Material::ConservationGround
+                        }
+                    }
+                    LandcoverRole::Unmanaged => Material::UnassignedGround,
+                    LandcoverRole::ManagedYard => return Ok(()),
+                }
+            };
+            let mut patch = SurfacePatch {
+                id: format!("{}.ground.{}.{}", cell.id, x, z),
+                source_cell_id: cell.id.clone(),
+                parcel_id: cell.id.clone(),
+                zone_kind: cell.zone_kind.clone(),
+                material,
+                area_m2: 0.,
+                vertices: Vec::new(),
+                triangles: Vec::new(),
+            };
+            let polygon = [
+                [x as f64, z as f64],
+                [r as f64, z as f64],
+                [r as f64, b as f64],
+                [x as f64, b as f64],
+            ];
+            append(&mut patch, &polygon, |p| terrain_height(terrain, p))?;
+            if patch.area_m2 > EPS {
+                out.push(patch);
+            }
+            x = r;
+        }
+        z = b;
+    }
+    let _ = scene;
+    Ok(())
 }
 pub(super) fn mesh_area(p: &SurfacePatch) -> Result<f64, String> {
     let mut area = 0.;
@@ -965,6 +1253,7 @@ pub fn verify(
     let mut paved = 0.;
     let (mut cultivated, mut headland, mut tracks, mut conservation) = (0., 0., 0., 0.);
     let (mut public_open_space, mut pasture) = (0., 0.);
+    let (mut ground_cover, mut water_surface) = (0., 0.);
     for p in &actual.patches {
         match p.material {
             Material::ManagedGrass => grass += mesh_area(p)?,
@@ -977,6 +1266,12 @@ pub fn verify(
             Material::ConservationGround
             | Material::ConservationForestFloor
             | Material::ConservationWetland => conservation += mesh_area(p)?,
+            Material::RuralMeadow
+            | Material::RuralWoodlandFloor
+            | Material::RuralRoughGround
+            | Material::UrbanVacantGround
+            | Material::UnassignedGround => ground_cover += mesh_area(p)?,
+            Material::WaterSurface => water_surface += mesh_area(p)?,
         }
     }
     if (cultivated
@@ -1004,8 +1299,14 @@ pub fn verify(
     // Keep realizedAreaM2 compatible with the pre-r28 yard/agriculture
     // contract. Nature coverage is reported separately and accounted by the
     // purpose ledger; it must not change yard-area assertions.
-    let realized =
-        yard_realized + cultivated + headland + tracks + public_open_space + pasture;
+    let realized = yard_realized
+        + cultivated
+        + headland
+        + tracks
+        + public_open_space
+        + pasture
+        + ground_cover
+        + water_surface;
     let yard_source_ids: BTreeMap<_, _> = plan
         .cells
         .iter()
@@ -1075,6 +1376,8 @@ pub fn verify(
         public_open_space_area_m2: public_open_space,
         pasture_area_m2: pasture,
         conservation_ground_area_m2: conservation,
+        ground_cover_area_m2: ground_cover,
+        water_surface_area_m2: water_surface,
         residual_defaulted_ratios: plan
             .residual_program
             .as_ref()
@@ -1730,6 +2033,7 @@ mod tests {
         p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
             urban_open_space_ratio: Some(0.1),
             rural_pasture_ratio: None,
+            coverage: None,
         });
         let out = realize(&s, &d, &p, &t, w, &e).unwrap();
         let open: f64 = out
@@ -1744,6 +2048,49 @@ mod tests {
         assert!(audit.unresolved_area_m2 > 0.);
     }
 
+    #[test]
+    fn complete_ground_closes_every_non_yard_cell_without_double_claiming() {
+        let (s, d, mut p, t, w, e) = fixture();
+        p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
+            urban_open_space_ratio: Some(0.1),
+            rural_pasture_ratio: None,
+            coverage: Some(super::super::residual_land::COMPLETE_GROUND.into()),
+        });
+        let out = realize(&s, &d, &p, &t, w, &e).unwrap();
+        let audit = verify(&out, &s, &d, &p, &t, w, &e).unwrap();
+        assert_eq!(audit.status, "pass", "{audit:#?}");
+        assert!(audit.unresolved_area_m2 <= 1e-7);
+        assert!(audit.ground_cover_area_m2 > 0.);
+        assert!(audit.public_open_space_area_m2 > 0.);
+
+        // The baseline may not overlap an earlier patch: the independent
+        // reconstruction is byte-identical and the baseline area closes the
+        // non-yard plan exactly, with no duplicate patch identity.
+        let non_yard: BTreeMap<&str, i64> = p
+            .cells
+            .iter()
+            .filter(|cell| cell.role != LandcoverRole::ManagedYard)
+            .map(|cell| (cell.id.as_str(), cell.boundary.area() as i64))
+            .collect();
+        let mut ids = std::collections::BTreeSet::new();
+        let mut area = 0.;
+        for patch in &out.patches {
+            if !non_yard.contains_key(patch.source_cell_id.as_str()) {
+                continue;
+            }
+            assert!(ids.insert(patch.id.as_str()), "duplicate patch id");
+            area += mesh_area(patch).unwrap();
+        }
+        assert!(
+            (area - non_yard.values().sum::<i64>() as f64).abs() < 1e-7,
+            "baseline area {area} does not close the non-yard plan"
+        );
+
+        let residual = super::super::landuse_ledger::residual_audit(&p, &out).unwrap();
+        assert_eq!(residual.status, "pass", "{residual:#?}");
+        assert!(residual.unresolved_m2 <= 1e-7);
+    }
+
     /// The public-space share on its own is enough: no pasture share is stated,
     /// the named default (0) applies, and the realized public open space enters
     /// the same area accounting as every other material.
@@ -1753,6 +2100,7 @@ mod tests {
         p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
             urban_open_space_ratio: Some(0.1),
             rural_pasture_ratio: None,
+            coverage: None,
         });
         let out = realize(&s, &d, &p, &t, w, &e).unwrap();
         let areas = |material: Material| -> f64 {
@@ -1838,6 +2186,7 @@ mod tests {
         p.residual_program = Some(super::super::residual_land::SceneResidualProgram {
             urban_open_space_ratio: Some(0.1),
             rural_pasture_ratio: None,
+            coverage: None,
         });
         // A lake over the west half of the scene. The first open-space square
         // the generator would otherwise claim is then occupied by a solid tree,
@@ -1958,6 +2307,15 @@ pub fn apply_evidence(development: &mut development::DevelopmentAudit, surface: 
         development
             .incomplete_reasons
             .retain(|r| r != "yard_reserved_but_landcover_not_realized");
+    }
+    // The development audit sees the geometric remainder before surfaces are
+    // realized. Once the opt-in complete-ground pass has covered every source
+    // cell, that remainder is planned and owned by real meshes, so the named
+    // "no plan" reason is retired - never merely by setting a status.
+    if surface.unresolved_area_m2 <= 1e-7 {
+        development
+            .incomplete_reasons
+            .retain(|r| r != "remaining_land_has_no_development_or_conservation_plan");
     }
     development.status = if !development.failures.is_empty() {
         "fail"

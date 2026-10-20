@@ -1687,8 +1687,17 @@ async function drawNear(buildToken) {
       // Pavement patches only account for clipped areas of the existing
       // accessSurfaces mesh: drawing them again would create z-fighting.
       if(patch.material==='access_pavement') continue
-      const palette={managed_grass:0x65804a,cultivated_soil:0x79603d,field_headland:0xa1946c,farm_track:0x958576,conservation_ground:0x466b55,conservation_forest_floor:0x355b42,conservation_wetland:0x527b67}
-      if(!(patch.material in palette)) throw new Error('Unsupported landcover material')
+      const palette={
+        managed_grass:0x65804a,access_pavement:0x99938a,public_open_space:0x7f9a62,
+        pasture_ground:0x8fa65f,cultivated_soil:0x79603d,field_headland:0xa1946c,
+        farm_track:0x958576,conservation_ground:0x466b55,
+        conservation_forest_floor:0x355b42,conservation_wetland:0x527b67,
+        rural_meadow:0x6f8c4f,rural_woodland_floor:0x496b4a,
+        rural_rough_ground:0x777264,urban_vacant_ground:0x7d8a5d,
+        unassigned_ground:0x6c7361,water_surface:0x365e6d
+      }
+      const landcoverColor=palette[patch.material]
+      if(landcoverColor===undefined){console.warn('unknown landcover material; using neutral ground',patch.material)}
       const vertices=patch.vertices
       if(!verticesOverlapChunks(vertices,activeChunks)) continue
       const key='landcover:'+patch.id
@@ -1697,7 +1706,7 @@ async function drawNear(buildToken) {
         const geometry=new THREE.BufferGeometry()
         geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices.flat(),3))
         geometry.setIndex(patch.triangles.flat());geometry.computeVertexNormals()
-        mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:palette[patch.material],roughness:1,metalness:0,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}))
+        mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:landcoverColor??0x6b7d5a,roughness:1,metalness:0,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}))
         mesh.name=key;mesh.receiveShadow=true;mesh.userData.landcoverMaterial=patch.material
         entityMeshCache.set(key,mesh)
       }

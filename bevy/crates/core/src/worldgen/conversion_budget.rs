@@ -163,6 +163,25 @@ pub fn residual_open_space_ratio(style: &serde_json::Value, scene: &SceneSpec) -
         .clamp(0.0, 1.0))
 }
 
+/// The share of urban land the residual-land consumer will own: the public
+/// open-space share for the legacy policy, or the whole urban remainder when
+/// the opt-in complete-ground baseline is enabled.
+pub fn residual_landcover_ratio(
+    style: &serde_json::Value,
+    scene: &SceneSpec,
+) -> Result<f64, String> {
+    Ok(crate::settlement::residual_land::for_scene(style, scene)?
+        .map(|program| {
+            if program.complete_ground() {
+                1.0
+            } else {
+                program.urban_open_space_ratio()
+            }
+        })
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0))
+}
+
 /// Urban land the residual-land policy may still realize as public open space inside the urban
 /// zones: at most `ratio` of the unplanned urban land, and therefore at most `ratio` of the plan.
 pub fn residual_landcover_m2(planned_m2: i64, ratio: f64) -> i64 {

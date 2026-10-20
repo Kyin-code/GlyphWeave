@@ -2816,7 +2816,7 @@ pub(super) fn plan_with_style_declared(
             // the residual-land policy here: a plan with the switch off keeps its exact bytes and its
             // exact failure order.
             if pad_conversion.is_explicit() {
-                super::conversion_budget::residual_open_space_ratio(style, scene)
+                super::conversion_budget::residual_landcover_ratio(style, scene)
                     .map_err(TerrainError)?
             } else {
                 0.0

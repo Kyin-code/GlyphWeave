@@ -1134,7 +1134,10 @@ pub fn plan_landuse_budget(scene: &SceneIndex, profile: &LandUseProfile) -> Land
                         .landcover_surfaces
                         .as_ref()
                         .map_or(0., |s| landcover::area_by_zone(s, "rural")),
-                0.,
+                scene
+                    .landcover_surfaces
+                    .as_ref()
+                    .map_or(0., |s| landcover::area_by_zone(s, "nature")),
                 owned.road_m2 as f64
                     + scene
                         .landcover_surfaces
