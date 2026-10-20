@@ -169,6 +169,25 @@ pub struct Program {
     pub processes: Vec<Process>,
     #[serde(default)]
     pub evidence: Option<Value>,
+    #[serde(default)]
+    pub derivation_mode: Option<String>,
+    #[serde(default)]
+    pub derivation_seed: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SketchProgram {
+    pub version: u32,
+    pub mode: String,
+    pub setting: String,
+    pub regional_relief_m: f32,
+    #[serde(default)]
+    pub climate_band: Option<String>,
+    #[serde(default)]
+    pub derivation_seed: Option<u64>,
+    #[serde(default)]
+    pub hints: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -206,6 +225,8 @@ pub struct Plan {
     pub controls: PlanControls,
     pub sequence: Vec<String>,
     pub evidence: Option<Value>,
+    pub derivation_mode: String,
+    pub derivation_seed: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -244,6 +265,13 @@ pub fn from_style(style: &Value) -> Result<Option<Program>, String> {
     let Some(value) = style.get("naturalGeography") else {
         return Ok(None);
     };
+    if value.get("mode").and_then(Value::as_str) == Some("derived") {
+        let sketch: SketchProgram =
+            serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+        let program = derive_program(&sketch)?;
+        validate(&program)?;
+        return Ok(Some(program));
+    }
     let program: Program =
         serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     validate(&program)?;
@@ -284,10 +312,7 @@ pub fn compile(style: &Value) -> Result<Option<Plan>, String> {
         "biome-and-hazard-field".into(),
         "natural-only-heightfield".into(),
     ];
-    sequence.splice(
-        4..5,
-        processes.iter().map(|process| process.kind.clone()),
-    );
+    sequence.splice(4..5, processes.iter().map(|process| process.kind.clone()));
     Ok(Some(Plan {
         format: "glyphweave.natural-geography-plan".into(),
         version: 1,
@@ -349,7 +374,305 @@ pub fn compile(style: &Value) -> Result<Option<Plan>, String> {
         },
         sequence,
         evidence: program.evidence,
+        derivation_mode: program
+            .derivation_mode
+            .clone()
+            .unwrap_or_else(|| "authored".into()),
+        derivation_seed: program.derivation_seed,
     }))
+}
+
+fn derive_program(sketch: &SketchProgram) -> Result<Program, String> {
+    if sketch.version != 1
+        || sketch.mode != "derived"
+        || sketch.setting.trim().is_empty()
+        || !(50.0..=4000.0).contains(&sketch.regional_relief_m)
+    {
+        return Err("invalid naturalGeography derivation sketch".into());
+    }
+    const SETTINGS: [&str; 12] = [
+        "coastal-mountain",
+        "coastal-bay",
+        "island",
+        "river-delta",
+        "ria-bay",
+        "inland-basin",
+        "inland-steppe",
+        "plateau-basin",
+        "fold-mountain",
+        "rift-valley",
+        "volcanic-island",
+        "tidal-flat",
+    ];
+    if !SETTINGS.contains(&sketch.setting.as_str()) {
+        return Err("unsupported naturalGeography setting".into());
+    }
+    let seed = sketch
+        .derivation_seed
+        .unwrap_or_else(|| stable_hash(&sketch.setting));
+    let unit = |salt: &str| stable_unit(seed, salt);
+    let climate_band = sketch.climate_band.clone().unwrap_or_else(|| {
+        match sketch.setting.as_str() {
+            "inland-steppe" => "cold-semi-arid",
+            "inland-basin" => "continental",
+            "plateau-basin" | "fold-mountain" => "highland",
+            "tidal-flat" | "river-delta" => "humid-subtropical",
+            _ => "temperate-maritime",
+        }
+        .into()
+    });
+    if !matches!(
+        climate_band.as_str(),
+        "humid-subtropical"
+            | "temperate-maritime"
+            | "cold-semi-arid"
+            | "arid"
+            | "tropical-monsoon"
+            | "highland"
+            | "continental"
+    ) {
+        return Err("unsupported naturalGeography climateBand".into());
+    }
+    let monsoon = matches!(
+        climate_band.as_str(),
+        "humid-subtropical" | "tropical-monsoon"
+    );
+    let (wind_base, rainfall_base, seasonality) = match climate_band.as_str() {
+        "humid-subtropical" => (120.0, 0.66, 0.45),
+        "temperate-maritime" => (250.0, 0.58, 0.34),
+        "cold-semi-arid" => (315.0, 0.22, 0.86),
+        "arid" => (280.0, 0.10, 0.72),
+        "tropical-monsoon" => (135.0, 0.82, 0.52),
+        "highland" => (180.0, 0.38, 0.68),
+        _ => (210.0, 0.46, 0.62),
+    };
+    let coastal = matches!(
+        sketch.setting.as_str(),
+        "coastal-mountain"
+            | "coastal-bay"
+            | "island"
+            | "river-delta"
+            | "ria-bay"
+            | "volcanic-island"
+            | "tidal-flat"
+    );
+    let coast_type = match sketch.setting.as_str() {
+        "coastal-mountain" => "ria-coast",
+        "coastal-bay" => "bay",
+        "island" => "rocky-island",
+        "river-delta" => "delta",
+        "ria-bay" => "ria-bay",
+        "volcanic-island" => "volcanic-island",
+        "tidal-flat" => "tidal-flat",
+        _ => "none",
+    };
+    let wave_exposure = match coast_type {
+        "none" => "none",
+        "bay" | "ria-bay" | "tidal-flat" | "delta" => "sheltered",
+        "rocky-island" | "volcanic-island" => "exposed",
+        _ => "moderate",
+    };
+    let (drainage_pattern, hydrology_regime, wetland_bias, channel_shift) =
+        match sketch.setting.as_str() {
+            "inland-steppe" => ("endorheic", "endorheic-ephemeral", 0.10, 24.0),
+            "inland-basin" | "plateau-basin" => ("endorheic", "endorheic-ephemeral", 0.18, 80.0),
+            "river-delta" | "tidal-flat" => ("anastomosing", "tidal", 0.72, 620.0),
+            "coastal-mountain" | "fold-mountain" | "rift-valley" => {
+                ("dendritic", "perennial", 0.30, 280.0)
+            }
+            _ => ("dendritic", "perennial", 0.38, 180.0),
+        };
+    let karst = sketch
+        .hints
+        .as_ref()
+        .and_then(|hints| hints.get("karst"))
+        .and_then(Value::as_bool)
+        .unwrap_or(
+            matches!(
+                sketch.setting.as_str(),
+                "coastal-mountain" | "plateau-basin"
+            ) && unit("karst") > 0.58,
+        );
+    let aeolian = matches!(sketch.setting.as_str(), "inland-steppe") || rainfall_base < 0.2;
+    let glacial = sketch
+        .hints
+        .as_ref()
+        .and_then(|hints| hints.get("glacial"))
+        .and_then(Value::as_bool)
+        .unwrap_or(
+            matches!(sketch.setting.as_str(), "fold-mountain" | "inland-basin")
+                && unit("glacial") > 0.74,
+        );
+    let incised_valleys = if matches!(
+        sketch.setting.as_str(),
+        "coastal-mountain" | "fold-mountain" | "rift-valley"
+    ) {
+        0.62 + unit("incision") as f32 * 0.22
+    } else {
+        0.22 + unit("incision") as f32 * 0.20
+    };
+    let uplift_bias = if matches!(
+        sketch.setting.as_str(),
+        "coastal-mountain" | "fold-mountain" | "plateau-basin"
+    ) {
+        0.58 + unit("uplift") as f32 * 0.30
+    } else if matches!(sketch.setting.as_str(), "river-delta" | "tidal-flat") {
+        0.10 + unit("uplift") as f32 * 0.18
+    } else {
+        0.20 + unit("uplift") as f32 * 0.28
+    };
+    let orogeny_axis_deg = match sketch.setting.as_str() {
+        "coastal-mountain" | "fold-mountain" => 20.0,
+        "rift-valley" => 0.0,
+        "inland-steppe" => 85.0,
+        _ => 35.0,
+    } + (unit("axis") * 18.0 - 9.0) as f32;
+    let mut hazards = Vec::new();
+    if matches!(hydrology_regime, "perennial" | "tidal") {
+        hazards.push("flood".into());
+    }
+    if matches!(
+        sketch.setting.as_str(),
+        "coastal-mountain" | "fold-mountain" | "rift-valley"
+    ) {
+        hazards.push("landslide".into());
+    }
+    if coastal {
+        hazards.push("storm-surge".into());
+    }
+    if matches!(sketch.setting.as_str(), "fold-mountain" | "volcanic-island") {
+        hazards.push("earthquake".into());
+    }
+    if aeolian {
+        hazards.push("drought".into());
+        hazards.push("erosion".into());
+    }
+    if karst {
+        hazards.push("karst-collapse".into());
+    }
+    hazards.sort();
+    hazards.dedup();
+    Ok(Program {
+        version: 1,
+        setting: sketch.setting.clone(),
+        regional_relief_m: sketch.regional_relief_m,
+        orogeny_axis_deg,
+        uplift_bias,
+        coast: Coast {
+            coast_type: coast_type.into(),
+            wave_exposure: wave_exposure.into(),
+            trench: coastal && unit("trench") > 0.88 && sketch.setting == "coastal-mountain",
+            shelf_width_m: Some(if coastal {
+                900.0 + unit("shelf") as f32 * 6_000.0
+            } else {
+                0.0
+            }),
+            tidal_range_m: Some(
+                if matches!(sketch.setting.as_str(), "tidal-flat" | "river-delta") {
+                    2.0 + unit("tide") as f32 * 5.0
+                } else {
+                    0.4 + unit("tide") as f32 * 1.8
+                },
+            ),
+            erosion_bias: Some(if wave_exposure == "exposed" {
+                0.70
+            } else if wave_exposure == "sheltered" {
+                0.28
+            } else {
+                0.48
+            }),
+        },
+        climate: Climate {
+            band: climate_band.clone(),
+            prevailing_wind_deg: (wind_base + unit("wind") * 40.0 - 20.0) as f32,
+            monsoon,
+            rainfall_bias: (rainfall_base + unit("rain") * 0.12 - 0.06).clamp(0.0, 1.0) as f32,
+            seasonality: (seasonality + unit("season") * 0.12 - 0.06).clamp(0.0, 1.0) as f32,
+            rain_shadow: Some(if sketch.regional_relief_m >= 500.0 {
+                0.28 + unit("shadow") as f32 * 0.30
+            } else {
+                0.08 + unit("shadow") as f32 * 0.16
+            }),
+        },
+        hydrology: Hydrology {
+            regime: hydrology_regime.into(),
+            historic_channel_shift_m: (channel_shift + unit("shift") * 180.0) as f32,
+            wetland_bias: wetland_bias as f32,
+            drainage_pattern: Some(drainage_pattern.into()),
+            river_density: Some(if matches!(hydrology_regime, "endorheic-ephemeral") {
+                0.12 + unit("river-density") as f32 * 0.18
+            } else {
+                0.48 + unit("river-density") as f32 * 0.32
+            }),
+            channel_sinuosity: Some(if wetland_bias > 0.5 {
+                1.55 + unit("sinuosity") as f32 * 0.55
+            } else {
+                1.12 + unit("sinuosity") as f32 * 0.42
+            }),
+            floodplain_width_m: Some(if wetland_bias > 0.5 {
+                320.0 + unit("floodplain") as f32 * 900.0
+            } else {
+                60.0 + unit("floodplain") as f32 * 360.0
+            }),
+        },
+        landform: Landform {
+            karst,
+            aeolian,
+            glacial,
+            incised_valleys,
+            karst_strength: Some(if karst {
+                0.45 + unit("karst-strength") as f32 * 0.42
+            } else {
+                0.0
+            }),
+            aeolian_strength: Some(if aeolian {
+                0.45 + unit("aeolian-strength") as f32 * 0.42
+            } else {
+                0.0
+            }),
+            glacial_strength: Some(if glacial {
+                0.46 + unit("glacial-strength") as f32 * 0.40
+            } else {
+                0.0
+            }),
+            mass_wasting: Some(if hazards.iter().any(|hazard| hazard == "landslide") {
+                0.38 + unit("wasting") as f32 * 0.36
+            } else {
+                0.0
+            }),
+        },
+        hazards,
+        processes: Vec::new(),
+        evidence: Some(serde_json::json!({
+            "mode": "deterministic-derived",
+            "setting": sketch.setting,
+            "climateBand": climate_band,
+            "derivationSeed": seed,
+            "hints": sketch.hints,
+            "inferenceReason": "broad geography sketch expanded into deterministic tectonic, climatic, hydrologic and geomorphic controls"
+        })),
+        derivation_mode: Some("derived".into()),
+        derivation_seed: Some(seed),
+    })
+}
+
+fn stable_hash(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn stable_unit(seed: u64, salt: &str) -> f64 {
+    let mut value = seed ^ stable_hash(salt);
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^= value >> 31;
+    (value & 0x00ff_ffff) as f64 / 16_777_215.0
 }
 
 fn validate(program: &Program) -> Result<(), String> {
@@ -489,11 +812,7 @@ fn default_drainage_pattern(program: &Program) -> String {
 fn effective_processes(program: &Program) -> Vec<Process> {
     let mut processes = program.processes.clone();
     let mut add = |kind: &str, strength: f32, axis_deg: Option<f32>, note: &str| {
-        if strength > 0.01
-            && !processes
-                .iter()
-                .any(|process| process.kind == kind)
-        {
+        if strength > 0.01 && !processes.iter().any(|process| process.kind == kind) {
             processes.push(Process {
                 kind: kind.into(),
                 strength: strength.clamp(0.0, 1.0),
@@ -552,10 +871,7 @@ fn effective_processes(program: &Program) -> Vec<Process> {
         };
         add(
             "coastal-wave-erosion",
-            program
-                .coast
-                .erosion_bias
-                .unwrap_or(exposure),
+            program.coast.erosion_bias.unwrap_or(exposure),
             None,
             "coastal exposure controls wave erosion and cliff/beach formation",
         );
@@ -642,32 +958,31 @@ fn controls(program: &Program, processes: &[Process]) -> GeographyControls {
         .landform
         .glacial_strength
         .unwrap_or(if program.landform.glacial { 0.68 } else { 0.0 });
-    let river_density = program
-        .hydrology
-        .river_density
-        .unwrap_or_else(|| match program.hydrology.regime.as_str() {
+    let river_density = program.hydrology.river_density.unwrap_or_else(|| {
+        match program.hydrology.regime.as_str() {
             "perennial" | "monsoon-pulse" => 0.62,
             "endorheic-ephemeral" => 0.16,
             "tidal" => 0.78,
             _ => 0.48,
-        });
-    let channel_sinuosity = program
-        .hydrology
-        .channel_sinuosity
-        .unwrap_or(if program.hydrology.wetland_bias > 0.4 {
-            1.55
-        } else {
-            1.22
-        });
+        }
+    });
+    let channel_sinuosity =
+        program
+            .hydrology
+            .channel_sinuosity
+            .unwrap_or(if program.hydrology.wetland_bias > 0.4 {
+                1.55
+            } else {
+                1.22
+            });
     let floodplain_width_m = program
         .hydrology
         .floodplain_width_m
-        .unwrap_or((program.hydrology.historic_channel_shift_m * 0.8)
-            .clamp(40.0, 1800.0));
+        .unwrap_or((program.hydrology.historic_channel_shift_m * 0.8).clamp(40.0, 1800.0));
     let rain_shadow = program.climate.rain_shadow.unwrap_or_else(|| {
         ((program.regional_relief_m / 2500.0) * 0.45
             + if program.climate.monsoon { 0.15 } else { 0.0 })
-            .clamp(0.0, 0.72)
+        .clamp(0.0, 0.72)
     });
     GeographyControls {
         authored: true,
@@ -793,6 +1108,54 @@ mod tests {
     }
 
     #[test]
+    fn broad_sketch_derives_distinct_geographies_deterministically() {
+        let coastal = json!({
+            "naturalGeography": {
+                "version": 1,
+                "mode": "derived",
+                "setting": "coastal-mountain",
+                "regionalReliefM": 920,
+                "climateBand": "humid-subtropical",
+                "derivationSeed": 42
+            }
+        });
+        let steppe = json!({
+            "naturalGeography": {
+                "version": 1,
+                "mode": "derived",
+                "setting": "inland-steppe",
+                "regionalReliefM": 170,
+                "climateBand": "cold-semi-arid",
+                "derivationSeed": 42
+            }
+        });
+        let coastal = compile(&coastal).unwrap().unwrap();
+        let steppe = compile(&steppe).unwrap().unwrap();
+        assert_eq!(coastal.derivation_mode, "derived");
+        assert_eq!(coastal.derivation_seed, Some(42));
+        assert_eq!(coastal.drainage_pattern, "dendritic");
+        assert_eq!(steppe.drainage_pattern, "endorheic");
+        assert!(coastal.controls.channel_sinuosity > 1.0);
+        assert!(steppe.controls.aeolian_deposition > 0.0);
+        assert_ne!(coastal.controls.relief_scale, steppe.controls.relief_scale);
+        assert_eq!(
+            compile(&json!({
+                "naturalGeography": {
+                    "version": 1,
+                    "mode": "derived",
+                    "setting": "coastal-mountain",
+                    "regionalReliefM": 920,
+                    "climateBand": "humid-subtropical",
+                    "derivationSeed": 42
+                }
+            }))
+            .unwrap()
+            .unwrap(),
+            coastal
+        );
+    }
+
+    #[test]
     fn invalid_geography_fails_closed() {
         let mut bad = style();
         bad["naturalGeography"]["climate"]["rainfallBias"] = json!(1.5);
@@ -808,5 +1171,17 @@ mod tests {
         let mut drainage = style();
         drainage["naturalGeography"]["hydrology"]["drainagePattern"] = json!("grid");
         assert!(compile(&drainage).is_err());
+        let mut sketch = json!({
+            "naturalGeography": {
+                "version": 1,
+                "mode": "derived",
+                "setting": "unknown-world",
+                "regionalReliefM": 500
+            }
+        });
+        assert!(compile(&sketch).is_err());
+        sketch["naturalGeography"]["setting"] = json!("inland-basin");
+        sketch["naturalGeography"]["regionalReliefM"] = json!(0);
+        assert!(compile(&sketch).is_err());
     }
 }
