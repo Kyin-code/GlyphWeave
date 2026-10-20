@@ -38,11 +38,14 @@
 | 地貌生态接口 | `HabitatContext`/`HabitatSuitability` 纯函数 + 5 测试 | 接口完成，默认不改旧世界 |
 | C-E1 挡墙/涵洞 | 山城控制 232 挡墙 / 5 涵洞，status pass；gate 检查 retainingWorks | 首版 |
 | C-E2 工程后水文 | 自然 vs 最终 D8：87 changed flows / 5 raised terminals，status pass | 首版（路由完整性，不是洪泛模型） |
-| C-L1 许可 | Quaternius 建筑包、workerd-windows 两项仍未解析 | 未完成 |
-| C-V1/G1 | Godot 未运行；最大图工程版未跑 | 未完成 |
+| C-L1 许可 | workerd-windows 已按 Apache-2.0 记录；Quaternius 上游范围已缩小到本地 NOTICE 可证明的部分 | 部分完成 |
+| C-V1/G1 | HTML 战略图/2.5D 已实测；**最大图工程版 gate pass**；Godot 未运行 | C-G1 完成，C-V1 仅 HTML |
 
 ## 结论
 
 - **A 的当前最大图质量门已经 pass，且确定性重跑通过**；A 的偶发崩溃和浏览器长漫游仍开放。
 - **B 有了完整 512m 纵向切片和最大图 gate pass**，但 B-02 的 1km 沿路临街供给仍不闭合，因此 B 不能整体签收。
-- **C 已从“未实质开工”进入“首批自然/工程实现”**，但 C-L1/C-V1/C-G1 和最大图工程版仍未完成。
+- **C 核心已从“未实质开工”进入“自然/工程/水文闭环首批实现”**：最大图工程版
+  1,734 挡墙、734 改向节点、gate pass；C-G1 已关闭。C-L1 的 workerd 已解析、
+  Quaternius 仍有范围未完全证明；C-V1 的 Godot 未运行。按用户当前“渲染不做要求”，
+  HTML 预览已验收空置/loading 行为，Godot 留作发布前一次最小场景验收。
