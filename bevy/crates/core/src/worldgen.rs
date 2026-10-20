@@ -3291,9 +3291,18 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             serde_json::to_vec_pretty(&settlement_graph)?,
         )?;
         index.settlement_graph = Some(settlement_graph);
-        if let Some(profile) = super::settlement::morphology::resolve(&effective_style)
-            .map_err(WorldgenError::InvalidRules)?
-        {
+        let service_coverage_requested = effective_style
+            .get("serviceCoverage")
+            .and_then(serde_json::Value::as_str)
+            == Some("audit");
+        if service_coverage_requested {
+            let profile = super::settlement::morphology::resolve(&effective_style)
+                .map_err(WorldgenError::InvalidRules)?
+                .ok_or_else(|| {
+                    WorldgenError::InvalidRules(
+                        "serviceCoverage=audit requires a morphologyProfile".into(),
+                    )
+                })?;
             let coverage = super::settlement::service_coverage::audit(
                 &index.entities,
                 f64::from(profile.service_radius_m),

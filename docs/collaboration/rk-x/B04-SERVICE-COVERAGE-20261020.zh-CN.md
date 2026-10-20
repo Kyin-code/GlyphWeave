@@ -4,7 +4,7 @@
 
 ## 1. 控制
 
-- manifest：`examples/morphology/b04-village-field.manifest.json`
+- manifest：`examples/morphology/b04-village-field-coverage.manifest.json`
 - output：`bevy/work/rk-x/b04-service-coverage-20261020b/world/`
 - 生成：exit 0，debug 约 17s
 

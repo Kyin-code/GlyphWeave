@@ -28,7 +28,7 @@ impl Drop for TestDir {
 #[test]
 fn village_profile_radius_is_consumed_by_a_real_coverage_audit() {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../examples/morphology/b04-village-field.manifest.json");
+        .join("../../../examples/morphology/b04-village-field-coverage.manifest.json");
     let mut manifest: WorldManifest =
         serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(
