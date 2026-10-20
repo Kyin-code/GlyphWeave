@@ -2,8 +2,8 @@
 
 日期：2026-10-21
 
-状态：**调查进行中；24 个代表案例已有公开来源，其中 12 个完成首轮 OSM
-米制观测，另 24 个仍为机制筛选**
+状态：**调查进行中；34 个代表案例已有公开来源，其中 12 个完成首轮 OSM
+米制观测，另 14 个仍为机制筛选**
 
 上游设计：
 
@@ -40,9 +40,9 @@ node scripts/check-urban-core-measurements.mjs
 {
   "status": "pass",
   "cases": 48,
-  "sourceAuditedCases": 24,
-  "screenedCases": 24,
-  "sources": 45,
+  "sourceAuditedCases": 34,
+  "screenedCases": 14,
+  "sources": 65,
   "partialOsmWindows": 12
 }
 ```
@@ -53,11 +53,11 @@ node scripts/check-urban-core-measurements.mjs
 |---|---|---|
 | `source-audited-core-cut` | 至少两个不同发布者来源；能支持核心切面机制 | 代表性案例 |
 | `partial-osm-core-window` | 已有约 1km² 当前 OSM 道路、建筑覆盖和设施点观测 | 12 个代表案例 |
-| `screened-heuristic` | 已进入 48 案机制筛选，尚无逐案公开来源矩阵 | 24 案参数先验 |
+| `screened-heuristic` | 已进入 48 案机制筛选，尚无逐案公开来源矩阵 | 14 案参数先验 |
 | `measured-core-window` | 已定义米制 crop，并完成路网/地块/密度/市场等测量 | **尚无案例达到** |
 | `bake-calibrated` | 已用真实或合成控制世界完成烘焙对照 | **尚无 V3 案例达到** |
 
-本轮把 24 案提升到 `source-audited-core-cut`，其中前 12 案同时达到
+本轮把 34 案提升到 `source-audited-core-cut`，其中前 12 案同时达到
 `partial-osm-core-window`。没有案例被错误提升为完整的
 `measured-core-window`，因为地块、FAR、市场容量和网络时距仍未全部测量。
 
@@ -331,6 +331,27 @@ node scripts/check-urban-core-measurements.mjs
 它们尚未完成 1km² OSM 米制测量，因此保持 `source-audited-core-cut`，
 不带 `partial-osm-core-window` 标记。
 
+### 3.14 第三批欧洲来源审计
+
+第三批把剩余 10 个欧洲案例提升到双来源覆盖：
+
+| 案例 | 来源 A | 来源 B | 证据限制 |
+|---|---|---|---|
+| 伦敦 | [London Datastore](https://data.london.gov.uk/) | [UNESCO Westminster](https://whc.unesco.org/en/list/426/) | 伦敦规划页受反爬保护，暂用数据与遗产组合 |
+| 阿姆斯特丹 | [Urban development](https://www.amsterdam.nl/en/policy/urban-development/) | [Data Amsterdam](https://data.amsterdam.nl/) | 运河地块仍需实测 |
+| 柏林 | [Berlin urban development](https://www.berlin.de/sen/stadtentwicklung/) | [Berlin Open Data](https://daten.berlin.de/) | 分裂城市更新仍需历史档案 |
+| 苏黎世 | [Planning and Construction](https://www.stadt-zuerich.ch/de/planen-und-bauen.html) | [Open Data Zurich](https://data.stadt-zuerich.ch/) | 湖岸坡地仍需实测 |
+| 米兰 | [Urban planning and building](https://www.comune.milano.it/aree-tematiche/urbanistica-ed-edilizia) | [Milan open data](https://dati.comune.milano.it/) | 两站均通过阅读器访问 |
+| 罗马 | [Roma Open Data](https://dati.comune.roma.it/) | [UNESCO Historic Centre](https://whc.unesco.org/en/list/91/) | 规划控制与考古范围仍需细化 |
+| 巴塞罗那 | [Barcelona urbanism dataset API](https://opendata-ajuntament.barcelona.cat/data/api/action/package_search?q=urbanisme&rows=1) | [UNESCO Gaudí](https://whc.unesco.org/en/list/320/) | 还缺完整市政规划文档 |
+| 里斯本 | [Visit Lisboa](https://www.visitlisboa.com/) | [UNESCO Belém](https://whc.unesco.org/en/list/263/) | **缺官方市政规划来源，优先级最高** |
+| 斯德哥尔摩 | [Stockholm City](https://start.stockholm/en/) | [Stockholm Data Portal](https://dataportalen.stockholm.se/) | 岛屿核心仍需实测 |
+| 维也纳 | [Urban development](https://www.wien.gv.at/stadtentwicklung/) | [Vienna Open Data](https://data.wien.gv.at/) | Ring/公共住宅对照仍需实测 |
+
+这批案例只有两个不同发布者的来源入口，不代表已完成规划史、地块或密度测量。
+其中里斯本与巴塞罗那的官方规划材料覆盖明显弱于其他案例，不能用于高置信
+规划参数。
+
 ## 4. 首轮 1km² 米制观测
 
 测量脚本以命名核心锚点为中心，取面积约 1km² 的圆形当前 OSM 快照：
@@ -474,9 +495,9 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 
 ## 6. 仍未完成的证据工作
 
-### 6.1 24 个待补案例
+### 6.1 14 个待补案例
 
-`assets/data/urban-case-evidence.json` 已为全部 48 案登记状态。其余 24 案
+`assets/data/urban-case-evidence.json` 已为全部 48 案登记状态。其余 14 案
 目前只能是 `screened-heuristic`，不能用于声称官方密度、人口、路网或市场统计。
 
 ### 6.2 米制核心窗口
@@ -513,7 +534,7 @@ W0 继续按以下顺序推进：
 2. 使用官方开放数据/OSM 辅助测量道路、地块、建筑高度和设施；
 3. 每个数值分别标记 `observed`、`derived` 或 `heuristic`；
 4. 补齐市场专用来源；
-5. 将 24 个案例按地区逐批升级；
+5. 将 14 个案例按地区逐批升级；
 6. 只有通过来源 gate 后，才把参数写入生成 Manifest 或 Rust fixture。
 
 在这些工作完成前，V3 审核稿中的道路密度、FAR、市场和工程系数仍只能当作

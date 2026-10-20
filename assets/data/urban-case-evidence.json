@@ -7,7 +7,7 @@
     "caseUnit": "core-cut-not-whole-city",
     "minimumSourceCountForAuditedCase": 2,
     "minimumPublisherDiversity": 2,
-    "expectedSourceAuditedCases": 24,
+    "expectedSourceAuditedCases": 34,
     "expectedPartialOsmWindows": 12,
     "heuristicValuesMayBePromotedOnlyWithMeasuredStatus": true,
     "browserOrReaderAccessAccepted": true,
@@ -554,6 +554,262 @@
       ]
     },
     {
+      "id": "london-datastore",
+      "publisher": "Greater London Authority",
+      "title": "London Datastore",
+      "url": "https://data.london.gov.uk/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "London publishes municipal demographic, spatial and infrastructure datasets."
+      ]
+    },
+    {
+      "id": "unesco-westminster",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Palace of Westminster and Westminster Abbey",
+      "url": "https://whc.unesco.org/en/list/426/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/426/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The source records the Westminster political and religious monumental core."
+      ]
+    },
+    {
+      "id": "amsterdam-urban-development",
+      "publisher": "City of Amsterdam",
+      "title": "Urban development",
+      "url": "https://www.amsterdam.nl/en/policy/urban-development/",
+      "readerUrl": "https://r.jina.ai/http://www.amsterdam.nl/en/policy/urban-development/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-policy",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The municipality publishes urban-development policy and planning information."
+      ]
+    },
+    {
+      "id": "amsterdam-open-data",
+      "publisher": "Amsterdam Open Data",
+      "title": "Data Amsterdam",
+      "url": "https://data.amsterdam.nl/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Amsterdam publishes municipal spatial datasets."
+      ]
+    },
+    {
+      "id": "berlin-stadtentwicklung",
+      "publisher": "Berlin Senate Department for Urban Development",
+      "title": "Berlin urban development",
+      "url": "https://www.berlin.de/sen/stadtentwicklung/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The Senate department publishes urban-development and planning information."
+      ]
+    },
+    {
+      "id": "berlin-open-data",
+      "publisher": "Berlin Open Data",
+      "title": "Berlin Open Data",
+      "url": "https://daten.berlin.de/",
+      "readerUrl": "https://r.jina.ai/http://daten.berlin.de/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "Berlin publishes municipal open datasets for spatial analysis."
+      ]
+    },
+    {
+      "id": "zurich-planning",
+      "publisher": "City of Zurich",
+      "title": "Planning and Construction",
+      "url": "https://www.stadt-zuerich.ch/de/planen-und-bauen.html",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The city publishes planning and construction information."
+      ]
+    },
+    {
+      "id": "zurich-open-data",
+      "publisher": "Open Data Zurich",
+      "title": "Open Data Zurich",
+      "url": "https://data.stadt-zuerich.ch/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Zurich publishes municipal open datasets."
+      ]
+    },
+    {
+      "id": "milan-urban-planning",
+      "publisher": "Comune di Milano",
+      "title": "Urban planning and building",
+      "url": "https://www.comune.milano.it/aree-tematiche/urbanistica-ed-edilizia",
+      "readerUrl": "https://r.jina.ai/http://www.comune.milano.it/aree-tematiche/urbanistica-ed-edilizia",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-portal",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The municipal portal provides urban-planning and building information."
+      ]
+    },
+    {
+      "id": "milan-open-data",
+      "publisher": "Comune di Milano Open Data",
+      "title": "Milan open data portal",
+      "url": "https://dati.comune.milano.it/",
+      "readerUrl": "https://r.jina.ai/http://dati.comune.milano.it/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "Milan publishes municipal open datasets."
+      ]
+    },
+    {
+      "id": "rome-open-data",
+      "publisher": "Roma Capitale",
+      "title": "Open Data Roma Capitale",
+      "url": "https://dati.comune.roma.it/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Rome publishes municipal open datasets."
+      ]
+    },
+    {
+      "id": "unesco-rome",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Historic Centre of Rome",
+      "url": "https://whc.unesco.org/en/list/91/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/91/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The source records the historic centre and monumental heritage of Rome."
+      ]
+    },
+    {
+      "id": "barcelona-open-data-api",
+      "publisher": "Ajuntament de Barcelona",
+      "title": "Barcelona open-data urbanism search API",
+      "url": "https://opendata-ajuntament.barcelona.cat/data/api/action/package_search?q=urbanisme&rows=1",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-api",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Barcelona exposes machine-readable urbanism datasets through a public CKAN API."
+      ]
+    },
+    {
+      "id": "unesco-gaudi",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Works of Antoni Gaudi",
+      "url": "https://whc.unesco.org/en/list/320/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/320/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The source records Barcelona's internationally recognised architectural heritage."
+      ]
+    },
+    {
+      "id": "lisbon-tourism",
+      "publisher": "Visit Lisboa",
+      "title": "Visit Lisboa",
+      "url": "https://www.visitlisboa.com/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-tourism-source",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The regional tourism source documents Lisbon's historic districts and visitor geography."
+      ]
+    },
+    {
+      "id": "unesco-lisbon-belem",
+      "publisher": "UNESCO World Heritage Centre",
+      "title": "Monastery of the Hieronymites and Tower of Belem",
+      "url": "https://whc.unesco.org/en/list/263/",
+      "readerUrl": "https://r.jina.ai/http://whc.unesco.org/en/list/263/",
+      "retrievedAt": "2026-10-21",
+      "kind": "independent-heritage-source",
+      "accessStatus": "reader-verified",
+      "directHttpStatus": 403,
+      "supportedClaims": [
+        "The source records the Belem waterfront heritage complex."
+      ]
+    },
+    {
+      "id": "stockholm-city",
+      "publisher": "City of Stockholm",
+      "title": "Stockholm City official portal",
+      "url": "https://start.stockholm/en/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-city-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "The municipal portal provides an official planning and city-information entry point."
+      ]
+    },
+    {
+      "id": "stockholm-data",
+      "publisher": "Stockholm Data Portal",
+      "title": "Stockholm Data Portal",
+      "url": "https://dataportalen.stockholm.se/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Stockholm publishes municipal open datasets."
+      ]
+    },
+    {
+      "id": "vienna-planning",
+      "publisher": "City of Vienna",
+      "title": "Urban development, planning and architecture",
+      "url": "https://www.wien.gv.at/stadtentwicklung/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-planning-department",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Vienna publishes urban-development, planning and architecture information."
+      ]
+    },
+    {
+      "id": "vienna-data",
+      "publisher": "Vienna Open Data",
+      "title": "Vienna Open Data",
+      "url": "https://data.wien.gv.at/",
+      "retrievedAt": "2026-10-21",
+      "kind": "official-data-portal",
+      "accessStatus": "direct-200",
+      "supportedClaims": [
+        "Vienna publishes municipal open datasets."
+      ]
+    },
+    {
       "id": "osm-map-api",
       "publisher": "OpenStreetMap contributors",
       "title": "OpenStreetMap map data API",
@@ -910,73 +1166,103 @@
     },
     {
       "caseId": "eu-london",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["london-datastore", "unesco-westminster"],
+      "supportedMechanisms": [
+        "municipal spatial and infrastructure datasets",
+        "Westminster political and religious monumental core"
+      ],
+      "measurementGaps": ["historic-city-to-Docklands crop", "medieval lane sample", "dockland redevelopment data", "market access time"]
     },
     {
       "caseId": "eu-amsterdam",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["amsterdam-urban-development", "amsterdam-open-data"],
+      "supportedMechanisms": [
+        "municipal urban-development policy",
+        "municipal open spatial data"
+      ],
+      "measurementGaps": ["canal-ring crop", "canal-plot dimensions", "bridge network", "market access time"]
     },
     {
       "caseId": "eu-berlin",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["berlin-stadtentwicklung", "berlin-open-data"],
+      "supportedMechanisms": [
+        "Senate urban-development framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["tenement-to-divided-city crop", "perimeter-block dimensions", "post-reunification projects", "market access time"]
     },
     {
       "caseId": "eu-zurich",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["zurich-planning", "zurich-open-data"],
+      "supportedMechanisms": [
+        "municipal planning and construction framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["lakefront old-town crop", "slope and tram network", "block/parcel data", "market access time"]
     },
     {
       "caseId": "eu-milan",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["milan-urban-planning", "milan-open-data"],
+      "supportedMechanisms": [
+        "municipal urban-planning and building framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["historic courtyard crop", "industrial-periphery comparison", "block/parcel data", "market access time"]
     },
     {
       "caseId": "eu-rome",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["rome-open-data", "unesco-rome"],
+      "supportedMechanisms": [
+        "municipal open datasets",
+        "historic-centre monument and archaeological constraints"
+      ],
+      "measurementGaps": ["archaeological-core crop", "protected-building footprints", "modern-periphery comparison", "market access time"]
     },
     {
       "caseId": "eu-barcelona",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["barcelona-open-data-api", "unesco-gaudi"],
+      "supportedMechanisms": [
+        "machine-readable urbanism datasets",
+        "architectural-heritage constraint"
+      ],
+      "measurementGaps": ["Gothic/Eixample crop", "chamfered-block dimensions", "waterfront transition", "market access time"]
     },
     {
       "caseId": "eu-lisbon",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["lisbon-tourism", "unesco-lisbon-belem"],
+      "supportedMechanisms": [
+        "historic-district and visitor geography",
+        "Belem waterfront heritage complex"
+      ],
+      "measurementGaps": ["hillside-old-city crop", "official municipal planning source", "slope and stair network", "market access time"]
     },
     {
       "caseId": "eu-stockholm",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["stockholm-city", "stockholm-data"],
+      "supportedMechanisms": [
+        "municipal planning and city-information entry point",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["island-core crop", "waterfront block data", "bridge network", "market access time"]
     },
     {
       "caseId": "eu-vienna",
-      "level": "screened-heuristic",
-      "sourceIds": [],
-      "supportedMechanisms": [],
-      "measurementGaps": ["representative source audit pending"]
+      "level": "source-audited-core-cut",
+      "sourceIds": ["vienna-planning", "vienna-data"],
+      "supportedMechanisms": [
+        "urban-development and planning framework",
+        "municipal open datasets"
+      ],
+      "measurementGaps": ["Ringstrasse/public-housing crop", "perimeter-block data", "Danube transition", "market access time"]
     },
     {
       "caseId": "jp-tokyo-bay",
