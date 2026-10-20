@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::baked_terrain::{BakedTerrain, TerrainError};
 
+use super::community_typology;
 use super::route_evolution::Plan as RoutePlan;
 use super::{SceneSpec, WaterGeometry};
 
@@ -78,6 +79,10 @@ pub struct Building {
     pub service_budget: f64,
     pub access_distance_m: f32,
     pub center_distance_m: f64,
+    #[serde(default)]
+    pub community_profile: String,
+    #[serde(default)]
+    pub income_band: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -102,6 +107,8 @@ pub struct Plan {
     pub capacity: Capacity,
     pub buildings: Vec<Building>,
     pub rejections: Vec<Rejection>,
+    #[serde(default)]
+    pub community_profile: Option<String>,
 }
 
 const fn default_true() -> bool {
@@ -189,6 +196,24 @@ pub fn plan(
         return Ok(None);
     }
     terrain.require_complete()?;
+    let typology = community_typology::resolve(style).map_err(TerrainError)?;
+    let lot_width_m = (program.lot_width_m
+        * typology.as_ref().map_or(1.0, |value| value.lot_width_scale))
+        .clamp(8.0, 80.0);
+    let lot_depth_m = (program.lot_depth_m
+        * typology.as_ref().map_or(1.0, |value| value.lot_depth_scale))
+        .clamp(8.0, 80.0);
+    let floor_area_ratio = program.floor_area_ratio
+        * typology.as_ref().map_or(1.0, |value| value.far_scale);
+    let max_floors = ((program.max_floors as f32
+        * typology.as_ref().map_or(1.0, |value| value.floors_scale))
+        .round() as u32)
+        .max(1);
+    let household_area_m2 = typology
+        .as_ref()
+        .map_or(85.0, |value| value.household_area_m2);
+    let job_area_m2 = typology.as_ref().map_or(38.0, |value| value.job_area_m2);
+    let retail_share = typology.as_ref().map_or(0.12, |value| value.retail_share);
     let center = route_center(routes);
     let mut demand = Demand {
         households: program.households_target,
@@ -230,8 +255,8 @@ pub fn plan(
                         route.id, segment_index, sample, side_index
                     );
                     let access = route.road_width_m as f64 * 0.5 + f64::from(program.setback_m);
-                    let center_x = road_x + normal_x * side * (access + f64::from(program.lot_depth_m) * 0.5);
-                    let center_z = road_z + normal_z * side * (access + f64::from(program.lot_depth_m) * 0.5);
+                    let center_x = road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
+                    let center_z = road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
                     let x = center_x.round() as i32;
                     let z = center_z.round() as i32;
                     if let Err(reason) = lot_is_legal(
@@ -240,8 +265,8 @@ pub fn plan(
                         water,
                         x,
                         z,
-                        program.lot_width_m,
-                        program.lot_depth_m,
+                        lot_width_m,
+                        lot_depth_m,
                         program.max_slope,
                     ) {
                         rejections.push(Rejection {
@@ -256,7 +281,7 @@ pub fn plan(
                     if buildings.iter().any(|building: &Building| {
                         (f64::from(building.world_x) - f64::from(x)).hypot(
                             f64::from(building.world_z) - f64::from(z),
-                        ) < f64::from(program.lot_width_m.min(program.lot_depth_m)) * 0.9
+                        ) < f64::from(lot_width_m.min(lot_depth_m)) * 0.9
                     }) {
                         rejections.push(Rejection {
                             candidate_id,
@@ -269,16 +294,16 @@ pub fn plan(
                     }
                     let center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     let pressure = (1.0 - center_distance / 650.0).clamp(0.15, 1.0);
-                    let floors = ((1.0 + pressure * f64::from(program.max_floors - 1))
+                    let floors = ((1.0 + pressure * f64::from(max_floors - 1))
                         .round() as u32)
                         .max(1);
-                    let footprint = f64::from(program.lot_width_m)
-                        * f64::from(program.lot_depth_m)
+                    let footprint = f64::from(lot_width_m)
+                        * f64::from(lot_depth_m)
                         * 0.58;
-                    let floor_area = footprint * f64::from(floors) * f64::from(program.floor_area_ratio);
-                    let household_capacity = (floor_area / 85.0).floor() as u32;
-                    let job_capacity = (floor_area / 38.0).floor() as u32;
-                    let retail_capacity = floor_area * 0.12;
+                    let floor_area = footprint * f64::from(floors) * f64::from(floor_area_ratio);
+                    let household_capacity = (floor_area / household_area_m2).floor() as u32;
+                    let job_capacity = (floor_area / job_area_m2).floor() as u32;
+                    let retail_capacity = floor_area * retail_share;
                     let service_capacity = floor_area / 700.0;
                     let wants_retail = demand.retail_floor_area_m2 > 0.0 && pressure > 0.28;
                     let wants_jobs = demand.jobs > 0 && (pressure > 0.55 || demand.households == 0);
@@ -297,11 +322,11 @@ pub fn plan(
                         continue;
                     }
                     let (kind, width, depth) = if wants_retail {
-                        ("storefront", 18.0, 20.0)
+                        ("storefront", lot_width_m.min(24.0), lot_depth_m.min(20.0))
                     } else if wants_jobs {
-                        ("office_tower", 22.0, 24.0)
+                        ("office_tower", lot_width_m.min(28.0), lot_depth_m.min(26.0))
                     } else {
-                        ("residential_home", 20.0, 24.0)
+                        ("residential_home", lot_width_m.min(24.0), lot_depth_m.min(26.0))
                     };
                     let height = 4.0 + floors as f32 * 3.2;
                     let building = Building {
@@ -322,6 +347,19 @@ pub fn plan(
                         service_budget: services,
                         access_distance_m: access as f32,
                         center_distance_m: center_distance,
+                        community_profile: typology
+                            .as_ref()
+                            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
+                        income_band: typology.as_ref().map_or_else(
+                            || "mixed".into(),
+                            |value| {
+                                community_typology::income_band(
+                                    &value.profile,
+                                    center_distance,
+                                )
+                                .into()
+                            },
+                        ),
                     };
                     demand.households -= homes;
                     demand.jobs -= jobs;
@@ -383,6 +421,7 @@ pub fn plan(
         },
         buildings,
         rejections,
+        community_profile: typology.as_ref().map(|value| value.profile.clone()),
     }))
 }
 
@@ -592,5 +631,30 @@ mod tests {
         let mut value = style(10, 0, 0.0);
         value["frontageProgram"] = serde_json::json!({"requests": [{"id": "fixed"}]});
         assert!(validate_style(&value).is_err());
+    }
+
+    #[test]
+    fn regional_typologies_change_capacity_outcomes() {
+        let (scene, terrain, water) = fixture();
+        let routes = route_plan();
+        let mut china = style(180, 20, 300.0);
+        china["communityProfile"] =
+            serde_json::json!({"version": 1, "profile": "china-gated"});
+        let mut us = style(180, 20, 300.0);
+        us["communityProfile"] =
+            serde_json::json!({"version": 1, "profile": "us-suburban"});
+        let china = plan(&scene, &terrain, water, &routes, &china)
+            .unwrap()
+            .unwrap();
+        let us = plan(&scene, &terrain, water, &routes, &us)
+            .unwrap()
+            .unwrap();
+        assert_eq!(china.community_profile.as_deref(), Some("china-gated"));
+        assert_eq!(us.community_profile.as_deref(), Some("us-suburban"));
+        assert_ne!(china.buildings.len(), us.buildings.len());
+        assert!(us
+            .buildings
+            .iter()
+            .all(|building| building.income_band == "homeowner"));
     }
 }

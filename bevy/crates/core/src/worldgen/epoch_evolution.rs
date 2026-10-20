@@ -363,6 +363,8 @@ mod tests {
             service_budget: 0.0,
             access_distance_m: 10.0,
             center_distance_m: 0.0,
+            community_profile: "generic".into(),
+            income_band: "mixed".into(),
         };
         SettlementPlan {
             format: "settlement".into(),
@@ -378,6 +380,7 @@ mod tests {
                 make("outer", 500, "residential_home", 3),
             ],
             rejections: Vec::new(),
+            community_profile: None,
         }
     }
 

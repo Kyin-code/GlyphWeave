@@ -54,6 +54,7 @@ pub mod engineering_connections;
 pub mod frontage;
 pub mod conversion_budget;
 pub mod conversion_fringe;
+pub mod community_typology;
 pub mod epoch_evolution;
 pub mod engineering_scale;
 mod frontage_supply;
@@ -2013,6 +2014,7 @@ impl WorldManifest {
         auto_roads::validate_manifest(effective)?;
         frontage::validate_manifest(effective)?;
         height_encoding_from_style(&self.style)?;
+        community_typology::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         epoch_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;

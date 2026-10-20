@@ -547,6 +547,8 @@ mod tests {
                 service_budget: 0.0,
                 access_distance_m: 10.0,
                 center_distance_m: index as f64 * 40.0,
+                community_profile: "generic".into(),
+                income_band: "mixed".into(),
             })
             .collect();
         SettlementPlan {
@@ -579,6 +581,7 @@ mod tests {
             },
             buildings,
             rejections: Vec::new(),
+            community_profile: None,
         }
     }
 
