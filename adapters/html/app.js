@@ -555,7 +555,7 @@ async function drawNear(buildToken) {
     ? new THREE.PerspectiveCamera(isStreet ? 54 : 68, viewportWidth / viewportHeight, .1, 12000)
     : new THREE.OrthographicCamera(-orthoWidth / 2, orthoWidth / 2, orthoHeight / 2, -orthoHeight / 2, -orthoHeight, 12000)
   const localCoordinate = entity => ({ x: entity.worldX - scene.originX, z: entity.worldZ - scene.originZ })
-  const focusEntity = (scene.entities ?? []).find(entity => entity.kind === 'bridge') ?? (scene.entities ?? []).find(entity => {
+  const focusEntity = (scene.entities ?? []).find(entity => {
     const local = localCoordinate(entity)
     return entity.kind === 'commercial_center' && local.x > 64 && local.x < scene.widthM - 64 && local.z > 64 && local.z < scene.depthM - 64
   }) ?? (scene.entities ?? []).find(entity => {
@@ -567,7 +567,8 @@ async function drawNear(buildToken) {
   }) ?? (scene.entities ?? []).find(entity => {
     const local = localCoordinate(entity)
     return entity.kind === 'building' && local.x > 64 && local.x < scene.widthM - 64 && local.z > 64 && local.z < scene.depthM - 64
-  }) ?? (scene.entities ?? []).find(entity => ['tree', 'bush', 'bench'].includes(entity.kind))
+  }) ?? (scene.entities ?? []).find(entity => entity.kind === 'bridge')
+    ?? (scene.entities ?? []).find(entity => ['tree', 'bush', 'bench'].includes(entity.kind))
   const bridgeLength = focusEntity?.kind === 'bridge' ? (focusEntity.widthM || 4588) : 0
   const harbour = (scene.landmarks ?? []).find(landmark => landmark.type === 'river')
   const harbourBridge = (scene.landmarks ?? []).find(landmark => landmark.type === 'bridge') ?? (scene.entities ?? []).find(entity => entity.kind === 'bridge')
@@ -1013,7 +1014,12 @@ async function drawNear(buildToken) {
     // created >1.5m CPU instances before the first frame and could kill the tab.
     // One detailed focus field plus small neighbour fields gives continuity
     // without turning a preview into a multi-million-blade allocation.
-    const focusBudget = sky ? (window.__steppe ? 110000 : 90000) : (window.__steppe ? 100000 : 80000)
+    const urbanScene = (scene.entities ?? []).some(entity =>
+      ['residential_home', 'residential_block', 'residential_tower', 'storefront',
+        'commercial_center', 'office_tower', 'town_hall'].includes(entity.kind))
+    const focusBudget = urbanScene
+      ? (sky ? 38000 : 32000)
+      : sky ? (window.__steppe ? 110000 : 90000) : (window.__steppe ? 100000 : 80000)
     const grassLayers = []
     let grassRequested = 0
     let grassPlaced = 0
@@ -1042,11 +1048,10 @@ async function drawNear(buildToken) {
       const budget = distance === 0 ? focusBudget : distance === 1 ? Math.floor(focusBudget * .08) : 0
       if (budget < 200) continue
       const grass = makeGrassBlades(THREE, chunk.worldX, chunk.worldZ, chunk.validWidthM, chunk.validDepthM, heightAt, (x, z) => chunkTerrainAt(chunk, x, z), worldWind, budget, 7 + chunk.chunkX * 17 + chunk.chunkZ * 31, focusX, focusZ, {
-        focusR: sky ? 520 : 360,
-        farR: sky ? 900 : 760,
-        coverageThreshold: .075,
-        bladeWidthScale: sky ? 5.5 : 6.2,
-        bladeHeightScale: sky ? 2.1 : 2.35,
+        uniformDensity: true,
+        coverageThreshold: urbanScene ? .2 : .075,
+        bladeWidthScale: urbanScene ? 3.4 : sky ? 5.5 : 6.2,
+        bladeHeightScale: urbanScene ? .96 : sky ? 2.1 : 2.35,
       })
       grass.uniforms.uSunDir.value.copy(window.__nearSteppeSunDir ?? new THREE.Vector3(-.45, .82, .3).normalize())
       group.add(grass.mesh)
@@ -1414,7 +1419,12 @@ async function drawNear(buildToken) {
     }
     if (entity.grounding?.frontageRoadPoint) {
       if(!plannedBuildingIds.has(entity.entityId))throw new Error('Frontage entity missing Rust building plan: '+entity.entityId)
-      addEntityToGroup(entity,buildEntityCached(entity,()=>entity.kind==='residential_home'?makePlannedResidentialHome(entity,THREE):makePlannedServiceBuilding(entity,THREE)))
+      addEntityToGroup(entity,buildEntityCached(entity,()=>{
+        if(entity.kind==='residential_home')return makePlannedResidentialHome(entity,THREE)
+        if(entity.kind==='residential_block'||entity.kind==='residential_tower')return makeResidentialBlock(entity,THREE,heightAt)
+        if(entity.kind==='storefront')return makeStorefront(entity,THREE)
+        return makePlannedServiceBuilding(entity,THREE)
+      }))
       continue
     }
     // Trees and rocks are rendered by their dedicated instanced systems below.
@@ -1599,7 +1609,8 @@ async function drawNear(buildToken) {
       // sinking at the visible end; the active-chunk filter already controls
       // how much of the road is shown.
       const roadLift = entity.kind === 'road' ? .42 : .28
-      const bed = new THREE.Mesh(makeStripGeometry(entity, entity.kind === 'sidewalk' ? 3.2 : 8, 0, heightAt, THREE, roadLift), new THREE.MeshStandardMaterial({ color: entity.kind === 'sidewalk' ? '#877e70' : '#4c4438', roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }))
+      const authoredWidth = Math.max(4, Number(entity.depthM) || (entity.kind === 'sidewalk' ? 4 : 8))
+      const bed = new THREE.Mesh(makeStripGeometry(entity, authoredWidth * .5, 0, heightAt, THREE, roadLift), new THREE.MeshStandardMaterial({ color: entity.kind === 'sidewalk' ? '#877e70' : '#4c4438', roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }))
       bed.position.set(0, 0, 0)
       prop.add(bed)
       if (entity.kind === 'road') {
@@ -1674,7 +1685,7 @@ async function drawNear(buildToken) {
       geometry.setIndex(surface.triangles.flat())
       geometry.computeVertexNormals()
       pavement = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-        color: 0x99938a, roughness: .94, metalness: 0,
+        color: 0x6f675b, roughness: 1, metalness: 0,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       }))
       pavement.name = key
@@ -1976,8 +1987,8 @@ const bindClick = (id, handler) => {
 }
 bindClick('#strategic', () => { mode = 'strategic'; setNearLoading(false); if (webglCanvas) webglCanvas.style.display = 'none'; canvas.style.display = 'block'; draw() })
 bindClick('#close', () => {
-  const harbour = (scene?.entities ?? []).some(entity => ['bridge', 'boardwalk', 'boat', 'quay'].includes(entity.kind))
-    || (scene?.landmarks ?? []).some(landmark => ['bridge', 'river', 'sea', 'lake', 'boardwalk'].includes(landmark.type))
+  const harbour = (scene?.entities ?? []).some(entity => ['boardwalk', 'boat', 'quay'].includes(entity.kind))
+    || (scene?.landmarks ?? []).some(landmark => ['river', 'sea', 'boardwalk'].includes(landmark.type))
   // A non-harbour world must enter its near view around actual Rust content.
   // The harbour overview cameras assume a full 3x3 shoreline composition; on
   // a natural/steppe scene they exposed dark chunk frontiers and oversized

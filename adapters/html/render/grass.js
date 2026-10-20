@@ -54,11 +54,10 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
   const iCurlVar = new Float32Array(maxCount)
   const iColorVar = new Float32Array(maxCount)
 
-  // Coverage mask: world-space noise decides where grass grows (patchy meadow),
-  // AND a strong focus-density falloff concentrates blades near the camera
-  // focus: rejection sampling with cubic distance decay puts ~90% of blades
-  // inside the visible ~150m ring, so the foreground reads as dense meadow
-  // while distant blades (sub-pixel anyway) cost almost nothing.
+  // Coverage mask: world-space noise decides where grass grows (patchy meadow).
+  // A legacy focus falloff remains available for the old camera demo, but the
+  // world adapter uses uniformDensity so the camera focus never paints a
+  // circular meadow into an otherwise continuous grassland.
   //
   // Three-height layering (Kyin-tuned presets): low grass fills damp hollows,
   // mid grass is the meadow main, high grass crowns rises — giving the field a
@@ -98,9 +97,10 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
     // deliberately low acceptance floor so the larger world does not become
     // visually bare before the blade layer is drawn.
     if (cover * growth < coverageThreshold) continue
-    // Distance falloff: dense within focusR, gentle square falloff out to farR.
     const d = Math.hypot(x - fx, z - fz)
-    const keep = d < focusR ? 1 : d < farR ? Math.pow((farR - d) / (farR - focusR), 2) : 0
+    const keep = options.uniformDensity
+      ? 1
+      : d < focusR ? 1 : d < farR ? Math.pow((farR - d) / (farR - focusR), 2) : 0
     if (rnd(guard, 8, salt) > keep) continue
     const gy = heightAt(x, z)
     iWorld[placed * 2] = x
@@ -145,14 +145,14 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
     uCurl: { value: grassReferenceTuning.curl },
     uBladeHeight: { value: grassReferenceTuning.height },
     uBladeWidth: { value: grassReferenceTuning.width },
-    uColorBase: { value: new THREE.Color('#3e6b28') },
-    uColorTip: { value: new THREE.Color('#acd55b') },
+    uColorBase: { value: new THREE.Color('#365f24') },
+    uColorTip: { value: new THREE.Color('#92bd4b') },
     uColorVarAmt: { value: grassLook.colorVarAmt },
     uTranslucency: { value: grassLook.translucency },
     uSunDir: { value: new THREE.Vector3(-.45, .82, .3).normalize() },
     uSunColor: { value: new THREE.Color('#ffd9a0') },
-    uSunIntensity: { value: 1.85 },
-    uSkyColor: { value: new THREE.Color('#fff3d6') },
+    uSunIntensity: { value: 1.18 },
+    uSkyColor: { value: new THREE.Color('#dce8c9') },
     uGroundColor: { value: new THREE.Color('#49603d') },
     uCameraPos: { value: new THREE.Vector3() },
     fogColor: { value: new THREE.Color('#9cb28c') },
@@ -284,6 +284,12 @@ export function makeGrassBlades(THREE, worldX, worldZ, width, depth, heightAt, t
         float dist = length(uCameraPos - vWorldPos);
         float fog = clamp((dist - fogNear) / (fogFar - fogNear), 0.0, 1.0);
         gl_FragColor = vec4(mix(lit, fogColor, fog), 1.0);
+        // This is a custom ShaderMaterial, so it must opt into the renderer's
+        // tone-mapping and color-space stages explicitly. Without these chunks
+        // lit grass above 1.0 was clipped to pure white before ACES could roll
+        // the highlights off, which looked like holes in the ground at distance.
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   })

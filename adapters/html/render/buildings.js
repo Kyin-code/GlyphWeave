@@ -260,6 +260,7 @@ export function applySlopeFoundation(group, entity, heightAt, THREE, plinthColor
 }
 
 export function makeResidentialBlock(entity, THREE) {
+  if (entity.heightM >= 12) return makeModernResidentialBlock(entity, THREE)
   const group = new THREE.Group()
   const ground = new THREE.Mesh(
     new THREE.BoxGeometry(entity.widthM, .35, entity.depthM),
@@ -329,6 +330,93 @@ export function makeResidentialBlock(entity, THREE) {
     const tz = -entity.depthM / 2 + 6 + ((t * 37 + Math.floor(tr * 100)) % (entity.depthM - 14))
     treeGroup.position.set(tx, .1, tz)
     group.add(treeGroup)
+  }
+  group.position.set(entity.worldX, entity.worldY, entity.worldZ)
+  return group
+}
+
+// A compact mixed-use apartment block. Height is part of the Rust building
+// contract, not a renderer default: the block is split into a podium plus two
+// towers whose floor bands, glazing and roof equipment all stay inside the
+// authoritative width/depth/height envelope.
+function makeModernResidentialBlock(entity, THREE) {
+  const group = new THREE.Group()
+  group.name = 'modern-residential-block:' + entity.entityId
+  const w = entity.widthM, d = entity.depthM, h = entity.heightM
+  const concrete = new THREE.MeshStandardMaterial({ color: '#aaa79e', roughness: .92 })
+  const pale = new THREE.MeshStandardMaterial({ color: '#d5d0c4', roughness: .88 })
+  const graphite = new THREE.MeshStandardMaterial({ color: '#566267', roughness: .55, metalness: .18 })
+  const glass = new THREE.MeshStandardMaterial({ color: '#477487', roughness: .2, metalness: .42 })
+  const glassLight = new THREE.MeshStandardMaterial({ color: '#82aebd', roughness: .18, metalness: .3 })
+  const green = new THREE.MeshStandardMaterial({ color: '#527b44', roughness: 1 })
+
+  const podiumH = Math.max(2.8, Math.min(4.2, h * .2))
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(w, podiumH, d), pale)
+  podium.position.y = podiumH * .5
+  group.add(podium)
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(w + .8, .28, d + .8), concrete)
+  plinth.position.y = .14
+  group.add(plinth)
+
+  // Full-height lobby glazing and canopy make the street face legible.
+  const lobby = new THREE.Mesh(new THREE.BoxGeometry(w * .62, podiumH * .7, .14), glass)
+  lobby.position.set(0, podiumH * .46, -d * .5 - .08)
+  group.add(lobby)
+  const canopy = new THREE.Mesh(new THREE.BoxGeometry(w * .76, .22, 1.7), graphite)
+  canopy.position.set(0, podiumH * .82, -d * .5 - .7)
+  group.add(canopy)
+
+  const towerH = Math.max(7, h - podiumH)
+  const twoTowers = w >= 28
+  const towerW = twoTowers ? w * .39 : w * .67
+  const towerD = d * .68
+  const offsets = twoTowers ? [-w * .23, w * .23] : [0]
+  for (let index = 0; index < offsets.length; index++) {
+    const tx = offsets[index]
+    const th = towerH * (index === 0 ? .88 : .76)
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(towerW, th, towerD), index % 2 ? concrete : pale)
+    tower.position.set(tx, podiumH + th * .5, d * .04)
+    group.add(tower)
+
+    // One continuous glazed band per floor on all four faces.
+    const floorStep = 3.1
+    for (let y = podiumH + 1.7; y < podiumH + th - 1; y += floorStep) {
+      const front = new THREE.Mesh(new THREE.BoxGeometry(towerW * .82, 1.18, .13), y % 2 > 1 ? glass : glassLight)
+      front.position.set(tx, y, d * .04 + towerD * .5 + .07)
+      group.add(front)
+      const back = front.clone()
+      back.position.z = d * .04 - towerD * .5 - .07
+      group.add(back)
+      for (const side of [-1, 1]) {
+        const sideWindow = new THREE.Mesh(new THREE.BoxGeometry(.13, 1.18, towerD * .72), glass)
+        sideWindow.position.set(tx + side * (towerW * .5 + .07), y, d * .04)
+        group.add(sideWindow)
+      }
+    }
+
+    const parapet = new THREE.Mesh(new THREE.BoxGeometry(towerW * 1.05, .5, towerD * 1.05), graphite)
+    parapet.position.set(tx, podiumH + th + .25, d * .04)
+    group.add(parapet)
+    const lift = new THREE.Mesh(new THREE.BoxGeometry(towerW * .26, 2.2, towerD * .28), concrete)
+    lift.position.set(tx - towerW * .18, podiumH + th + 1.35, d * .04)
+    group.add(lift)
+  }
+
+  const court = new THREE.Mesh(new THREE.BoxGeometry(w * .28, .18, d * .3), green)
+  court.position.set(0, podiumH + .09, twoTowers ? -d * .23 : d * .02)
+  group.add(court)
+
+  // Four parcel trees give the block a planted street edge without floating
+  // decoration outside the published parcel.
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#65503a', roughness: .98 })
+  const leafMat = new THREE.MeshStandardMaterial({ color: '#3f7040', roughness: .95 })
+  for (const [x, z] of [[-.38, -.38], [.38, -.38], [-.38, .36], [.38, .36]]) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.18, .28, 3.2, 6), trunkMat)
+    trunk.position.set(x * w, 1.6, z * d)
+    group.add(trunk)
+    const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(Math.min(2.7, Math.min(w, d) * .13), 1), leafMat)
+    crown.position.set(x * w, 4.4, z * d)
+    group.add(crown)
   }
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
   return group
@@ -892,9 +980,17 @@ export function makeIndustrial(entity, THREE, heightAt) {
 
 export function makeStorefront(entity, THREE) {
   const shop = cgaBuild(entity, CGA_STYLES.storefront, THREE)
-  // Face the street: shops sit in a frontage row along Z, so rotate the whole
-  // lot so the display window / door point at the road.
-  shop.rotation.y = entity.worldX < scene.widthM * .5 ? Math.PI / 2 : -Math.PI / 2
+  // CGA_STOREFRONT's display window and door face local +Z. Rust publishes the
+  // exact frontage-road point, so turn that vector into the shop's yaw instead
+  // of guessing from the scene midpoint.
+  const front = entity.grounding?.frontageRoadPoint
+  if (Array.isArray(front)) {
+    const dx = front[0] - entity.worldX
+    const dz = front[1] - entity.worldZ
+    if (Number.isFinite(dx) && Number.isFinite(dz) && Math.hypot(dx, dz) > .01) {
+      shop.rotation.y = Math.atan2(dx, dz)
+    }
+  }
   return shop
 }
 
