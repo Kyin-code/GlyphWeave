@@ -65,6 +65,15 @@ pub struct DistrictDemandProgram {
     pub shares: Vec<DistrictDemandShare>,
     #[serde(default = "default_true")]
     pub allow_spill: bool,
+    /// Provenance for budgets composed from an urban-case prior. Authored
+    /// budgets may omit these fields; inferred budgets must identify their
+    /// model and rationale so the allocation remains auditable downstream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub inferred: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -323,6 +332,21 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
     if let Some(districts) = &program.district_demand {
         if districts.version != 1 || districts.shares.is_empty() {
             return Err("invalid settlementEvolution districtDemand".into());
+        }
+        if districts.inferred
+            && (districts
+                .model
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+                || districts
+                    .inference_reason
+                    .as_deref()
+                    .is_none_or(|value| value.trim().is_empty()))
+        {
+            return Err(
+                "inferred settlementEvolution districtDemand requires model and inferenceReason"
+                    .into(),
+            );
         }
         let mut stages = std::collections::BTreeSet::new();
         let mut sum = 0.0;

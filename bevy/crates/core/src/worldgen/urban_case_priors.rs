@@ -183,9 +183,7 @@ fn core_natural_setting(case_setting: &str) -> &'static str {
         "plateau-basin"
     } else if value.contains("rift") || value.contains("valley") {
         "rift-valley"
-    } else if value.contains("fold")
-        || value.contains("mountain")
-        || value.contains("mass-wasting")
+    } else if value.contains("fold") || value.contains("mountain") || value.contains("mass-wasting")
     {
         "coastal-mountain"
     } else if value.contains("bay") || value.contains("coast") || value.contains("harbour") {
@@ -199,6 +197,80 @@ fn core_natural_setting(case_setting: &str) -> &'static str {
     } else {
         "inland-basin"
     }
+}
+
+fn inferred_district_shares(case: &CasePrior) -> Value {
+    let mut weights = [0.24_f64, 0.34, 0.32, 0.10];
+    for (index, stage) in case.history.iter().enumerate() {
+        let text = format!("{} {}", stage.era, stage.change).to_ascii_lowercase();
+        if index == 0
+            && ["water", "canal", "river", "port", "agri", "village", "fort"]
+                .iter()
+                .any(|word| text.contains(word))
+        {
+            weights[0] += 0.04;
+        }
+        if [
+            "rail",
+            "railway",
+            "industrial",
+            "factory",
+            "warehouse",
+            "manufactur",
+            "depot",
+        ]
+        .iter()
+        .any(|word| text.contains(word))
+        {
+            weights[1] += 0.04;
+        }
+        if [
+            "renewal",
+            "redevelop",
+            "preserve",
+            "conserv",
+            "reconstruct",
+            "infill",
+            "urban village",
+        ]
+        .iter()
+        .any(|word| text.contains(word))
+        {
+            weights[1] += 0.03;
+        }
+        if [
+            "metro", "new town", "tram", "airport", "cbd", "tower", "suburb", "reform",
+        ]
+        .iter()
+        .any(|word| text.contains(word))
+        {
+            weights[2] += 0.04;
+        }
+        if ["tourism", "country park", "reservoir"]
+            .iter()
+            .any(|word| text.contains(word))
+        {
+            weights[3] += 0.03;
+        }
+    }
+    let total: f64 = weights.iter().sum();
+    let ratios: Vec<f64> = weights.iter().map(|weight| weight / total).collect();
+    json!({
+        "version": 1,
+        "model": "case-history-keyword-heuristic-v1",
+        "inferred": true,
+        "inferenceReason": format!(
+            "normalized from the three documented development stages of {}",
+            case.id
+        ),
+        "allowSpill": true,
+        "shares": [
+            {"stage": "old-core", "share": ratios[0]},
+            {"stage": "renewal", "share": ratios[1]},
+            {"stage": "new-growth", "share": ratios[2]},
+            {"stage": "periphery", "share": ratios[3]}
+        ]
+    })
 }
 
 pub fn urban_slice(case: &CasePrior) -> Value {
@@ -255,6 +327,15 @@ pub fn compose_style(style: &Value) -> Result<Value, String> {
             "inferenceReason": format!("community profile from urban case {}", prior.id)
         })
     });
+    let inferred_shares = inferred_district_shares(&prior);
+    if let Some(settlement) = object
+        .get_mut("settlementEvolution")
+        .and_then(Value::as_object_mut)
+    {
+        settlement
+            .entry("districtDemand")
+            .or_insert_with(|| inferred_shares.clone());
+    }
     object.insert(
         "urbanCasePrior".into(),
         json!({
@@ -263,6 +344,7 @@ pub fn compose_style(style: &Value) -> Result<Value, String> {
             "coreCut": &prior.core_cut,
             "focusFeature": &prior.focus_feature,
             "history": &prior.history,
+            "inferredDistrictDemand": inferred_shares,
             "contextCaseIds": case_ids,
             "evidenceConfidence": &prior.evidence.confidence,
         }),
@@ -346,7 +428,13 @@ mod tests {
     fn referenced_case_composes_absent_style_fields_and_keeps_authored_ones() {
         let style = json!({
             "referenceData": {"caseIds": ["cn-chongqing"]},
-            "urbanSlice": {"version": 1, "settlementScale": "custom-authored"}
+            "urbanSlice": {"version": 1, "settlementScale": "custom-authored"},
+            "settlementEvolution": {
+                "version": 1,
+                "householdsTarget": 12,
+                "jobsTarget": 4,
+                "retailFloorAreaM2": 80.0
+            }
         });
         let composed = compose_style(&style).unwrap();
         assert_eq!(composed["naturalGeography"]["setting"], "coastal-mountain");
@@ -355,11 +443,62 @@ mod tests {
             "fold-mountain-river-confluence"
         );
         assert_eq!(composed["urbanSlice"]["settlementScale"], "custom-authored");
+        assert_eq!(composed["communityProfile"]["profile"], "china-gated");
         assert_eq!(
-            composed["communityProfile"]["profile"],
-            "china-gated"
+            composed["urbanCasePrior"]["history"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
         );
-        assert_eq!(composed["urbanCasePrior"]["history"].as_array().unwrap().len(), 3);
+        let shares = composed["settlementEvolution"]["districtDemand"]["shares"]
+            .as_array()
+            .unwrap();
+        assert_eq!(shares.len(), 4);
+        let total: f64 = shares
+            .iter()
+            .map(|share| share["share"].as_f64().unwrap())
+            .sum();
+        assert!((total - 1.0).abs() < 1e-9);
+        assert_eq!(
+            composed["settlementEvolution"]["districtDemand"]["model"],
+            "case-history-keyword-heuristic-v1"
+        );
+        crate::worldgen::settlement_evolution::validate_style(&composed)
+            .expect("inferred case demand must be consumable by settlement evolution");
+    }
+
+    #[test]
+    fn authored_district_demand_is_not_replaced_by_case_inference() {
+        let authored = json!([
+            {"stage": "old-core", "share": 0.10},
+            {"stage": "renewal", "share": 0.20},
+            {"stage": "new-growth", "share": 0.60},
+            {"stage": "periphery", "share": 0.10}
+        ]);
+        let style = json!({
+            "referenceData": {"caseIds": ["cn-shanghai"]},
+            "settlementEvolution": {
+                "version": 1,
+                "householdsTarget": 12,
+                "jobsTarget": 4,
+                "retailFloorAreaM2": 80.0,
+                "districtDemand": {
+                    "version": 1,
+                    "allowSpill": false,
+                    "shares": authored
+                }
+            }
+        });
+        let composed = compose_style(&style).unwrap();
+        assert_eq!(
+            composed["settlementEvolution"]["districtDemand"]["shares"],
+            authored
+        );
+        assert_eq!(
+            composed["urbanCasePrior"]["inferredDistrictDemand"]["inferred"],
+            true
+        );
     }
 
     #[test]

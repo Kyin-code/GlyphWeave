@@ -34,6 +34,13 @@ style
 - `communityProfile`：案例社区类型，并标注 `inferred=true`；
 - `urbanCasePrior`：案例 id、区域、核心切面、焦点、完整三段历史、
   context case ids 和证据等级。
+- 当 `settlementEvolution` 存在但没有手写 `districtDemand` 时，还会根据
+  三段历史中的水港/治水、铁路/工业、轨道新区、更新保护和旅游保护机制，
+  推导 old-core / renewal / new-growth / periphery 预算份额。输出标记
+  `inferred=true`，模型名为 `case-history-keyword-heuristic-v1`。
+- 推导预算的 `model`、`inferred` 和 `inferenceReason` 是
+  `settlementEvolution` 的正式可消费字段；推断预算若缺少模型或理由会被
+  严格 schema 失败关闭，避免审计信息只停留在 `urbanCasePrior` 镜像中。
 
 已手写的值不会被覆盖，因此香港等控制场景可继续保留语义 v2 的主体关系、
 锚点和场外连接。
@@ -49,7 +56,8 @@ style
 ## 4. 验证
 
 ```text
-worldgen::urban_case_priors::tests                         6/6 pass
+worldgen::urban_case_priors::tests                         7/7 pass
+worldgen::settlement_evolution::tests::district            2/2 pass
 ```
 
 完整 Core 回归：
@@ -61,7 +69,10 @@ worldgen::urban_case_priors::tests                         6/6 pass
 其中新增：
 
 - 重庆案例自动补齐山地带状河谷的自然地理、feature cut 和社区类型；
+- 重庆历史自动推导四个时代需求份额且总和为 1；
+- 推导结果可直接通过 `settlementEvolution` 严格校验并供预算分配消费；
 - 手写 `urbanSlice` 保持优先；
+- 手写 `districtDemand` 保持字节优先，同时保留案例推导结果供审计；
 - 未知 case id 失败关闭。
 
 ## 5. 后续

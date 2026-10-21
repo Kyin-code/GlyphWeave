@@ -2,7 +2,9 @@
 
 > **2026-10-21 48 城先验正式消费**：`referenceData.caseIds[0]` 现在会在
 > morphology 编译前自动补齐 `naturalGeography`、`urbanSlice`、
-> `communityProfile` 和案例历史元数据；作者手写字段优先，未知案例失败关闭。
+> `communityProfile`、案例历史元数据和启发式时代预算；作者手写字段优先，
+> 未知案例失败关闭。推导预算的来源字段可通过下游严格 schema，不会被误判为
+> 未知字段。
 > 详见
 > [`URBAN-CASE-PRIOR-COMPOSITION-20261021.zh-CN.md`](URBAN-CASE-PRIOR-COMPOSITION-20261021.zh-CN.md)。
 

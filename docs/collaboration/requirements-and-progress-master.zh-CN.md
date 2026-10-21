@@ -108,8 +108,9 @@
 
 > **2026-10-21 48 城先验正式消费**：`referenceData.caseIds[0]` 现在会在
 > morphology 编译前自动补齐自然地理、feature-cut、社区类型和案例历史记录；
-> 手写字段保留优先。未知 case id 失败关闭，旧 Manifest 无 caseIds 时保持
-> 原语义。证据见
+> 未手写 `districtDemand` 时还会从三段历史推导四类时代预算份额，并标记为
+> 启发式；审计字段已能被 `settlementEvolution` 严格消费。手写字段保留优先。
+> 未知 case id 失败关闭，旧 Manifest 无 caseIds 时保持原语义。证据见
 > `docs/collaboration/rk-x/URBAN-CASE-PRIOR-COMPOSITION-20261021.zh-CN.md`。
 
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
