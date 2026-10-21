@@ -449,3 +449,38 @@ visual feedback 全部 pass。市场入口锚点随后改为与旋转矩形求�
 flat top、填方过渡和入口 support ownership，不能由当前可读截图或
 scale-audit pass 证明为正确。已登记修复切片，下一步先做 oriented
 footprint 与 0/45/90/135 门禁测试。
+
+## Round 65 · 2026-10-21 · 香港中环自然—城市机制切面
+
+新增 `examples/hong-kong-central-natural-evolution-1km.manifest.json`，
+声明为合成 `feature-cut`，而非香港全域或地理配准重建。场景关系固定为
+陡坡山体、旧市场核心、更新台地、新城区和东侧填海水岸。
+
+实现与修复：
+
+- 市场选择同时避让其他市场和规划建筑，并可在道路两侧换边；
+- office tower、residential block、商场/夜市、公共广场和绿地进入 support
+  carve 白名单；
+- 建筑入口从矩形对角交点改为朝向道路的立面中点；
+- 2m 门前 landing 使用独立 1m 切方上限，0.30m 入口台阶合同未变；
+- 建筑基础取自然支撑与已物化道路面的较高者，交叉路口不再制造假台阶；
+- 最终门区 3m 内自然细节持续清理；
+- skyline 按视口比例展示完整世界，新增由内陆看海港的 waterfront 预设。
+
+最终控制 `hk-central-natural-evolution-1km-r1w`：
+
+- 2,973 entities / 4 chunks；
+- 900 户、2,600 岗位、20,000m² 商业和 36 服务预算全部闭合；
+- 35 个计划建筑，28 个通过严格入口物化；6 个分级市场；
+- 最终 6 个办公塔、22 个店面、1 个住宅街区、2 districts；
+- AccessGraph 35 连通 / 0 断点；
+- market planning coverage ≈100%，但 7 个被拒建筑尚未从市场需求点剔除；
+- `scale-audit pass`、`quality-report pass`、`visual-feedback pass`；
+- 最大跨 chunk 高度差 0.847m；斜向道路 carve 缺口仍按 Round 64 保留。
+
+7 个计划建筑仍被严格入口合同拒绝：4 个
+`entrance_step_requires_engineering`，3 个 `entrance_clearance_blocked`。
+这些实体带 ID、坐标、锚点、道路点和诊断写入
+`settlement-materialization-report.json`，没有通过放宽门槛或隐藏障碍制造
+假连通。完整记录见
+`HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md`。

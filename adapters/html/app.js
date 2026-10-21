@@ -28,7 +28,7 @@ let mode = 'strategic'
 let nearPreset = 'harbour'
 // URL presets: ?view=near|skyline|street|explore opens straight into a 3D view.
 const urlView = new URLSearchParams(location.search).get('view')
-if (urlView && urlView !== 'ownership') { mode = 'near'; nearPreset = ['skyline', 'street', 'explore', 'bridgehead', 'yard', 'farm', 'services', 'graded-road', 'frontage'].includes(urlView) ? urlView : 'harbour' }
+if (urlView && urlView !== 'ownership') { mode = 'near'; nearPreset = ['skyline', 'street', 'explore', 'waterfront', 'bridgehead', 'yard', 'farm', 'services', 'graded-road', 'frontage'].includes(urlView) ? urlView : 'harbour' }
 let webglCanvas
 let nearRenderer
 let nearScene
@@ -665,6 +665,7 @@ async function drawNear(buildToken) {
   const isExplore = nearPreset === 'explore'
   const isSkyline = nearPreset === 'skyline'
   const isStreet = nearPreset === 'street'
+  const isWaterfront = nearPreset === 'waterfront'
   const isStreetView = isStreet || isExplore
   const frontageEntity=nearPreset==='frontage' ? scene.entities.find(e=>e.grounding?.frontageRoadPoint) : null
   const gradedRoad=nearPreset==='graded-road' ? scene.entities.find(e=>e.grounding?.roadProfile) : null
@@ -694,7 +695,9 @@ async function drawNear(buildToken) {
   // Focus / 2.5d near view uses a street-block scale (~120m) so doors,
   // windows, street lamps and lane markings are readable inside a single
   // 512m chunk. Skyline stays full-world; street/explore are perspective.
-  const orthoHeight = isSkyline ? Math.max(scene.widthM, scene.depthM) * .62 : isHarbourOverview ? Math.min(820, Math.max(scene.widthM, scene.depthM) * .36) : isStreet ? 220 : 120
+  const viewportAspect = viewportWidth / Math.max(1, viewportHeight)
+  const wholeWorldHeight = Math.max(scene.widthM, scene.depthM, scene.widthM / Math.max(.2, viewportAspect) * 1.12)
+  const orthoHeight = isSkyline ? wholeWorldHeight : isWaterfront ? 520 : isHarbourOverview ? Math.max(Math.min(820, Math.max(scene.widthM, scene.depthM) * .36), wholeWorldHeight * .82) : isStreet ? 220 : 120
   const orthoWidth = orthoHeight * viewportWidth / Math.max(1, viewportHeight)
   nearCamera = isExplore || isStreet
     ? new THREE.PerspectiveCamera(isStreet ? 54 : 68, viewportWidth / viewportHeight, .1, 12000)
@@ -730,8 +733,8 @@ async function drawNear(buildToken) {
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
   const streetX = streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
   const streetZ = streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5
-  const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
   const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isExplore ? 0 : isStreet ? (streetFabricCentre?.y ?? 0) : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
   const isNaturalExplore = isExplore && Boolean(naturalFeature || routeFocus)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
@@ -751,6 +754,12 @@ async function drawNear(buildToken) {
   // one frame; bridgehead remains the detailed inspection preset.
   if (isHarbourOverview) {
     nearCamera.position.set(focusX + Math.max(420, orthoHeight * .72), focusY + Math.max(260, orthoHeight * .62), focusZ + Math.max(300, orthoHeight * .48))
+    nearCamera.lookAt(focusX, focusY + 4, focusZ)
+  }
+  // The waterfront mechanism view looks from the inland city toward the sea,
+  // so the public waterfront and the urban fabric are visible in one frame.
+  if (isWaterfront) {
+    nearCamera.position.set(focusX - Math.max(420, orthoHeight * .72), focusY + Math.max(260, orthoHeight * .62), focusZ + Math.max(300, orthoHeight * .48))
     nearCamera.lookAt(focusX, focusY + 4, focusZ)
   }
   if (nearScene) {
@@ -870,7 +879,7 @@ async function drawNear(buildToken) {
   // Opt into ring streaming explicitly with ?ring=1.
   const streamRing = query.get('ring') === '1'
   const activeChunks = focusChunk
-    ? (streamRing || isSkyline || isHarbourOverview
+        ? (streamRing || isSkyline || isHarbourOverview || isWaterfront
         ? scene.chunks.filter(chunk => Math.abs(chunk.chunkX - focusChunk.chunkX) <= 1 && Math.abs(chunk.chunkZ - focusChunk.chunkZ) <= 1)
         : [focusChunk])
     : scene.chunks.slice(0, 1)
@@ -2200,7 +2209,7 @@ function updateNearCoordinateInfo() {
   const x = Math.max(0, Math.min(scene.widthM - 1, Math.floor(nearControls.target.x)))
   const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
   window.glyphweaveFeedback.cameraDistance = nearControls.getDistance()
-  const viewName = nearPreset === 'explore' ? 'first-person' : nearPreset === 'skyline' ? 'skyline-2.5d' : nearPreset === 'street' ? 'street-2.5d' : nearPreset === 'bridgehead' ? 'bridgehead-2.5d' : 'harbour-2.5d'
+  const viewName = nearPreset === 'explore' ? 'first-person' : nearPreset === 'skyline' ? 'skyline-2.5d' : nearPreset === 'street' ? 'street-2.5d' : nearPreset === 'waterfront' ? 'waterfront-2.5d' : nearPreset === 'bridgehead' ? 'bridgehead-2.5d' : 'harbour-2.5d'
   info.textContent = `${scene.sceneId}  X=${x} Z=${z}  terrain detail=${window.glyphweaveFeedback.visualChecks.highDetailChunk ? '1m geometry / 1m data' : 'coarse'}  view=${viewName}`
   const focusChunk = scene.chunks.find(chunk => x >= chunk.worldX - scene.originX && x < chunk.worldX - scene.originX + chunk.validWidthM && z >= chunk.worldZ - scene.originZ && z < chunk.worldZ - scene.originZ + chunk.validDepthM)
   const label = document.getElementById('chunk-label')

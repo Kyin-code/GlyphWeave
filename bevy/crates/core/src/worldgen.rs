@@ -45,6 +45,14 @@ pub use access::{AccessGraph, AccessLink, AccessPoint, build_access_graph};
 pub use access_surface::{AccessSurface, bake_access_surfaces, validate_access_surfaces};
 mod engineered_placement;
 pub use engineered_placement::{PlacementReportAudit, verify_published_placement};
+/// Maximum excavation of the small facade landing around a generated entrance.
+///
+/// This is deliberately scoped to a 2m x 2m landing and remains separate from
+/// the pad's ordinary cut cap. It turns an uneven threshold into a real,
+/// localised engineering cut instead of relaxing the 0.30m access-step check.
+/// A rise above this allowance still fails and needs a designed stair or
+/// retaining structure.
+const ENTRANCE_LANDING_CUT_MM: i32 = 1_000;
 #[cfg(test)]
 mod assigned_road_tests;
 pub mod auto_roads;
@@ -2901,6 +2909,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "removedNaturalEntities": removed,
             }));
         }
+        // Settlement and market materializers run after the template sanitizer,
+        // so reserve their facade anchors again once every planned static entity
+        // exists. Without this final pass a rock outside the wall footprint can
+        // still sit in the 0.3 m entrance segment and reject an otherwise valid
+        // building after the plan has already booked its demand.
+        let final_detail_removals = sanitize_natural_detail_clearance(&mut entities);
+        engineering_reports.push(serde_json::json!({
+            "sceneId": scene.scene_id,
+            "phase": "planned-entrance-clearance",
+            "removedNaturalEntities": final_detail_removals,
+        }));
         // OPT-IN `style.terrainPolicy.earthworkBlend`: every structure of this
         // scene gets the fill-transition ring its own footprint
         // (`"derived-from-footprint"`) or its own measured fill depth
@@ -5824,11 +5843,16 @@ pub(crate) fn carves_as_building(kind: &str) -> bool {
             | "residential_home"
             | "resort_lodge"
             | "storefront"
+            | "office_tower"
+            | "shopping_mall"
+            | "night_market"
             | "commercial_center"
             | "entertainment_center"
             | "school"
             | "town_hall"
             | "market"
+            | "community_plaza"
+            | "green_space"
             | "industrial"
             | "temple"
             | "church"
@@ -6025,9 +6049,15 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     half_d: 2.0,
                     target_h_m: f64::from(entity.ground_height_m()),
                     blend_m: 2.0,
-                    priority: 1,
+                    priority: 2,
                     disturbance: 160,
-                    cut_cap_mm: None,
+                    // The 2m door landing has its own small, fixed cut allowance.
+                    // It may remove a high shoulder at the threshold, but never
+                    // relaxes the access-step check or enters a road's owned band.
+                    cut_cap_mm: Some(
+                        ENTRANCE_LANDING_CUT_MM
+                            .max(entity.grounding.bounded_cut_mm.unwrap_or_default()),
+                    ),
                     ramp: None,
                 });
             }
@@ -6769,6 +6799,11 @@ where
     // "declared top is the surface, cell for cell" obligation; every other carve
     // stays fill-first.
     let mut pad_platform: Option<f64> = None;
+    // The 2m door landing is a smaller authoritative platform at the declared
+    // building threshold. Its fixed cut allowance may reach a threshold the
+    // whole-pad cap cannot, so it wins over the pad platform at the facade while
+    // leaving the rest of the building footprint unchanged.
+    let mut entrance_platform: Option<f64> = None;
     // OPT-IN `style.terrainPolicy.entryCorridor`: the graded walking ramp whose
     // pavement or side ring holds this cell. A ramp is the pad's own fill re-graded,
     // so inside its pavement it owns the published surface (it replaces the pad's
@@ -7001,6 +7036,10 @@ where
             if platform.active() && outside <= 0.0 {
                 let surface = bounded_cut::platform_surface_m(base_terrain, target.min(limit), cap);
                 pad_platform = Some(pad_platform.map_or(surface, |known: f64| known.max(surface)));
+                if carve.priority == 2 {
+                    entrance_platform =
+                        Some(entrance_platform.map_or(surface, |known: f64| known.max(surface)));
+                }
             }
         }
     }
@@ -7031,6 +7070,8 @@ where
         cut
     } else if road_owns_cell {
         terrain
+    } else if let Some(platform) = entrance_platform {
+        platform
     } else if let Some(platform) = pad_platform {
         platform
     } else if let Some(claim) = ramp_claim {
@@ -8630,7 +8671,8 @@ fn sanitize_generated_transport_collisions(entities: &mut Vec<EntityInstance>) {
     });
 }
 
-fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
+fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) -> usize {
+    let before = entities.len();
     let road_footprints: Vec<(i32, i32, f64, f64)> = entities
         .iter()
         .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk" | "boardwalk"))
@@ -8655,6 +8697,21 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
             )
         })
         .collect();
+    // A building's facade anchor is the exact point the access audit must keep
+    // open. Footprint-only clearance misses a boulder or trunk just outside the
+    // wall that still cuts the 0.3 m entrance segment. Reserve the published
+    // frontage/door clearance in the same pass, after all generated detail exists.
+    let entrance_clearances: Vec<(i32, i32)> = entities
+        .iter()
+        .filter(|entity| is_building_kind(&entity.kind))
+        .flat_map(|entity| {
+            entity
+                .anchors
+                .iter()
+                .filter(|anchor| anchor.target.as_deref() == Some("road"))
+                .map(|anchor| (anchor.world_x, anchor.world_z))
+        })
+        .collect();
     entities.retain(|entity| {
         if !matches!(
             entity.kind.as_str(),
@@ -8670,11 +8727,18 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) {
         if overlaps_road {
             return false;
         }
+        if entrance_clearances.iter().any(|(ax, az)| {
+            f64::from((entity.world_x - ax).abs()).hypot(f64::from(entity.world_z - az))
+                < detail_r + 3.0
+        }) {
+            return false;
+        }
         !building_footprints.iter().any(|(bx, bz, bhx, bhz)| {
             f64::from((entity.world_x - bx).abs()) < detail_r + bhx
                 && f64::from((entity.world_z - bz).abs()) < detail_r + bhz
         })
     });
+    before - entities.len()
 }
 
 fn generation_settlement(style: &serde_json::Value) -> Option<&str> {
@@ -12682,6 +12746,74 @@ mod tests {
                 detail.entity_id
             );
         }
+    }
+
+    #[test]
+    fn generated_natural_details_clear_building_entrances() {
+        let mut building = generated_intent_entity(
+            "generated.test-office".into(),
+            "office_tower",
+            100,
+            100,
+            0,
+            20.0,
+            20.0,
+            20.0,
+        );
+        building.anchors.push(SpatialAnchor {
+            id: "front".into(),
+            world_x: 90,
+            world_z: 100,
+            direction: "west".into(),
+            target: Some("road".into()),
+        });
+        let mut rock = generated_intent_entity(
+            "generated.test-rock".into(),
+            "rock",
+            87,
+            100,
+            0,
+            2.0,
+            2.0,
+            1.0,
+        );
+        let tree = generated_intent_entity(
+            "generated.test-tree".into(),
+            "tree",
+            50,
+            50,
+            0,
+            4.0,
+            4.0,
+            5.0,
+        );
+        rock.kind = "rock".into();
+        let mut entities = vec![building, rock, tree];
+
+        sanitize_natural_detail_clearance(&mut entities);
+
+        assert!(entities.iter().all(|entity| entity.kind != "rock"));
+        assert!(entities.iter().any(|entity| entity.kind == "tree"));
+    }
+
+    #[test]
+    fn office_towers_receive_a_building_support_carve() {
+        let office = generated_intent_entity(
+            "generated.test-office-carve".into(),
+            "office_tower",
+            100,
+            100,
+            10,
+            20.0,
+            20.0,
+            40.0,
+        );
+
+        let carves = plan_terrain_carves(&[office]);
+
+        assert_eq!(carves.len(), 1);
+        assert_eq!(carves[0].priority, 1);
+        assert_eq!(carves[0].target_h_m, 10.0);
     }
 
     #[test]

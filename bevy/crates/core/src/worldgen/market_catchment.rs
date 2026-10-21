@@ -285,22 +285,26 @@ pub fn plan(
                 if selected.iter().any(|(node, _)| *node == candidate) {
                     continue;
                 }
-                let Some(candidate_footprint) = market_footprint(
+                let Some(candidate_site) = market_site(
                     routes,
                     graph.nodes[candidate].x,
                     graph.nodes[candidate].z,
                     tier,
+                    settlement,
                 ) else {
                     continue;
                 };
                 if selected.iter().any(|(node, selected_tier)| {
-                    market_footprint(
+                    market_site(
                         routes,
                         graph.nodes[*node].x,
                         graph.nodes[*node].z,
                         &tiers[*selected_tier],
+                        settlement,
                     )
-                    .is_some_and(|other| footprints_overlap(candidate_footprint, other, 2.0))
+                    .is_some_and(|other| {
+                        footprints_overlap(candidate_site.footprint, other.footprint, 2.0)
+                    })
                 }) {
                     continue;
                 }
@@ -370,12 +374,20 @@ pub fn plan(
     for (index, &(node, tier_index)) in selected.iter().enumerate() {
         let tier = &tiers[tier_index];
         let times = graph.times_from(node, program.walk_speed_mps);
+        let site = market_site(
+            routes,
+            graph.nodes[node].x,
+            graph.nodes[node].z,
+            tier,
+            settlement,
+        )
+        .expect("a selected market site remains feasible");
         markets.push(Market {
             id: format!("market.{index}"),
             tier: tier.id.clone(),
             kind: tier.kind.clone(),
-            world_x: graph.nodes[node].x,
-            world_z: graph.nodes[node].z,
+            world_x: site.center_x.round() as i32,
+            world_z: site.center_z.round() as i32,
             capacity: tier.capacity,
             quality: tier.quality,
             max_travel_minutes: tier.max_travel_minutes,
@@ -520,14 +532,21 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
         .filter_map(|market| {
             let station = nearest_station(routes, market.world_x, market.world_z)?;
             let depth = f64::from(market.depth_m);
-            let mut center_x = station.x + station.normal_x * (depth * 0.5 + 12.0);
-            let mut center_z = station.z + station.normal_z * (depth * 0.5 + 12.0);
+            let delta_x = f64::from(market.world_x) - station.x;
+            let delta_z = f64::from(market.world_z) - station.z;
+            let side = if delta_x * station.normal_x + delta_z * station.normal_z >= 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let mut center_x = station.x + station.normal_x * side * (depth * 0.5 + 12.0);
+            let mut center_z = station.z + station.normal_z * side * (depth * 0.5 + 12.0);
             if terrain
                 .height(center_x.round() as i32, center_z.round() as i32)
                 .is_none()
             {
-                center_x = station.x - station.normal_x * (depth * 0.5 + 12.0);
-                center_z = station.z - station.normal_z * (depth * 0.5 + 12.0);
+                center_x = station.x - station.normal_x * side * (depth * 0.5 + 12.0);
+                center_z = station.z - station.normal_z * side * (depth * 0.5 + 12.0);
             }
             let dx = station.x - center_x;
             let dz = station.z - center_z;
@@ -548,11 +567,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
             let anchor_x = center_x + dx * edge_t;
             let anchor_z = center_z + dz * edge_t;
             let direction = if dx.abs() > dz.abs() {
-                if dx > 0.0 {
-                    "east"
-                } else {
-                    "west"
-                }
+                if dx > 0.0 { "east" } else { "west" }
             } else if dz > 0.0 {
                 "south"
             } else {
@@ -603,20 +618,54 @@ struct Footprint {
     max_z: f64,
 }
 
-fn market_footprint(routes: &RoutePlan, x: i32, z: i32, tier: &Tier) -> Option<Footprint> {
+#[derive(Clone, Copy)]
+struct MarketSite {
+    center_x: f64,
+    center_z: f64,
+    footprint: Footprint,
+}
+
+fn market_site(
+    routes: &RoutePlan,
+    x: i32,
+    z: i32,
+    tier: &Tier,
+    settlement: &SettlementPlan,
+) -> Option<MarketSite> {
     let station = nearest_station(routes, x, z)?;
     let (width, depth, _) = market_size(tier);
-    let center_x = station.x + station.normal_x * (f64::from(depth) * 0.5 + 12.0);
-    let center_z = station.z + station.normal_z * (f64::from(depth) * 0.5 + 12.0);
     let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
     let half_x = f64::from(width) * 0.5 * cos.abs() + f64::from(depth) * 0.5 * sin.abs();
     let half_z = f64::from(width) * 0.5 * sin.abs() + f64::from(depth) * 0.5 * cos.abs();
-    Some(Footprint {
-        min_x: center_x - half_x,
-        max_x: center_x + half_x,
-        min_z: center_z - half_z,
-        max_z: center_z + half_z,
-    })
+    for side in [1.0, -1.0] {
+        let center_x = station.x + station.normal_x * side * (f64::from(depth) * 0.5 + 12.0);
+        let center_z = station.z + station.normal_z * side * (f64::from(depth) * 0.5 + 12.0);
+        let footprint = Footprint {
+            min_x: center_x - half_x,
+            max_x: center_x + half_x,
+            min_z: center_z - half_z,
+            max_z: center_z + half_z,
+        };
+        let collides_with_planned_building = settlement.buildings.iter().any(|building| {
+            let half_width = f64::from(building.width_m) * 0.5;
+            let half_depth = f64::from(building.depth_m) * 0.5;
+            let building_footprint = Footprint {
+                min_x: f64::from(building.world_x) - half_width,
+                max_x: f64::from(building.world_x) + half_width,
+                min_z: f64::from(building.world_z) - half_depth,
+                max_z: f64::from(building.world_z) + half_depth,
+            };
+            footprints_overlap(footprint, building_footprint, 2.0)
+        });
+        if !collides_with_planned_building {
+            return Some(MarketSite {
+                center_x,
+                center_z,
+                footprint,
+            });
+        }
+    }
+    None
 }
 
 fn footprints_overlap(a: Footprint, b: Footprint, margin_m: f64) -> bool {
@@ -1011,24 +1060,47 @@ mod tests {
             .markets
             .iter()
             .all(|market| market.load <= market.capacity + 1e-6));
+        let settlement = settlement();
         for (index, market) in plan.markets.iter().enumerate() {
             for other in plan.markets.iter().skip(index + 1) {
-                let left = market_footprint(
+                let left = market_site(
                     &route_plan(),
                     market.world_x,
                     market.world_z,
                     &tiers_for_test(&market.tier),
+                    &settlement,
                 )
-                .unwrap();
-                let right = market_footprint(
+                .unwrap()
+                .footprint;
+                let right = market_site(
                     &route_plan(),
                     other.world_x,
                     other.world_z,
                     &tiers_for_test(&other.tier),
+                    &settlement,
                 )
-                .unwrap();
+                .unwrap()
+                .footprint;
                 assert!(!footprints_overlap(left, right, 2.0));
             }
+        }
+    }
+
+    #[test]
+    fn market_site_yields_to_a_planned_building_on_the_near_side() {
+        let settlement = settlement();
+        let tier = tiers_for_test("street-market");
+        let site = market_site(&route_plan(), 100, 256, &tier, &settlement).unwrap();
+
+        assert!(site.center_z < 256.0);
+        for building in &settlement.buildings {
+            let building_footprint = Footprint {
+                min_x: f64::from(building.world_x) - f64::from(building.width_m) * 0.5,
+                max_x: f64::from(building.world_x) + f64::from(building.width_m) * 0.5,
+                min_z: f64::from(building.world_z) - f64::from(building.depth_m) * 0.5,
+                max_z: f64::from(building.world_z) + f64::from(building.depth_m) * 0.5,
+            };
+            assert!(!footprints_overlap(site.footprint, building_footprint, 2.0));
         }
     }
 

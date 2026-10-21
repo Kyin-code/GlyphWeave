@@ -1,0 +1,445 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "Hong Kong Central mechanism cut: steep hillside to reclaimed waterfront",
+    "seed": 7042,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "mountain-foot",
+    "heightPrecision": "millimeter",
+    "terrainPolicy": {
+      "earthworkBlend": "derived-from-fill"
+    },
+    "naturalGeography": {
+      "version": 1,
+      "mode": "derived",
+      "setting": "coastal-mountain",
+      "regionalReliefM": 520,
+      "climateBand": "humid-subtropical",
+      "derivationSeed": 7042,
+      "hints": {
+        "karst": false,
+        "glacial": false,
+        "typhoon": true
+      }
+    },
+    "urbanSlice": {
+      "version": 1,
+      "semanticsVersion": 2,
+      "settlementScale": "megacity",
+      "mode": "feature-cut",
+      "focusFeature": "financial-waterfront-and-steep-hillside",
+      "cropReason": "a synthetic 1km mechanism cut relating an old market core, narrow hillside lanes, renewal terraces and a reclaimed financial waterfront; it is not a full Hong Kong reconstruction",
+      "contextRadiusM": 3000,
+      "offMapContinuity": [
+        "roads",
+        "rail",
+        "urban-fabric",
+        "coast"
+      ],
+      "specialFactors": [
+        "financial-center",
+        "coastal-reclamation",
+        "mountainous",
+        "historic-core",
+        "port-industrial"
+      ],
+      "viewpoint": "old-market-through-renewal-to-financial-waterfront",
+      "focusRelations": [
+        {
+          "subject": "old-market-core",
+          "relation": "steps-down-to",
+          "object": "reclaimed-financial-waterfront"
+        },
+        {
+          "subject": "new-growth",
+          "relation": "occupies-engineered-platforms-on",
+          "object": "steep-hillside"
+        },
+        {
+          "subject": "market-network",
+          "relation": "serves-traditional-lanes-and-redevelopment-blocks",
+          "object": "mixed-old-new-fabric"
+        }
+      ],
+      "requiredAnchors": [
+        {
+          "id": "old-market",
+          "kind": "market",
+          "role": "historic-core"
+        },
+        {
+          "id": "harbour-front",
+          "kind": "waterfront",
+          "role": "reclaimed-financial-frontage"
+        },
+        {
+          "id": "mid-levels",
+          "kind": "mountain",
+          "role": "steep-redevelopment-terrace"
+        }
+      ],
+      "contextAnchors": [
+        {
+          "id": "metro",
+          "kind": "transit",
+          "role": "off-map-vertical-circulation"
+        }
+      ],
+      "edgeIntents": [
+        {
+          "edge": "east",
+          "kind": "coast",
+          "destinationRole": "victoria-harbour"
+        },
+        {
+          "edge": "west",
+          "kind": "roads",
+          "destinationRole": "mid-levels"
+        },
+        {
+          "edge": "north",
+          "kind": "roads",
+          "destinationRole": "admiralty-and-wan-chai"
+        }
+      ]
+    },
+    "referenceData": {
+      "sources": [
+        "https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/",
+        "https://www.pland.gov.hk/",
+        "https://www.amo.gov.hk/en/home/index.html",
+        "https://www.housingauthority.gov.hk/en/",
+        "assets/data/urban-case-priors-48.json",
+        "assets/data/urban-case-evidence.json"
+      ],
+      "caseIds": [
+        "hk-central"
+      ],
+      "crop": "synthetic 1000m x 1000m mechanism cut, not a georeferenced reconstruction",
+      "retrievedAt": "2026-10-21",
+      "seedBasis": "deterministic composite of registered Hong Kong core-cut mechanisms",
+      "inferenceReason": "the objective is a relational core slice, not a statistical or complete-city replica"
+    },
+    "communityProfile": {
+      "version": 1,
+      "profile": "hong-kong-estate"
+    },
+    "routeEvolution": {
+      "version": 1,
+      "enabled": true,
+      "gridStepM": 16,
+      "roadWidthM": 8,
+      "maxGrade": 0.08,
+      "maxTerrainSlope": 0.6,
+      "maxFillM": 12,
+      "allowBridge": true,
+      "maxBridgeSpanM": 420,
+      "turnPenalty": 1.6,
+      "anchors": [],
+      "routes": []
+    },
+    "settlementEvolution": {
+      "version": 1,
+      "enabled": true,
+      "householdsTarget": 900,
+      "jobsTarget": 2600,
+      "retailFloorAreaM2": 20000,
+      "serviceBudget": 36,
+      "lotWidthM": 18,
+      "lotDepthM": 20,
+      "roadStepM": 22,
+      "setbackM": 7,
+      "maxSlope": 0.25,
+      "floorAreaRatio": 2.8,
+      "maxFloors": 22,
+      "accessHeightToleranceM": 8,
+      "maxPadCutM": 14,
+      "districtDemand": {
+        "version": 1,
+        "allowSpill": true,
+        "shares": [
+          {
+            "stage": "old-core",
+            "share": 0.22
+          },
+          {
+            "stage": "renewal",
+            "share": 0.38
+          },
+          {
+            "stage": "new-growth",
+            "share": 0.3
+          },
+          {
+            "stage": "periphery",
+            "share": 0.1
+          }
+        ]
+      }
+    },
+    "planningHistory": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 150,
+      "parkAreaM2PerPerson": 2.5,
+      "renewalShare": 0.5
+    },
+    "marketCatchment": {
+      "version": 1,
+      "enabled": true,
+      "beta": 0.1,
+      "maxTravelMinutes": 12,
+      "walkSpeedMps": 1.25,
+      "marketCapacity": 420,
+      "marketQuality": 1.0,
+      "coverageTarget": 0.9,
+      "maxMarkets": 9,
+      "candidateSpacingM": 90,
+      "tiers": [
+        {
+          "id": "street-market",
+          "kind": "community-market-hall",
+          "capacity": 220,
+          "quality": 1.15,
+          "maxTravelMinutes": 7,
+          "maxCount": 4,
+          "candidateSpacingM": 70,
+          "preference": 1.25
+        },
+        {
+          "id": "neighbourhood",
+          "kind": "neighbourhood-supermarket",
+          "capacity": 520,
+          "quality": 1.0,
+          "maxTravelMinutes": 12,
+          "maxCount": 3,
+          "candidateSpacingM": 140,
+          "preference": 1.0
+        },
+        {
+          "id": "district",
+          "kind": "large-supermarket",
+          "capacity": 1400,
+          "quality": 0.9,
+          "maxTravelMinutes": 20,
+          "maxCount": 2,
+          "candidateSpacingM": 220,
+          "preference": 0.8
+        }
+      ]
+    },
+    "epochProgram": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 150,
+      "expansionRadiusM": 280,
+      "modernRadiusM": 470
+    },
+    "water": {
+      "waterType": "river",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "flowDirection": "world_z",
+      "flowSpeedMps": 0.35,
+      "shoreProfile": {
+        "transitionRadius": 1.2,
+        "shallowBandM": 12,
+        "averageDepthM": 7
+      },
+      "waveModel": {
+        "preset": "harbour-wind-reflection",
+        "amplitudeM": 0.1,
+        "wavelengthM": 18,
+        "roughness": 0.22
+      },
+      "footprint": {
+        "shape": "band",
+        "centerXM": 850,
+        "halfWidthM": 95,
+        "axis": "world_z"
+      }
+    },
+    "assetContracts": {
+      "river": {
+        "type": "water",
+        "placement": "water-surface",
+        "allowedSurfaces": ["water", "deep_water"],
+        "forbiddenSurfaces": ["grass", "forest", "soil", "stone", "underground"],
+        "minWidthM": 120,
+        "maxWidthM": 300,
+        "minDepthM": 100,
+        "maxDepthM": 1200,
+        "minHeightM": 1,
+        "maxHeightM": 1
+      },
+      "road": {
+        "type": "road",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 4,
+        "maxWidthM": 10000,
+        "minDepthM": 4,
+        "maxDepthM": 32,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "tree": {
+        "type": "tree",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 2,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "maxDepthM": 5.5,
+        "minHeightM": 4,
+        "maxHeightM": 9
+      },
+      "bush": {
+        "type": "bush",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.5,
+        "maxWidthM": 3,
+        "minDepthM": 0.5,
+        "maxDepthM": 3,
+        "minHeightM": 0.3,
+        "maxHeightM": 3
+      },
+      "grass_clump": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.3,
+        "maxWidthM": 3,
+        "minDepthM": 0.3,
+        "maxDepthM": 3,
+        "minHeightM": 0.2,
+        "maxHeightM": 4
+      },
+      "rock": {
+        "type": "rock",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.2,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "maxDepthM": 8,
+        "minHeightM": 0.2,
+        "maxHeightM": 5
+      },
+      "office_tower": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 12,
+        "maxWidthM": 80,
+        "minDepthM": 12,
+        "maxDepthM": 80,
+        "minHeightM": 12,
+        "maxHeightM": 180
+      },
+      "residential_block": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 12,
+        "maxWidthM": 80,
+        "minDepthM": 12,
+        "maxDepthM": 80,
+        "minHeightM": 8,
+        "maxHeightM": 120
+      },
+      "storefront": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 40,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 2,
+        "maxHeightM": 30
+      },
+      "market": {
+        "type": "market",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 100,
+        "minDepthM": 12,
+        "maxDepthM": 80,
+        "minHeightM": 3,
+        "maxHeightM": 24
+      },
+      "community_plaza": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 160,
+        "minDepthM": 20,
+        "maxDepthM": 120,
+        "minHeightM": 0.1,
+        "maxHeightM": 2
+      },
+      "park": {
+        "type": "green",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 240,
+        "minDepthM": 16,
+        "maxDepthM": 240,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.central-harbour-cut",
+      "name": "中环港湾机制切面",
+      "type": "river",
+      "purpose": "represents the reclaimed financial waterfront edge of the synthetic core cut",
+      "description": "Synthetic harbour-edge mechanism based on registered Hong Kong Central waterfront and steep-hillside priors; not a georeferenced reconstruction.",
+      "sceneId": "scene-0",
+      "worldX": 850,
+      "worldZ": 500,
+      "worldY": 0,
+      "widthM": 190,
+      "depthM": 1000,
+      "heightM": 1,
+      "assetId": "water.hong-kong-central-cut"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

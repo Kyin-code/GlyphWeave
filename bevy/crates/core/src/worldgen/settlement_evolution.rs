@@ -382,6 +382,7 @@ pub fn plan(
     let mut total_floor_area = 0.0;
     let mut accepted_lot_centers = Vec::<(i32, i32)>::new();
     let mut candidates = Vec::<Candidate>::new();
+    let materialized_roads = super::route_evolution::materialize(routes);
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         for (segment_index, segment) in route.polyline.windows(2).enumerate() {
             let dx = f64::from(segment[1].x - segment[0].x);
@@ -442,6 +443,13 @@ pub fn plan(
                     }
                     let road_design_m = segment[0].design_height_m
                         + (segment[1].design_height_m - segment[0].design_height_m) * t;
+                    let foundation_m = road_design_m.max(nearby_road_surface_m(
+                        &materialized_roads,
+                        x,
+                        z,
+                        lot_width_m,
+                        lot_depth_m,
+                    ));
                     let lot_ground_m = terrain.height(x, z).unwrap_or(f32::INFINITY);
                     if (road_design_m - f64::from(lot_ground_m)).abs()
                         > f64::from(program.access_height_tolerance_m)
@@ -458,7 +466,15 @@ pub fn plan(
                     let natural_ceiling_m =
                         lot_ground_ceiling_m(terrain, x, z, lot_width_m, lot_depth_m)
                             .unwrap_or(f32::INFINITY);
-                    let required_cut_m = (f64::from(natural_ceiling_m) - road_design_m).max(0.0);
+                    let entrance_ceiling_m =
+                        facade_anchor(x, z, lot_width_m, lot_depth_m, road_x, road_z)
+                            .and_then(|(anchor_x, anchor_z, _)| {
+                                lot_ground_ceiling_m(terrain, anchor_x, anchor_z, 4.0, 4.0)
+                            })
+                            .unwrap_or(f32::NEG_INFINITY);
+                    let required_cut_m = (f64::from(natural_ceiling_m.max(entrance_ceiling_m))
+                        - foundation_m)
+                        .max(0.0);
                     if required_cut_m > f64::from(program.max_pad_cut_m) {
                         rejections.push(Rejection {
                             candidate_id,
@@ -495,7 +511,7 @@ pub fn plan(
                         pressure: (1.0 - center_distance / 650.0).clamp(0.15, 1.0),
                         frontage_road_point: [road_x.round() as i32, road_z.round() as i32],
                         district_stage: district_stage.into(),
-                        road_design_m,
+                        road_design_m: foundation_m,
                         required_cut_mm: (required_cut_m * 1000.0 + 64.0).ceil() as i32,
                     });
                     accepted_lot_centers.push((x, z));
@@ -964,49 +980,44 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
     plan.buildings
         .iter()
         .map(|building| {
+            // A settlement building may sit on a terrace cut to the street, but
+            // the natural high side of its own footprint is still an authoritative
+            // lower bound: publishing the building below that contour buries one
+            // facade and manufactures a false entrance step. Take the higher of
+            // the two authored surfaces so the foundation meets both the street
+            // and the uphill terrain; the strict access audit still decides
+            // whether the resulting relationship is walkable.
+            let terrain_support = f64::from(building_support_height_m(building, terrain));
             let target_ground = building
                 .frontage_level_m
-                .unwrap_or_else(|| f64::from(building_support_height_m(building, terrain)));
+                .map_or(terrain_support, |frontage| frontage.max(terrain_support));
             let world_y = target_ground.floor() as i32;
             let bottom_offset = (target_ground - f64::from(world_y)) as f32;
             let mut anchors = Vec::new();
             let mut frontage_road_point = None;
             if let Some([road_x, road_z]) = building.frontage_road_point {
-                let dx = f64::from(road_x - building.world_x);
-                let dz = f64::from(road_z - building.world_z);
-                let length = dx.hypot(dz).max(1.0);
-                let nx = dx / length;
-                let nz = dz / length;
-                let reach = (f64::from(building.width_m) * 0.5 / nx.abs().max(1e-9))
-                    .min(f64::from(building.depth_m) * 0.5 / nz.abs().max(1e-9))
-                    - 0.5;
-                let reach = reach.max(0.0);
-                let anchor_x = (f64::from(building.world_x) + nx * reach).round() as i32;
-                let anchor_z = (f64::from(building.world_z) + nz * reach).round() as i32;
-                let direction = if dx.abs() > dz.abs() {
-                    if dx > 0.0 {
-                        "east"
-                    } else {
-                        "west"
-                    }
-                } else if dz > 0.0 {
-                    "south"
-                } else {
-                    "north"
-                };
-                frontage_road_point = Some(match direction {
-                    "east" => [anchor_x + 16, anchor_z],
-                    "west" => [anchor_x - 16, anchor_z],
-                    "south" => [anchor_x, anchor_z + 16],
-                    _ => [anchor_x, anchor_z - 16],
-                });
-                anchors.push(super::SpatialAnchor {
-                    id: "front".into(),
-                    world_x: anchor_x,
-                    world_z: anchor_z,
-                    direction: direction.into(),
-                    target: Some("road".into()),
-                });
+                if let Some((anchor_x, anchor_z, direction)) = facade_anchor(
+                    building.world_x,
+                    building.world_z,
+                    building.width_m,
+                    building.depth_m,
+                    f64::from(road_x),
+                    f64::from(road_z),
+                ) {
+                    frontage_road_point = Some(match direction {
+                        "east" => [anchor_x + 16, anchor_z],
+                        "west" => [anchor_x - 16, anchor_z],
+                        "south" => [anchor_x, anchor_z + 16],
+                        _ => [anchor_x, anchor_z - 16],
+                    });
+                    anchors.push(super::SpatialAnchor {
+                        id: "front".into(),
+                        world_x: anchor_x,
+                        world_z: anchor_z,
+                        direction: direction.to_owned(),
+                        target: Some("road".into()),
+                    });
+                }
             }
             EntityInstance {
                 entity_id: format!("generated.settlement-evolution.{}", building.id),
@@ -1059,9 +1070,10 @@ pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<Entity
             if approach_length < 0.5 {
                 return None;
             }
+            let terrain_support = f64::from(building_support_height_m(building, terrain));
             let target_ground = building
                 .frontage_level_m
-                .unwrap_or_else(|| f64::from(building_support_height_m(building, terrain)));
+                .map_or(terrain_support, |frontage| frontage.max(terrain_support));
             let world_y = target_ground.floor() as i32;
             let bottom_offset = (target_ground - f64::from(world_y)) as f32;
             Some(EntityInstance {
@@ -1098,6 +1110,78 @@ fn building_support_height_m(building: &Building, terrain: &BakedTerrain) -> f32
             if let Some(height) = terrain.height(x, z) {
                 highest = highest.max(height);
             }
+        }
+    }
+    highest
+}
+
+fn facade_anchor(
+    world_x: i32,
+    world_z: i32,
+    width_m: f32,
+    depth_m: f32,
+    road_x: f64,
+    road_z: f64,
+) -> Option<(i32, i32, &'static str)> {
+    let dx = road_x - f64::from(world_x);
+    let dz = road_z - f64::from(world_z);
+    let length = dx.hypot(dz);
+    if length <= 1e-9 {
+        return None;
+    }
+    // The access anchor is a door on a cardinal facade, not the intersection of
+    // the road ray with the rectangle's diagonal corner. A diagonal corner can
+    // land inside a different road crossing the block, making the building's
+    // threshold inherit that road's surface. Pick the midpoint of the facade that
+    // faces the assigned road and let the approach corridor span the setback.
+    let (anchor_x, anchor_z, direction) = if dx.abs() > dz.abs() {
+        if dx > 0.0 {
+            (
+                (f64::from(world_x) + f64::from(width_m) * 0.5 - 0.5).round() as i32,
+                world_z,
+                "east",
+            )
+        } else {
+            (
+                (f64::from(world_x) - f64::from(width_m) * 0.5 + 0.5).round() as i32,
+                world_z,
+                "west",
+            )
+        }
+    } else if dz > 0.0 {
+        (
+            world_x,
+            (f64::from(world_z) + f64::from(depth_m) * 0.5 - 0.5).round() as i32,
+            "south",
+        )
+    } else {
+        (
+            world_x,
+            (f64::from(world_z) - f64::from(depth_m) * 0.5 + 0.5).round() as i32,
+            "north",
+        )
+    };
+    Some((anchor_x, anchor_z, direction))
+}
+
+fn nearby_road_surface_m(
+    roads: &[EntityInstance],
+    world_x: i32,
+    world_z: i32,
+    width_m: f32,
+    depth_m: f32,
+) -> f64 {
+    let radius = f64::from(width_m.max(depth_m)) * 0.5 + 2.0;
+    let mut highest = f64::NEG_INFINITY;
+    for road in roads {
+        let (half_width, half_depth) =
+            super::spatial_half_extents(road.width_m, road.depth_m, road.rotation_y_deg);
+        let reach_x = half_width + 4.0;
+        let reach_z = half_depth + 1.5;
+        if f64::from(world_x - road.world_x).abs() <= reach_x + radius
+            && f64::from(world_z - road.world_z).abs() <= reach_z + radius
+        {
+            highest = highest.max(f64::from(road.ground_height_m()));
         }
     }
     highest
@@ -1240,6 +1324,26 @@ mod tests {
                 && entity.width_m > 0.0
                 && entity.depth_m > 0.0
                 && entity.height_m > 0.0
+        }));
+    }
+
+    #[test]
+    fn materialization_never_sinks_a_building_below_its_terrain_support() {
+        let (scene, terrain, water) = fixture();
+        let routes = route_plan();
+        let mut planned = plan(&scene, &terrain, water, &routes, &style(20, 5, 100.0))
+            .unwrap()
+            .unwrap();
+        for building in &mut planned.buildings {
+            building.frontage_level_m = Some(4.0);
+        }
+
+        let entities = materialize(&planned, &terrain);
+
+        assert!(!entities.is_empty());
+        assert!(entities.iter().all(|entity| {
+            (f64::from(entity.world_y) + f64::from(entity.grounding.bottom_offset_m) - 10.0).abs()
+                < 1e-6
         }));
     }
 
