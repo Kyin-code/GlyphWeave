@@ -590,6 +590,22 @@ HTML 增加时代基座色，但明确只作提示，分期证据来自最终实
 实体、入口与市场数量不变，scale/quality 继续 pass。完整记录见
 `DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md`。
 
+## Round 72 · 2026-10-21 · 工程账本 owner 统一
+
+修复 graded road transverse shoulder 被加到纵轴的问题；bounded-cut 现在把
+同实体门前 landing、非 frontage 弱削方建筑和最终道路实体纳入同一 owner
+图。R31 1km 重烘成功，scale-audit pass。
+
+旧 6 个 Core 失败中关闭 5 个：
+
+- 三类 bounded-cut ledger；
+- road overfill 拒绝；
+- assigned-road 重算图。
+
+剩余 frontage diagnosis 只在一个候选的 `entrance_fill_limit` /
+`existing_support_changed` 分类上不同。详见
+`ENGINEERING-LEDGER-UNIFICATION-20261021.zh-CN.md`。
+
 ## Round 72 · 2026-10-21 · HTML 街景相机与立面可见性
 
 运行态复现并修复：

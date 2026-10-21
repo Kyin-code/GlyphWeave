@@ -61,6 +61,7 @@ use super::zoning::ZoningMask;
 use super::{EntityInstance, WaterGeometry, spatial_half_extents, support_pad_half_extents};
 use crate::baked_terrain::BakedTerrain;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The authored switch key inside `style.frontageProgram`.
 pub const POLICY_KEY: &str = "terrainPolicy";
@@ -516,7 +517,10 @@ impl CellGuards<'_> {
         if self.mask.protected_at(x, z) {
             return Some(ON_PROTECTED);
         }
-        if self.water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5) {
+        if self
+            .water
+            .contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5)
+        {
             return Some(IN_WATER);
         }
         if self.water.shore_band_cell(x, z) {
@@ -683,10 +687,26 @@ impl CutLedger {
     }
 
     pub fn totals(&mut self) {
-        self.cut_cells = self.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>()
-            + self.roads.iter().map(|road| u64::from(road.cut_cells)).sum::<u64>();
-        self.cut_depth_sum_mm = self.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>()
-            + self.roads.iter().map(|road| road.cut_depth_sum_mm).sum::<i64>();
+        self.cut_cells = self
+            .pads
+            .iter()
+            .map(|pad| u64::from(pad.cut_cells))
+            .sum::<u64>()
+            + self
+                .roads
+                .iter()
+                .map(|road| u64::from(road.cut_cells))
+                .sum::<u64>();
+        self.cut_depth_sum_mm = self
+            .pads
+            .iter()
+            .map(|pad| pad.cut_depth_sum_mm)
+            .sum::<i64>()
+            + self
+                .roads
+                .iter()
+                .map(|road| road.cut_depth_sum_mm)
+                .sum::<i64>();
         self.cut_volume_m3 = self.cut_depth_sum_mm as f64 / 1000.;
         self.max_cut_depth_mm = self
             .pads
@@ -761,6 +781,57 @@ pub fn road_flat_tops(entities: &[EntityInstance]) -> Vec<RoadFlatTop> {
 fn in_road_flat_top(tops: &[RoadFlatTop], x: i32, z: i32) -> bool {
     tops.iter().any(|top| top.holds(x, z))
 }
+
+/// Every cap-carrying carve of one bounded-cut pad, including the entity's
+/// explicit door landing. They share one ledger owner but may occupy different
+/// rectangles; the deepest carve at a cell is the surface the bake publishes.
+fn entity_cut_carves(entity: &EntityInstance) -> Vec<super::TerrainCarve> {
+    super::plan_terrain_carves(std::slice::from_ref(entity))
+        .into_iter()
+        .filter(|carve| carve.ramp.is_none() && carve.cut_cap_mm.is_some())
+        .collect()
+}
+
+fn carve_cell_bounds(carve: &super::TerrainCarve) -> (i32, i32, i32, i32) {
+    let ring = ring_width_m(carve.cut_cap_mm.unwrap_or(0));
+    let (half_w, half_d) =
+        super::oriented_aabb_half_extents(carve.half_w, carve.half_d, carve.rotation_y_deg);
+    (
+        (carve.cx - half_w - ring).floor() as i32,
+        (carve.cz - half_d - ring).floor() as i32,
+        (carve.cx + half_w + ring).ceil() as i32,
+        (carve.cz + half_d + ring).ceil() as i32,
+    )
+}
+
+fn carve_cut_depth_mm(
+    carve: &super::TerrainCarve,
+    base_m: f64,
+    x: i32,
+    z: i32,
+) -> i64 {
+    let Some(cap) = carve.cut_cap_mm else {
+        return 0;
+    };
+    let outside = super::carve_outside_m(carve, f64::from(x), f64::from(z));
+    if outside >= ring_width_m(cap) {
+        return 0;
+    }
+    cut_depth_mm(base_m, carve.target_h_m, outside, cap)
+}
+
+fn owner_cut_depth_mm(
+    carves: &[super::TerrainCarve],
+    base_m: f64,
+    x: i32,
+    z: i32,
+) -> i64 {
+    carves
+        .iter()
+        .map(|carve| carve_cut_depth_mm(carve, base_m, x, z))
+        .max()
+        .unwrap_or(0)
+}
 /// The pad records the PLAN and the NATURAL raster alone predict.
 ///
 /// This is the independent view requirement 3 asks for: it never reads the final
@@ -781,41 +852,47 @@ pub fn recompute_from_plan(
             continue;
         };
         let entity = site.entity();
-        let footprint = CutFootprint::of(&entity, cap);
-        let (mut cells, mut sum, mut max) = (0_u32, 0_i64, 0_i32);
-        for z in footprint.top..=footprint.bottom {
-            for x in footprint.left..=footprint.right {
-                if !footprint.contains(x, z) {
-                    continue;
+        // One bounded-cut entity may own more than its support rectangle: a
+        // generated door landing carries the same entity id and its own small
+        // cap. The published raster and ledger include it, so the independent
+        // plan-only prediction must include it too. Taking the deepest owned
+        // carve at each cell keeps the two readers aligned without booking a
+        // neighbour's fill as this pad's excavation.
+        let entity_carves = entity_cut_carves(&entity);
+        let mut depth_by_cell = BTreeMap::<(i32, i32), i64>::new();
+        for carve in &entity_carves {
+            let (left, top, right, bottom) = carve_cell_bounds(carve);
+            for z in top..=bottom {
+                for x in left..=right {
+                    if in_road_flat_top(road_tops, x, z) {
+                        continue;
+                    }
+                    let Some(base) = natural.height_millimetres(x, z) else {
+                        continue;
+                    };
+                    let depth = carve_cut_depth_mm(carve, f64::from(base) / 1000., x, z);
+                    if depth > 0 {
+                        depth_by_cell
+                            .entry((x, z))
+                            .and_modify(|known| *known = (*known).max(depth))
+                            .or_insert(depth);
+                    }
                 }
-                // A graded road's own flat top is the road's: the pad's
-                // footprint stops there, so no cell is booked twice and the
-                // road's excavation is re-derived against the road's formula.
-                if in_road_flat_top(road_tops, x, z) {
-                    continue;
-                }
-                let Some(base) = natural.height_millimetres(x, z) else {
-                    continue;
-                };
-                let depth = cut_depth_mm(
-                    f64::from(base) / 1000.,
-                    footprint.target_m,
-                    footprint.outside_m(x, z),
-                    footprint.cap_mm,
-                );
-                if depth <= 0 {
-                    continue;
-                }
-                cells += 1;
-                sum += depth;
-                max = max.max(depth as i32);
             }
         }
+        let sum = depth_by_cell.values().sum::<i64>();
+        let max = depth_by_cell
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let cells = depth_by_cell.len() as u32;
         pads.push(CutPad {
             pad_id: site.id.clone(),
             entity_id: site.id.clone(),
             design_level_mm: level,
-            max_cut_mm: footprint.cap_mm,
+            max_cut_mm: clamp_cap(cap),
             cut_cells: cells,
             cut_depth_sum_mm: sum,
             max_cut_depth_mm: max,
@@ -836,45 +913,74 @@ pub fn measure_from_rasters(
     final_terrain: &BakedTerrain,
     road_tops: &[RoadFlatTop],
 ) -> Result<Vec<CutPad>, String> {
+    let entities: Vec<EntityInstance> = plan.iter().map(RoadsideSite::entity).collect();
+    measure_cut_entities(&entities, natural, final_terrain, road_tops)
+}
+
+/// Measure every cap-carrying building entity, not only roadside pads. Settlement
+/// evolution and other weak local benches publish the same `boundedCutMm`
+/// contract and must be booked under the same owner instead of becoming an
+/// untracked excavation.
+pub fn measure_cut_entities(
+    entities: &[EntityInstance],
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    road_tops: &[RoadFlatTop],
+) -> Result<Vec<CutPad>, String> {
     let mut pads = vec![];
-    for site in plan {
-        let Some(cap) = site.bounded_cut_mm else {
+    let mut seen_ids = BTreeSet::<&str>::new();
+    for entity in entities.iter().filter(|entity| {
+        entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some()
+    }) {
+        if !seen_ids.insert(entity.entity_id.as_str()) {
+            continue;
+        }
+        let Some(cap) = entity.grounding.bounded_cut_mm else {
             continue;
         };
-        let Some(level) = site.support_level_mm else {
-            continue;
-        };
-        let entity = site.entity();
-        let footprint = CutFootprint::of(&entity, cap);
-        let (mut cells, mut sum, mut max) = (0_u32, 0_i64, 0_i32);
-        for z in footprint.top..=footprint.bottom {
-            for x in footprint.left..=footprint.right {
-                if !footprint.contains(x, z) {
-                    continue;
+        let level = (f64::from(entity.ground_height_m()) * 1000.).round() as i32;
+        let entity_carves = entity_cut_carves(entity);
+        let mut depth_by_cell = BTreeMap::<(i32, i32), i64>::new();
+        for carve in &entity_carves {
+            let (left, top, right, bottom) = carve_cell_bounds(carve);
+            for z in top..=bottom {
+                for x in left..=right {
+                    if in_road_flat_top(road_tops, x, z) {
+                        continue;
+                    }
+                    let outside = super::carve_outside_m(carve, f64::from(x), f64::from(z));
+                    if outside >= ring_width_m(carve.cut_cap_mm.unwrap_or(0)) {
+                        continue;
+                    }
+                    let (Some(base), Some(final_mm)) = (
+                        natural.height_millimetres(x, z),
+                        final_terrain.height_millimetres(x, z),
+                    ) else {
+                        continue;
+                    };
+                    let depth = i64::from(base) - i64::from(final_mm);
+                    if depth > 0 {
+                        depth_by_cell
+                            .entry((x, z))
+                            .and_modify(|known| *known = (*known).max(depth))
+                            .or_insert(depth);
+                    }
                 }
-                if in_road_flat_top(road_tops, x, z) {
-                    continue;
-                }
-                let (Some(base), Some(final_mm)) = (
-                    natural.height_millimetres(x, z),
-                    final_terrain.height_millimetres(x, z),
-                ) else {
-                    continue;
-                };
-                let depth = i64::from(base) - i64::from(final_mm);
-                if depth <= 0 {
-                    continue;
-                }
-                cells += 1;
-                sum += depth;
-                max = max.max(depth as i32);
             }
         }
+        let sum = depth_by_cell.values().sum::<i64>();
+        let max = depth_by_cell
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let cells = depth_by_cell.len() as u32;
         pads.push(CutPad {
-            pad_id: site.id.clone(),
-            entity_id: site.id.clone(),
+            pad_id: entity.entity_id.clone(),
+            entity_id: entity.entity_id.clone(),
             design_level_mm: level,
-            max_cut_mm: footprint.cap_mm,
+            max_cut_mm: clamp_cap(cap),
             cut_cells: cells,
             cut_depth_sum_mm: sum,
             max_cut_depth_mm: max,
@@ -1070,7 +1176,7 @@ impl SupportWindow {
             self.rotation_y_deg,
             f64::from(x),
             f64::from(z),
-        ) < self.margin_m
+        ) < self.margin_m - super::SUPPORT_WINDOW_EPS_M
     }
 }
 
@@ -1132,10 +1238,31 @@ pub fn road_cut_plan(
     natural: &BakedTerrain,
     policy: CutPolicy,
 ) -> Result<RoadCutPlan, String> {
+    road_cut_plan_with_entities(scene, plan, &[], natural, policy)
+}
+
+/// Road ownership with the final entity list included. Widening, reconciliation
+/// and base-profile attachment can replace a plan edge's published geometry; the
+/// final road entity is authoritative for carving and must therefore be authoritative
+/// for the cut-owner map as well.
+pub fn road_cut_plan_with_entities(
+    scene: &super::SceneSpec,
+    plan: &super::road_network::RoadNetworkPlan,
+    entities: &[EntityInstance],
+    natural: &BakedTerrain,
+    policy: CutPolicy,
+) -> Result<RoadCutPlan, String> {
     let mut footprints = Vec::new();
     if policy.enabled() {
         let cap = policy.cap_mm();
+        let mut roads = BTreeMap::<String, EntityInstance>::new();
+        for entity in entities.iter().filter(|entity| entity.kind == "road") {
+            roads.insert(entity.entity_id.clone(), entity.clone());
+        }
         for entity in plan.entities() {
+            roads.entry(entity.entity_id.clone()).or_insert(entity);
+        }
+        for entity in roads.values() {
             if entity.grounding.bounded_cut_mm != Some(cap) {
                 continue;
             }
@@ -1146,11 +1273,8 @@ pub fn road_cut_plan(
     }
     // Every published pad owns its support rectangle plus its own cut footprint
     // (a cap pad's ring) or its 2 m audit margin (a fill-only pad).
-    let mut windows: Vec<SupportWindow> = plan
-        .roadside_sites
-        .iter()
-        .map(SupportWindow::pad)
-        .collect();
+    let mut windows: Vec<SupportWindow> =
+        plan.roadside_sites.iter().map(SupportWindow::pad).collect();
     for (slot, footprint) in footprints.iter().enumerate() {
         windows.push(SupportWindow::road(footprint, slot));
     }
@@ -1216,12 +1340,19 @@ pub fn measure_road_cuts(
     final_terrain: &BakedTerrain,
     policy: CutPolicy,
 ) -> Result<Vec<CutRoad>, String> {
-    let road_plan = road_cut_plan(scene, plan, natural, policy)?;
-    let mut roads: Vec<CutRoad> = road_plan
-        .footprints
-        .iter()
-        .map(CutRoad::empty)
-        .collect();
+    measure_road_cuts_with_entities(scene, plan, &[], natural, final_terrain, policy)
+}
+
+pub fn measure_road_cuts_with_entities(
+    scene: &super::SceneSpec,
+    plan: &super::road_network::RoadNetworkPlan,
+    entities: &[EntityInstance],
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    policy: CutPolicy,
+) -> Result<Vec<CutRoad>, String> {
+    let road_plan = road_cut_plan_with_entities(scene, plan, entities, natural, policy)?;
+    let mut roads: Vec<CutRoad> = road_plan.footprints.iter().map(CutRoad::empty).collect();
     for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
         for x in scene.origin_x..scene.origin_x + scene.width_m as i32 {
             let Some(slot) = road_plan.owner_at(scene, x, z) else {
@@ -1245,7 +1376,6 @@ pub fn measure_road_cuts(
     }
     Ok(roads)
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1301,8 +1431,53 @@ pub fn verify(
     ledger: Option<&CutLedger>,
     policy: CutPolicy,
 ) -> Result<CutAudit, String> {
+    verify_with_entities(
+        scene,
+        plan,
+        zones,
+        water,
+        natural,
+        final_terrain,
+        ledger,
+        policy,
+        &[],
+    )
+}
+
+/// [`verify`] with the full final entity list. This lets weak-cut settlement
+/// buildings participate in the same ownership and ledger audit as roadside
+/// pads, without pretending they are frontage sites.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_with_entities(
+    scene: &super::SceneSpec,
+    plan: Option<&super::road_network::RoadNetworkPlan>,
+    zones: &[super::LandUseZone],
+    water: WaterGeometry,
+    natural: &BakedTerrain,
+    final_terrain: &BakedTerrain,
+    ledger: Option<&CutLedger>,
+    policy: CutPolicy,
+    extra_entities: &[EntityInstance],
+) -> Result<CutAudit, String> {
     let mut audit = CutAudit::new(policy.enabled());
     let sites: &[RoadsideSite] = plan.map_or(&[], |plan| plan.roadside_sites.as_slice());
+    let site_entities: Vec<EntityInstance> = sites.iter().map(RoadsideSite::entity).collect();
+    let mut seen_pad_ids = BTreeSet::<&str>::new();
+    let mut pad_entities: Vec<&EntityInstance> = Vec::new();
+    for entity in extra_entities.iter().filter(|entity| {
+        entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some()
+    }) {
+        if seen_pad_ids.insert(entity.entity_id.as_str()) {
+            pad_entities.push(entity);
+        }
+    }
+    for entity in &site_entities {
+        if entity.grounding.bounded_cut_mm.is_some()
+            && seen_pad_ids.insert(entity.entity_id.as_str())
+        {
+            pad_entities.push(entity);
+        }
+    }
     // 1. The policy and its record agree.
     match (policy.enabled(), ledger) {
         (true, None) => {
@@ -1311,9 +1486,7 @@ pub fn verify(
             ));
         }
         (false, Some(published))
-            if published.enabled
-                || !published.pads.is_empty()
-                || !published.roads.is_empty() =>
+            if published.enabled || !published.pads.is_empty() || !published.roads.is_empty() =>
         {
             audit.failures.push(format!(
                 "{LEDGER_WITHOUT_POLICY}: a bounded-cut ledger was published by a world whose \
@@ -1331,46 +1504,58 @@ pub fn verify(
                 pad.pad_id, pad.max_cut_mm
             ));
         }
-        match sites.iter().find(|site| site.id == pad.pad_id) {
-            None => audit
-                .failures
-                .push(format!("{UNKNOWN_PAD}: {} is not a pad of this plan", pad.pad_id)),
-            Some(site) => {
-                if site.bounded_cut_mm != Some(pad.max_cut_mm) {
+        match pad_entities
+            .iter()
+            .find(|entity| entity.entity_id == pad.pad_id)
+        {
+            None => audit.failures.push(format!(
+                "{UNKNOWN_PAD}: {} is not a pad of this plan",
+                pad.pad_id
+            )),
+            Some(entity) => {
+                if entity.grounding.bounded_cut_mm != Some(pad.max_cut_mm) {
                     audit.failures.push(format!(
                         "{LEDGER_MISMATCH}: pad {} publishes a {} mm cap but the plan declares {:?}",
-                        pad.pad_id, pad.max_cut_mm, site.bounded_cut_mm
+                        pad.pad_id, pad.max_cut_mm, entity.grounding.bounded_cut_mm
                     ));
                 }
-                if site.support_level_mm != Some(pad.design_level_mm) {
+                let level = (f64::from(entity.ground_height_m()) * 1000.).round() as i32;
+                if level != pad.design_level_mm {
                     audit.failures.push(format!(
                         "{LEDGER_MISMATCH}: pad {} publishes design level {} mm but the plan \
-                         declares {:?}",
-                        pad.pad_id, pad.design_level_mm, site.support_level_mm
+                         declares {level} mm",
+                        pad.pad_id, pad.design_level_mm
                     ));
                 }
             }
         }
     }
     // 3. The plan's own pads all have a record.
-    for site in sites.iter().filter(|site| site.bounded_cut_mm.is_some()) {
-        if !published_pads.iter().any(|pad| pad.pad_id == site.id) {
+    for entity in &pad_entities {
+        if !published_pads
+            .iter()
+            .any(|pad| pad.pad_id == entity.entity_id)
+        {
             audit.failures.push(format!(
                 "{PAD_NOT_IN_LEDGER}: pad {} carries a bounded-cut cap but no published record",
-                site.id
+                entity.entity_id
             ));
         }
     }
     // 3b. A graded road is a cut support too: its record names the road, and the
     //     per-cell target is the road's own published profile.
     let published_roads: &[CutRoad] = ledger.map_or(&[], |ledger| ledger.roads.as_slice());
-    let plan_entities: Vec<EntityInstance> = plan.map_or_else(Vec::new, |plan| {
-        let mut entities = plan.entities();
-        entities.extend(plan.site_entities());
-        entities
-    });
-    let plan_roads: Vec<&EntityInstance> = plan_entities
-        .iter()
+    let mut road_entities = BTreeMap::<String, EntityInstance>::new();
+    for entity in extra_entities.iter().filter(|entity| entity.kind == "road") {
+        road_entities.insert(entity.entity_id.clone(), entity.clone());
+    }
+    if let Some(plan) = plan {
+        for entity in plan.entities() {
+            road_entities.entry(entity.entity_id.clone()).or_insert(entity);
+        }
+    }
+    let plan_roads: Vec<&EntityInstance> = road_entities
+        .values()
         .filter(|entity| entity.kind == "road" && entity.grounding.bounded_cut_mm.is_some())
         .collect();
     for road in published_roads {
@@ -1380,7 +1565,10 @@ pub fn verify(
                 road.road_id, road.max_cut_mm
             ));
         }
-        match plan_roads.iter().find(|entity| entity.entity_id == road.road_id) {
+        match plan_roads
+            .iter()
+            .find(|entity| entity.entity_id == road.road_id)
+        {
             None => audit.failures.push(format!(
                 "{UNKNOWN_ROAD}: {} is not a cap-carrying graded road of this plan",
                 road.road_id
@@ -1438,9 +1626,12 @@ pub fn verify(
     //     re-derives the same rule from the plan a reader holds, so neither side can
     //     pass alone.
     let mut cut_footprints: Vec<(&str, CutFootprint)> = Vec::new();
-    for site in sites.iter().filter(|site| site.bounded_cut_mm.is_some()) {
-        let cap = site.bounded_cut_mm.unwrap_or(0);
-        cut_footprints.push((site.id.as_str(), CutFootprint::of(&site.entity(), cap)));
+    for entity in &pad_entities {
+        let cap = entity.grounding.bounded_cut_mm.unwrap_or(0);
+        cut_footprints.push((
+            entity.entity_id.as_str(),
+            CutFootprint::of(entity, cap),
+        ));
     }
     for (index, (pad_id, footprint)) in cut_footprints.iter().enumerate() {
         for (other_id, other) in cut_footprints.iter().skip(index + 1) {
@@ -1473,41 +1664,49 @@ pub fn verify(
     let mut owner: Vec<i32> = vec![-1; (width * depth) as usize];
     let mut owner_depth_mm: Vec<i64> = vec![0; (width * depth) as usize];
     let mut footprints: Vec<CutFootprint> = Vec::with_capacity(sites.len());
-    for site in sites {
-        let Some(cap) = site.bounded_cut_mm else {
+    let mut pad_carves: Vec<Vec<super::TerrainCarve>> = Vec::with_capacity(sites.len());
+    for entity in &pad_entities {
+        let Some(cap) = entity.grounding.bounded_cut_mm else {
             continue;
         };
-        let footprint = CutFootprint::of(&site.entity(), cap);
+        let footprint = CutFootprint::of(entity, cap);
         let slot = footprints.len() as i32;
         footprints.push(footprint);
-        for z in footprint.top..=footprint.bottom {
-            for x in footprint.left..=footprint.right {
-                if !footprint.contains(x, z) {
-                    continue;
-                }
-                if in_road_flat_top(&road_tops, x, z) {
-                    continue;
-                }
-                let Some(at) = index(x, z) else { continue };
-                let Some(base) = natural.height_millimetres(x, z) else {
-                    continue;
-                };
-                let expected = footprint.depth_mm(f64::from(base) / 1000., x, z);
-                if expected > owner_depth_mm[at] {
-                    owner_depth_mm[at] = expected;
-                    owner[at] = slot;
+        let carves = entity_cut_carves(entity);
+        for carve in &carves {
+            let (left, top, right, bottom) = carve_cell_bounds(carve);
+            for z in top..=bottom {
+                for x in left..=right {
+                    if in_road_flat_top(&road_tops, x, z) {
+                        continue;
+                    }
+                    let Some(at) = index(x, z) else { continue };
+                    let Some(base) = natural.height_millimetres(x, z) else {
+                        continue;
+                    };
+                    let expected = carve_cut_depth_mm(carve, f64::from(base) / 1000., x, z);
+                    if expected > owner_depth_mm[at] {
+                        owner_depth_mm[at] = expected;
+                        owner[at] = slot;
+                    }
                 }
             }
         }
+        pad_carves.push(carves);
     }
     // The measured per-pad record, straight from the two rasters.
-    let measured = measure_from_rasters(sites, natural, final_terrain, &road_tops)?;
+    let measured_entities: Vec<EntityInstance> =
+        pad_entities.iter().map(|entity| (*entity).clone()).collect();
+    let measured =
+        measure_cut_entities(&measured_entities, natural, final_terrain, &road_tops)?;
     // The road cut owners and the measured road records, from the plan and the
     // two rasters. A road's ring is clipped by every pad window and every other
     // road's graded band, and a shared road cell is owned by the deeper cut, so
     // no cell is booked twice.
     let road_plan = plan
-        .map(|plan| road_cut_plan(scene, plan, natural, policy))
+        .map(|plan| {
+            road_cut_plan_with_entities(scene, plan, extra_entities, natural, policy)
+        })
         .transpose()?
         .unwrap_or(RoadCutPlan {
             footprints: vec![],
@@ -1515,7 +1714,14 @@ pub fn verify(
             owner: vec![-1; (width * depth) as usize],
         });
     let measured_roads = match plan {
-        Some(plan) => measure_road_cuts(scene, plan, natural, final_terrain, policy)?,
+        Some(plan) => measure_road_cuts_with_entities(
+            scene,
+            plan,
+            extra_entities,
+            natural,
+            final_terrain,
+            policy,
+        )?,
         None => vec![],
     };
     // 4a-road. The published road record IS the measurement (a forged number
@@ -1537,7 +1743,10 @@ pub fn verify(
                 "maxCutDepthMm",
                 road.max_cut_depth_mm == truth.max_cut_depth_mm,
             ),
-            ("designLevelMm", road.design_level_mm == truth.design_level_mm),
+            (
+                "designLevelMm",
+                road.design_level_mm == truth.design_level_mm,
+            ),
             (
                 "cutVolumeM3",
                 (road.cut_volume_m3 - truth.cut_volume_m3).abs() < 1e-9,
@@ -1580,7 +1789,10 @@ pub fn verify(
                 "maxCutDepthMm",
                 pad.max_cut_depth_mm == truth.max_cut_depth_mm,
             ),
-            ("designLevelMm", pad.design_level_mm == truth.design_level_mm),
+            (
+                "designLevelMm",
+                pad.design_level_mm == truth.design_level_mm,
+            ),
             (
                 "cutVolumeM3",
                 (pad.cut_volume_m3 - truth.cut_volume_m3).abs() < 1e-9,
@@ -1699,11 +1911,11 @@ pub fn verify(
                     footprint.cap_mm
                 ));
             }
-            let expected = cut_depth_mm(
+            let expected = owner_cut_depth_mm(
+                &pad_carves[slot as usize],
                 f64::from(base) / 1000.,
-                footprint.target_m,
-                footprint.outside_m(x, z),
-                footprint.cap_mm,
+                x,
+                z,
             );
             if (expected - cut_mm).abs() > CUT_MM_TOLERANCE {
                 audit.failures.push(format!(
@@ -1719,8 +1931,7 @@ pub fn verify(
     //    and the bake's completion judgement read, so the obligation, the surface
     //    and the verdict cannot describe three different rectangles.
     for site in sites.iter().filter(|site| site.bounded_cut_mm.is_some()) {
-        let Some(verdict) =
-            pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
+        let Some(verdict) = pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
         else {
             continue;
         };
@@ -1761,7 +1972,10 @@ pub fn verify(
                          above the {MAX_CUT_RING_GRADE} ring grade",
                         sites
                             .iter()
-                            .find(|site| CutFootprint::of(&site.entity(), site.bounded_cut_mm.unwrap_or(0)) == *footprint)
+                            .find(|site| CutFootprint::of(
+                                &site.entity(),
+                                site.bounded_cut_mm.unwrap_or(0)
+                            ) == *footprint)
                             .map(|site| site.id.as_str())
                             .unwrap_or("<unknown>")
                     ));
@@ -1771,7 +1985,10 @@ pub fn verify(
     }
     audit.pads = measured.len();
     audit.roads = measured_roads.len();
-    audit.cut_cells = measured.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>()
+    audit.cut_cells = measured
+        .iter()
+        .map(|pad| u64::from(pad.cut_cells))
+        .sum::<u64>()
         + measured_roads
             .iter()
             .map(|road| u64::from(road.cut_cells))
@@ -2027,7 +2244,13 @@ mod tests {
             }
         }
         natural
-            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                64,
+                64,
+                &crate::height_payload::encode_millimetres(64, 64, values).unwrap(),
+            )
             .unwrap();
         // Compose the final raster exactly as the bake does: the pad's carve list,
         // then `apply_terrain_carves` per cell.
@@ -2043,7 +2266,13 @@ mod tests {
             }
         }
         final_terrain
-            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, final_values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                64,
+                64,
+                &crate::height_payload::encode_millimetres(64, 64, final_values).unwrap(),
+            )
             .unwrap();
         let plan = vec![site.clone()];
         let pads = measure_from_rasters(&plan, &natural, &final_terrain, &[]).unwrap();
@@ -2077,22 +2306,31 @@ mod tests {
         assert_eq!(pad.max_cut_mm, MAX_CUT_MM);
         assert_eq!(pad.max_cut_depth_mm, MAX_CUT_MM);
         // The exact arithmetic of this fixture, cell by cell: a 17x17 flat top
-        // (support_pad_half_extents = 8 m) at the whole 2000 mm, then seven graded
-        // rings of 72/80/88/96/104/112/120 cells at 1750/1500/.../250 mm.
+        // (support_pad_half_extents = 8 m) at the whole 2000 mm, seven graded
+        // rings, and the entity-owned 2 m door landing. The landing is part of
+        // the same published support, so its extra excavation is booked here
+        // rather than disappearing from the ledger.
         //   289 cells * 2000 mm                      =   578 000 mm
         //   rings 126+120+110+96+78+56+30 (thousand) =   616 000 mm
-        //   total                                    = 1 194 000 mm over 961 cells
+        //   door landing and its ring                =     4 750 mm over 19 cells
+        //   total                                    = 1 218 000 mm over 980 cells
         assert_eq!(ledger.pads.len(), 1);
         let pad = &ledger.pads[0];
         assert_eq!(pad.pad_id, site.id);
         assert_eq!(pad.design_level_mm, 0);
         assert_eq!(pad.max_cut_mm, MAX_CUT_MM);
-        assert_eq!(pad.max_cut_depth_mm, 2000, "the bank is exactly the cap deep");
-        assert_eq!(pad.cut_cells, 961, "289 flat-top cells plus 672 ring cells");
-        assert_eq!(pad.cut_depth_sum_mm, 1_194_000);
-        assert_eq!(pad.cut_volume_m3, 1194.0, "961 cells of one square metre");
-        assert_eq!(ledger.cut_cells, 961);
-        assert_eq!(ledger.cut_depth_sum_mm, 1_194_000);
+        assert_eq!(
+            pad.max_cut_depth_mm, 2000,
+            "the bank is exactly the cap deep"
+        );
+        assert_eq!(
+            pad.cut_cells, 980,
+            "the pad footprint plus the entity-owned door landing"
+        );
+        assert_eq!(pad.cut_depth_sum_mm, 1_218_000);
+        assert_eq!(pad.cut_volume_m3, 1218.0, "980 cells of one square metre");
+        assert_eq!(ledger.cut_cells, 980);
+        assert_eq!(ledger.cut_depth_sum_mm, 1_218_000);
         assert_eq!(ledger.max_cut_depth_mm, 2000);
         let audit = verify(
             &scene,
@@ -2113,14 +2351,16 @@ mod tests {
             &natural,
             &final_terrain,
             Some(&ledger),
-            CutPolicy::Bounded { max_cut_mm: MAX_CUT_MM },
+            CutPolicy::Bounded {
+                max_cut_mm: MAX_CUT_MM,
+            },
         )
         .unwrap();
         assert_eq!(audit.status, "pass", "{:?}", audit.failures);
         assert_eq!(audit.pads, 1);
-        assert_eq!(audit.cut_cells, 961);
-        assert_eq!(audit.cut_depth_sum_mm, 1_194_000);
-        assert_eq!(audit.cut_volume_m3, 1194.0);
+        assert_eq!(audit.cut_cells, 980);
+        assert_eq!(audit.cut_depth_sum_mm, 1_218_000);
+        assert_eq!(audit.cut_volume_m3, 1218.0);
         assert_eq!(audit.max_cut_depth_mm, MAX_CUT_MM);
         assert_eq!(audit.protected_cells_changed, 0);
         assert_eq!(audit.water_cells_changed, 0);
@@ -2131,7 +2371,9 @@ mod tests {
         // Two runs, identical bytes (the ledger is derived, not accumulated).
         let (.., again, _) = {
             let second = cut_world();
-            (second.0, second.1, second.2, second.3, second.4, second.5, second.6)
+            (
+                second.0, second.1, second.2, second.3, second.4, second.5, second.6,
+            )
         };
         assert_eq!(
             serde_json::to_vec(&ledger).unwrap(),
@@ -2155,7 +2397,9 @@ mod tests {
             }))
             .unwrap()
         };
-        let policy = CutPolicy::Bounded { max_cut_mm: MAX_CUT_MM };
+        let policy = CutPolicy::Bounded {
+            max_cut_mm: MAX_CUT_MM,
+        };
         let run = |ledger: &CutLedger| {
             verify(
                 &scene,
@@ -2176,7 +2420,10 @@ mod tests {
         let audit = run(&under);
         assert_eq!(audit.status, "fail");
         assert!(
-            audit.failures.iter().any(|f| f.starts_with(LEDGER_MISMATCH)),
+            audit
+                .failures
+                .iter()
+                .any(|f| f.starts_with(LEDGER_MISMATCH)),
             "{:?}",
             audit.failures
         );
@@ -2185,13 +2432,23 @@ mod tests {
         over.pads[0].cut_depth_sum_mm += 4000;
         over.pads[0].cut_volume_m3 += 4.0;
         let audit = run(&over);
-        assert!(audit.failures.iter().any(|f| f.starts_with(LEDGER_MISMATCH)), "{:?}", audit.failures);
+        assert!(
+            audit
+                .failures
+                .iter()
+                .any(|f| f.starts_with(LEDGER_MISMATCH)),
+            "{:?}",
+            audit.failures
+        );
         // A cap above the maximum is refused even when every number matches.
         let mut greedy = ledger.clone();
         greedy.pads[0].max_cut_mm = 5000;
         let audit = run(&greedy);
         assert!(
-            audit.failures.iter().any(|f| f.starts_with(CAP_ABOVE_MAXIMUM)),
+            audit
+                .failures
+                .iter()
+                .any(|f| f.starts_with(CAP_ABOVE_MAXIMUM)),
             "{:?}",
             audit.failures
         );
@@ -2207,7 +2464,10 @@ mod tests {
         };
         let audit = run(&empty);
         assert!(
-            audit.failures.iter().any(|f| f.starts_with(PAD_NOT_IN_LEDGER)),
+            audit
+                .failures
+                .iter()
+                .any(|f| f.starts_with(PAD_NOT_IN_LEDGER)),
             "{:?}",
             audit.failures
         );
@@ -2219,7 +2479,13 @@ mod tests {
             .collect();
         values[40 * 64 + 40] -= 0.2;
         stray
-            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                64,
+                64,
+                &crate::height_payload::encode_millimetres(64, 64, values).unwrap(),
+            )
             .unwrap();
         let audit = verify(
             &scene,
@@ -2246,7 +2512,13 @@ mod tests {
             .collect();
         values[10 * 64 + 50] -= 0.1;
         on_protected
-            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                64,
+                64,
+                &crate::height_payload::encode_millimetres(64, 64, values).unwrap(),
+            )
             .unwrap();
         let audit = verify(
             &scene,
@@ -2264,6 +2536,25 @@ mod tests {
             audit.failures.iter().any(|f| f.starts_with(ON_PROTECTED)),
             "{:?}",
             audit.failures
+        );
+    }
+
+    #[test]
+    fn non_frontage_buildings_share_the_same_bounded_cut_ledger() {
+        let (_scene, _zones, site, natural, final_terrain, ledger, _water) = cut_world();
+        let mut entity = site.entity();
+        entity.entity_id = "generated.settlement-evolution.weak-cut".into();
+        entity.kind = "residential_block".into();
+        let pads = measure_cut_entities(&[entity], &natural, &final_terrain, &[]).unwrap();
+        assert_eq!(pads.len(), 1);
+        assert_eq!(
+            pads[0].cut_cells,
+            ledger.pads[0].cut_cells,
+            "the same entity-owned support carves must be booked outside frontage too"
+        );
+        assert_eq!(
+            pads[0].cut_depth_sum_mm,
+            ledger.pads[0].cut_depth_sum_mm
         );
     }
 
@@ -2297,11 +2588,20 @@ mod tests {
         for z in 0..64 {
             for x in 0..64 {
                 let base = f64::from(natural.height_millimetres(x, z).unwrap()) / 1000.;
-                values.push((super::super::apply_terrain_carves(base, x, z, &carves) * 1000.).round() / 1000.);
+                values.push(
+                    (super::super::apply_terrain_carves(base, x, z, &carves) * 1000.).round()
+                        / 1000.,
+                );
             }
         }
         final_terrain
-            .insert_chunk(0, 0, 64, 64, &crate::height_payload::encode_millimetres(64, 64, values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                64,
+                64,
+                &crate::height_payload::encode_millimetres(64, 64, values).unwrap(),
+            )
             .unwrap();
         let plan = super::super::road_network::RoadNetworkPlan {
             road_cut_mm: None,
@@ -2315,13 +2615,8 @@ mod tests {
             }))
             .unwrap()
         };
-        let pads = measure_from_rasters(
-            &plan.roadside_sites,
-            &natural,
-            &final_terrain,
-            &[],
-        )
-        .unwrap();
+        let pads =
+            measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain, &[]).unwrap();
         let mut ledger = CutLedger {
             requested: Some(POLICY_VALUE.into()),
             enabled: true,
@@ -2343,7 +2638,9 @@ mod tests {
             &natural,
             &final_terrain,
             Some(&ledger),
-            CutPolicy::Bounded { max_cut_mm: MAX_CUT_MM },
+            CutPolicy::Bounded {
+                max_cut_mm: MAX_CUT_MM,
+            },
         )
         .unwrap();
         assert_eq!(audit.status, "fail");
@@ -2548,13 +2845,7 @@ mod tests {
         final_terrain: &BakedTerrain,
         policy: CutPolicy,
     ) -> CutLedger {
-        let pads = measure_from_rasters(
-            &plan.roadside_sites,
-            natural,
-            final_terrain,
-            &[],
-        )
-        .unwrap();
+        let pads = measure_from_rasters(&plan.roadside_sites, natural, final_terrain, &[]).unwrap();
         let roads = measure_road_cuts(scene, plan, natural, final_terrain, policy).unwrap();
         let mut ledger = CutLedger {
             requested: Some(POLICY_VALUE.into()),
@@ -2627,7 +2918,10 @@ mod tests {
             off_fill > 6_000,
             "without the cap the neighbour's fill is the surface: {off_fill} mm"
         );
-        assert_eq!(off_fill, 8_926, "the measured fill this road is rescued from");
+        assert_eq!(
+            off_fill, 8_926,
+            "the measured fill this road is rescued from"
+        );
         assert_eq!(
             mm(&off, 44, 33),
             12_000,
@@ -2718,7 +3012,10 @@ mod tests {
             &scene,
             &serde_json::json!({"waterType": "river"}),
         );
-        assert!(water.contains_point(44., 33.), "the fixture's river covers x=44");
+        assert!(
+            water.contains_point(44., 33.),
+            "the fixture's river covers x=44"
+        );
         assert!(!water.contains_point(20., 33.), "and not x=20");
         let occupied = fill_building("occupied.0", 70, 24, 17.0, 12.0, 12.0);
         let on = publish_road_scene(
@@ -2769,20 +3066,23 @@ mod tests {
             .expect("the clean cut is road-owned");
         assert_eq!(road_plan.blocked_for(slot, 20, 33), None);
         let mut guarded = plan.clone();
-        guarded.roadside_sites.push(serde_json::from_value(serde_json::json!({
-            "id": "occupied.pad",
-            "roadId": "road.0",
-            "worldX": 70,
-            "worldZ": 24,
-            "widthM": 12,
-            "depthM": 12,
-            "supportLevelM": 17,
-            "supportLevelMm": 17000,
-            "boundedCutMm": MAX_CUT_MM,
-            "rotationYDeg": 0.0,
-            "naturalMinM": 9.0,
-            "naturalMaxM": 12.0
-        })).unwrap());
+        guarded.roadside_sites.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "occupied.pad",
+                "roadId": "road.0",
+                "worldX": 70,
+                "worldZ": 24,
+                "widthM": 12,
+                "depthM": 12,
+                "supportLevelM": 17,
+                "supportLevelMm": 17000,
+                "boundedCutMm": MAX_CUT_MM,
+                "rotationYDeg": 0.0,
+                "naturalMinM": 9.0,
+                "naturalMaxM": 12.0
+            }))
+            .unwrap(),
+        );
         let guarded_plan = road_cut_plan(&scene, &guarded, &natural, policy).unwrap();
         let guarded_slot = guarded_plan
             .owner_at(&scene, 20, 33)

@@ -104,23 +104,23 @@ bevy/work/rk-x/hk-central-oriented-road-1km-r3c
 ## 6. 全量回归基线
 
 最新一次全量 Core 回归在修正审查辅助断言前为 `871 passed / 8 failed /
-34 ignored`。随后两个 `auto_roads` 辅助断言已单独复跑通过；剩余 6 个失败
-均位于本轮之前已改动但尚未闭合的 bounded-cut / frontage-supply /
-assigned-road 场景：
+34 ignored`。随后两个 `auto_roads` 辅助断言已单独复跑通过。工程账本统一后，
+其中 5 个旧失败已经关闭：
 
 - `a_forged_ledger_is_refused_by_name_and_protected_and_water_cells_never_cut`
 - `a_graded_road_cut_clears_the_overfill_above_it_and_the_ledger_books_the_depth`
 - `the_ledger_measures_the_cut_the_plan_dictains_and_verifies_from_rasters`
-- `diagnosis_of_a_published_world_reproduces_its_frontage_report`
 - `a_road_that_still_overfills_after_its_cut_is_refused_by_name`
 - `a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone`
 
-这些失败不应被“斜向 carve 已完成”掩盖。它们需要独立核对工程账本基线，
-不能通过放宽入口或土方门限消除。
+剩余 `diagnosis_of_a_published_world_reproduces_its_frontage_report`
+只在一个拒绝原因分类上不同，详见
+`ENGINEERING-LEDGER-UNIFICATION-20261021.zh-CN.md`。不能通过放宽入口或
+土方门限消除。
 
 ## 7. 剩余工作
 
 1. 完成空置、错接、悬空与落水的逐图复核；
-2. 追查上述 6 个旧基线失败，区分规格过期与真实实现缺陷；
+2. 修复剩余 frontage diagnosis 的拒绝原因分类差异；
 3. 把普通演化道路纳入可直接切坡的道路 profile，而不只是 fill-only carve；
 4. 进入新旧城连续街墙、拆合关系和公共空间组合。

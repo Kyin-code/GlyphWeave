@@ -2841,7 +2841,7 @@ mod tests {
     #[test]
     fn diagnosis_of_a_published_world_reproduces_its_frontage_report() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../work/r31/1km-b8-cut");
+            .join("../../work/r31/1km-b8-cut-r32l-current");
         if !root.exists() {
             return;
         }

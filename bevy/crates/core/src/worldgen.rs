@@ -2429,6 +2429,7 @@ fn bounded_cut_ledger_for(
     manifest: &WorldManifest,
     scene: &SceneSpec,
     plan: &road_network::RoadNetworkPlan,
+    entities: &[EntityInstance],
     natural: &BakedTerrain,
     final_terrain: &BakedTerrain,
     zones: Option<&[LandUseZone]>,
@@ -2449,9 +2450,19 @@ fn bounded_cut_ledger_for(
     let mut cut_entities = plan.entities();
     cut_entities.extend(plan.site_entities());
     let road_tops = bounded_cut::road_flat_tops(&cut_entities);
-    let pads =
-        bounded_cut::measure_from_rasters(&plan.roadside_sites, natural, final_terrain, &road_tops)
-            .map_err(WorldgenError::InvalidRules)?;
+    // The published ledger and its verifier read the same entity universe: the
+    // final static entities plus every plan-owned roadside site. Some service or
+    // recovery pads exist in the plan even when the generic template never had a
+    // same-id placeholder, so measuring only `entities` would omit them.
+    let mut cut_world_entities = entities.to_vec();
+    cut_world_entities.extend(plan.site_entities());
+    let pads = bounded_cut::measure_cut_entities(
+        &cut_world_entities,
+        natural,
+        final_terrain,
+        &road_tops,
+    )
+    .map_err(WorldgenError::InvalidRules)?;
     let mut ledger = bounded_cut::CutLedger {
         requested: Some(
             manifest
@@ -2466,8 +2477,15 @@ fn bounded_cut_ledger_for(
         not_enabled: None,
         max_cut_mm: Some(policy.cap_mm()),
         pads,
-        roads: bounded_cut::measure_road_cuts(scene, plan, natural, final_terrain, policy)
-            .map_err(WorldgenError::InvalidRules)?,
+        roads: bounded_cut::measure_road_cuts_with_entities(
+            scene,
+            plan,
+            &cut_world_entities,
+            natural,
+            final_terrain,
+            policy,
+        )
+        .map_err(WorldgenError::InvalidRules)?,
         cut_cells: 0,
         cut_depth_sum_mm: 0,
         cut_volume_m3: 0.,
@@ -2475,7 +2493,7 @@ fn bounded_cut_ledger_for(
     };
     ledger.totals();
     if let Some(zones) = zones {
-        let audit = bounded_cut::verify(
+        let audit = bounded_cut::verify_with_entities(
             scene,
             Some(plan),
             zones,
@@ -2484,6 +2502,7 @@ fn bounded_cut_ledger_for(
             final_terrain,
             Some(&ledger),
             policy,
+            &cut_world_entities,
         )
         .map_err(WorldgenError::InvalidRules)?;
         if audit.status != "pass" {
@@ -3717,6 +3736,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 manifest,
                 scene,
                 plan,
+                &entities,
                 &natural,
                 &baked_samples,
                 planned_zones.as_deref(),
@@ -5885,6 +5905,10 @@ fn terrain_height_with_geometry(seed: u64, x: i32, z: i32, water: WaterGeometry)
 /// 16m band is distinguishable from one baked after it; the band rule itself is
 /// `graded_flat_top_half_extents`.
 pub const GRADED_ROAD_GEOMETRY_REVISION: &str = "b02-w1-graded-band-v2";
+/// Numeric tolerance for a support window's strict interior. A cell exactly on
+/// the published shoulder boundary belongs to neither neighbouring window; raw
+/// floating subtraction otherwise flips ownership at intersections.
+pub(crate) const SUPPORT_WINDOW_EPS_M: f64 = 1e-6;
 
 /// The band the earthwork flattens to the authored longitudinal profile, in
 /// world axes: the corridor's end platforms along the axis and the graded
@@ -7171,7 +7195,7 @@ where
                 (false, Some(cap)) => bounded_cut::ring_width_m(cap),
                 _ => 2.0,
             };
-            if out < margin {
+            if out < margin - SUPPORT_WINDOW_EPS_M {
                 cut_windows += 1;
                 if other.priority == 10 {
                     road_cut_windows += 1;
@@ -7288,8 +7312,10 @@ where
                         xf,
                         zf,
                     );
-                    let support_outside = (along.abs() - (carve.half_w + margin_m))
-                        .max(across.abs() - carve.half_d);
+                    // The graded flat top already includes its longitudinal
+                    // end platforms. The corridor shoulder is transverse only.
+                    let support_outside =
+                        (along.abs() - carve.half_w).max(across.abs() - (carve.half_d + margin_m));
                     if support_outside <= 0.0 {
                         let fill = target.min(limit);
                         // Inside its own graded flat top the road's authored
