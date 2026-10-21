@@ -13,6 +13,7 @@ use serde_json::Value;
 use crate::baked_terrain::{BakedTerrain, TerrainError};
 
 use super::community_typology;
+use super::epoch_evolution;
 use super::route_evolution::Plan as RoutePlan;
 use super::{EntityInstance, SceneSpec, WaterGeometry};
 use crate::settlement::building_archetypes;
@@ -115,6 +116,32 @@ pub struct DistrictAllocation {
     pub spill_accepted_lots: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StreetFrontageRun {
+    pub route_id: String,
+    pub side: String,
+    pub district_stage: String,
+    pub buildings: usize,
+    pub frontage_span_m: f64,
+    pub facade_length_m: f64,
+    pub uncovered_length_m: f64,
+    pub longest_gap_m: f64,
+    pub coverage_ratio: f64,
+    pub continuous: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StreetFrontageAudit {
+    pub status: String,
+    pub model: String,
+    pub old_core_run_count: usize,
+    pub old_core_continuous_runs: usize,
+    pub old_core_min_coverage_ratio: f64,
+    pub runs: Vec<StreetFrontageRun>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Building {
@@ -150,6 +177,8 @@ pub struct Building {
     #[serde(default)]
     pub frontage_road_point: Option<[i32; 2]>,
     #[serde(default)]
+    pub frontage_position_m: f64,
+    #[serde(default)]
     pub district_stage: String,
     #[serde(default)]
     pub frontage_level_m: Option<f64>,
@@ -183,6 +212,8 @@ pub struct Plan {
     pub community_profile: Option<String>,
     #[serde(default)]
     pub district_allocation: Vec<DistrictAllocation>,
+    #[serde(default)]
+    pub street_frontage: StreetFrontageAudit,
 }
 
 #[derive(Debug, Clone)]
@@ -198,6 +229,7 @@ struct Candidate {
     center_distance_m: f64,
     pressure: f64,
     frontage_road_point: [i32; 2],
+    frontage_position_m: f64,
     district_stage: String,
     road_design_m: f64,
     required_cut_mm: i32,
@@ -383,17 +415,26 @@ pub fn plan(
     let mut accepted_lot_centers = Vec::<(i32, i32)>::new();
     let mut candidates = Vec::<Candidate>::new();
     let materialized_roads = super::route_evolution::materialize(routes);
+    // Old-core frontage is sampled at the narrow-lot cadence, not the coarse
+    // district lot pitch. Demand still decides how many buildings land; this
+    // only removes the artificial 10-20m holes between otherwise legal row
+    // houses. Other stages keep their larger parcels because the overlap gate
+    // below still uses each stage's own lot dimensions.
+    let old_core_lot_width = (base_lot_width_m * 0.72).clamp(8.0, 80.0);
+    let frontage_step_m = program.road_step_m.min(old_core_lot_width + 1.0).max(6.0);
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
+        let mut route_position_m = 0.0_f64;
         for (segment_index, segment) in route.polyline.windows(2).enumerate() {
             let dx = f64::from(segment[1].x - segment[0].x);
             let dz = f64::from(segment[1].z - segment[0].z);
             let length = dx.hypot(dz);
             if length < 1.0 {
+                route_position_m += length;
                 continue;
             }
             let normal_x = -dz / length;
             let normal_z = dx / length;
-            let step = f64::from(program.road_step_m);
+            let step = f64::from(frontage_step_m);
             let samples = (length / step).floor().max(1.0) as usize;
             for sample in 0..samples {
                 let t = (sample as f64 + 0.5) / samples as f64;
@@ -510,6 +551,7 @@ pub fn plan(
                         center_distance_m: center_distance,
                         pressure: (1.0 - center_distance / 650.0).clamp(0.15, 1.0),
                         frontage_road_point: [road_x.round() as i32, road_z.round() as i32],
+                        frontage_position_m: route_position_m + length * t,
                         district_stage: district_stage.into(),
                         road_design_m: foundation_m,
                         required_cut_mm: (required_cut_m * 1000.0 + 64.0).ceil() as i32,
@@ -517,6 +559,7 @@ pub fn plan(
                     accepted_lot_centers.push((x, z));
                 }
             }
+            route_position_m += length;
         }
     }
     let rules = SelectionRules {
@@ -536,6 +579,7 @@ pub fn plan(
     let mut stage_eligible = BTreeMap::<String, usize>::new();
     let mut stage_accepted = BTreeMap::<String, usize>::new();
     let mut stage_spill = BTreeMap::<String, usize>::new();
+    let mut selected_old_core_front: Option<(String, String)> = None;
     let mut district_allocation = Vec::new();
     if let Some(districts) = &program.district_demand {
         let planned_by_stage = allocate_district_demands(&target_demand, &districts.shares);
@@ -553,37 +597,138 @@ pub fn plan(
                 .entry(candidate.district_stage.clone())
                 .or_default() += 1;
         }
-        for (index, candidate) in candidates.iter().enumerate() {
-            let limit = stage_remaining
-                .get(&candidate.district_stage)
-                .cloned()
-                .unwrap_or_default();
-            if demand_is_empty(&limit) {
-                continue;
+        for entry in &districts.shares {
+            let mut stage_candidates: Vec<usize> = candidates
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| candidate.district_stage == entry.stage)
+                .map(|(index, _)| index)
+                .collect();
+            if entry.stage == "old-core" {
+                let mut coherent = Vec::new();
+                let mut by_front = BTreeMap::<(&str, &str), Vec<usize>>::new();
+                for index in stage_candidates {
+                    let candidate = &candidates[index];
+                    by_front
+                        .entry((candidate.route_id.as_str(), candidate.side.as_str()))
+                        .or_default()
+                        .push(index);
+                }
+                for (_, mut indices) in by_front {
+                    indices.sort_by(|left, right| {
+                        candidates[*left]
+                            .frontage_position_m
+                            .total_cmp(&candidates[*right].frontage_position_m)
+                            .then(candidates[*left].id.cmp(&candidates[*right].id))
+                    });
+                    let mut cluster_start = 0;
+                    while cluster_start < indices.len() {
+                        let mut cluster_end = cluster_start + 1;
+                        while cluster_end < indices.len() {
+                            let left = &candidates[indices[cluster_end - 1]];
+                            let right = &candidates[indices[cluster_end]];
+                            let allowed_gap = f64::from(left.width_m.max(right.width_m)) + 8.0;
+                            if right.frontage_position_m - left.frontage_position_m > allowed_gap {
+                                break;
+                            }
+                            cluster_end += 1;
+                        }
+                        let cluster = &indices[cluster_start..cluster_end];
+                        if cluster.len() >= 2 {
+                            coherent.extend_from_slice(cluster);
+                        } else {
+                            let candidate = &candidates[cluster[0]];
+                            rejections.push(Rejection {
+                                candidate_id: candidate.id.clone(),
+                                route_id: candidate.route_id.clone(),
+                                world_x: candidate.world_x,
+                                world_z: candidate.world_z,
+                                reason: "discontinuous_old_core_frontage".into(),
+                            });
+                        }
+                        cluster_start = cluster_end;
+                    }
+                }
+                stage_candidates = coherent;
             }
-            let Some(accepted_candidate) = try_build_candidate(candidate, &limit, &rules) else {
-                continue;
-            };
-            commit_candidate(
-                index,
-                accepted_candidate,
-                candidate,
-                &mut demand,
-                &mut delivered,
-                &mut buildings,
-                &mut accepted,
-                &mut total_floor_area,
-                &mut accepted_lots,
-                &mut stage_remaining,
-                &mut stage_delivered,
-                &mut stage_accepted,
-                false,
-                &mut stage_spill,
-            );
+            // Spend one epoch's reserved demand along coherent street fronts
+            // before moving to the next stage. This keeps old-core rows and
+            // renewal frontages contiguous instead of scattering a small budget
+            // across alternating sides of every segment.
+            stage_candidates.sort_by(|left, right| {
+                let left = &candidates[*left];
+                let right = &candidates[*right];
+                left.route_id
+                    .cmp(&right.route_id)
+                    .then(left.side.cmp(&right.side))
+                    .then(
+                        left.frontage_position_m
+                            .total_cmp(&right.frontage_position_m),
+                    )
+                    .then(left.id.cmp(&right.id))
+            });
+            for index in stage_candidates {
+                let candidate = &candidates[index];
+                if candidate.district_stage == "old-core"
+                    && selected_old_core_front
+                        .as_ref()
+                        .is_some_and(|(route, side)| {
+                            route != &candidate.route_id || side != &candidate.side
+                        })
+                {
+                    continue;
+                }
+                let limit = stage_remaining
+                    .get(&candidate.district_stage)
+                    .cloned()
+                    .unwrap_or_default();
+                if demand_is_empty(&limit) {
+                    break;
+                }
+                let Some(accepted_candidate) = try_build_candidate(candidate, &limit, &rules)
+                else {
+                    continue;
+                };
+                commit_candidate(
+                    index,
+                    accepted_candidate,
+                    candidate,
+                    &mut demand,
+                    &mut delivered,
+                    &mut buildings,
+                    &mut accepted,
+                    &mut total_floor_area,
+                    &mut accepted_lots,
+                    &mut stage_remaining,
+                    &mut stage_delivered,
+                    &mut stage_accepted,
+                    false,
+                    &mut stage_spill,
+                );
+                if candidate.district_stage == "old-core" {
+                    selected_old_core_front.get_or_insert_with(|| {
+                        (candidate.route_id.clone(), candidate.side.clone())
+                    });
+                }
+            }
         }
         if districts.allow_spill && !demand_is_empty(&demand) {
             for (index, candidate) in candidates.iter().enumerate() {
                 if accepted[index] {
+                    continue;
+                }
+                if candidate.district_stage == "old-core"
+                    && !old_core_has_frontage_neighbor(&candidates, index)
+                {
+                    continue;
+                }
+                if candidate.district_stage == "old-core"
+                    && selected_old_core_front
+                        .as_ref()
+                        .is_some_and(|(route, side)| {
+                            route != &candidate.route_id || side != &candidate.side
+                        })
+                {
                     continue;
                 }
                 let Some(accepted_candidate) = try_build_candidate(candidate, &demand, &rules)
@@ -654,6 +799,7 @@ pub fn plan(
     }
     let unmet_demand = demand.clone();
     let complete = demand_is_empty(&unmet_demand);
+    let street_frontage = audit_street_frontage(&buildings);
     Ok(Some(Plan {
         format: "glyphweave.settlement-evolution-plan".into(),
         version: 1,
@@ -675,6 +821,7 @@ pub fn plan(
         rejections,
         community_profile: typology.as_ref().map(|value| value.profile.clone()),
         district_allocation,
+        street_frontage,
     }))
 }
 
@@ -792,6 +939,7 @@ fn try_build_candidate(
         lot_area_m2: f64::from(candidate.width_m) * f64::from(candidate.depth_m),
         coverage_ratio: f64::from(form.coverage_ratio),
         frontage_road_point: Some(candidate.frontage_road_point),
+        frontage_position_m: candidate.frontage_position_m,
         district_stage: candidate.district_stage.clone(),
         frontage_level_m: Some(candidate.road_design_m),
         max_pad_cut_mm: Some(candidate.required_cut_mm),
@@ -918,6 +1066,120 @@ fn demand_is_empty(demand: &Demand) -> bool {
         && demand.service_budget <= 1e-6
 }
 
+fn old_core_has_frontage_neighbor(candidates: &[Candidate], index: usize) -> bool {
+    let candidate = &candidates[index];
+    candidates.iter().enumerate().any(|(other_index, other)| {
+        other_index != index
+            && other.route_id == candidate.route_id
+            && other.side == candidate.side
+            && other.district_stage == "old-core"
+            && (other.frontage_position_m - candidate.frontage_position_m).abs()
+                <= f64::from(candidate.width_m.max(other.width_m)) + 8.0
+    })
+}
+
+fn audit_street_frontage(buildings: &[Building]) -> StreetFrontageAudit {
+    let mut groups = BTreeMap::<(String, String, String), Vec<(f64, f64)>>::new();
+    for building in buildings {
+        let half_width = f64::from(building.width_m) * 0.5;
+        let start = building.frontage_position_m - half_width;
+        let end = building.frontage_position_m + half_width;
+        groups
+            .entry((
+                building.route_id.clone(),
+                building.side.clone(),
+                building.district_stage.clone(),
+            ))
+            .or_default()
+            .push((start.min(end), start.max(end)));
+    }
+    let mut runs = Vec::with_capacity(groups.len());
+    for ((route_id, side, district_stage), mut intervals) in groups {
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let mut cluster_start = 0;
+        while cluster_start < intervals.len() {
+            let mut cluster_end = cluster_start + 1;
+            while cluster_end < intervals.len()
+                && intervals[cluster_end].0 <= intervals[cluster_end - 1].1 + 5.0
+            {
+                cluster_end += 1;
+            }
+            let cluster = &intervals[cluster_start..cluster_end];
+            let (span_start, span_end) = (
+                cluster.first().map_or(0.0, |interval| interval.0),
+                cluster.last().map_or(0.0, |interval| interval.1),
+            );
+            let frontage_span_m = (span_end - span_start).max(0.0);
+            let mut merged_end = span_start;
+            let mut facade_length_m = 0.0;
+            let mut longest_gap_m = 0.0_f64;
+            for (start, end) in cluster {
+                if *start > merged_end {
+                    longest_gap_m = longest_gap_m.max(*start - merged_end);
+                }
+                let covered_start = (*start).max(merged_end);
+                if *end > covered_start {
+                    facade_length_m += *end - covered_start;
+                    merged_end = *end;
+                }
+            }
+            let uncovered_length_m = (frontage_span_m - facade_length_m).max(0.0);
+            let coverage_ratio = if frontage_span_m > 1e-6 {
+                (facade_length_m / frontage_span_m).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let building_count = buildings
+                .iter()
+                .filter(|building| {
+                    building.route_id == route_id
+                        && building.side == side
+                        && building.district_stage == district_stage
+                        && building.frontage_position_m >= span_start - 0.5
+                        && building.frontage_position_m <= span_end + 0.5
+                })
+                .count();
+            runs.push(StreetFrontageRun {
+                route_id: route_id.clone(),
+                side: side.clone(),
+                district_stage: district_stage.clone(),
+                buildings: building_count,
+                frontage_span_m,
+                facade_length_m,
+                uncovered_length_m,
+                longest_gap_m,
+                coverage_ratio,
+                continuous: building_count >= 2 && coverage_ratio >= 0.62 && longest_gap_m <= 5.0,
+            });
+            cluster_start = cluster_end;
+        }
+    }
+    let old_core: Vec<&StreetFrontageRun> = runs
+        .iter()
+        .filter(|run| run.district_stage == "old-core")
+        .collect();
+    let old_core_continuous_runs = old_core.iter().filter(|run| run.continuous).count();
+    let old_core_min_coverage_ratio = old_core
+        .iter()
+        .map(|run| run.coverage_ratio)
+        .fold(1.0_f64, f64::min);
+    let status = if old_core.is_empty() {
+        "not_applicable"
+    } else if old_core_continuous_runs == old_core.len() {
+        "pass"
+    } else {
+        "warn"
+    };
+    StreetFrontageAudit {
+        status: status.into(),
+        model: "street-frontage-runs-v1".into(),
+        old_core_run_count: old_core.len(),
+        old_core_continuous_runs,
+        old_core_min_coverage_ratio,
+        runs,
+    }
+}
+
 fn lot_is_legal(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
@@ -976,10 +1238,23 @@ fn lot_ground_ceiling_m(
     ceiling.is_finite().then_some(ceiling)
 }
 
-pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
+pub fn materialize(
+    plan: &Plan,
+    terrain: &BakedTerrain,
+    epoch: Option<&epoch_evolution::Plan>,
+) -> Vec<EntityInstance> {
+    let epoch_by_building = epoch
+        .map(|plan| {
+            plan.assigned_buildings
+                .iter()
+                .map(|assigned| (assigned.building_id.as_str(), assigned))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
     plan.buildings
         .iter()
         .map(|building| {
+            let epoch_assignment = epoch_by_building.get(building.id.as_str()).copied();
             // A settlement building may sit on a terrace cut to the street, but
             // the natural high side of its own footprint is still an authoritative
             // lower bound: publishing the building below that contour buries one
@@ -1061,6 +1336,9 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                     bounded_cut_mm: building.max_pad_cut_mm.filter(|cut| *cut > 0),
                     district_id: Some(format!("district.{}", building.district_stage)),
                     construction_cohort: Some(building.district_stage.clone()),
+                    building_operation: epoch_assignment.map(|assigned| assigned.operation.clone()),
+                    building_parent_id: epoch_assignment
+                        .and_then(|assigned| assigned.parent_id.clone()),
                     frontage_road_point,
                     stair_connection,
                     ..super::GroundingSpec::default()
@@ -1431,7 +1709,7 @@ mod tests {
             .buildings
             .iter()
             .any(|building| building.kind == "office_tower"));
-        let entities = materialize(&low, &terrain);
+        let entities = materialize(&low, &terrain, None);
         assert_eq!(entities.len(), low.buildings.len());
         assert!(entities.iter().all(|entity| {
             entity
@@ -1441,6 +1719,33 @@ mod tests {
                 && entity.depth_m > 0.0
                 && entity.height_m > 0.0
         }));
+    }
+
+    #[test]
+    fn street_frontage_audit_distinguishes_rows_from_scattered_lots() {
+        let building = |id: &str, position: f64, width: f32| Building {
+            id: id.into(),
+            route_id: "main".into(),
+            side: "left".into(),
+            width_m: width,
+            frontage_position_m: position,
+            district_stage: "old-core".into(),
+            ..Building::default()
+        };
+        let row = audit_street_frontage(&[
+            building("a", 10.0, 9.0),
+            building("b", 20.0, 9.0),
+            building("c", 30.0, 9.0),
+        ]);
+        assert_eq!(row.status, "pass");
+        assert_eq!(row.old_core_continuous_runs, 1);
+        assert!(row.old_core_min_coverage_ratio > 0.8);
+
+        let scattered =
+            audit_street_frontage(&[building("a", 10.0, 5.0), building("b", 40.0, 5.0)]);
+        assert_eq!(scattered.status, "warn");
+        assert_eq!(scattered.runs.len(), 2);
+        assert!(scattered.runs.iter().all(|run| !run.continuous));
     }
 
     #[test]
@@ -1454,13 +1759,52 @@ mod tests {
             building.frontage_level_m = Some(4.0);
         }
 
-        let entities = materialize(&planned, &terrain);
+        let entities = materialize(&planned, &terrain, None);
 
         assert!(!entities.is_empty());
         assert!(entities.iter().all(|entity| {
             (f64::from(entity.world_y) + f64::from(entity.grounding.bottom_offset_m) - 10.0).abs()
                 < 1e-6
         }));
+    }
+
+    #[test]
+    fn materialized_epoch_operations_and_parents_reach_the_final_entity() {
+        let (scene, terrain, water) = fixture();
+        let routes = route_plan();
+        let mut value = style(300, 80, 600.0);
+        value["epochProgram"] = serde_json::json!({
+            "version": 1,
+            "oldCoreRadiusM": 40,
+            "expansionRadiusM": 90,
+            "modernRadiusM": 180
+        });
+        let planned = plan(&scene, &terrain, water, &routes, &value)
+            .unwrap()
+            .unwrap();
+        let epoch = epoch_evolution::plan(&routes, &planned, &value)
+            .unwrap()
+            .unwrap();
+        let entities = materialize(&planned, &terrain, Some(&epoch));
+        assert_eq!(entities.len(), planned.buildings.len());
+        for assigned in &epoch.assigned_buildings {
+            let entity = entities
+                .iter()
+                .find(|entity| entity.entity_id.ends_with(&assigned.building_id))
+                .expect("materialized epoch building");
+            assert_eq!(
+                entity.grounding.construction_cohort.as_deref(),
+                Some(assigned.cohort.as_str())
+            );
+            assert_eq!(
+                entity.grounding.building_operation.as_deref(),
+                Some(assigned.operation.as_str())
+            );
+            assert_eq!(
+                entity.grounding.building_parent_id.as_deref(),
+                assigned.parent_id.as_deref()
+            );
+        }
     }
 
     #[test]
@@ -1531,7 +1875,7 @@ mod tests {
                 .sum::<usize>(),
             planned.buildings.len()
         );
-        let entities = materialize(&planned, &terrain);
+        let entities = materialize(&planned, &terrain, None);
         assert_eq!(entities.len(), planned.buildings.len());
         for (entity, building) in entities.iter().zip(&planned.buildings) {
             let expected_district = format!("district.{}", building.district_stage);

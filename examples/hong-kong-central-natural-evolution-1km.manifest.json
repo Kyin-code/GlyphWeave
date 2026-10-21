@@ -395,6 +395,18 @@
         "minHeightM": 2,
         "maxHeightM": 30
       },
+      "urban_building": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 80,
+        "minDepthM": 6,
+        "maxDepthM": 80,
+        "minHeightM": 12,
+        "maxHeightM": 120
+      },
       "market": {
         "type": "market",
         "placement": "surface-grounded",

@@ -1,5 +1,13 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 新旧城连续街墙与时代继承**：旧城改用窄街取样间距，时代预算
+> 按同一街侧连续消费，单栋孤点不冒充街墙；最终实体继承 epoch 的
+> `preserve/modify/replace` 与父对象。香港 1km r7 为 33 栋最终建筑，
+> 其中 old-core 7 栋形成 114m 连续街墙（覆盖率 0.771、最大缺口 4.37m），
+> renewal 19 栋 replace、new-growth 7 栋 new；需求闭合，AccessGraph 38/0，
+> scale/quality/visual 均 pass。详见
+> [`EPOCH-STREETWALL-20261021.zh-CN.md`](EPOCH-STREETWALL-20261021.zh-CN.md)。
+
 > **2026-10-21 沿街跨阶段重放修复**：`frontage::append` 在正式链中先于
 > `plan.roadCutMm` 发布。诊断、支撑审计和 bounded-cut 重放现在先恢复该前置
 > 快照，并补齐已接受地块的自然范围采样与 `profile_roads` 顺序。唯一 Core

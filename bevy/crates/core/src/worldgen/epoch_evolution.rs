@@ -141,7 +141,20 @@ pub fn plan(
             "residential-neighbourhood"
         }
         .to_string();
-        if distance <= program.old_core_radius_m {
+        let stage = if building.district_stage.is_empty() {
+            if distance <= program.old_core_radius_m {
+                "old-core"
+            } else if distance <= program.expansion_radius_m {
+                "renewal"
+            } else if distance <= program.modern_radius_m {
+                "new-growth"
+            } else {
+                "periphery"
+            }
+        } else {
+            building.district_stage.as_str()
+        };
+        if stage == "old-core" {
             let historic_id = format!("historic.{}", building.id);
             let historic_floors = building.floors.saturating_sub(2).max(1);
             historic_buildings.push(HistoricBuilding {
@@ -160,72 +173,72 @@ pub fn plan(
                 parent_id: None,
                 reason: "historic core seed before modern redevelopment".into(),
             });
-            if building.kind == "residential_home" {
-                operations.push(EpochOperation {
-                    stage: "renewal".into(),
-                    operation: "demolish".into(),
-                    entity_id: historic_id.clone(),
-                    parent_id: None,
-                    reason: "old housing replaced by capacity-led redevelopment".into(),
-                });
-                operations.push(EpochOperation {
-                    stage: "renewal".into(),
-                    operation: "new".into(),
-                    entity_id: building.id.clone(),
-                    parent_id: Some(historic_id),
-                    reason: "replacement housing and local services".into(),
-                });
-                assigned_buildings.push(AssignedBuilding {
-                    building_id: building.id.clone(),
-                    cohort: "renewal".into(),
-                    operation: "replace".into(),
-                    parent_id: operations.last().and_then(|op| op.parent_id.clone()),
-                    center_distance_m: distance,
-                    functional_area,
-                });
-            } else if building.floors > historic_floors {
+            let operation = if building.kind == "residential_home" && building.floors <= 3 {
+                "preserve"
+            } else {
+                "modify"
+            };
+            if operation == "modify" {
                 operations.push(EpochOperation {
                     stage: "modern-new".into(),
                     operation: "modify".into(),
                     entity_id: building.id.clone(),
-                    parent_id: Some(historic_id),
+                    parent_id: Some(historic_id.clone()),
                     reason: "vertical addition / mixed-use intensification".into(),
-                });
-                assigned_buildings.push(AssignedBuilding {
-                    building_id: building.id.clone(),
-                    cohort: "old-core".into(),
-                    operation: "modify".into(),
-                    parent_id: operations.last().and_then(|op| op.parent_id.clone()),
-                    center_distance_m: distance,
-                    functional_area,
                 });
             } else {
                 operations.push(EpochOperation {
                     stage: "renewal".into(),
                     operation: "preserve".into(),
                     entity_id: building.id.clone(),
-                    parent_id: Some(historic_id),
+                    parent_id: Some(historic_id.clone()),
                     reason: "retain historic street frontage".into(),
                 });
-                assigned_buildings.push(AssignedBuilding {
-                    building_id: building.id.clone(),
-                    cohort: "old-core".into(),
-                    operation: "preserve".into(),
-                    parent_id: operations.last().and_then(|op| op.parent_id.clone()),
-                    center_distance_m: distance,
-                    functional_area,
-                });
             }
-        } else {
-            let cohort = if distance <= program.expansion_radius_m {
-                "expansion"
-            } else if distance <= program.modern_radius_m {
-                "modern-new"
-            } else {
-                "outer-growth"
-            };
+            assigned_buildings.push(AssignedBuilding {
+                building_id: building.id.clone(),
+                cohort: "old-core".into(),
+                operation: operation.into(),
+                parent_id: Some(historic_id),
+                center_distance_m: distance,
+                functional_area,
+            });
+        } else if stage == "renewal" {
+            let historic_id = format!("historic.{}", building.id);
+            historic_buildings.push(HistoricBuilding {
+                id: historic_id.clone(),
+                world_x: building.world_x,
+                world_z: building.world_z,
+                width_m: building.width_m * 0.82,
+                depth_m: building.depth_m * 0.82,
+                floors: building.floors.saturating_sub(3).max(1),
+                kind: building.kind.clone(),
+            });
             operations.push(EpochOperation {
-                stage: cohort.into(),
+                stage: "renewal".into(),
+                operation: "demolish".into(),
+                entity_id: historic_id.clone(),
+                parent_id: None,
+                reason: "older stock cleared for capacity-led redevelopment".into(),
+            });
+            operations.push(EpochOperation {
+                stage: "renewal".into(),
+                operation: "new".into(),
+                entity_id: building.id.clone(),
+                parent_id: Some(historic_id.clone()),
+                reason: "replacement housing and local services".into(),
+            });
+            assigned_buildings.push(AssignedBuilding {
+                building_id: building.id.clone(),
+                cohort: "renewal".into(),
+                operation: "replace".into(),
+                parent_id: Some(historic_id),
+                center_distance_m: distance,
+                functional_area,
+            });
+        } else {
+            operations.push(EpochOperation {
+                stage: stage.into(),
                 operation: "new".into(),
                 entity_id: building.id.clone(),
                 parent_id: None,
@@ -233,7 +246,7 @@ pub fn plan(
             });
             assigned_buildings.push(AssignedBuilding {
                 building_id: building.id.clone(),
-                cohort: cohort.into(),
+                cohort: stage.into(),
                 operation: "new".into(),
                 parent_id: None,
                 center_distance_m: distance,
@@ -314,6 +327,7 @@ mod tests {
     use crate::worldgen::settlement_evolution::{
         Building, Capacity, Demand, Plan as SettlementPlan,
     };
+    use std::collections::BTreeMap;
 
     fn routes() -> RoutePlan {
         RoutePlan {
@@ -390,6 +404,14 @@ mod tests {
             income_band: "mixed".into(),
             ..Building::default()
         };
+        let mut shop = make("shop", 280, "storefront", 4);
+        shop.district_stage = "old-core".into();
+        let mut home = make("home", 300, "residential_home", 3);
+        home.district_stage = "renewal".into();
+        let mut outer = make("outer", 500, "residential_home", 3);
+        outer.district_stage = "new-growth".into();
+        let mut periphery = make("periphery", 700, "residential_home", 2);
+        periphery.district_stage = "periphery".into();
         SettlementPlan {
             format: "settlement".into(),
             version: 1,
@@ -418,14 +440,11 @@ mod tests {
                 rejected_lots: 0,
                 floor_area_m2: 900.0,
             },
-            buildings: vec![
-                make("shop", 280, "storefront", 4),
-                make("home", 300, "residential_home", 3),
-                make("outer", 500, "residential_home", 3),
-            ],
+            buildings: vec![shop, home, outer, periphery],
             rejections: Vec::new(),
             community_profile: None,
             district_allocation: Vec::new(),
+            street_frontage: Default::default(),
         }
     }
 
@@ -443,17 +462,24 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(plan.operations.iter().any(|op| op.operation == "modify"));
         assert!(plan.operations.iter().any(|op| op.operation == "demolish"));
-        assert!(
-            plan.assigned_buildings
-                .iter()
-                .any(|building| building.operation == "replace")
-        );
-        assert!(
-            plan.assigned_buildings
-                .iter()
-                .filter(|building| building.operation == "replace")
-                .all(|building| building.parent_id.is_some())
-        );
+        assert!(plan
+            .assigned_buildings
+            .iter()
+            .any(|building| building.operation == "replace"));
+        assert!(plan
+            .assigned_buildings
+            .iter()
+            .filter(|building| building.operation == "replace")
+            .all(|building| building.parent_id.is_some()));
+        let stages: BTreeMap<_, _> = plan
+            .assigned_buildings
+            .iter()
+            .map(|building| (building.building_id.as_str(), building.cohort.as_str()))
+            .collect();
+        assert_eq!(stages["shop"], "old-core");
+        assert_eq!(stages["home"], "renewal");
+        assert_eq!(stages["outer"], "new-growth");
+        assert_eq!(stages["periphery"], "periphery");
     }
 
     #[test]

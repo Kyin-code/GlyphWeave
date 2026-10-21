@@ -98,6 +98,14 @@
 > 土地实现为 warn。证据见
 > `docs/collaboration/rk-x/FRONTAGE-STAGE-REPLAY-20261021.zh-CN.md`。
 
+> **2026-10-21 新旧城连续街墙**：香港 1km 控制不再把旧城预算分散到
+> 两条街侧的孤点。生成器按时代预算优先消费同一街侧，并拒绝单栋旧城孤点；
+> 旧城 7 栋形成连续街墙，覆盖率 0.771、最大缺口 4.37m。最终实体写入
+> `buildingOperation/buildingParentId`，renewal 19 栋全部为带父对象的
+> replace，new-growth 7 栋为 new。需求仍闭合，AccessGraph 38/0，
+> scale、quality、visual feedback 均 pass。证据见
+> `docs/collaboration/rk-x/EPOCH-STREETWALL-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

@@ -221,6 +221,14 @@ pub struct GroundingSpec {
     pub district_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub construction_cohort: Option<String>,
+    /// Final building's epoch operation, such as `preserve`, `modify` or
+    /// `replace`. This is planning provenance, not render material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub building_operation: Option<String>,
+    /// The historic or renewal parent this final building supersedes. Non-
+    /// building entities and untouched new growth leave it absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub building_parent_id: Option<String>,
     #[serde(default)]
     pub pivot: GroundingPivot,
     #[serde(default)]
@@ -312,6 +320,8 @@ impl Default for GroundingSpec {
             road_tier: None,
             district_id: None,
             construction_cohort: None,
+            building_operation: None,
+            building_parent_id: None,
             pivot: GroundingPivot::Bottom,
             bottom_offset_m: 0.0,
             roadbed_offset_m: 0.0,
@@ -2699,6 +2709,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let route_evolution_plan =
             route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
         let mut settlement_evolution_result = None;
+        let mut epoch_evolution_result = None;
         let mut market_catchment_result = None;
         let mut planning_history_result = None;
         let mut planning_materialization_report: Option<serde_json::Value> = None;
@@ -2755,12 +2766,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         "acceptedBuildings": &settlement_plan.buildings,
                         "rejectedCandidates": &settlement_plan.rejections,
                         "countPolicy": "emergent-no-fill",
+                        "streetFrontage": &settlement_plan.street_frontage,
                     }))?,
                 )?;
                 if let Some(epoch_plan) =
                     epoch_evolution::plan(route_plan, &settlement_plan, &effective_style)
                         .map_err(WorldgenError::InvalidRules)?
                 {
+                    epoch_evolution_result = Some(epoch_plan.clone());
                     fs::write(
                         scene_dir.join("epoch-evolution-plan.json"),
                         serde_json::to_vec_pretty(&epoch_plan)?,
@@ -2890,10 +2903,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .iter()
                 .map(|entity| entity.entity_id.as_str())
                 .collect::<BTreeSet<_>>();
-            let materialized = settlement_evolution::materialize(plan, &natural_samples)
-                .into_iter()
-                .filter(|entity| !existing.contains(entity.entity_id.as_str()))
-                .collect::<Vec<_>>();
+            let materialized = settlement_evolution::materialize(
+                plan,
+                &natural_samples,
+                epoch_evolution_result.as_ref(),
+            )
+            .into_iter()
+            .filter(|entity| !existing.contains(entity.entity_id.as_str()))
+            .collect::<Vec<_>>();
             let count = materialized.len();
             let stairs = settlement_evolution::materialize_stairs(&materialized);
             let stair_count = stairs.len();
