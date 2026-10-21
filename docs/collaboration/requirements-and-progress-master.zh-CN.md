@@ -122,6 +122,19 @@
 > 香港 r2 实烘焙 2,998 实体、39 入口连通/0 断点、5 市场、497 树，
 > scale/quality 均 pass；作者手写 7/19/7/0 时代预算保持不变。
 
+> **2026-10-22 最终实体硬约束回归已闭合**：旋转 AABB、真实 OBB、
+> 道路拓宽后净空、建筑台地 leveling、入口旋转约定、市场物化位置和
+> `final_scene_audit` 已统一。香港 r26 为 2,901 实体、53/53 入口连通、
+> 5 市场/99.80% 覆盖，建筑—建筑、建筑—主道路、悬空、穿地、落水均为 0；
+> 街景默认加载邻接 Chunk，并按规划 polyline 绘制连续路面/人行道，消除了
+> 单 Chunk 截断和 32m 路段重复叠绘。边界最大高差 0.957m，
+> scale/quality/visual feedback 均 pass。证据见
+> `docs/collaboration/rk-x/HARD-OCCUPANCY-GROUNDING-REGRESSION-20261022.zh-CN.md`。
+>
+> 复核同时修复了 `quality-report` 的有效程序重编译输入：生成与审计现在都
+> 使用 case-composed style，避免带 `urbanCase`/社区模板的合法世界被自审
+> 误判。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。
@@ -787,6 +800,52 @@ ignored 均需要已发布世界或显式单次实验。
 - `scripts/summarize-urban-history.mjs`
 - `scripts/summarize-urban-pressure.mjs`
 - `rk-x/URBAN-CASE-EVIDENCE-W0-20261021.zh-CN.md`
+
+### 5.13 2026-10-22 硬占用、斜向 yaw 与城市剖面闭合
+
+用户复核发现“拟真内容增加后硬检查反而失守”：建筑压在道路上、道路或建筑
+视觉悬空、相邻房屋碰撞、街景剖面内容过少。实烘焙与浏览器复验定位到以下
+真实缺陷并已修复：
+
+- `spatial_half_extents` / `oriented_local_coordinates` 曾把 45°、135° 等
+  任意整数度误判为轴对齐，现仅对 0/90/180/270° 使用正交优化；
+- 规则碰撞曾因“任一对象是道路”而跳过建筑—道路重叠，现将道路预装入
+  occupancy，仅允许双方均为共享交通面时重叠；
+- `quality-report` 现将多阶段工程放置报告中同场景且含 `inputItems` 的权威
+  reconciliation 记录交给独立重算；
+- `final_scene_audit` 对最终建筑—建筑 OBB、建筑—道路 OBB、完整地形支撑、
+  双向接地、地形穿入、落水和道路 profile 失败关闭；
+- `?view=street` 加载邻接 Chunk，路线演化按同一 polyline 绘制连续路面、
+  人行道和中心线，不再重复叠绘 8m/32m 分段实体。
+
+香港 1km r27 证据：
+
+```text
+bevy/work/rk-x/v3-hard-audit-hk-r27-20261022
+```
+
+- 2,901 实体、4 Chunk、53 栋建筑、200 段道路、14 段楼梯；
+- 483 树 / 310 灌木 / 1,427 草丛 / 412 岩石 / 1 河流；
+- 5 个分层市场，覆盖率 1.00；
+- 建筑—建筑、建筑—道路、悬空、穿地、落水、不支持 footprint、非法道路
+  profile 均为 0；
+- AccessGraph 53 连通 / 0 断点；
+- 最大 Chunk 边界高差 0.957m；
+- `scale-audit pass`、`quality-report pass`；
+- 最终 workspace 回归 `1,140 passed / 0 failed / 37 ignored`；
+- Computer Use 战略图、街景、探索三视图无空屏，HUD 为
+  `1m geometry / 1m data`；`visual-feedback.json` 为 `pass`，包含视觉反馈
+  后 quality-report 仍为 `pass`。
+
+运行入口：
+
+```text
+http://127.0.0.1:8131/preview/index.html?view=strategic
+http://127.0.0.1:8131/preview/index.html?view=street
+http://127.0.0.1:8131/preview/index.html?view=explore
+```
+
+采用版本：`c965dc6 fix(worldgen): enforce road-first exact occupancy`。
 
 ---
 

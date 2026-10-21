@@ -1,5 +1,15 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-22 最终实体占用与接地回归闭合**：提交 `c965dc6` 已推送。
+> 任意 yaw 只在 0/90/180/270° 使用精确轴对齐，其他整数度不再误退化为
+> AABB；道路先占据规则放置索引，建筑不得压路；多阶段 placement 审计选择
+> 真正含 `inputItems` 的 reconciliation。正式烘焙执行
+> `final-entity-audit.json` 失败关闭。香港 r27 为 2,901 实体、53/53 入口
+> 连通、5 市场/100% 覆盖，建筑碰撞/悬空/穿地/落水均为 0；街景加载邻接
+> Chunk，规划道路按统一 polyline 绘制。scale/quality 和 Computer Use 三视图
+> 均 pass；最终 workspace 为 1,140 passed / 0 failed / 37 ignored。见
+> [`HARD-OCCUPANCY-GROUNDING-REGRESSION-20261022.zh-CN.md`](HARD-OCCUPANCY-GROUNDING-REGRESSION-20261022.zh-CN.md)。
+
 > **2026-10-21 切面焦点驱动布局**：`urbanSlice` 现已产出可审计的
 > `focusBias`，并实际改变推断时代预算、中心角色、道路拓宽、公园和宏观工程
 > 预算。填海/造岛/特区/山地/中央规划可声明无绝对土方上限的规划授权，但仍须
