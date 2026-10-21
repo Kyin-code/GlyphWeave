@@ -30,6 +30,13 @@
 > 均 pass。证据见
 > `docs/collaboration/rk-x/PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`。
 
+> **2026-10-21 坡地入口台地**：聚落建筑改用道路设计标高作为 pad 目标，
+> 并以 `bottomOffsetM` 保留毫米地面；控制切面启用 `maxPadCutM=12`。
+> 1km 最终普通建筑 12→16、市场 3→4、AccessGraph 20 连通/0 断点，
+> scale/quality/visual feedback 全部 pass。仍余 8 个真实坡地入口待
+> stairs/switchback 工程，均具名。证据见
+> `docs/collaboration/rk-x/TERRACED-ENTRY-ENGINEERING-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

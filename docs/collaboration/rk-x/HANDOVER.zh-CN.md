@@ -1,5 +1,13 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 坡地入口台地**：修复 `world_y` 整数米与毫米 Heightfield
+> 之间的半米量化误差；聚落建筑 pad 改用道路设计标高，控制切面声明
+> `maxPadCutM=12`，短引道不再额外抬高 0.5m。1km 最终普通建筑 12→16，
+> 市场 3→4，AccessGraph 20 连通/断点 0，scale/quality/visual 均 pass。
+> 仍有 8 个规划建筑因真实坡地高差待 stairs/switchback 工程，均带
+> `accessDiagnostics` 具名记录。证据见
+> [`TERRACED-ENTRY-ENGINEERING-20261021.zh-CN.md`](TERRACED-ENTRY-ENGINEERING-20261021.zh-CN.md)。
+
 > **2026-10-21 街景空屏修复**：`?view=street` 不再聚焦单个边缘 storefront，
 > 改用城市实体质心和稳定斜俯视，运行态不再出现大面积黑屏；窗口/全屏 resize
 > 会同步 WebGLRenderer、透视相机 aspect 和 postFX。r6 控制

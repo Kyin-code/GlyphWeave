@@ -165,6 +165,7 @@
       "floorAreaRatio": 2.2,
       "maxFloors": 16,
       "accessHeightToleranceM": 6,
+      "maxPadCutM": 12,
       "districtDemand": {
         "version": 1,
         "allowSpill": true,

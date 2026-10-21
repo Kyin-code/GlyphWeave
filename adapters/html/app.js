@@ -1669,7 +1669,8 @@ async function drawNear(buildToken) {
       continue
     }
     if (entity.grounding?.frontageRoadPoint) {
-      if(!plannedBuildingIds.has(entity.entityId))throw new Error('Frontage entity missing Rust building plan: '+entity.entityId)
+      const settlementEvolutionPlan = entity.entityId.startsWith('generated.settlement-evolution.')
+      if(!settlementEvolutionPlan && !plannedBuildingIds.has(entity.entityId))throw new Error('Frontage entity missing Rust building plan: '+entity.entityId)
       addEntityToGroup(entity,buildEntityCached(entity,()=>{
         if(entity.kind==='residential_home')return makePlannedResidentialHome(entity,THREE)
         if(entity.kind==='residential_block'||entity.kind==='residential_tower')return makeResidentialBlock(entity,THREE,heightAt)

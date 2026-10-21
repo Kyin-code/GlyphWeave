@@ -599,10 +599,7 @@ pub fn validate_entity(e: &EntityInstance) -> Result<(), TerrainError> {
     let Some([x, z]) = e.grounding.frontage_road_point else {
         return Ok(());
     };
-    if !matches!(
-        e.kind.as_str(),
-        "residential_home" | "residential_block" | "storefront"
-    ) || e.anchors.len() != 1
+    if !super::is_building_kind(e.kind.as_str()) || e.anchors.len() != 1
         || e.grounding.road_profile.is_some()
     {
         return Err(err("invalid frontage support owner"));

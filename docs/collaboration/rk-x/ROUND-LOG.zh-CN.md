@@ -417,3 +417,15 @@ street 现以住宅/商业/市场/办公/公共空间的整体质心为焦点，
 相机，`resize()` 同步 renderer、aspect 和 postFX。r6 控制中战略图、street
 均可见，13 个建筑/市场连通、断点 0，scale/quality/visual feedback 全部
 pass。证据见 `PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`。
+
+## Round 62 · 2026-10-21 · 坡地入口台地与半米量化
+
+入口诊断发现两类问题：整数 `world_y` 把 12.5m 地面向上取整成 13m；聚落
+建筑又把 footprint 最高点当作整栋底面。修复后 ground height 以
+`worldY + bottomOffsetM` 精确保留，建筑 pad 以道路设计标高为目标，控制
+切面声明 `maxPadCutM=12`。短引道不再额外抬高 0.5m 路床。
+
+1km 控制最终普通建筑从 12 提升到 16，市场从 3 提升到 4，实体 3594，
+AccessGraph 20 个连通/0 断点，scale/quality/visual feedback 均 pass。
+剩余 8 个规划建筑有真实坡地入口高差，具名等待 stairs/switchback/landing
+工程，不能靠继续放宽 0.3m 台阶合同解决。

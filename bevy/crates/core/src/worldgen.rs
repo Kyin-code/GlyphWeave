@@ -3236,6 +3236,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )
             .collect();
         let mut rejected_access_statuses = BTreeMap::<String, Vec<String>>::new();
+        let mut rejected_access_diagnostics = BTreeMap::<String, serde_json::Value>::new();
         for round in 1..=4 {
             let rejected_access =
                 access::rejectable_candidates(&access_graph, &protected_access_ids);
@@ -3251,6 +3252,34 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     .entry(link.entity_id.clone())
                     .or_default()
                     .push(link.status.clone());
+                if !rejected_access_diagnostics.contains_key(&link.entity_id) {
+                    if let Some(entity) = entities
+                        .iter()
+                        .find(|entity| entity.entity_id == link.entity_id)
+                    {
+                        let anchor = entity.anchors.first().map(|anchor| {
+                            serde_json::json!({
+                                "x": anchor.world_x,
+                                "z": anchor.world_z,
+                                "terrainM": baked_samples
+                                    .height(anchor.world_x, anchor.world_z),
+                            })
+                        });
+                        rejected_access_diagnostics.insert(
+                            link.entity_id.clone(),
+                            serde_json::json!({
+                                "status": link.status,
+                                "worldX": entity.world_x,
+                                "worldZ": entity.world_z,
+                                "worldY": entity.world_y,
+                                "groundHeightM": entity.ground_height_m(),
+                                "bottomOffsetM": entity.grounding.bottom_offset_m,
+                                "frontageRoadPoint": entity.grounding.frontage_road_point,
+                                "anchor": anchor,
+                            }),
+                        );
+                    }
+                }
             }
             let rejected_buildings = rejected_access
                 .iter()
@@ -3325,6 +3354,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         .get(entity_id.as_str())
                         .cloned()
                         .unwrap_or_default();
+                    let diagnostics = rejected_access_diagnostics
+                        .get(entity_id.as_str())
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     Some(serde_json::json!({
                         "entityId": entity_id,
                         "kind": building.kind,
@@ -3338,6 +3371,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         "retailFloorAreaM2": building.retail_floor_area_m2,
                         "reason": "strict generated-facade access contract produced no verified route",
                         "accessStatuses": access_statuses,
+                        "accessDiagnostics": diagnostics,
                     }))
                 })
                 .collect::<Vec<_>>();
@@ -8386,14 +8420,30 @@ fn is_grounded_entity_kind(kind: &str) -> bool {
         )
 }
 
+/// Store an authoritative ground height without throwing away its fractional
+/// millimetre value. `world_y` is an integer anchor, so the remainder belongs in
+/// `bottom_offset_m`; rounding the whole entity upward creates a 0.3-0.5 m door
+/// step even when the bake is correct.
+fn set_entity_ground_height(entity: &mut EntityInstance, target_m: f32) {
+    let pivot_offset = match entity.grounding.pivot {
+        GroundingPivot::Bottom => 0.0,
+        GroundingPivot::Center => -entity.height_m * 0.5,
+    };
+    let base = target_m - pivot_offset - entity.grounding.roadbed_offset_m;
+    let world_y = base.floor();
+    entity.world_y = world_y as i32;
+    entity.grounding.bottom_offset_m = base - world_y;
+}
+
 fn rebase_buildings_to_surface(seed: u64, water: WaterGeometry, entities: &mut [EntityInstance]) {
     for entity in entities {
         // Buildings and natural details use the same highest-footprint sample
         // contract. Roads/bridges/water keep their own roadbed/deck semantics.
         if is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none() {
-            entity.world_y = entity
-                .world_y
-                .max(footprint_surface_ceiling_m(seed, entity, water));
+            let target = entity
+                .ground_height_m()
+                .max(footprint_surface_ceiling_m(seed, entity, water) as f32);
+            set_entity_ground_height(entity, target);
         }
     }
 }
@@ -8429,10 +8479,10 @@ fn rebase_grounded_entities_to_carved_surface(
                 ceiling = ceiling.max(sample);
             }
         }
-        let anchor_offset = entity.ground_height_m() - entity.world_y as f32;
-        entity.world_y = entity
-            .world_y
-            .max((ceiling - f64::from(anchor_offset)).ceil() as i32);
+        let target = f64::from(entity.ground_height_m())
+            .max(ceiling)
+            .min(f64::from(f32::MAX)) as f32;
+        set_entity_ground_height(entity, target);
     }
 }
 
@@ -8500,8 +8550,8 @@ pub fn rebase_entities_to_baked_surface(
             }
         }
         if ceiling.is_finite() {
-            let offset = entity.ground_height_m() - entity.world_y as f32;
-            entity.world_y = entity.world_y.max((ceiling - offset).ceil() as i32);
+            let target = entity.ground_height_m().max(ceiling);
+            set_entity_ground_height(entity, target);
         }
     }
 }
@@ -11268,7 +11318,28 @@ mod tests {
         entity.grounding.bottom_offset_m = 0.25;
         rebase_entities_to_baked_surface(std::slice::from_mut(&mut entity), &terrain);
         assert_eq!(entity.world_y, 8);
-        assert!(entity.ground_height_m() >= 3.);
+        assert!((entity.ground_height_m() - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn baked_rebase_keeps_half_metre_ground_as_an_offset() {
+        let scene = SceneSpec {
+            scene_id: "fractional".into(),
+            width_m: 16,
+            depth_m: 16,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain
+            .insert_chunk(0, 0, 16, 16, &14_i16.to_le_bytes().repeat(256))
+            .unwrap();
+        let mut entity =
+            generated_intent_entity("fractional".into(), "building", 8, 8, 0, 4., 4., 10.);
+        rebase_entities_to_baked_surface(std::slice::from_mut(&mut entity), &terrain);
+        assert_eq!(entity.world_y, 3);
+        assert!((entity.ground_height_m() - 3.5).abs() < 1e-6);
     }
 
     #[test]
