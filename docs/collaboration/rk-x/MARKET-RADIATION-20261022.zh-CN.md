@@ -139,6 +139,7 @@ nearest market.3
 
 - 市场专项：7/7 unit tests pass；
 - `baked_audit`：26/26 pass；
+- 最终 workspace：31 个测试目标，`1,141 passed / 0 failed / 37 ignored`；
 - r28 `scale-audit pass`；
 - r28 `quality-report pass`；
 - Computer Use 战略图、街景、第一人称/探索三视图 pass，HUD 为

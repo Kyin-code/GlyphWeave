@@ -873,6 +873,7 @@ bevy/work/rk-x/v3-hard-audit-hk-r28-20261022
 - 唯一缺口 8.624，原因为容量耗尽，具名保留；
 - `scale-audit pass`、`quality-report pass`；
 - 两次烘焙 128 个可比较生成文件一致。
+- 最终 workspace 回归 `1,141 passed / 0 failed / 37 ignored`。
 
 采用版本：`b3b5502 feat(worldgen): publish market radiation evidence`。
 详见 [`rk-x/MARKET-RADIATION-20261022.zh-CN.md`](rk-x/MARKET-RADIATION-20261022.zh-CN.md)。
