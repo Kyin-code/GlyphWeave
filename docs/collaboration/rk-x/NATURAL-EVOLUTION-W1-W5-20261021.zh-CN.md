@@ -162,7 +162,7 @@ cargo test -p glyphweave-core --lib worldgen::access::tests
 ```
 
 结果均通过。全量 `glyphweave-core --lib` 实测
-**863 passed / 0 failed / 34 ignored，473.09s**；
+**866 passed / 0 failed / 34 ignored，481.42s**；
 偶发 `0xC0000005` 的历史纪律仍然有效。
 
 ## 5. 当前判断
@@ -191,3 +191,13 @@ cargo test -p glyphweave-core --lib worldgen::access::tests
    道路/地块的过渡环，不声称特种工程授权已完成。
 6. HTML 预览需要基于本候选重新启动并做视觉反馈；不能以 scale/quality
    pass 代替视觉通过。
+
+### 6.1 后续实现顺序
+
+1. 为剩余坡地建筑生成真实台阶、挡墙或挖填入口，而不是放宽入口高差；
+2. 用切面级需求分配让旧城、更新带和新区都获得实际建筑，而不是在更新带
+   提前耗尽需求；
+3. 将挡墙、排水、涵洞和土方量并入统一宏观工程账本，并关联工程前后 access；
+4. 选择 3 个 48 城代表核心切面做真实尺寸反推和完整烘焙；
+5. 重新生成战略图、街景、自然视图和市场辐射图，提交
+   `visual-feedback.json` 后再宣布视觉层完成。

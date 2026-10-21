@@ -360,3 +360,14 @@ core lib **642 passed / 31 ignored**（+8 新测试，其中 1 个是 1 km 已�
 
 完整文档：
 `docs/collaboration/rk-x/NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md`。
+
+后续提交：
+
+- `18f4014`：入口锚点按真实矩形边界落点，平台从整个 footprint 取样；
+- `0e7e60d`：入口拒绝迭代收敛，删除级联失效建筑及其孤立引道；
+- `f7cc1e0`：旧城窄地块、更新带中等地块、新区宽地块及对应建筑原型；
+- `c704ef0`：普通局部合同保持 6m，`feature-cut` 可通过宏观工程授权扩大填挖。
+
+最后一轮 `glyphweave-core --lib`：**866 passed / 0 failed / 34 ignored，
+481.42s**。最终控制 `final16`：23 个规划建筑、12 个最终建筑、3 个市场、
+800 户需求满足，scale/quality 均 pass。
