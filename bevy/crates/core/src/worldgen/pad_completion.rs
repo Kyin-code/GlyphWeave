@@ -342,8 +342,7 @@ fn attribute(
         let mut surface = f64::NEG_INFINITY;
         for carve in super::plan_terrain_carves(std::slice::from_ref(entity)) {
             // The encoder's own distance rule, term by term.
-            let outside = ((xf - carve.cx).abs() - carve.half_w)
-                .max((zf - carve.cz).abs() - carve.half_d);
+            let outside = super::carve_outside_m(&carve, xf, zf);
             let target = carve
                 .profile
                 .as_ref()

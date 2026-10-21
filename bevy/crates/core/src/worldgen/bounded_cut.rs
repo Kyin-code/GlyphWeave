@@ -267,8 +267,11 @@ pub fn platform_surface_m(base_m: f64, target_m: f64, cap_mm: i32) -> f64 {
 /// [`worldgen::spatial_half_extents`] window `frontage::bounds(entity, 0)` uses,
 /// in whole cells, which is what the published raster is sampled on.
 pub fn flat_top_bounds(site: &RoadsideSite) -> [i32; 4] {
-    let (half_w, half_d) =
-        spatial_half_extents(site.width_m as f32, site.depth_m as f32, site.rotation_y_deg);
+    let (half_w, half_d) = spatial_half_extents(
+        site.width_m as f32,
+        site.depth_m as f32,
+        site.rotation_y_deg,
+    );
     let (half_w, half_d) = (half_w.floor() as i32, half_d.floor() as i32);
     [
         site.world_x - half_w,
@@ -716,6 +719,7 @@ pub struct RoadFlatTop {
     center_z: f64,
     half_w: f64,
     half_d: f64,
+    rotation_y_deg: f32,
 }
 
 impl RoadFlatTop {
@@ -723,8 +727,15 @@ impl RoadFlatTop {
     /// [`RoadCutFootprint::outside_m`] uses, so "the road's flat top" means the
     /// same cells here, in the composition and in the audit.
     pub fn holds(&self, x: i32, z: i32) -> bool {
-        (f64::from(x) - self.center_x).abs() <= self.half_w
-            && (f64::from(z) - self.center_z).abs() <= self.half_d
+        super::oriented_outside_m(
+            self.center_x,
+            self.center_z,
+            self.half_w,
+            self.half_d,
+            self.rotation_y_deg,
+            f64::from(x),
+            f64::from(z),
+        ) <= 0.0
     }
 }
 
@@ -734,12 +745,13 @@ pub fn road_flat_tops(entities: &[EntityInstance]) -> Vec<RoadFlatTop> {
         .iter()
         .filter(|entity| entity.kind == "road" && entity.grounding.road_profile.is_some())
         .map(|entity| {
-            let (half_w, half_d) = super::graded_flat_top_half_extents(entity);
+            let (half_w, half_d) = super::graded_flat_top_local_half_extents(entity);
             RoadFlatTop {
                 center_x: f64::from(entity.world_x),
                 center_z: f64::from(entity.world_z),
-                half_w: f64::from(half_w),
-                half_d: f64::from(half_d),
+                half_w,
+                half_d,
+                rotation_y_deg: entity.rotation_y_deg,
             }
         })
         .collect()
@@ -891,6 +903,7 @@ pub struct RoadCutFootprint {
     pub profile: RoadProfile,
     pub center_x: f64,
     pub center_z: f64,
+    pub rotation_y_deg: f32,
     /// The graded flat top (the band the earthwork flattens to the profile).
     pub flat_half_w: f64,
     pub flat_half_d: f64,
@@ -910,14 +923,15 @@ impl RoadCutFootprint {
     /// keeps the historical fill-only contract.
     pub fn of(entity: &EntityInstance, cap_mm: i32) -> Option<Self> {
         let profile = entity.grounding.road_profile.clone()?;
-        let (flat_half_w, flat_half_d) = super::graded_flat_top_half_extents(entity);
-        let (transport_half_w, transport_half_d) = super::graded_transport_half_extents(entity);
+        let (flat_half_w, flat_half_d) = super::graded_flat_top_local_half_extents(entity);
+        let (transport_half_w, transport_half_d) =
+            super::graded_transport_local_half_extents(entity);
         let cap_mm = clamp_cap(cap_mm);
         let ring = ring_width_m(cap_mm);
         let cx = f64::from(entity.world_x);
         let cz = f64::from(entity.world_z);
-        let flat_half_w = f64::from(flat_half_w);
-        let flat_half_d = f64::from(flat_half_d);
+        let (aabb_half_w, aabb_half_d) =
+            super::oriented_aabb_half_extents(flat_half_w, flat_half_d, entity.rotation_y_deg);
         Some(Self {
             road_id: entity.entity_id.clone(),
             entity_id: entity.entity_id.clone(),
@@ -926,14 +940,15 @@ impl RoadCutFootprint {
             profile,
             center_x: cx,
             center_z: cz,
+            rotation_y_deg: entity.rotation_y_deg,
             flat_half_w,
             flat_half_d,
-            transport_half_w: f64::from(transport_half_w),
-            transport_half_d: f64::from(transport_half_d),
-            left: (cx - flat_half_w - ring).floor() as i32,
-            top: (cz - flat_half_d - ring).floor() as i32,
-            right: (cx + flat_half_w + ring).ceil() as i32,
-            bottom: (cz + flat_half_d + ring).ceil() as i32,
+            transport_half_w,
+            transport_half_d,
+            left: (cx - aabb_half_w - ring).floor() as i32,
+            top: (cz - aabb_half_d - ring).floor() as i32,
+            right: (cx + aabb_half_w + ring).ceil() as i32,
+            bottom: (cz + aabb_half_d + ring).ceil() as i32,
         })
     }
 
@@ -946,21 +961,38 @@ impl RoadCutFootprint {
 
     /// The cell's distance outside the graded flat top, in metres (<= 0 inside).
     pub fn outside_m(&self, x: i32, z: i32) -> f64 {
-        let dx = (f64::from(x) - self.center_x).abs() - self.flat_half_w;
-        let dz = (f64::from(z) - self.center_z).abs() - self.flat_half_d;
-        dx.max(dz)
+        super::oriented_outside_m(
+            self.center_x,
+            self.center_z,
+            self.flat_half_w,
+            self.flat_half_d,
+            self.rotation_y_deg,
+            f64::from(x),
+            f64::from(z),
+        )
     }
 
     /// The cell's distance outside the transport band, in metres (<= 0 inside).
     pub fn transport_outside_m(&self, x: i32, z: i32) -> f64 {
-        let dx = (f64::from(x) - self.center_x).abs() - self.transport_half_w;
-        let dz = (f64::from(z) - self.center_z).abs() - self.transport_half_d;
-        dx.max(dz)
+        super::oriented_outside_m(
+            self.center_x,
+            self.center_z,
+            self.transport_half_w,
+            self.transport_half_d,
+            self.rotation_y_deg,
+            f64::from(x),
+            f64::from(z),
+        )
     }
 
     /// The depth this footprint cuts at one cell, in whole millimetres.
     pub fn depth_mm(&self, base_m: f64, x: i32, z: i32) -> i64 {
-        cut_depth_mm(base_m, self.target_m(x, z), self.outside_m(x, z), self.cap_mm)
+        cut_depth_mm(
+            base_m,
+            self.target_m(x, z),
+            self.outside_m(x, z),
+            self.cap_mm,
+        )
     }
 
     /// True when the cell belongs to the footprint at all (inside or in the ring).
@@ -987,6 +1019,7 @@ pub struct SupportWindow {
     pub center_z: f64,
     pub half_w: f64,
     pub half_d: f64,
+    pub rotation_y_deg: f32,
     pub margin_m: f64,
     /// The road slot this window belongs to, when it belongs to a road: a road is
     /// never blocked by its own window. `None` for pads.
@@ -1008,6 +1041,7 @@ impl SupportWindow {
             center_z: f64::from(entity.world_z),
             half_w,
             half_d,
+            rotation_y_deg: 0.0,
             margin_m: cap.map_or(2.0, ring_width_m),
             road_slot: None,
         }
@@ -1019,6 +1053,7 @@ impl SupportWindow {
             center_z: footprint.center_z,
             half_w: footprint.flat_half_w,
             half_d: footprint.flat_half_d,
+            rotation_y_deg: footprint.rotation_y_deg,
             margin_m: 2.0,
             road_slot: Some(slot),
         }
@@ -1027,9 +1062,15 @@ impl SupportWindow {
     /// Does this window claim the cell? Strictly inside its margin, matching the
     /// per-cell test in `worldgen::apply_terrain_carves`.
     pub fn blocks(&self, x: i32, z: i32) -> bool {
-        let dx = (f64::from(x) - self.center_x).abs() - self.half_w;
-        let dz = (f64::from(z) - self.center_z).abs() - self.half_d;
-        dx.max(dz) < self.margin_m
+        super::oriented_outside_m(
+            self.center_x,
+            self.center_z,
+            self.half_w,
+            self.half_d,
+            self.rotation_y_deg,
+            f64::from(x),
+            f64::from(z),
+        ) < self.margin_m
     }
 }
 
@@ -1967,9 +2008,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 2.,
             natural_max_m: 2.,
-        
+
             entry_corridor: None,
-};
+        };
         let water = super::super::water_geometry(
             super::super::WaterKind::None,
             &[],

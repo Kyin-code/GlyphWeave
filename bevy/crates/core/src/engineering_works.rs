@@ -299,6 +299,7 @@ mod tests {
             center_z: 32.,
             half_width_m: 8.,
             half_depth_m: 6.,
+            rotation_y_deg: 0.,
             target_height_m: 2.,
             blend_m: 3.,
             priority: 1,

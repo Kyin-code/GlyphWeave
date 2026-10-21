@@ -18,10 +18,10 @@
 > [`HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md`](HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md)。
 
 > **2026-10-21 已知道路缺陷**：自然道路中 45°/135° 等斜向段占多数之一，
-> 但普通道路 carve 仍只正确处理 0°/90°；其余角度按 X 向长条处理。
-> 当前预览可读不等于土方 footprint 正确。修复需统一 oriented footprint
-> 到 carve、support/cut window、ledger 与审计。见
-> [`KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`](KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md)。
+> Core 现已统一到 oriented footprint：carve 保存真实 yaw 与局部半长，
+> 土方、索引、bounded-cut、transport 与桥面审计使用同一格点判定。
+> 轴对齐 0°/90° 的旧边界保持不变；香港 1km 重烘及视觉复核仍待执行。见
+> [`ORIENTED-ROAD-CARVE-20261021.zh-CN.md`](ORIENTED-ROAD-CARVE-20261021.zh-CN.md)。
 
 > **2026-10-21 市场占地去重叠**：市场候选现在按离路 12m 后的真实 footprint
 > 检查 2m 净距，不再只按路线节点去重。`market.4` 从与 `market.1` 重叠的

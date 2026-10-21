@@ -157,12 +157,20 @@ pub struct WaterGeometry {
 /// hillside (the approach used by symbios-ground-lab's terrain carving).
 /// `blend_m` is the width of the smooth transition ring around the pad.
 #[derive(Debug, Clone, PartialEq)]
-struct TerrainCarve {
+pub(super) struct TerrainCarve {
     profile: Option<std::sync::Arc<road_profile::RoadProfile>>,
     cx: f64,
     cz: f64,
+    /// Half extents in the carve's own local X/Z frame. A rotated road keeps
+    /// its long axis in `half_w`; every consumer must use
+    /// [`carve_outside_m`] rather than comparing world-axis deltas directly.
+    /// Legacy pads and aprons are axis-aligned (`rotation_y_deg = 0`), so their
+    /// published cells remain unchanged.
     half_w: f64,
     half_d: f64,
+    /// Entity yaw, in degrees, using the same convention as
+    /// [`EntityInstance::rotation_y_deg`].
+    rotation_y_deg: f32,
     target_h_m: f64,
     blend_m: f64,
     /// Roads are carved before buildings so a pad under a street is not
@@ -3780,6 +3788,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     center_z: carve.cz as f32,
                     half_width_m: carve.half_w as f32,
                     half_depth_m: carve.half_d as f32,
+                    rotation_y_deg: carve.rotation_y_deg,
                     target_height_m: carve.target_h_m as f32,
                     road_profile: carve.profile.as_deref().cloned(),
                     blend_m: carve.blend_m as f32,
@@ -5097,10 +5106,11 @@ fn carve_intersects_chunk(
     let max_x = f64::from(base_x) + f64::from(width);
     let min_z = f64::from(base_z) - 1.;
     let max_z = f64::from(base_z) + f64::from(depth);
-    carve.cx + carve.half_w + carve.blend_m >= min_x
-        && carve.cx - carve.half_w - carve.blend_m <= max_x
-        && carve.cz + carve.half_d + carve.blend_m >= min_z
-        && carve.cz - carve.half_d - carve.blend_m <= max_z
+    let (half_w, half_d) = carve_aabb_half_extents(carve);
+    carve.cx + half_w + carve.blend_m >= min_x
+        && carve.cx - half_w - carve.blend_m <= max_x
+        && carve.cz + half_d + carve.blend_m >= min_z
+        && carve.cz - half_d - carve.blend_m <= max_z
 }
 
 #[cfg(test)]
@@ -5308,8 +5318,7 @@ fn terrain_disturbance_at(x: i32, z: i32, carves: &[TerrainCarve]) -> u8 {
     carves
         .iter()
         .filter_map(|carve| {
-            let outside =
-                ((xf - carve.cx).abs() - carve.half_w).max((zf - carve.cz).abs() - carve.half_d);
+            let outside = carve_outside_m(carve, xf, zf);
             (outside <= 0.0).then_some(carve.disturbance)
         })
         .max()
@@ -5888,13 +5897,15 @@ pub const GRADED_ROAD_GEOMETRY_REVISION: &str = "b02-w1-graded-band-v2";
 /// graded margin the 12m case already had. A band narrower than the pavement
 /// is refused by `graded_band_shortfall_m`, never silently treated as flat.
 pub(crate) fn graded_flat_top_half_extents(entity: &EntityInstance) -> (i32, i32) {
-    let along = entity.width_m as i32 / 2 + 4;
-    let transverse = (entity.depth_m as i32 / 2 + 1).max(7);
-    if entity.rotation_y_deg == 90. {
-        (transverse, along)
-    } else {
-        (along, transverse)
-    }
+    let (along, transverse) = graded_flat_top_local_half_extents(entity);
+    rotated_aabb_half_extents(along, transverse, entity.rotation_y_deg)
+}
+
+pub(super) fn graded_flat_top_local_half_extents(entity: &EntityInstance) -> (f64, f64) {
+    (
+        f64::from(entity.width_m as i32 / 2 + 4),
+        f64::from((entity.depth_m as i32 / 2 + 1).max(7)),
+    )
 }
 
 /// Shortfall, in metres, between the graded band and the declared pavement.
@@ -5915,26 +5926,69 @@ pub(crate) fn graded_band_shortfall_m(pavement_half: i32, band_half: i32) -> u32
 /// hillside acceptance test) uses to measure a graded road's support band; the
 /// carve, the road audit and the road cut footprint all read it.
 pub fn graded_transport_half_extents(entity: &EntityInstance) -> (i32, i32) {
-    let along = entity.width_m as i32 / 2 + 4;
-    let transverse = entity.depth_m as i32 / 2 + 3;
-    if entity.rotation_y_deg == 90. {
-        (transverse, along)
-    } else {
-        (along, transverse)
-    }
+    let (along, transverse) = graded_transport_local_half_extents(entity);
+    rotated_aabb_half_extents(along, transverse, entity.rotation_y_deg)
+}
+
+pub(super) fn graded_transport_local_half_extents(entity: &EntityInstance) -> (f64, f64) {
+    (
+        f64::from(entity.width_m as i32 / 2 + 4),
+        f64::from(entity.depth_m as i32 / 2 + 3),
+    )
 }
 
 /// The declared paved roadbed in world axes: what the corridor contract calls
 /// the road width, which must be held exactly and which the graded band has to
 /// cover.
 pub(crate) fn graded_pavement_half_extents(entity: &EntityInstance) -> (i32, i32) {
-    let along = entity.width_m as i32 / 2 + 4;
-    let transverse = entity.depth_m as i32 / 2;
-    if entity.rotation_y_deg == 90. {
-        (transverse, along)
-    } else {
-        (along, transverse)
-    }
+    let (along, transverse) = graded_pavement_local_half_extents(entity);
+    rotated_aabb_half_extents(along, transverse, entity.rotation_y_deg)
+}
+
+pub(super) fn graded_pavement_local_half_extents(entity: &EntityInstance) -> (f64, f64) {
+    (
+        f64::from(entity.width_m as i32 / 2 + 4),
+        f64::from(entity.depth_m as i32 / 2),
+    )
+}
+
+pub(crate) fn graded_flat_top_outside_m(entity: &EntityInstance, x: i32, z: i32) -> f64 {
+    let (half_w, half_d) = graded_flat_top_local_half_extents(entity);
+    oriented_outside_m(
+        f64::from(entity.world_x),
+        f64::from(entity.world_z),
+        half_w,
+        half_d,
+        entity.rotation_y_deg,
+        f64::from(x),
+        f64::from(z),
+    )
+}
+
+pub(crate) fn graded_transport_outside_m(entity: &EntityInstance, x: i32, z: i32) -> f64 {
+    let (half_w, half_d) = graded_transport_local_half_extents(entity);
+    oriented_outside_m(
+        f64::from(entity.world_x),
+        f64::from(entity.world_z),
+        half_w,
+        half_d,
+        entity.rotation_y_deg,
+        f64::from(x),
+        f64::from(z),
+    )
+}
+
+pub(crate) fn graded_pavement_outside_m(entity: &EntityInstance, x: i32, z: i32) -> f64 {
+    let (half_w, half_d) = graded_pavement_local_half_extents(entity);
+    oriented_outside_m(
+        f64::from(entity.world_x),
+        f64::from(entity.world_z),
+        half_w,
+        half_d,
+        entity.rotation_y_deg,
+        f64::from(x),
+        f64::from(z),
+    )
 }
 
 /// The entrance apron's run in metres: the distance over which the frontage
@@ -6003,7 +6057,6 @@ pub(crate) fn carves_as_building(kind: &str) -> bool {
             | "town_hall"
             | "market"
             | "community_plaza"
-            | "green_space"
             | "industrial"
             | "temple"
             | "church"
@@ -6028,36 +6081,124 @@ pub(crate) fn carves_as_road(kind: &str) -> bool {
 ///
 /// The third number is the ring the carve publishes when the entity carries NO
 /// derived one ([`carve_base_ring_m`]).
-fn carve_geometry(entity: &EntityInstance) -> (f64, f64, f64) {
+fn carve_geometry(entity: &EntityInstance) -> (f64, f64, f64, f32) {
     let is_road = carves_as_road(entity.kind.as_str());
-    // Roads are authored in local X/Z dimensions and may be rotated.
-    // Convert that local footprint into world-space before carving: a
-    // zero-degree road with width=1440 is long on X, while a road-ns with
-    // rotation=90 is long on Z. The old branch swapped these extents for
-    // the zero-degree case, causing an east-west road to carve a huge
-    // north-south trench through houses and vegetation.
-    if entity.grounding.road_profile.is_some() {
+    // Roads are authored in local X/Z dimensions and may have any yaw. Keep
+    // the authored half extents in that local frame and publish the yaw on the
+    // carve; every cell test goes through `carve_outside_m`. Treating 45/135
+    // degrees as either X or Z intervals was the source of the oversized carve.
+    if is_road && entity.grounding.road_profile.is_some() {
         // Exactly the band the independent audit checks for the design
         // level (see `graded_flat_top_half_extents`).
-        let (half_w, half_d) = graded_flat_top_half_extents(entity);
-        (half_w as f64, half_d as f64, 18.0)
+        let (half_w, half_d) = graded_flat_top_local_half_extents(entity);
+        (half_w, half_d, 18.0, entity.rotation_y_deg)
     } else if is_road {
         let width = f64::from(entity.width_m);
         let depth = f64::from(entity.depth_m);
-        let rotated_quarter_turn = (entity.rotation_y_deg.round() as i32).rem_euclid(180) == 90;
-        if rotated_quarter_turn {
-            // Local width becomes world depth; local depth becomes world
-            // width after a quarter turn.
-            (depth * 0.5 + 1.5, width * 0.5 + 4.0, 6.0)
-        } else {
-            // Local width remains world X; local depth remains world Z.
-            (width * 0.5 + 4.0, depth * 0.5 + 1.5, 6.0)
-        }
+        (
+            width * 0.5 + 4.0,
+            depth * 0.5 + 1.5,
+            6.0,
+            entity.rotation_y_deg,
+        )
     } else {
         // Buildings keep local width/depth in the entity contract; rotate
-        // those dimensions into world axes before baking their support pad.
-        frontage_pad_carve_geometry(entity)
+        // quarter turns into world axes before baking their support pad. Their
+        // arbitrary-yaw geometry is a separate contract; this slice changes
+        // roads only and leaves the established building footprint untouched.
+        let (half_w, half_d, blend) = frontage_pad_carve_geometry(entity);
+        (half_w, half_d, blend, 0.0)
     }
+}
+
+/// World-axis AABB half extents of a local rectangle rotated about world Y.
+///
+/// Returned values only describe the envelope used for indexing, chunk
+/// filtering and integer scan loops. Exact ownership is still decided by
+/// [`carve_outside_m`] in the rectangle's local frame.
+pub(crate) fn rotated_aabb_half_extents(
+    half_w: f64,
+    half_d: f64,
+    rotation_y_deg: f32,
+) -> (i32, i32) {
+    let quarter_turn = (rotation_y_deg.round() as i32).rem_euclid(180) == 90;
+    if quarter_turn {
+        return (half_d.ceil() as i32, half_w.ceil() as i32);
+    }
+    if rotation_y_deg.round().rem_euclid(180.0) == 0.0 {
+        return (half_w.ceil() as i32, half_d.ceil() as i32);
+    }
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
+    let sin = sin.abs();
+    let cos = cos.abs();
+    (
+        (half_w * cos + half_d * sin).ceil() as i32,
+        (half_w * sin + half_d * cos).ceil() as i32,
+    )
+}
+
+pub(crate) fn oriented_aabb_half_extents(
+    half_w: f64,
+    half_d: f64,
+    rotation_y_deg: f32,
+) -> (f64, f64) {
+    let quarter_turn = (rotation_y_deg.round() as i32).rem_euclid(180) == 90;
+    if quarter_turn {
+        return (half_d, half_w);
+    }
+    if rotation_y_deg.round().rem_euclid(180.0) == 0.0 {
+        return (half_w, half_d);
+    }
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
+    let sin = sin.abs();
+    let cos = cos.abs();
+    (half_w * cos + half_d * sin, half_w * sin + half_d * cos)
+}
+
+/// Distance from one world cell to a carve's oriented flat top. Values `<= 0`
+/// are inside; positive values are the Euclidean-free Minkowski distance along
+/// the carve's local axes, the historical ring metric for axis-aligned pads.
+pub(crate) fn carve_outside_m(carve: &TerrainCarve, x: f64, z: f64) -> f64 {
+    oriented_outside_m(
+        carve.cx,
+        carve.cz,
+        carve.half_w,
+        carve.half_d,
+        carve.rotation_y_deg,
+        x,
+        z,
+    )
+}
+
+pub(crate) fn oriented_local_coordinates(
+    center_x: f64,
+    center_z: f64,
+    rotation_y_deg: f32,
+    x: f64,
+    z: f64,
+) -> (f64, f64) {
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
+    let dx = x - center_x;
+    let dz = z - center_z;
+    (dx * cos + dz * sin, -dx * sin + dz * cos)
+}
+
+pub(crate) fn oriented_outside_m(
+    center_x: f64,
+    center_z: f64,
+    half_w: f64,
+    half_d: f64,
+    rotation_y_deg: f32,
+    x: f64,
+    z: f64,
+) -> f64 {
+    let (along, across) =
+        oriented_local_coordinates(center_x, center_z, rotation_y_deg, x, z);
+    (along.abs() - half_w).max(across.abs() - half_d)
+}
+
+fn carve_aabb_half_extents(carve: &TerrainCarve) -> (f64, f64) {
+    oriented_aabb_half_extents(carve.half_w, carve.half_d, carve.rotation_y_deg)
 }
 
 /// The rectangle one entity's own carve flattens, in world axes: half width and
@@ -6068,8 +6209,8 @@ fn carve_geometry(entity: &EntityInstance) -> (f64, f64, f64) {
 /// is the deepest fill inside exactly this rectangle, and it is the same rectangle
 /// the carve flattens and the bounded-cut ledger books.
 pub(crate) fn carve_flat_top_half_extents(entity: &EntityInstance) -> (f64, f64) {
-    let (half_w, half_d, _) = carve_geometry(entity);
-    (half_w, half_d)
+    let (half_w, half_d, _, rotation_y_deg) = carve_geometry(entity);
+    oriented_aabb_half_extents(half_w, half_d, rotation_y_deg)
 }
 
 /// The ring one entity's carve publishes when the entity carries NO derived one:
@@ -6081,7 +6222,7 @@ pub(crate) fn carve_flat_top_half_extents(entity: &EntityInstance) -> (f64, f64)
 /// fill actually spends. A structure's own ring is its size, which the fill rule
 /// replaces outright.
 pub(crate) fn carve_base_ring_m(entity: &EntityInstance) -> f64 {
-    let (_, _, ring) = carve_geometry(entity);
+    let (_, _, ring, _) = carve_geometry(entity);
     ring
 }
 
@@ -6102,7 +6243,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         if entity.grounding.structure_deck {
             continue;
         }
-        let (half_w, half_d, blend) = carve_geometry(entity);
+        let (half_w, half_d, blend, rotation_y_deg) = carve_geometry(entity);
 
         // OPT-IN bounded cut: two engineered supports may excavate, each only
         // when its OWN published entity carries a cap:
@@ -6138,6 +6279,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             cz: f64::from(entity.world_z),
             half_w,
             half_d,
+            rotation_y_deg,
             target_h_m: f64::from(entity.ground_height_m()),
             // A cubic smoothstep has maximum derivative 1.5. Use the
             // representable raster floor (-32m) as a conservative fill bound
@@ -6172,6 +6314,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                         cz: (f64::from(anchor.world_z) + f64::from(rz)) * 0.5,
                         half_w: (f64::from(anchor.world_x) - f64::from(rx)).abs() * 0.5 + 2.,
                         half_d: (f64::from(anchor.world_z) - f64::from(rz)).abs() * 0.5 + 2.,
+                        rotation_y_deg: 0.,
                         target_h_m: f64::from(entity.ground_height_m()),
                         blend_m: ENTRANCE_APRON_RUN_M,
                         priority: 2,
@@ -6198,6 +6341,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     cz: f64::from(anchor.world_z),
                     half_w: 2.0,
                     half_d: 2.0,
+                    rotation_y_deg: 0.,
                     target_h_m: f64::from(entity.ground_height_m()),
                     blend_m: 2.0,
                     priority: 2,
@@ -6239,6 +6383,7 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     cz,
                     half_w,
                     half_d,
+                    rotation_y_deg: 0.,
                     target_h_m: f64::from(entity.ground_height_m()),
                     blend_m: entry_corridor::RING_M,
                     priority: entry_corridor::PRIORITY,
@@ -6710,10 +6855,11 @@ impl CarveIndex {
         let mut max_z = f64::NEG_INFINITY;
         for carve in carves {
             let reach = carve_influence_m(carve);
-            min_x = min_x.min(carve.cx - carve.half_w - reach);
-            max_x = max_x.max(carve.cx + carve.half_w + reach);
-            min_z = min_z.min(carve.cz - carve.half_d - reach);
-            max_z = max_z.max(carve.cz + carve.half_d + reach);
+            let (half_w, half_d) = carve_aabb_half_extents(carve);
+            min_x = min_x.min(carve.cx - half_w - reach);
+            max_x = max_x.max(carve.cx + half_w + reach);
+            min_z = min_z.min(carve.cz - half_d - reach);
+            max_z = max_z.max(carve.cz + half_d + reach);
         }
         let refused = || Self {
             cell: CARVE_BUCKET_M,
@@ -6741,10 +6887,11 @@ impl CarveIndex {
         };
         for (i, carve) in carves.iter().enumerate() {
             let reach = carve_influence_m(carve);
-            let x0 = bucket_of(carve.cx - carve.half_w - reach, min_x, cols);
-            let x1 = bucket_of(carve.cx + carve.half_w + reach, min_x, cols);
-            let z0 = bucket_of(carve.cz - carve.half_d - reach, min_z, rows);
-            let z1 = bucket_of(carve.cz + carve.half_d + reach, min_z, rows);
+            let (half_w, half_d) = carve_aabb_half_extents(carve);
+            let x0 = bucket_of(carve.cx - half_w - reach, min_x, cols);
+            let x1 = bucket_of(carve.cx + half_w + reach, min_x, cols);
+            let z0 = bucket_of(carve.cz - half_d - reach, min_z, rows);
+            let z1 = bucket_of(carve.cz + half_d + reach, min_z, rows);
             for bz in z0..=z1 {
                 for bx in x0..=x1 {
                     buckets[(bz * cols + bx) as usize].push(i as u32);
@@ -7016,8 +7163,7 @@ where
         // counts; the former used to be its own walk over the same list.
         for i in 0..count {
             let other = at(i);
-            let out =
-                ((xf - other.cx).abs() - other.half_w).max((zf - other.cz).abs() - other.half_d);
+            let out = carve_outside_m(other, xf, zf);
             if other.priority == 10 && out <= 0.0 {
                 road_flat_here = true;
             }
@@ -7062,11 +7208,7 @@ where
             }
             continue;
         }
-        let dx = (xf - carve.cx).abs();
-        let dz = (zf - carve.cz).abs();
-        let outside_x = dx - carve.half_w;
-        let outside_z = dz - carve.half_d;
-        let outside = outside_x.max(outside_z);
+        let outside = carve_outside_m(carve, xf, zf);
         let target = carve
             .profile
             .as_ref()
@@ -7139,12 +7281,15 @@ where
                 if blocking_support - i32::from(own_support) <= 0 {
                     let cut = bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
                     let margin_m = road_transport_margin_m(profile);
-                    let along_x = profile.start[1] == profile.end[1];
-                    let support_outside = if along_x {
-                        outside_x.max(dz - (carve.half_d + margin_m))
-                    } else {
-                        (dx - (carve.half_w + margin_m)).max(outside_z)
-                    };
+                    let (along, across) = oriented_local_coordinates(
+                        carve.cx,
+                        carve.cz,
+                        carve.rotation_y_deg,
+                        xf,
+                        zf,
+                    );
+                    let support_outside = (along.abs() - (carve.half_w + margin_m))
+                        .max(across.abs() - carve.half_d);
                     if support_outside <= 0.0 {
                         let fill = target.min(limit);
                         // Inside its own graded flat top the road's authored
@@ -12185,6 +12330,93 @@ mod tests {
         );
     }
 
+    fn oriented_test_carve(rotation_y_deg: f32) -> TerrainCarve {
+        TerrainCarve {
+            profile: None,
+            cx: 400.,
+            cz: 400.,
+            half_w: 20.,
+            half_d: 2.,
+            rotation_y_deg,
+            target_h_m: 12.,
+            blend_m: 6.,
+            priority: 10,
+            disturbance: 255,
+            cut_cap_mm: None,
+            ramp: None,
+        }
+    }
+
+    fn world_from_local(carve: &TerrainCarve, along: f64, across: f64) -> (f64, f64) {
+        let (sin, cos) = carve.rotation_y_deg.to_radians().sin_cos();
+        let (sin, cos) = (f64::from(sin), f64::from(cos));
+        (
+            carve.cx + along * cos - across * sin,
+            carve.cz + along * sin + across * cos,
+        )
+    }
+
+    #[test]
+    fn oriented_road_flat_top_uses_local_axes_at_every_cardinal_diagonal() {
+        for rotation in [0.0_f32, 45.0, 90.0, 135.0, 217.5] {
+            let carve = oriented_test_carve(rotation);
+            assert!(
+                carve_outside_m(&carve, carve.cx, carve.cz) <= 0.0,
+                "rotation {rotation}: road centre must own its flat top"
+            );
+            let (inside_x, inside_z) = world_from_local(&carve, 19., 1.9);
+            assert!(
+                carve_outside_m(&carve, inside_x, inside_z) <= 0.0,
+                "rotation {rotation}: local corner must remain inside"
+            );
+            let (outside_x, outside_z) = world_from_local(&carve, 0., 2.25);
+            assert!(
+                carve_outside_m(&carve, outside_x, outside_z) > 0.0,
+                "rotation {rotation}: transverse neighbour must stay outside"
+            );
+        }
+    }
+
+    #[test]
+    fn diagonal_road_carve_no_longer_owns_its_world_aabb() {
+        let carve = oriented_test_carve(45.);
+        // This lies on the old X-axis approximation's centre line, but it is
+        // almost 14 m off the true diagonal pavement.
+        assert!(
+            carve_outside_m(&carve, 417., 400.) > 0.0,
+            "45-degree road carve expanded back into its axis-aligned AABB"
+        );
+        // The AABB is still used for indexing and must cover the true polygon.
+        let (half_x, half_y) = carve_aabb_half_extents(&carve);
+        assert!(half_x > 15. && half_y > 15.);
+    }
+
+    #[test]
+    fn planned_route_road_carries_rotation_and_local_half_extents() {
+        let road = EntityInstance {
+            rotation_y_deg: 135.,
+            grounding: GroundingSpec::default(),
+            anchors: Vec::new(),
+            bounds: None,
+            entity_id: "test.diagonal-road".into(),
+            asset_id: "road.generated".into(),
+            kind: "road".into(),
+            world_x: 400,
+            world_z: 400,
+            world_y: 12,
+            scale: 1.,
+            width_m: 80.,
+            depth_m: 12.,
+            height_m: 0.45,
+        };
+        let carves = plan_terrain_carves(&[road]);
+        assert_eq!(carves.len(), 1);
+        assert_eq!(carves[0].rotation_y_deg, 135.);
+        assert_eq!((carves[0].half_w, carves[0].half_d), (44., 7.5));
+        assert!(carve_outside_m(&carves[0], 400., 400.) <= 0.);
+        assert!(carve_outside_m(&carves[0], 430., 400.) > 0.);
+    }
+
     #[test]
     fn terrain_semantics_match_the_baked_raster_contract() {
         let water = legacy_water_geometry(WaterKind::None, 128, 128, 0.0);
@@ -12199,6 +12431,8 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
+
+            rotation_y_deg: 0.0,
 
             ramp: None,
         };
@@ -12278,6 +12512,8 @@ mod tests {
                     disturbance: 160,
                     cut_cap_mm: None,
 
+                    rotation_y_deg: 0.0,
+
                     ramp: None,
                 },
                 TerrainCarve {
@@ -12291,6 +12527,8 @@ mod tests {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
+
+                    rotation_y_deg: 0.0,
 
                     ramp: None,
                 },
@@ -12322,6 +12560,8 @@ mod tests {
             disturbance: 160,
             cut_cap_mm: None,
 
+            rotation_y_deg: 0.0,
+
             ramp: None,
         };
         let far = TerrainCarve {
@@ -12335,6 +12575,8 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
+
+            rotation_y_deg: 0.0,
 
             ramp: None,
         };
@@ -12384,6 +12626,8 @@ mod tests {
             disturbance: 160,
             cut_cap_mm: None,
 
+            rotation_y_deg: 0.0,
+
             ramp: None,
         };
         let b = TerrainCarve {
@@ -12419,6 +12663,8 @@ mod tests {
             disturbance: 160,
             cut_cap_mm: None,
 
+            rotation_y_deg: 0.0,
+
             ramp: None,
         };
         assert_eq!(
@@ -12448,6 +12694,8 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
+
+            rotation_y_deg: 0.0,
 
             ramp: None,
         };

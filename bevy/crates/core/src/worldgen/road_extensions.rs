@@ -659,14 +659,15 @@ mod tests {
             cz: 180.,
             half_w: 12.,
             half_d: 12.,
+            rotation_y_deg: 0.,
             target_h_m: 10.,
             blend_m: 100.,
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-});
+        });
         let actual = super::super::apply_terrain_carves(1.2, 160, 128, &mixed);
         assert_eq!(actual, profile.height_at(160., 128.).unwrap());
         mixed.reverse();

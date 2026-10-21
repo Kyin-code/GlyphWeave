@@ -545,3 +545,22 @@ AccessGraph 里的假跳过，而是显式路点。完整记录见
 
 该门禁支持“切面先验可用”，但明确阻止把 48 城自然地理误报为已全部完成
 来源审计。完整记录见 `URBAN-CASE-COMPLETENESS-AUDIT-20261021.zh-CN.md`。
+
+## Round 69 · 2026-10-21 · 任意角度道路 carve 统一
+
+`TerrainCarve` 现在保存局部半长和真实 yaw；`carve_outside_m` 成为 flat top、
+fill ring、road support/cut 与扰动语义的统一格点判定。世界轴 AABB 只用于
+索引和扫描粗筛。
+
+同步接入：
+
+- chunk 相交与 `CarveIndex`；
+- bounded-cut `RoadFlatTop` / `RoadCutFootprint` / `SupportWindow`；
+- road transport 与桥面湿格审计；
+- frontage / pad 冲突归因；
+- 0°、45°、90°、135°、217.5° 回归。
+
+轴对齐道路保持旧整数边界。全量 Core 在修正两个审查辅助断言前为
+871/913 通过；修正后两个辅助用例单独通过。仍有 6 个旧 bounded-cut /
+frontage / assigned-road 基线失败，已在本轮记录中具名，不能宣称全量绿。
+完整记录见 `ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。

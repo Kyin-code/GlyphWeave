@@ -1815,10 +1815,15 @@ fn preflight(
             },
         );
         for carve in &proposed {
-            let x0 = (carve.cx - carve.half_w - carve.blend_m).floor() as i64;
-            let z0 = (carve.cz - carve.half_d - carve.blend_m).floor() as i64;
-            let x1 = (carve.cx + carve.half_w + carve.blend_m).ceil() as i64;
-            let z1 = (carve.cz + carve.half_d + carve.blend_m).ceil() as i64;
+            let (half_w, half_d) = super::oriented_aabb_half_extents(
+                carve.half_w,
+                carve.half_d,
+                carve.rotation_y_deg,
+            );
+            let x0 = (carve.cx - half_w - carve.blend_m).floor() as i64;
+            let z0 = (carve.cz - half_d - carve.blend_m).floor() as i64;
+            let x1 = (carve.cx + half_w + carve.blend_m).ceil() as i64;
+            let z1 = (carve.cz + half_d + carve.blend_m).ceil() as i64;
             if !overlap(area, [x0, z0, x1, z1]) {
                 continue;
             }

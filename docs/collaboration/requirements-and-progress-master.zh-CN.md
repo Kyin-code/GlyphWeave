@@ -63,9 +63,10 @@
 > `docs/collaboration/rk-x/MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。
 
 > **2026-10-21 已知道路缺陷**：自然道路存在大量 45°/135° 斜向段，当前
-> 普通道路 carve 只正确处理 0°/90°，其余角度仍按 X 向长条近似。此问题已
-> 登记为可能导致入口/terrain ownership 偏差的风险，详见
-> `docs/collaboration/rk-x/KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`。
+> Core 已改为任意角度道路局部矩形 carve，并同步 carve 索引、bounded-cut、
+> support/transport 和桥面审计；0°/90° 合同保持原边界。香港 1km 重烘和
+> 视觉复核仍未完成，不能提前宣称最终入口收益。详见
+> `docs/collaboration/rk-x/ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。
 
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。

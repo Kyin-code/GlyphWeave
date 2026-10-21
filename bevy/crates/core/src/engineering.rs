@@ -42,10 +42,18 @@ pub struct EngineeredTerrainOperation {
     pub center_z: f32,
     pub half_width_m: f32,
     pub half_depth_m: f32,
+    /// Local footprint yaw. Older snapshots omit it and interpret the half
+    /// extents as world-axis values, preserving their published geometry.
+    #[serde(default, skip_serializing_if = "rotation_is_zero")]
+    pub rotation_y_deg: f32,
     pub target_height_m: f32,
     pub blend_m: f32,
     pub priority: i32,
     pub status: String,
+}
+
+fn rotation_is_zero(rotation: &f32) -> bool {
+    *rotation == 0.0
 }
 
 impl EngineeredTerrainSnapshot {

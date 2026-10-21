@@ -355,15 +355,9 @@ pub fn validate_manifest(m: &WorldManifest) -> Result<(), TerrainError> {
 }
 fn road_bounds(e: &EntityInstance, margin: i64) -> [i64; 4] {
     let (w, d) = if e.rotation_y_deg == 0. {
-        (
-            e.width_m as i64 / 2 + margin,
-            e.depth_m as i64 / 2 + margin,
-        )
+        (e.width_m as i64 / 2 + margin, e.depth_m as i64 / 2 + margin)
     } else {
-        (
-            e.depth_m as i64 / 2 + margin,
-            e.width_m as i64 / 2 + margin,
-        )
+        (e.depth_m as i64 / 2 + margin, e.width_m as i64 / 2 + margin)
     };
     [
         i64::from(e.world_x) - w,
@@ -493,15 +487,9 @@ fn clear(
     for road in roads {
         // Same padded support rule, widened to the declared road tier.
         let (w, d) = if road.rotation_y_deg == 0. {
-            (
-                road.width_m as i64 / 2 + 4,
-                road.depth_m as i64 / 2 + 3,
-            )
+            (road.width_m as i64 / 2 + 4, road.depth_m as i64 / 2 + 3)
         } else {
-            (
-                road.depth_m as i64 / 2 + 3,
-                road.width_m as i64 / 2 + 4,
-            )
+            (road.depth_m as i64 / 2 + 3, road.width_m as i64 / 2 + 4)
         };
         let r = [
             i64::from(road.world_x) - w,
@@ -5777,24 +5765,29 @@ mod tests {
             "the retired helper's range was the whole BC road, not a building"
         );
         let expected = [
-            (18_usize, -1_i32, [270, 157], 180.0_f32, [262, 150, 278, 164]),
+            (
+                18_usize,
+                -1_i32,
+                [270, 157],
+                180.0_f32,
+                [262, 150, 278, 164],
+            ),
             (18, 1, [270, 203], 0.0, [262, 196, 278, 210]),
             (66, -1, [222, 157], 180.0, [214, 150, 230, 164]),
             (66, 1, [222, 203], 0.0, [214, 196, 230, 210]),
         ];
         for (station, side, centre, yaw, support) in expected {
-            let site = super::super::frontage::candidate_site(
-                &road,
-                &request,
-                "scene-0",
-                station,
-                side,
-            )
-            .expect("the production candidate site");
+            let site =
+                super::super::frontage::candidate_site(&road, &request, "scene-0", station, side)
+                    .expect("the production candidate site");
             let entity = site.entity();
             assert_eq!(entity.kind, "residential_home");
             assert_ne!(entity.entity_id, road.entity_id, "a building, not the road");
-            assert_eq!([site.world_x, site.world_z], centre, "centre at station/side");
+            assert_eq!(
+                [site.world_x, site.world_z],
+                centre,
+                "centre at station/side"
+            );
             assert_eq!(entity.rotation_y_deg, yaw, "north side faces 180, south 0");
             assert_eq!((site.width_m, site.depth_m), (12, 10));
             assert_eq!(
@@ -8412,21 +8405,31 @@ mod tests {
                         ("roadId", serde_json::json!(bc_id)),
                         ("station", serde_json::json!(sample.station)),
                         ("side", serde_json::json!(sample.side)),
-                        ("sampleCentre", serde_json::json!([sample.world_x, sample.world_z])),
+                        (
+                            "sampleCentre",
+                            serde_json::json!([sample.world_x, sample.world_z]),
+                        ),
                         (
                             "candidateCentre",
-                            serde_json::json!(bound
-                                .as_ref()
-                                .ok()
-                                .map(|c| [c.site.world_x, c.site.world_z])),
+                            serde_json::json!(
+                                bound
+                                    .as_ref()
+                                    .ok()
+                                    .map(|c| [c.site.world_x, c.site.world_z])
+                            ),
                         ),
-                        ("yaw", serde_json::json!(bound.as_ref().ok().map(|c| c.entity.rotation_y_deg))),
+                        (
+                            "yaw",
+                            serde_json::json!(bound.as_ref().ok().map(|c| c.entity.rotation_y_deg)),
+                        ),
                         (
                             "buildingFootprintM",
-                            serde_json::json!(bound
-                                .as_ref()
-                                .ok()
-                                .map(|c| [c.entity.width_m, c.entity.depth_m])),
+                            serde_json::json!(
+                                bound
+                                    .as_ref()
+                                    .ok()
+                                    .map(|c| [c.entity.width_m, c.entity.depth_m])
+                            ),
                         ),
                         (
                             "supportCheckRange",
@@ -9123,6 +9126,7 @@ mod tests {
             cz: f64,
             half_w: f64,
             half_d: f64,
+            rotation_y_deg: f32,
             blend_m: f64,
             target_h_m: f64,
             profile: Option<super::super::road_profile::RoadProfile>,
@@ -9133,36 +9137,52 @@ mod tests {
             let is_road = matches!(kind, "road" | "sidewalk" | "canal" | "causeway");
             let is_building = matches!(
                 kind,
-                "building" | "building_tower" | "building_cluster" | "urban_building"
-                    | "residential_block" | "residential_tower" | "residential_home"
-                    | "resort_lodge" | "storefront" | "commercial_center"
-                    | "entertainment_center" | "school" | "town_hall" | "market" | "industrial"
-                    | "temple" | "church" | "parking_lot" | "convenience_store"
+                "building"
+                    | "building_tower"
+                    | "building_cluster"
+                    | "urban_building"
+                    | "residential_block"
+                    | "residential_tower"
+                    | "residential_home"
+                    | "resort_lodge"
+                    | "storefront"
+                    | "commercial_center"
+                    | "entertainment_center"
+                    | "school"
+                    | "town_hall"
+                    | "market"
+                    | "industrial"
+                    | "temple"
+                    | "church"
+                    | "parking_lot"
+                    | "convenience_store"
             );
             if !is_road && !is_building {
                 continue;
             }
             let has_profile = entity.grounding.road_profile.is_some();
             let carried_profile = entity.grounding.road_profile.clone();
-            let (half_w, half_d, blend) = if has_profile {
-                let (w, d) = super::super::graded_flat_top_half_extents(entity);
-                (w as f64, d as f64, 18.0_f64)
+            let (half_w, half_d, rotation_y_deg, blend) = if has_profile {
+                let (w, d) = super::super::graded_flat_top_local_half_extents(entity);
+                (w, d, entity.rotation_y_deg, 18.0_f64)
             } else if is_road {
-                let quarter = (entity.rotation_y_deg.round() as i32).rem_euclid(180) == 90;
-                let (w, d) = (f64::from(entity.width_m) * 0.5, f64::from(entity.depth_m) * 0.5);
-                if quarter {
-                    (d + 1.5, w + 4.0, 6.0)
-                } else {
-                    (w + 4.0, d + 1.5, 6.0)
-                }
+                let (w, d) = (
+                    f64::from(entity.width_m) * 0.5,
+                    f64::from(entity.depth_m) * 0.5,
+                );
+                (w + 4.0, d + 1.5, entity.rotation_y_deg, 6.0)
             } else {
                 let (w, d) = super::super::spatial_half_extents(
                     entity.width_m,
                     entity.depth_m,
                     entity.rotation_y_deg,
                 );
-                let margin = if entity.grounding.frontage_road_point.is_some() { 2.0 } else { 1.0 };
-                (w + margin, d + margin, 6.0)
+                let margin = if entity.grounding.frontage_road_point.is_some() {
+                    2.0
+                } else {
+                    1.0
+                };
+                (w + margin, d + margin, 0.0, 6.0)
             };
             let target_h_m = f64::from(entity.ground_height_m());
             let blend_m = blend.max(3.0 * (target_h_m + 32.0).max(0.0));
@@ -9171,12 +9191,17 @@ mod tests {
                 tag: CarveTag {
                     owner_entity_id: entity.entity_id.clone(),
                     owner_kind: entity.kind.clone(),
-                    component: if is_road { "road_pad".into() } else { "pad".into() },
+                    component: if is_road {
+                        "road_pad".into()
+                    } else {
+                        "pad".into()
+                    },
                 },
                 cx: f64::from(entity.world_x),
                 cz: f64::from(entity.world_z),
                 half_w,
                 half_d,
+                rotation_y_deg,
                 blend_m,
                 target_h_m,
                 profile: carried_profile.clone(),
@@ -9195,6 +9220,7 @@ mod tests {
                             cz: (f64::from(anchor.world_z) + f64::from(rz)) * 0.5,
                             half_w: (f64::from(anchor.world_x) - f64::from(rx)).abs() * 0.5 + 2.0,
                             half_d: (f64::from(anchor.world_z) - f64::from(rz)).abs() * 0.5 + 2.0,
+                            rotation_y_deg: 0.0,
                             blend_m: 2.0,
                             target_h_m,
                             profile: None,
@@ -9203,16 +9229,17 @@ mod tests {
                 }
                 for anchor in &entity.anchors {
                     expected.push(Expected {
-                        priority: 1,
+                        priority: 2,
                         tag: CarveTag {
                             owner_entity_id: entity.entity_id.clone(),
                             owner_kind: entity.kind.clone(),
-                            component: "apron".into(),
+                            component: "entrance_landing".into(),
                         },
                         cx: f64::from(anchor.world_x),
                         cz: f64::from(anchor.world_z),
                         half_w: 2.0,
                         half_d: 2.0,
+                        rotation_y_deg: 0.0,
                         blend_m: 2.0,
                         target_h_m,
                         profile: None,
@@ -9237,21 +9264,20 @@ mod tests {
                 || !close(want.cz, got.cz)
                 || !close(want.half_w, got.half_w)
                 || !close(want.half_d, got.half_d)
+                || want.rotation_y_deg != got.rotation_y_deg
                 || !close(want.blend_m, got.blend_m)
                 || !close(want.target_h_m, got.target_h_m)
-                || !profile_contents_match(
-                    want.profile.as_ref(),
-                    got.profile.as_deref(),
-                )
+                || !profile_contents_match(want.profile.as_ref(), got.profile.as_deref())
             {
                 return Err(format!(
-                    "carve {index} identity mismatch: expected {} / {} centre ({},{}) half ({},{}) blend {} target {} profile {} but production has centre ({},{}) half ({},{}) blend {} target {} profile {}",
+                    "carve {index} identity mismatch: expected {} / {} centre ({},{}) half ({},{}) rotation {} blend {} target {} profile {} but production has centre ({},{}) half ({},{}) rotation {} blend {} target {} profile {}",
                     want.tag.owner_entity_id,
                     want.tag.component,
                     want.cx,
                     want.cz,
                     want.half_w,
                     want.half_d,
+                    want.rotation_y_deg,
                     want.blend_m,
                     want.target_h_m,
                     want.profile.is_some(),
@@ -9259,6 +9285,7 @@ mod tests {
                     got.cz,
                     got.half_w,
                     got.half_d,
+                    got.rotation_y_deg,
                     got.blend_m,
                     got.target_h_m,
                     got.profile.is_some()
@@ -9329,11 +9356,11 @@ mod tests {
                 }
                 for anchor_index in 0..entity.anchors.len() {
                     tagged.push((
-                        1,
+                        2,
                         CarveTag {
                             owner_entity_id: entity.entity_id.clone(),
                             owner_kind: entity.kind.clone(),
-                            component: format!("apron{anchor_index}"),
+                            component: format!("entrance_landing{anchor_index}"),
                         },
                     ));
                 }
@@ -9405,20 +9432,24 @@ mod tests {
         x: i32,
         z: i32,
     ) -> (f64, f64, f64, f64, f64, bool) {
-        let dx = (f64::from(x) - carve.cx).abs();
-        let dz = (f64::from(z) - carve.cz).abs();
-        let outside_x = dx - carve.half_w;
-        let outside_z = dz - carve.half_d;
+        let (along, across) = super::super::oriented_local_coordinates(
+            carve.cx,
+            carve.cz,
+            carve.rotation_y_deg,
+            f64::from(x),
+            f64::from(z),
+        );
+        let outside_x = along.abs() - carve.half_w;
+        let outside_z = across.abs() - carve.half_d;
         let outside = outside_x.max(outside_z);
         let target = carve
             .profile
             .as_ref()
             .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
             .unwrap_or(carve.target_h_m);
-        let limit = carve
-            .profile
-            .as_ref()
-            .map_or(f64::INFINITY, |p| natural_m + f64::from(p.max_fill_mm) / 1000.);
+        let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p| {
+            natural_m + f64::from(p.max_fill_mm) / 1000.
+        });
         (outside_x, outside_z, outside, target, limit, outside <= 0.0)
     }
 
@@ -10242,7 +10273,9 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
         }
     }
@@ -10265,7 +10298,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
         }
     }
@@ -10306,7 +10341,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
         }
     }
@@ -12278,9 +12315,11 @@ mod tests {
                 priority,
                 disturbance: 160,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-},
+            },
             CarveTag {
                 owner_entity_id: owner.into(),
                 owner_kind: "road".into(),
@@ -13916,11 +13955,16 @@ mod tests {
 
     /// Test-only: one carve's influence box as `frontage::preflight` computes it.
     fn g11_carve_box(carve: &super::super::TerrainCarve) -> [i64; 4] {
+        let (half_w, half_d) = super::super::oriented_aabb_half_extents(
+            carve.half_w,
+            carve.half_d,
+            carve.rotation_y_deg,
+        );
         [
-            (carve.cx - carve.half_w - carve.blend_m).floor() as i64,
-            (carve.cz - carve.half_d - carve.blend_m).floor() as i64,
-            (carve.cx + carve.half_w + carve.blend_m).ceil() as i64,
-            (carve.cz + carve.half_d + carve.blend_m).ceil() as i64,
+            (carve.cx - half_w - carve.blend_m).floor() as i64,
+            (carve.cz - half_d - carve.blend_m).floor() as i64,
+            (carve.cx + half_w + carve.blend_m).ceil() as i64,
+            (carve.cz + half_d + carve.blend_m).ceil() as i64,
         ]
     }
 
@@ -14489,9 +14533,11 @@ mod tests {
             priority: original.priority,
             disturbance: original.disturbance,
             cut_cap_mm: original.cut_cap_mm,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-})
+        })
     }
 
     /// Test-only: every component other than `removed` keeps its full signature.
@@ -14873,23 +14919,24 @@ mod tests {
             2
         );
         assert!(g1b_same_carve(&fixture.north_carves[0], &removed[0]));
-        assert!(g1b_same_carve(&fixture.north_carves[1], &removed[1]));
+        assert!(g1b_same_carve(&fixture.north_carves[2], &removed[1]));
         assert_eq!(fixture.north_carves[0].priority, 1);
-        assert_eq!(fixture.north_carves[1].priority, 1);
-        assert!(g1d_without_connection(
-            &fixture.north_carves,
-            &fixture.north_tags,
-            "g11.absent.site"
-        )
-        .is_err());
+        assert_eq!(fixture.north_carves[1].priority, 2);
+        assert_eq!(fixture.north_carves[2].priority, 2);
+        assert!(
+            g1d_without_connection(
+                &fixture.north_carves,
+                &fixture.north_tags,
+                "g11.absent.site"
+            )
+            .is_err()
+        );
         let mut duplicated = fixture.north_tags.clone();
         duplicated[0] = fixture.north_tags[fixture.north_index].clone();
-        assert!(g1d_without_connection(
-            &fixture.north_carves,
-            &duplicated,
-            &fixture.north.entity_id
-        )
-        .is_err());
+        assert!(
+            g1d_without_connection(&fixture.north_carves, &duplicated, &fixture.north.entity_id)
+                .is_err()
+        );
         let payload = json_map(vec![
             ("g1cReplacedOnly", serde_json::json!(true)),
             ("g1dRemovedIndex", serde_json::json!(index)),
@@ -19255,9 +19302,11 @@ mod tests {
                 priority,
                 disturbance,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-};
+            };
             let influence = g11_carve_box(&carve);
             let mut cells: Vec<serde_json::Value> = vec![];
             let mut change_cells = 0_u64;
@@ -19446,25 +19495,31 @@ mod tests {
                 priority: 10,
                 disturbance: 255,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-}];
-            carves.extend((0..terraces)
-                .map(|index| super::super::TerrainCarve {
-                    profile: None,
-                    cx: 10.0 + 3.0 * index as f64,
-                    cz: 16.0,
-                    half_w: 1.5,
-                    half_d: 8.0,
-                    target_h_m: ((index as i64 + 1) * step_mm) as f64 / 1000.,
-                    blend_m: 2.0,
-                    priority: 2,
-                    disturbance: 160,
-                    cut_cap_mm: None,
-                
-                    ramp: None,
-})
-                .collect::<Vec<_>>());
+            }];
+            carves.extend(
+                (0..terraces)
+                    .map(|index| super::super::TerrainCarve {
+                        profile: None,
+                        cx: 10.0 + 3.0 * index as f64,
+                        cz: 16.0,
+                        half_w: 1.5,
+                        half_d: 8.0,
+                        target_h_m: ((index as i64 + 1) * step_mm) as f64 / 1000.,
+                        blend_m: 2.0,
+                        priority: 2,
+                        disturbance: 160,
+                        cut_cap_mm: None,
+
+                        rotation_y_deg: 0.0,
+
+                        ramp: None,
+                    })
+                    .collect::<Vec<_>>(),
+            );
             carves
         };
         let raster_of = |carves: &[super::super::TerrainCarve]| -> BakedTerrain {
@@ -19571,9 +19626,11 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-},
+            },
             super::super::TerrainCarve {
                 profile: None,
                 cx: 16.0,
@@ -19585,14 +19642,22 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-},
+            },
         ];
         let overlap_high = super::super::apply_terrain_carves(0.0, 19, 16, &overlapping);
         let overlap_low = super::super::apply_terrain_carves(0.0, 12, 16, &overlapping);
-        assert!((overlap_high - 2.39).abs() < 1e-9, "the overlap takes the maximum");
-        assert!((overlap_low - 2.15).abs() < 1e-9, "outside the overlap the lower target stays");
+        assert!(
+            (overlap_high - 2.39).abs() < 1e-9,
+            "the overlap takes the maximum"
+        );
+        assert!(
+            (overlap_low - 2.15).abs() < 1e-9,
+            "outside the overlap the lower target stays"
+        );
         // a higher priority full cover wins outright, so a lower one cannot lower
         let priority_pair = vec![
             super::super::TerrainCarve {
@@ -19606,9 +19671,11 @@ mod tests {
                 priority: 10,
                 disturbance: 255,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-},
+            },
             super::super::TerrainCarve {
                 profile: None,
                 cx: 20.0,
@@ -19620,9 +19687,11 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-},
+            },
         ];
         assert!(
             (super::super::apply_terrain_carves(0.0, 20, 16, &priority_pair) - 7.06).abs() < 1e-9,
@@ -21158,9 +21227,11 @@ mod tests {
                 priority: 2,
                 disturbance: 160,
                 cut_cap_mm: None,
-            
+
+                rotation_y_deg: 0.0,
+
                 ramp: None,
-};
+            };
             blocks.push(json_map(vec![
                 ("block", serde_json::json!(format!("R{}-row{}", k, z))),
                 ("cx", serde_json::json!(carve.cx)),
@@ -21186,9 +21257,11 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         blocks.push(json_map(vec![
             ("block", serde_json::json!("N-flatNorth")),
             ("cx", serde_json::json!(north_flat.cx)),
@@ -21229,8 +21302,8 @@ mod tests {
             for z in influence[1]..=influence[3] {
                 for x in influence[0]..=influence[2] {
                     let hits = g15_domain_hits((x, z), &domains);
-                    let outside = ((x as f64 - carve.cx).abs() - carve.half_w)
-                        .max((z as f64 - carve.cz).abs() - carve.half_d);
+                    let outside =
+                        super::super::carve_outside_m(carve, x as f64, z as f64);
                     let fully_covered = outside <= 0.0;
                     if hits.is_empty() {
                         if fully_covered {
@@ -23680,41 +23753,46 @@ mod tests {
                         priority: *priority,
                         disturbance: *disturbance,
                         cut_cap_mm: None,
-                    
+
+                        rotation_y_deg: 0.0,
+
                         ramp: None,
-}
+                    }
                 },
             )
             .collect()
     }
 
     fn g17_blocks_json() -> serde_json::Value {
-        serde_json::json!(G17_BLOCKS
-            .iter()
-            .map(|(name, cx, cz, half_w, half_d, target, blend, priority, disturbance)| {
-                json_map(vec![
-                    ("block", serde_json::json!(name)),
-                    ("cx", serde_json::json!(cx)),
-                    ("cz", serde_json::json!(cz)),
-                    ("halfW", serde_json::json!(half_w)),
-                    ("halfD", serde_json::json!(half_d)),
-                    ("targetMm", serde_json::json!(target)),
-                    ("blendM", serde_json::json!(blend)),
-                    ("priority", serde_json::json!(priority)),
-                    ("disturbance", serde_json::json!(disturbance)),
-                    ("profile", serde_json::json!("None")),
-                ])
-            })
-            .collect::<Vec<_>>())
+        serde_json::json!(
+            G17_BLOCKS
+                .iter()
+                .map(
+                    |(name, cx, cz, half_w, half_d, target, blend, priority, disturbance)| {
+                        json_map(vec![
+                            ("block", serde_json::json!(name)),
+                            ("cx", serde_json::json!(cx)),
+                            ("cz", serde_json::json!(cz)),
+                            ("halfW", serde_json::json!(half_w)),
+                            ("halfD", serde_json::json!(half_d)),
+                            ("targetMm", serde_json::json!(target)),
+                            ("blendM", serde_json::json!(blend)),
+                            ("priority", serde_json::json!(priority)),
+                            ("disturbance", serde_json::json!(disturbance)),
+                            ("profile", serde_json::json!("None")),
+                        ])
+                    }
+                )
+                .collect::<Vec<_>>()
+        )
     }
 
     /// A local raster built through the production millimetre encoder.
-    fn g17_local_raster(
-        scene: &SceneSpec,
-        value: impl Fn(i32, i32) -> f64,
-    ) -> BakedTerrain {
+    fn g17_local_raster(scene: &SceneSpec, value: impl Fn(i32, i32) -> f64) -> BakedTerrain {
         let values: Vec<f64> = (scene.origin_z..scene.origin_z + scene.depth_m as i32)
-            .flat_map(|z| (scene.origin_x..scene.origin_x + scene.width_m as i32).map(move |x| (x, z)))
+            .flat_map(|z| {
+                (scene.origin_x..scene.origin_x + scene.width_m as i32).map(move |x| (x, z))
+            })
             .map(|(x, z)| value(x, z))
             .collect();
         let mut raster = BakedTerrain::new(scene).unwrap();
@@ -23875,18 +23953,22 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         let graded = super::super::TerrainCarve {
-            profile: Some(std::sync::Arc::new(super::super::road_profile::RoadProfile {
-                version: 1,
-                road_width_m: 12,
-                start: [220, 162],
-                end: [380, 162],
-                elevations_mm: vec![1500; 161],
-                max_fill_mm: 6000,
-            })),
+            profile: Some(std::sync::Arc::new(
+                super::super::road_profile::RoadProfile {
+                    version: 1,
+                    road_width_m: 12,
+                    start: [220, 162],
+                    end: [380, 162],
+                    elevations_mm: vec![1500; 161],
+                    max_fill_mm: 6000,
+                },
+            )),
             cx: 300.,
             cz: 162.,
             half_w: 80.,
@@ -23896,9 +23978,11 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         let w1 = blocks
             .iter()
             .find(|carve| carve.cx == 210. && carve.priority == 2 && carve.target_h_m < 0.)
@@ -23926,10 +24010,17 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
-        let w1_under_p10 = apply(&[old_fill.clone(), graded.clone(), higher_priority.clone(), w1.clone()]);
+        };
+        let w1_under_p10 = apply(&[
+            old_fill.clone(),
+            graded.clone(),
+            higher_priority.clone(),
+            w1.clone(),
+        ]);
         let peer_high = super::super::TerrainCarve {
             profile: None,
             cx: 210.,
@@ -23941,9 +24032,11 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         let peer_low = super::super::TerrainCarve {
             profile: None,
             cx: 210.,
@@ -23955,11 +24048,23 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
-        let peer_overlap_high = apply(&[old_fill.clone(), graded.clone(), peer_high.clone(), w1.clone()]);
-        let peer_overlap_low = apply(&[old_fill.clone(), graded.clone(), peer_low.clone(), w1.clone()]);
+        };
+        let peer_overlap_high = apply(&[
+            old_fill.clone(),
+            graded.clone(),
+            peer_high.clone(),
+            w1.clone(),
+        ]);
+        let peer_overlap_low = apply(&[
+            old_fill.clone(),
+            graded.clone(),
+            peer_low.clone(),
+            w1.clone(),
+        ]);
         assert_eq!(without_w1, 8000, "the old high fill holds the cell");
         assert_eq!(
             w1_no_graded, 8000,
@@ -24030,9 +24135,9 @@ mod tests {
             rotation_y_deg: site_entity.rotation_y_deg,
             natural_min_m: f32::INFINITY,
             natural_max_m: f32::NEG_INFINITY,
-        
+
             entry_corridor: None,
-};
+        };
         let pad_scene = SceneSpec {
             scene_id: "g17-pad".into(),
             width_m: 40,
@@ -24146,19 +24251,15 @@ mod tests {
             priority: 2,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         let (sy_protected_before, sy_protected_flag, _) =
             g11_sample_mm(&zone_terrain, &zone_mask, &base_carves, 220, 160).unwrap();
-        let (sy_protected_after, _, _) = g11_sample_mm(
-            &zone_terrain,
-            &zone_mask,
-            &[push_over.clone()],
-            220,
-            160,
-        )
-        .unwrap();
+        let (sy_protected_after, _, _) =
+            g11_sample_mm(&zone_terrain, &zone_mask, &[push_over.clone()], 220, 160).unwrap();
         assert!(sy_protected_flag);
         assert_eq!(
             sy_protected_before, sy_protected_after,

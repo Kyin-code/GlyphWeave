@@ -7382,9 +7382,7 @@ pub fn audit_water_crossings(
             continue;
         }
         let Some(entity) = by_id.get(road) else {
-            failures.push(format!(
-                "water crossing {road} names no road in the plan"
-            ));
+            failures.push(format!("water crossing {road} names no road in the plan"));
             continue;
         };
         if !WATER_CROSSING_KINDS.contains(&crossing.kind.as_str()) {
@@ -7401,9 +7399,8 @@ pub fn audit_water_crossings(
             ));
             continue;
         }
-        let (pavement_hw, pavement_hd) = super::graded_pavement_half_extents(entity);
-        let along_x = entity.rotation_y_deg != 90.;
-        let measured_width = if along_x { pavement_hd } else { pavement_hw } * 2;
+        let (_, pavement_local_half_d) = super::graded_pavement_local_half_extents(entity);
+        let measured_width = (pavement_local_half_d * 2.0) as i32;
         if i64::from(crossing.width_m) != i64::from(measured_width) {
             failures.push(format!(
                 "water crossing {road} records a {}-m deck but the road's own pavement is {measured_width} m wide",
@@ -7503,11 +7500,13 @@ pub fn audit_water_crossings(
         let (half_width, half_depth) = super::graded_pavement_half_extents(entity);
         'wet_cells: for z in entity.world_z - half_depth..=entity.world_z + half_depth {
             for x in entity.world_x - half_width..=entity.world_x + half_width {
+                if super::graded_pavement_outside_m(entity, x, z) > 0.0 {
+                    continue;
+                }
                 if !water.contains_point(f64::from(x), f64::from(z)) {
                     continue;
                 }
-                let (Some(n), Some(f)) = (natural.height(x, z), final_terrain.height(x, z))
-                else {
+                let (Some(n), Some(f)) = (natural.height(x, z), final_terrain.height(x, z)) else {
                     failures.push(format!(
                         "water crossing {road} has no raster sample at ({x},{z})"
                     ));
@@ -7557,7 +7556,10 @@ pub fn audit_water_crossings(
                     continue;
                 }
                 footprint += 1;
-                if natural.height_millimetres(x, z).is_some_and(|h| h < WATER_DATUM_MM) {
+                if natural
+                    .height_millimetres(x, z)
+                    .is_some_and(|h| h < WATER_DATUM_MM)
+                {
                     wet_natural += 1;
                 }
                 if final_terrain
@@ -7596,6 +7598,9 @@ fn measured_take_off_mm(
     let mut dry = 0_u32;
     for z in road.world_z - hd..=road.world_z + hd {
         for x in road.world_x - hw..=road.world_x + hw {
+            if super::graded_transport_outside_m(road, x, z) > 0.0 {
+                continue;
+            }
             if water.contains_point(f64::from(x), f64::from(z)) {
                 continue;
             }
@@ -8041,20 +8046,12 @@ fn verify_impl(
         // A structural shortfall is one failure per road, recorded before any
         // sampling, and such a road is never counted as realized.
         if planned.grounding.road_profile.is_some() {
-            let (flat_hw, flat_hd) = super::graded_flat_top_half_extents(&planned);
-            let flat_transverse = if planned.rotation_y_deg == 90. {
-                flat_hw
-            } else {
-                flat_hd
-            };
-            let (pavement_hw, pavement_hd) = super::graded_pavement_half_extents(&planned);
-            let pavement_transverse = if planned.rotation_y_deg == 90. {
-                pavement_hw
-            } else {
-                pavement_hd
-            };
-            let shortfall =
-                super::graded_band_shortfall_m(pavement_transverse, flat_transverse);
+            let (_, flat_transverse) = super::graded_flat_top_local_half_extents(&planned);
+            let (_, pavement_transverse) = super::graded_pavement_local_half_extents(&planned);
+            let shortfall = super::graded_band_shortfall_m(
+                pavement_transverse as i32,
+                flat_transverse as i32,
+            );
             if shortfall > 0 {
                 audit.failures.push(format!(
                     "road {} graded band is {}m narrower than its declared pavement half",
@@ -8069,6 +8066,9 @@ fn verify_impl(
         let mut cut = 0_f32;
         for z in e.world_z - hd..=e.world_z + hd {
             for x in e.world_x - hw..=e.world_x + hw {
+                if super::graded_transport_outside_m(&planned, x, z) > 0.0 {
+                    continue;
+                }
                 let n = natural
                     .height(x, z)
                     .ok_or_else(|| TerrainError("missing natural roadbed sample".into()))?;
@@ -8094,15 +8094,20 @@ fn verify_impl(
                     // Requiring the design level across the whole padded
                     // footprint graded the blend/apron as pavement, which no
                     // legal graded road on sloping ground can satisfy.
-                    let (flat_hw, flat_hd) = super::graded_flat_top_half_extents(&planned);
-                    (flat_hw, flat_hd)
+                    None
                 } else if e.rotation_y_deg == 0. {
-                    (e.width_m as i32 / 2, 5)
+                    Some((e.width_m as i32 / 2, 5))
                 } else {
-                    (5, e.width_m as i32 / 2)
+                    Some((5, e.width_m as i32 / 2))
                 };
-                if (x - e.world_x).abs() <= paved_hw
-                    && (z - e.world_z).abs() <= paved_hd
+                let inside_design_band = if planned.grounding.road_profile.is_some() {
+                    super::graded_flat_top_outside_m(&planned, x, z) <= 0.0
+                } else if let Some((paved_hw, paved_hd)) = paved_hw_hd {
+                    (x - e.world_x).abs() <= paved_hw && (z - e.world_z).abs() <= paved_hd
+                } else {
+                    false
+                };
+                if inside_design_band
                     // A registered structure deck is not terrain: the pavement is
                     // a span carried by a bridge/causeway, so there is no design
                     // level to hold in the raster. What must hold instead is
@@ -8124,11 +8129,7 @@ fn verify_impl(
                         && i64::from(z) >= b[1]
                         && i64::from(z) <= b[3]
                 });
-                let measured = if inside_site_ring {
-                    target as f32
-                } else {
-                    f
-                };
+                let measured = if inside_site_ring { target as f32 } else { f };
                 fill = fill.max(measured - n);
                 cut = cut.max(n - measured);
             }
@@ -8328,8 +8329,10 @@ pub(super) fn building_fill_conflicts(
         let (hw, hd) = super::spatial_half_extents(road.width_m, road.depth_m, road.rotation_y_deg);
         let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
         if !carves.iter().any(|c| {
-            (c.cx - f64::from(road.world_x)).abs() <= c.half_w + c.blend_m + f64::from(hw)
-                && (c.cz - f64::from(road.world_z)).abs() <= c.half_d + c.blend_m + f64::from(hd)
+            let (half_w, half_d) =
+                super::oriented_aabb_half_extents(c.half_w, c.half_d, c.rotation_y_deg);
+            (c.cx - f64::from(road.world_x)).abs() <= half_w + c.blend_m + f64::from(hw)
+                && (c.cz - f64::from(road.world_z)).abs() <= half_d + c.blend_m + f64::from(hd)
         }) {
             continue;
         }
@@ -8455,8 +8458,10 @@ pub(super) fn pad_fill_conflict_of(
         let (hw, hd) = super::spatial_half_extents(pad.width_m, pad.depth_m, pad.rotation_y_deg);
         let (hw, hd) = (hw.ceil() as i32 + 4, hd.ceil() as i32 + 4);
         let reaches = carves.iter().any(|c| {
-            (c.cx - f64::from(pad.world_x)).abs() <= c.half_w + c.blend_m + f64::from(hw)
-                && (c.cz - f64::from(pad.world_z)).abs() <= c.half_d + c.blend_m + f64::from(hd)
+            let (half_w, half_d) =
+                super::oriented_aabb_half_extents(c.half_w, c.half_d, c.rotation_y_deg);
+            (c.cx - f64::from(pad.world_x)).abs() <= half_w + c.blend_m + f64::from(hw)
+                && (c.cz - f64::from(pad.world_z)).abs() <= half_d + c.blend_m + f64::from(hd)
         });
         if !reaches {
             continue;
@@ -8856,10 +8861,11 @@ fn fill_attribution(
             continue;
         }
         let reaches = carves.iter().any(|carve| {
-            (carve.cx - f64::from(pad.world_x)).abs()
-                <= carve.half_w + carve.blend_m + f64::from(hw)
+            let (half_w, half_d) =
+                super::oriented_aabb_half_extents(carve.half_w, carve.half_d, carve.rotation_y_deg);
+            (carve.cx - f64::from(pad.world_x)).abs() <= half_w + carve.blend_m + f64::from(hw)
                 && (carve.cz - f64::from(pad.world_z)).abs()
-                    <= carve.half_d + carve.blend_m + f64::from(hd)
+                    <= half_d + carve.blend_m + f64::from(hd)
         });
         if !reaches {
             continue;
@@ -8876,18 +8882,14 @@ fn fill_attribution(
                 if height <= declared_m + 0.005 {
                     continue;
                 }
-                if best
-                    .as_ref()
-                    .is_none_or(|found| height > found.height_m)
-                {
+                if best.as_ref().is_none_or(|found| height > found.height_m) {
                     // Does this entity's OWN graded flat top cover the cell? That is
                     // the one surface the encoder will not let a pad's platform
                     // displace, so the refusal has to name it as a settled road
                     // platform rather than as a neighbour's fill.
                     let owns = entity.kind == "road"
                         && carves.iter().any(|carve| {
-                            (f64::from(x) - carve.cx).abs() <= carve.half_w
-                                && (f64::from(z) - carve.cz).abs() <= carve.half_d
+                            super::carve_outside_m(carve, f64::from(x), f64::from(z)) <= 0.0
                         });
                     best = Some(FillAttribution {
                         entity_id: entity.entity_id.clone(),

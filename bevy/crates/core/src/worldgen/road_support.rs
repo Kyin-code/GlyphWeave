@@ -93,6 +93,9 @@ pub(super) fn refuse_overfilled_roads(
             let mut worst_at = [entity.world_x, entity.world_z];
             for z in entity.world_z - half_d..=entity.world_z + half_d {
                 for x in entity.world_x - half_w..=entity.world_x + half_w {
+                    if super::graded_transport_outside_m(&entity, x, z) > 0.0 {
+                        continue;
+                    }
                     let Some(natural) = terrain.height_millimetres(x, z) else {
                         continue;
                     };

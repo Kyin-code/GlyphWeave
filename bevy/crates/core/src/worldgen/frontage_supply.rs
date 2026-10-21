@@ -1465,8 +1465,11 @@ mod tests {
                 for e in plan.entities().iter().chain(plan.site_entities().iter()) {
                     let carves = super::super::plan_terrain_carves(std::slice::from_ref(e));
                     for carve in &carves {
-                        let outside = ((f64::from(x) - carve.cx).abs() - carve.half_w)
-                            .max((f64::from(z) - carve.cz).abs() - carve.half_d);
+                        let outside = super::super::carve_outside_m(
+                            carve,
+                            f64::from(x),
+                            f64::from(z),
+                        );
                         if outside <= 0. {
                             full_cover.push(serde_json::json!({
                                 "entity": e.entity_id,
@@ -2560,8 +2563,11 @@ mod tests {
             .chain(std::iter::once(&site.entity()))
         {
             for carve in super::super::plan_terrain_carves(std::slice::from_ref(entity)) {
-                let outside = ((f64::from(point[0]) - carve.cx).abs() - carve.half_w)
-                    .max((f64::from(point[1]) - carve.cz).abs() - carve.half_d);
+                let outside = super::super::carve_outside_m(
+                    &carve,
+                    f64::from(point[0]),
+                    f64::from(point[1]),
+                );
                 if outside < carve.blend_m {
                     contributors.push(serde_json::json!({
                         "owner": entity.entity_id,
