@@ -6,7 +6,7 @@
 > 门前 landing、路口建筑标高、门区植被阻挡和全景裁切。r1w 最终
 > 35 个规划建筑中 28 个物化，6 个市场，AccessGraph 35 连通/0 断点；
 > scale、quality 与 visual feedback 均 pass。7 个严格入口拒绝保留具名；
-> 市场覆盖率仍需在入口拒绝后重算。证据见
+> 入口后市场需求已从 35 栋重算为最终 28 栋并保持约 100% 覆盖。证据见
 > [`HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md`](HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md)。
 
 > **2026-10-21 已知道路缺陷**：自然道路中 45°/135° 等斜向段占多数之一，

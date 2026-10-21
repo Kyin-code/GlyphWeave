@@ -12,7 +12,8 @@
 > 办公/住宅补齐地形 support carve，入口锚点改为立面中点，并加入 2m 门前
 > landing、路口建筑标高同步、门区障碍清理和完整 world skyline/waterfront
 > 预设。scale、quality、visual feedback 均 pass。7 个拒绝入口仍具名，
-> 市场覆盖率尚未在拒绝后重算。证据见
+> 市场计划已从 35 栋规划需求重算为最终 28 栋实际需求，原计划与最终计划
+> 分开保存。证据见
 > `docs/collaboration/rk-x/HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md`。
 
 > **2026-10-21 V3 审核已通过**：自然先行、普通建筑取消固定完成数、

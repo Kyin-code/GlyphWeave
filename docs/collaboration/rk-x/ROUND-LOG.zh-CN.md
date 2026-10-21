@@ -484,3 +484,22 @@ footprint 与 0/45/90/135 门禁测试。
 `settlement-materialization-report.json`，没有通过放宽门槛或隐藏障碍制造
 假连通。完整记录见
 `HONG-KONG-CENTRAL-MECHANISM-CUT-20261021.zh-CN.md`。
+
+## Round 66 · 2026-10-21 · 入口后市场需求重算
+
+修复市场报告的时序错误：市场计划原先以 35 栋规划建筑为需求，入口审计淘汰
+7 栋后仍沿用旧需求。新增 `reconcile_after_access`，固定已物化市场，重新映射
+最终 28 栋建筑到 route graph，重算市场负载、最近市场、步行时距、局部供给
+密度、缺口和覆盖率。
+
+r2a 控制：
+
+- 市场需求点 35→28；
+- 总需求 2,834.23→1,972.88；
+- 覆盖率仍约 100%；
+- 6 个市场位置不变；
+- 原计划保存在 `market-catchment-plan-pre-access.json`；
+- `market-materialization-report.json` 同时记录 35 规划需求/28 最终需求；
+- scale/quality/visual feedback 均 pass，AccessGraph 35 连通/0 断点。
+
+完整记录见 `POST-ACCESS-MARKET-RECONCILIATION-20261021.zh-CN.md`。

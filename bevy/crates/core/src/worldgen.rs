@@ -3406,6 +3406,48 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 }))?,
             )?;
         }
+        if let (
+            Some(routes),
+            Some(settlement_plan),
+            Some(market_plan),
+        ) = (
+            route_evolution_plan.as_ref(),
+            settlement_evolution_result.as_ref(),
+            market_catchment_result.as_ref(),
+        ) {
+            let final_ids = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let realized_building_ids = settlement_plan
+                .buildings
+                .iter()
+                .filter(|building| {
+                    final_ids.contains(
+                        format!("generated.settlement-evolution.{}", building.id).as_str(),
+                    )
+                })
+                .map(|building| building.id.clone())
+                .collect::<BTreeSet<_>>();
+            let pre_access_path = scene_dir.join("market-catchment-plan-pre-access.json");
+            if !pre_access_path.exists() {
+                fs::write(&pre_access_path, serde_json::to_vec_pretty(market_plan)?)?;
+            }
+            if let Some(reconciled) = market_catchment::reconcile_after_access(
+                market_plan,
+                routes,
+                &effective_style,
+                &realized_building_ids,
+            )
+            .map_err(WorldgenError::InvalidRules)?
+            {
+                fs::write(
+                    scene_dir.join("market-catchment-plan.json"),
+                    serde_json::to_vec_pretty(&reconciled)?,
+                )?;
+                market_catchment_result = Some(reconciled);
+            }
+        }
         if let Some(plan) = &market_catchment_result {
             let final_ids = entities
                 .iter()
@@ -3460,6 +3502,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     "sceneId": scene.scene_id,
                     "plannedMarkets": plan.markets.len(),
                     "materializedMarkets": final_markets,
+                    "plannedDemandBuildings": settlement_evolution_result
+                        .as_ref()
+                        .map_or(0, |settlement| settlement.buildings.len()),
+                    "realizedDemandBuildings": plan.demand_points.len(),
                     "omittedMarkets": omitted,
                 }))?,
             )?;

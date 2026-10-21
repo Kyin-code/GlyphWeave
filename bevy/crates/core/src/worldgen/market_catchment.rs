@@ -5,7 +5,7 @@
 //! travel time is measured through the actual route polyline.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeSet, BinaryHeap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -113,6 +113,14 @@ pub struct Plan {
     pub demand_points: Vec<DemandPoint>,
     pub accessibility: Vec<Accessibility>,
     pub failures: Vec<String>,
+}
+
+struct Assessment {
+    market_loads: Vec<f64>,
+    accessibility: Vec<Accessibility>,
+    served_demand: f64,
+    coverage_ratio: f64,
+    failures: Vec<String>,
 }
 
 const fn default_true() -> bool {
@@ -398,6 +406,44 @@ pub fn plan(
         });
         all_times.push(times);
     }
+    let assessment = assess_markets(
+        &program,
+        &markets,
+        &demand_points,
+        &demand_nodes,
+        &all_times,
+    );
+    for (market, load) in markets.iter_mut().zip(assessment.market_loads) {
+        market.load = load;
+    }
+    Ok(Some(Plan {
+        format: "glyphweave.market-catchment-plan".into(),
+        version: 1,
+        status: if assessment.failures.is_empty() {
+            "pass".into()
+        } else {
+            "incomplete".into()
+        },
+        model: "capacity-quality-exp-decay-over-route-network".into(),
+        beta: program.beta,
+        total_demand,
+        served_demand: assessment.served_demand,
+        coverage_ratio: assessment.coverage_ratio,
+        markets,
+        demand_points,
+        accessibility: assessment.accessibility,
+        failures: assessment.failures,
+    }))
+}
+
+fn assess_markets(
+    program: &Program,
+    markets: &[Market],
+    demand_points: &[DemandPoint],
+    demand_nodes: &[usize],
+    all_times: &[Vec<f64>],
+) -> Assessment {
+    let total_demand: f64 = demand_points.iter().map(|point| point.demand).sum();
     let mut accessibility = Vec::new();
     let mut market_loads = vec![0.0_f64; markets.len()];
     let mut served_by_demand = vec![0.0_f64; demand_points.len()];
@@ -494,9 +540,6 @@ pub fn plan(
             deficit: remaining.max(0.0),
         });
     }
-    for (market, load) in markets.iter_mut().zip(market_loads) {
-        market.load = load;
-    }
     let served_demand: f64 = served_by_demand.iter().sum();
     let coverage_ratio = served_demand / total_demand.max(1e-9);
     let mut failures = Vec::new();
@@ -506,23 +549,73 @@ pub fn plan(
             coverage_ratio, program.coverage_target
         ));
     }
+    Assessment {
+        market_loads,
+        accessibility,
+        served_demand,
+        coverage_ratio,
+        failures,
+    }
+}
+
+pub fn reconcile_after_access(
+    plan: &Plan,
+    routes: &RoutePlan,
+    style: &Value,
+    realized_building_ids: &BTreeSet<String>,
+) -> Result<Option<Plan>, String> {
+    let Some(program) = from_style(style)? else {
+        return Ok(None);
+    };
+    if !program.enabled {
+        return Ok(None);
+    }
+    let graph = Graph::from_routes(routes);
+    let demand_points = plan
+        .demand_points
+        .iter()
+        .filter(|point| realized_building_ids.contains(&point.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let demand_nodes = demand_points
+        .iter()
+        .map(|point| {
+            graph
+                .nearest_node(f64::from(point.world_x), f64::from(point.world_z))
+                .0
+        })
+        .collect::<Vec<_>>();
+    let mut markets = plan.markets.clone();
+    let all_times = markets
+        .iter()
+        .map(|market| {
+            let node = graph
+                .nearest_node(f64::from(market.world_x), f64::from(market.world_z))
+                .0;
+            graph.times_from(node, program.walk_speed_mps)
+        })
+        .collect::<Vec<_>>();
+    let assessment = assess_markets(&program, &markets, &demand_points, &demand_nodes, &all_times);
+    for (market, load) in markets.iter_mut().zip(assessment.market_loads) {
+        market.load = load;
+    }
     Ok(Some(Plan {
-        format: "glyphweave.market-catchment-plan".into(),
-        version: 1,
-        status: if failures.is_empty() {
+        format: plan.format.clone(),
+        version: plan.version,
+        status: if assessment.failures.is_empty() {
             "pass".into()
         } else {
             "incomplete".into()
         },
-        model: "capacity-quality-exp-decay-over-route-network".into(),
+        model: format!("{}-post-access", plan.model),
         beta: program.beta,
-        total_demand,
-        served_demand,
-        coverage_ratio,
+        total_demand: demand_points.iter().map(|point| point.demand).sum(),
+        served_demand: assessment.served_demand,
+        coverage_ratio: assessment.coverage_ratio,
         markets,
         demand_points,
-        accessibility,
-        failures,
+        accessibility: assessment.accessibility,
+        failures: assessment.failures,
     }))
 }
 
@@ -1102,6 +1195,46 @@ mod tests {
             };
             assert!(!footprints_overlap(site.footprint, building_footprint, 2.0));
         }
+    }
+
+    #[test]
+    fn post_access_reconciliation_removes_rejected_demand() {
+        let style = serde_json::json!({
+            "marketCatchment": {
+                "version": 1,
+                "beta": 0.08,
+                "maxTravelMinutes": 15,
+                "walkSpeedMps": 1.3,
+                "marketCapacity": 160,
+                "marketQuality": 1,
+                "coverageTarget": 0.85,
+                "maxMarkets": 2,
+                "candidateSpacingM": 100
+            }
+        });
+        let planned = plan(&route_plan(), &settlement(), &style)
+            .unwrap()
+            .unwrap();
+        let rejected = planned.demand_points[0].id.clone();
+        let realized = planned
+            .demand_points
+            .iter()
+            .filter(|point| point.id != rejected)
+            .map(|point| point.id.clone())
+            .collect::<BTreeSet<_>>();
+
+        let reconciled =
+            reconcile_after_access(&planned, &route_plan(), &style, &realized)
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(reconciled.demand_points.len(), planned.demand_points.len() - 1);
+        assert_eq!(
+            reconciled.accessibility.len(),
+            reconciled.demand_points.len()
+        );
+        assert_eq!(reconciled.markets.len(), planned.markets.len());
+        assert!(reconciled.model.ends_with("-post-access"));
     }
 
     #[test]

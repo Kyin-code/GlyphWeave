@@ -2,7 +2,7 @@
 
 日期：2026-10-21  
 控制 Manifest：`examples/hong-kong-central-natural-evolution-1km.manifest.json`  
-最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r1w/`
+最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2a/`
 
 ## 1. 定位与边界
 
@@ -75,7 +75,7 @@
 - `?view=skyline` 按视口宽高比扩大取景，保证整个 1km 世界和东侧水面都在画面内；
 - 战略图、街景和全景不再出现裁掉的三角 chunk 边界。
 
-## 4. r1w 最终控制数据
+## 4. r2a 最终控制数据
 
 | 项 | 结果 |
 |---|---:|
@@ -89,7 +89,7 @@
 | 最终办公塔 / 店面 / 住宅街区 | 6 / 22 / 1 |
 | 城镇关系 | 2 districts / 35 buildings / 35 parcels |
 | AccessGraph | 35 connected / 0 disconnected |
-| 市场计划覆盖（规划需求口径） | 99.999999999% |
+| 市场计划覆盖（最终 28 栋建筑口径） | ≈100% |
 | `scale-audit` | pass |
 | `quality-report` | pass |
 | `visual-feedback` | pass |
@@ -112,7 +112,7 @@
 
 ## 6. 视觉证据
 
-运行态检查使用 r1w：
+运行态检查使用 r2a：
 
 - **战略图**：可辨认西侧山地绿区、旧核与更新带的多组街区、连续弯曲道路、
   东侧长条海港；
@@ -130,9 +130,9 @@
    `KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`。
 2. **真实楼梯**：7 个严格入口拒绝中，坡差大于 landing cap 的情况应生成
    landing + straight/switchback stairs + retaining/drainage，而不是继续加深切方。
-3. **市场最终需求复核**：当前市场覆盖率以 35 个规划建筑为需求点；AccessGraph
-   拒绝 7 栋后，尚未自动重算最终市场负载。下一轮应在入口拒绝收敛后重新发布
-   `market-catchment-plan.json`，避免规划覆盖率高于实际覆盖率。
+3. **市场最终需求复核**：已在本轮关闭。入口拒绝后以最终 28 栋建筑重算市场
+   需求与负载，原计划保留为 `market-catchment-plan-pre-access.json`；见
+   `POST-ACCESS-MARKET-RECONCILIATION-20261021.zh-CN.md`。
 4. **街区拆合**：旧城连续街墙、更新带父/子拆合、新区站城/TOD 仍是下一阶段。
 5. **统一宏观工程账本**：开山、挡墙、台地、填海、造岛、堤坝、涵洞和排水仍
    需要统一入账，不能只依赖局部 carve。
