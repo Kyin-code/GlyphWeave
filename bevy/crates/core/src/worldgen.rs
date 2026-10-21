@@ -2531,6 +2531,25 @@ fn bounded_cut_ledger_for(
     Ok(Some(ledger))
 }
 
+fn write_market_catchment_artifacts(
+    scene_dir: &Path,
+    artifacts: &market_catchment::Artifacts,
+) -> WorldgenResult<()> {
+    fs::write(
+        scene_dir.join("market-catchment-plan.json"),
+        serde_json::to_vec_pretty(&artifacts.plan)?,
+    )?;
+    fs::write(
+        scene_dir.join("market-radiation.json"),
+        serde_json::to_vec_pretty(&artifacts.radiation)?,
+    )?;
+    fs::write(
+        scene_dir.join("market-deficit.json"),
+        serde_json::to_vec_pretty(&artifacts.deficits)?,
+    )?;
+    Ok(())
+}
+
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
     let trace = BakeTrace::new();
     trace.stage("", "manifest-validation");
@@ -2793,21 +2812,23 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         serde_json::to_vec_pretty(&planning_plan)?,
                     )?;
                 }
-                if let Some(market_plan) =
-                    market_catchment::plan(route_plan, &settlement_plan, &effective_style)
+                if let Some(artifacts) =
+                    market_catchment::plan_with_artifacts(
+                        route_plan,
+                        &settlement_plan,
+                        &effective_style,
+                        &scene.scene_id,
+                    )
                         .map_err(WorldgenError::InvalidRules)?
                 {
-                    fs::write(
-                        scene_dir.join("market-catchment-plan.json"),
-                        serde_json::to_vec_pretty(&market_plan)?,
-                    )?;
-                    if market_plan.status != "pass" {
+                    if artifacts.plan.status != "pass" {
                         return Err(WorldgenError::InvalidRules(format!(
                             "market catchment plan is incomplete: {}",
-                            market_plan.failures.join("; ")
+                            artifacts.plan.failures.join("; ")
                         )));
                     }
-                    market_catchment_result = Some(market_plan);
+                    write_market_catchment_artifacts(&scene_dir, &artifacts)?;
+                    market_catchment_result = Some(artifacts.plan);
                 }
             }
         }
@@ -3597,19 +3618,23 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             if !pre_access_path.exists() {
                 fs::write(&pre_access_path, serde_json::to_vec_pretty(market_plan)?)?;
             }
-            if let Some(reconciled) = market_catchment::reconcile_after_access(
+            if let Some(artifacts) = market_catchment::reconcile_after_access_with_artifacts(
                 market_plan,
                 routes,
                 &effective_style,
                 &realized_building_ids,
+                &scene.scene_id,
             )
             .map_err(WorldgenError::InvalidRules)?
             {
-                fs::write(
-                    scene_dir.join("market-catchment-plan.json"),
-                    serde_json::to_vec_pretty(&reconciled)?,
-                )?;
-                market_catchment_result = Some(reconciled);
+                if artifacts.plan.status != "pass" {
+                    return Err(WorldgenError::InvalidRules(format!(
+                        "post-access market catchment is incomplete: {}",
+                        artifacts.plan.failures.join("; ")
+                    )));
+                }
+                write_market_catchment_artifacts(&scene_dir, &artifacts)?;
+                market_catchment_result = Some(artifacts.plan);
             }
         }
         if let Some(plan) = &market_catchment_result {

@@ -1397,6 +1397,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let mut access_surface_failed = false;
     let mut conversion_failed = false;
     let mut final_entity_failed = false;
+    let mut market_artifacts_failed = false;
     // Round 19 published reconciliation removals (`skips[]`); this report does
     // not trust them, it recomputes them from the plan ids the bake published.
     let mut engineering_placement_failed = false;
@@ -1492,6 +1493,57 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     for scene_path in &world.scenes {
         let scene: glyphweave_core::worldgen::SceneIndex =
             serde_json::from_slice(&fs::read(root.join(scene_path))?)?;
+        let scene_dir = root
+            .join(scene_path)
+            .parent()
+            .expect("a scene index has a scene directory")
+            .to_path_buf();
+        let market_artifacts = (|| -> Option<glyphweave_core::worldgen::market_catchment::Artifacts> {
+            Some(
+                glyphweave_core::worldgen::market_catchment::Artifacts {
+                    plan: serde_json::from_slice(
+                        &fs::read(scene_dir.join("market-catchment-plan.json")).ok()?,
+                    )
+                    .ok()?,
+                    radiation: serde_json::from_slice(
+                        &fs::read(scene_dir.join("market-radiation.json")).ok()?,
+                    )
+                    .ok()?,
+                    deficits: serde_json::from_slice(
+                        &fs::read(scene_dir.join("market-deficit.json")).ok()?,
+                    )
+                    .ok()?,
+                },
+            )
+        })();
+        let market_audit = if let Some(artifacts) = &market_artifacts {
+            match glyphweave_core::worldgen::market_catchment::audit_artifacts(artifacts) {
+                Ok(()) => serde_json::json!({
+                    "status": "pass",
+                    "model": artifacts.radiation.model,
+                    "bands": artifacts.radiation.bands,
+                    "totalDemand": artifacts.radiation.total_demand,
+                    "servedDemand": artifacts.radiation.served_demand,
+                    "coverageRatio": artifacts.radiation.coverage_ratio,
+                    "totalDeficit": artifacts.deficits.total_deficit,
+                    "markets": artifacts.radiation.markets.iter().map(|market| serde_json::json!({
+                        "marketId": market.market_id,
+                        "tier": market.tier,
+                        "capacity": market.capacity,
+                        "load": market.load,
+                        "utilization": market.utilization,
+                        "assignedDemand": market.assigned_demand,
+                    })).collect::<Vec<_>>(),
+                }),
+                Err(message) => {
+                    market_artifacts_failed = true;
+                    warnings.push(format!("{}: market artifacts are inconsistent: {message}", scene.scene_id));
+                    serde_json::json!({"status": "fail", "detail": message})
+                }
+            }
+        } else {
+            serde_json::Value::Null
+        };
         let mut engineering_placement_audit = serde_json::Value::Null;
         if let Some(report) = &engineering_placement {
             let entry = report
@@ -2281,6 +2333,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             "landUseArea": area_reports.last(),
             "engineeringPlacement": engineering_placement_audit,
             "finalEntityAudit": final_entity_audit,
+            "marketRadiation": market_audit,
         });
         // Only worlds that actually planned a corridor carry the key, so a world
         // without the switch keeps the exact report shape it always had.
@@ -2301,7 +2354,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     }
     let report = serde_json::json!({
         "format": "glyphweave.quality-report", "version": 2,
-        "status": if scale_failed || access_surface_failed || conversion_failed || engineering_placement_failed || final_entity_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
+        "status": if scale_failed || access_surface_failed || conversion_failed || engineering_placement_failed || final_entity_failed || market_artifacts_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "engineeringPlacementSkips": engineering_placement_skips,

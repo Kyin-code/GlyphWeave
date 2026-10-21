@@ -5,7 +5,7 @@
 //! travel time is measured through the actual route polyline.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, BinaryHeap};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -117,13 +117,134 @@ pub struct Plan {
     pub failures: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarketAllocation {
+    pub market_id: String,
+    pub minutes: f64,
+    pub weight: f64,
+    pub demand: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceBand {
+    pub minutes: f64,
+    pub accessible_capacity: f64,
+    pub competing_demand: f64,
+    pub assigned_demand: f64,
+    pub coverage_ratio: f64,
+    pub capacity_per_demand: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DemandRadiation {
+    pub demand_id: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    pub demand: f64,
+    pub served_demand: f64,
+    pub deficit: f64,
+    pub nearest_market_id: Option<String>,
+    pub allocations: Vec<MarketAllocation>,
+    pub bands: Vec<ServiceBand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BandSummary {
+    pub minutes: f64,
+    pub demand: f64,
+    pub assigned_demand: f64,
+    pub coverage_ratio: f64,
+    pub accessible_capacity: f64,
+    pub capacity_per_demand: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarketReach {
+    pub minutes: f64,
+    pub demand_points: usize,
+    pub demand: f64,
+    pub assigned_demand: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarketRadiation {
+    pub market_id: String,
+    pub tier: String,
+    pub capacity: f64,
+    pub load: f64,
+    pub utilization: f64,
+    pub assigned_demand: f64,
+    pub bands: Vec<MarketReach>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RadiationReport {
+    pub format: String,
+    pub version: u32,
+    pub scene_id: String,
+    pub status: String,
+    pub model: String,
+    pub beta: f64,
+    pub coverage_target: f64,
+    pub total_demand: f64,
+    pub served_demand: f64,
+    pub coverage_ratio: f64,
+    pub bands: Vec<BandSummary>,
+    pub demand_fields: Vec<DemandRadiation>,
+    pub markets: Vec<MarketRadiation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DemandDeficit {
+    pub demand_id: String,
+    pub world_x: i32,
+    pub world_z: i32,
+    pub demand: f64,
+    pub served_demand: f64,
+    pub deficit: f64,
+    pub nearest_market_id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeficitReport {
+    pub format: String,
+    pub version: u32,
+    pub scene_id: String,
+    pub status: String,
+    pub model: String,
+    pub coverage_target: f64,
+    pub total_demand: f64,
+    pub total_deficit: f64,
+    pub records: Vec<DemandDeficit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Artifacts {
+    pub plan: Plan,
+    pub radiation: RadiationReport,
+    pub deficits: DeficitReport,
+}
+
 struct Assessment {
     market_loads: Vec<f64>,
     accessibility: Vec<Accessibility>,
+    allocations: Vec<Vec<MarketAllocation>>,
     served_demand: f64,
     coverage_ratio: f64,
     failures: Vec<String>,
 }
+
+const SERVICE_BANDS_MINUTES: [f64; 4] = [5.0, 10.0, 15.0, 30.0];
 
 const fn default_true() -> bool {
     true
@@ -232,6 +353,15 @@ pub fn plan(
     settlement: &SettlementPlan,
     style: &Value,
 ) -> Result<Option<Plan>, String> {
+    Ok(plan_with_artifacts(routes, settlement, style, "")?.map(|artifacts| artifacts.plan))
+}
+
+pub fn plan_with_artifacts(
+    routes: &RoutePlan,
+    settlement: &SettlementPlan,
+    style: &Value,
+    scene_id: &str,
+) -> Result<Option<Artifacts>, String> {
     validate_style(style)?;
     let Some(program) = from_style(style)? else {
         return Ok(None);
@@ -424,7 +554,7 @@ pub fn plan(
     for (market, load) in markets.iter_mut().zip(assessment.market_loads) {
         market.load = load;
     }
-    Ok(Some(Plan {
+    let plan = Plan {
         format: "glyphweave.market-catchment-plan".into(),
         version: 1,
         status: if assessment.failures.is_empty() {
@@ -441,7 +571,343 @@ pub fn plan(
         demand_points,
         accessibility: assessment.accessibility,
         failures: assessment.failures,
-    }))
+    };
+    Ok(Some(build_artifacts(
+        routes,
+        &program,
+        plan,
+        &demand_nodes,
+        &all_times,
+        &assessment.allocations,
+        scene_id,
+    )))
+}
+
+fn build_artifacts(
+    _routes: &RoutePlan,
+    program: &Program,
+    plan: Plan,
+    demand_nodes: &[usize],
+    all_times: &[Vec<f64>],
+    allocations: &[Vec<MarketAllocation>],
+    scene_id: &str,
+) -> Artifacts {
+    let nearest_by_id: BTreeMap<&str, &Accessibility> = plan
+        .accessibility
+        .iter()
+        .map(|accessibility| (accessibility.demand_id.as_str(), accessibility))
+        .collect();
+    let mut demand_fields = Vec::with_capacity(plan.demand_points.len());
+    let mut band_totals = SERVICE_BANDS_MINUTES
+        .iter()
+        .map(|minutes| (*minutes, 0.0_f64, 0.0_f64, 0.0_f64))
+        .collect::<Vec<_>>();
+
+    for (demand_index, point) in plan.demand_points.iter().enumerate() {
+        let point_allocations = allocations
+            .get(demand_index)
+            .cloned()
+            .unwrap_or_default();
+        let served_demand = point_allocations
+            .iter()
+            .map(|allocation| allocation.demand)
+            .sum::<f64>()
+            .min(point.demand);
+        let deficit = (point.demand - served_demand).max(0.0);
+        let nearest_market_id = nearest_by_id
+            .get(point.id.as_str())
+            .and_then(|accessibility| accessibility.nearest_market_id.clone());
+        let mut bands = Vec::with_capacity(SERVICE_BANDS_MINUTES.len());
+        for (band_index, band_minutes) in SERVICE_BANDS_MINUTES.iter().enumerate() {
+            let reachable = plan
+                .markets
+                .iter()
+                .enumerate()
+                .filter_map(|(market_index, market)| {
+                    let minutes = all_times[market_index][demand_nodes[demand_index]]
+                        + point.access_walk_m / program.walk_speed_mps / 60.0;
+                    (minutes <= *band_minutes && minutes <= market.max_travel_minutes)
+                        .then_some((market_index, minutes))
+                })
+                .collect::<Vec<_>>();
+            let accessible_capacity = reachable
+                .iter()
+                .map(|(market_index, minutes)| {
+                    let market = &plan.markets[*market_index];
+                    market.capacity * market.quality * (-program.beta * minutes).exp()
+                })
+                .sum::<f64>();
+            let assigned_demand = point_allocations
+                .iter()
+                .filter(|allocation| allocation.minutes <= *band_minutes)
+                .map(|allocation| allocation.demand)
+                .sum::<f64>();
+            let competing_demand = reachable
+                .iter()
+                .map(|(market_index, _)| {
+                    plan.demand_points
+                        .iter()
+                        .enumerate()
+                        .filter(|(other_index, other)| {
+                            *other_index != demand_index
+                                && all_times[*market_index][demand_nodes[*other_index]]
+                                    + other.access_walk_m / program.walk_speed_mps / 60.0
+                                    <= plan.markets[*market_index].max_travel_minutes
+                        })
+                        .map(|(_, other)| other.demand)
+                        .sum::<f64>()
+                })
+                .sum::<f64>();
+            let coverage_ratio = (assigned_demand / point.demand.max(1e-9)).clamp(0.0, 1.0);
+            let capacity_per_demand = accessible_capacity / point.demand.max(1e-9);
+            bands.push(ServiceBand {
+                minutes: *band_minutes,
+                accessible_capacity,
+                competing_demand,
+                assigned_demand,
+                coverage_ratio,
+                capacity_per_demand,
+            });
+            band_totals[band_index].1 += point.demand;
+            band_totals[band_index].2 += assigned_demand;
+            band_totals[band_index].3 += accessible_capacity;
+        }
+        demand_fields.push(DemandRadiation {
+            demand_id: point.id.clone(),
+            world_x: point.world_x,
+            world_z: point.world_z,
+            demand: point.demand,
+            served_demand,
+            deficit,
+            nearest_market_id,
+            allocations: point_allocations,
+            bands,
+        });
+    }
+
+    let bands = band_totals
+        .into_iter()
+        .map(
+            |(minutes, demand, assigned_demand, accessible_capacity)| BandSummary {
+                minutes,
+                demand,
+                assigned_demand,
+                coverage_ratio: (assigned_demand / demand.max(1e-9)).clamp(0.0, 1.0),
+                accessible_capacity,
+                capacity_per_demand: accessible_capacity / demand.max(1e-9),
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let market_radiation = plan
+        .markets
+        .iter()
+        .enumerate()
+        .map(|(market_index, market)| {
+            let assigned_demand = allocations
+                .iter()
+                .flatten()
+                .filter(|allocation| allocation.market_id == market.id)
+                .map(|allocation| allocation.demand)
+                .sum::<f64>();
+            let reach = SERVICE_BANDS_MINUTES
+                .iter()
+                .map(|minutes| {
+                    let points = (0..plan.demand_points.len())
+                        .filter(|demand_index| {
+                            all_times[market_index][demand_nodes[*demand_index]]
+                                + plan.demand_points[*demand_index].access_walk_m
+                                    / program.walk_speed_mps
+                                    / 60.0
+                                <= *minutes
+                        })
+                        .collect::<Vec<_>>();
+                    MarketReach {
+                        minutes: *minutes,
+                        demand_points: points.len(),
+                        demand: points
+                            .iter()
+                            .map(|index| plan.demand_points[*index].demand)
+                            .sum(),
+                        assigned_demand: allocations
+                            .iter()
+                            .flatten()
+                            .filter(|allocation| {
+                                allocation.market_id == market.id
+                                    && allocation.minutes <= *minutes
+                            })
+                            .map(|allocation| allocation.demand)
+                            .sum(),
+                    }
+                })
+                .collect();
+            MarketRadiation {
+                market_id: market.id.clone(),
+                tier: market.tier.clone(),
+                capacity: market.capacity,
+                load: market.load,
+                utilization: (market.load / market.capacity.max(1e-9)).clamp(0.0, 1.0),
+                assigned_demand,
+                bands: reach,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let deficits = demand_fields
+        .iter()
+        .filter(|point| point.deficit > 1e-6)
+        .map(|point| DemandDeficit {
+            demand_id: point.demand_id.clone(),
+            world_x: point.world_x,
+            world_z: point.world_z,
+            demand: point.demand,
+            served_demand: point.served_demand,
+            deficit: point.deficit,
+            nearest_market_id: point.nearest_market_id.clone(),
+            reason: if point.nearest_market_id.is_none() {
+                "no_market_within_travel_limit".into()
+            } else {
+                "eligible_market_capacity_exhausted".into()
+            },
+        })
+        .collect::<Vec<_>>();
+
+    Artifacts {
+        radiation: RadiationReport {
+            format: "glyphweave.market-radiation".into(),
+            version: 1,
+            scene_id: scene_id.to_string(),
+            status: plan.status.clone(),
+            model: "network-time-bands-capacity-competition-v1".into(),
+            beta: program.beta,
+            coverage_target: program.coverage_target,
+            total_demand: plan.total_demand,
+            served_demand: plan.served_demand,
+            coverage_ratio: plan.coverage_ratio,
+            bands,
+            demand_fields,
+            markets: market_radiation,
+        },
+        deficits: DeficitReport {
+            format: "glyphweave.market-deficit".into(),
+            version: 1,
+            scene_id: scene_id.to_string(),
+            status: plan.status.clone(),
+            model: "network-time-capacity-gap-v1".into(),
+            coverage_target: program.coverage_target,
+            total_demand: plan.total_demand,
+            total_deficit: deficits.iter().map(|record| record.deficit).sum(),
+            records: deficits,
+        },
+        plan,
+    }
+}
+
+pub fn audit_artifacts(artifacts: &Artifacts) -> Result<(), String> {
+    if artifacts.plan.format != "glyphweave.market-catchment-plan"
+        || artifacts.radiation.format != "glyphweave.market-radiation"
+        || artifacts.deficits.format != "glyphweave.market-deficit"
+    {
+        return Err("market artifact format does not match the published contract".into());
+    }
+    if artifacts.plan.status != artifacts.radiation.status
+        || artifacts.plan.status != artifacts.deficits.status
+    {
+        return Err("market plan, radiation and deficit statuses disagree".into());
+    }
+    if artifacts.radiation.scene_id != artifacts.deficits.scene_id {
+        return Err("market radiation and deficit reports name different scenes".into());
+    }
+    if artifacts.radiation.bands.len() != SERVICE_BANDS_MINUTES.len()
+        || artifacts
+            .radiation
+            .bands
+            .iter()
+            .zip(SERVICE_BANDS_MINUTES)
+            .any(|(band, expected)| band.minutes != expected)
+    {
+        return Err("market radiation time bands are missing or out of order".into());
+    }
+    let demand: f64 = artifacts
+        .radiation
+        .demand_fields
+        .iter()
+        .map(|field| field.demand)
+        .sum();
+    let served: f64 = artifacts
+        .radiation
+        .demand_fields
+        .iter()
+        .map(|field| field.served_demand)
+        .sum();
+    let deficit: f64 = artifacts
+        .radiation
+        .demand_fields
+        .iter()
+        .map(|field| field.deficit)
+        .sum();
+    if !close(demand, artifacts.radiation.total_demand)
+        || !close(served, artifacts.radiation.served_demand)
+        || !close(deficit, artifacts.deficits.total_deficit)
+    {
+        return Err("market radiation demand totals do not conserve".into());
+    }
+    for field in &artifacts.radiation.demand_fields {
+        let allocated: f64 = field.allocations.iter().map(|allocation| allocation.demand).sum();
+        if !close(allocated, field.served_demand)
+            || !close(field.served_demand + field.deficit, field.demand)
+        {
+            return Err(format!(
+                "market allocation conservation failed for {}",
+                field.demand_id
+            ));
+        }
+        if field
+            .allocations
+            .iter()
+            .any(|allocation| !allocation.minutes.is_finite() || allocation.demand < 0.0)
+        {
+            return Err(format!(
+                "market allocation contains invalid evidence for {}",
+                field.demand_id
+            ));
+        }
+    }
+    for market in &artifacts.radiation.markets {
+        if market.load > market.capacity + 1e-6
+            || !(0.0..=1.0 + 1e-9).contains(&market.utilization)
+        {
+            return Err(format!("market load is invalid for {}", market.market_id));
+        }
+        let allocated: f64 = artifacts
+            .radiation
+            .demand_fields
+            .iter()
+            .flat_map(|field| &field.allocations)
+            .filter(|allocation| allocation.market_id == market.market_id)
+            .map(|allocation| allocation.demand)
+            .sum();
+        if !close(allocated, market.assigned_demand) {
+            return Err(format!(
+                "market assigned demand does not match allocations for {}",
+                market.market_id
+            ));
+        }
+    }
+    let published_deficits = artifacts
+        .radiation
+        .demand_fields
+        .iter()
+        .filter(|field| field.deficit > 1e-6)
+        .count();
+    if published_deficits != artifacts.deficits.records.len() {
+        return Err("market deficit records do not match the radiation field".into());
+    }
+    Ok(())
+}
+
+fn close(left: f64, right: f64) -> bool {
+    (left - right).abs() <= 1e-6 * left.abs().max(right.abs()).max(1.0)
 }
 
 fn assess_markets(
@@ -454,6 +920,7 @@ fn assess_markets(
     let total_demand: f64 = demand_points.iter().map(|point| point.demand).sum();
     let mut accessibility = Vec::new();
     let mut market_loads = vec![0.0_f64; markets.len()];
+    let mut allocations = vec![Vec::<MarketAllocation>::new(); demand_points.len()];
     let mut served_by_demand = vec![0.0_f64; demand_points.len()];
     let mut demand_order = (0..demand_points.len()).collect::<Vec<_>>();
     demand_order.sort_by(|left, right| {
@@ -512,6 +979,24 @@ fn assess_markets(
                     .min(available)
                     .min(round_remaining);
                 market_loads[market_index] += grant;
+                if grant > 1e-9 {
+                    let minutes = all_times[market_index][demand_nodes[demand_index]]
+                        + point.access_walk_m / program.walk_speed_mps / 60.0;
+                    let market_id = markets[market_index].id.clone();
+                    if let Some(allocation) = allocations[demand_index]
+                        .iter_mut()
+                        .find(|allocation| allocation.market_id == market_id)
+                    {
+                        allocation.demand += grant;
+                    } else {
+                        allocations[demand_index].push(MarketAllocation {
+                            market_id,
+                            minutes,
+                            weight,
+                            demand: grant,
+                        });
+                    }
+                }
                 round_remaining -= grant;
                 granted += grant;
             }
@@ -560,6 +1045,7 @@ fn assess_markets(
     Assessment {
         market_loads,
         accessibility,
+        allocations,
         served_demand,
         coverage_ratio,
         failures,
@@ -572,6 +1058,23 @@ pub fn reconcile_after_access(
     style: &Value,
     realized_building_ids: &BTreeSet<String>,
 ) -> Result<Option<Plan>, String> {
+    Ok(reconcile_after_access_with_artifacts(
+        plan,
+        routes,
+        style,
+        realized_building_ids,
+        "",
+    )?
+    .map(|artifacts| artifacts.plan))
+}
+
+pub fn reconcile_after_access_with_artifacts(
+    plan: &Plan,
+    routes: &RoutePlan,
+    style: &Value,
+    realized_building_ids: &BTreeSet<String>,
+    scene_id: &str,
+) -> Result<Option<Artifacts>, String> {
     let Some(program) = from_style(style)? else {
         return Ok(None);
     };
@@ -607,7 +1110,7 @@ pub fn reconcile_after_access(
     for (market, load) in markets.iter_mut().zip(assessment.market_loads) {
         market.load = load;
     }
-    Ok(Some(Plan {
+    let reconciled = Plan {
         format: plan.format.clone(),
         version: plan.version,
         status: if assessment.failures.is_empty() {
@@ -624,7 +1127,16 @@ pub fn reconcile_after_access(
         demand_points,
         accessibility: assessment.accessibility,
         failures: assessment.failures,
-    }))
+    };
+    Ok(Some(build_artifacts(
+        routes,
+        &program,
+        reconciled,
+        &demand_nodes,
+        &all_times,
+        &assessment.allocations,
+        scene_id,
+    )))
 }
 
 pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
@@ -1127,6 +1639,69 @@ mod tests {
                 .map(|market| market.kind.as_str())
                 .collect::<std::collections::BTreeSet<_>>(),
             std::collections::BTreeSet::from(["mixed-market"])
+        );
+    }
+
+    #[test]
+    fn radiation_bands_match_network_allocations_and_expose_deficits() {
+        let style = serde_json::json!({
+            "marketCatchment": {
+                "version": 1,
+                "beta": 0.08,
+                "maxTravelMinutes": 15,
+                "walkSpeedMps": 1.3,
+                "marketCapacity": 160,
+                "marketQuality": 1,
+                "coverageTarget": 0.85,
+                "maxMarkets": 2,
+                "candidateSpacingM": 100
+            }
+        });
+        let artifacts = plan_with_artifacts(&route_plan(), &settlement(), &style, "market-test")
+            .unwrap()
+            .unwrap();
+        audit_artifacts(&artifacts).expect("the published market artifacts conserve");
+        let radiation = &artifacts.radiation;
+        assert_eq!(radiation.status, "pass");
+        assert_eq!(
+            radiation
+                .bands
+                .iter()
+                .map(|band| band.minutes)
+                .collect::<Vec<_>>(),
+            SERVICE_BANDS_MINUTES.to_vec()
+        );
+        for pair in radiation.bands.windows(2) {
+            assert!(
+                pair[1].assigned_demand + 1e-9 >= pair[0].assigned_demand,
+                "assigned demand must not shrink as the time band widens"
+            );
+            assert!(
+                pair[1].accessible_capacity + 1e-9 >= pair[0].accessible_capacity,
+                "accessible capacity must not shrink as the time band widens"
+            );
+        }
+        assert_eq!(radiation.demand_fields.len(), 8);
+        for field in &radiation.demand_fields {
+            let allocated: f64 = field.allocations.iter().map(|a| a.demand).sum();
+            assert!((allocated - field.served_demand).abs() < 1e-9);
+            assert!((field.served_demand + field.deficit - field.demand).abs() < 1e-9);
+            assert!(field
+                .bands
+                .iter()
+                .all(|band| band.capacity_per_demand >= 0.0));
+        }
+        assert!(
+            (artifacts.deficits.total_deficit
+                - radiation.demand_fields.iter().map(|field| field.deficit).sum::<f64>())
+            .abs()
+                < 1e-9
+        );
+        let mut forged = artifacts.clone();
+        forged.radiation.served_demand += 10.0;
+        assert!(
+            audit_artifacts(&forged).is_err(),
+            "a forged coverage total must not pass the market artifact audit"
         );
     }
 
