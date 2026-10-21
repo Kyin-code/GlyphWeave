@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct SelectionInput {
     pub community_profile: String,
+    pub district_stage: String,
     pub center_pressure: f64,
     pub lot_width_m: f32,
     pub lot_depth_m: f32,
@@ -91,6 +92,74 @@ pub fn choose(input: &SelectionInput) -> Archetype {
 }
 
 fn residential_archetype(input: &SelectionInput) -> Archetype {
+    if input.district_stage == "old-core" {
+        return match input.community_profile.as_str() {
+            "japan-machiya" => archetype(
+                "machiya-row",
+                "residential_home",
+                4.,
+                12.,
+                8.,
+                22.,
+                2,
+                4,
+                0.76,
+                3,
+            ),
+            "europe-perimeter" => archetype(
+                "historic-perimeter-wing",
+                "residential_home",
+                18.,
+                46.,
+                14.,
+                28.,
+                3,
+                7,
+                0.76,
+                2,
+            ),
+            _ => archetype(
+                "old-core-lane-house",
+                "residential_home",
+                5.,
+                12.,
+                8.,
+                22.,
+                2,
+                5,
+                0.82,
+                3,
+            ),
+        };
+    }
+    if input.district_stage == "new-growth" {
+        return archetype(
+            "new-town-midrise",
+            "residential_home",
+            24.,
+            52.,
+            16.,
+            34.,
+            8,
+            22,
+            0.42,
+            2,
+        );
+    }
+    if input.district_stage == "renewal" {
+        return archetype(
+            "renewal-block",
+            "residential_home",
+            20.,
+            48.,
+            14.,
+            30.,
+            5,
+            15,
+            0.55,
+            1,
+        );
+    }
     match input.community_profile.as_str() {
         "us-suburban" => archetype(
             "detached-house",
@@ -308,6 +377,7 @@ mod tests {
     fn input(profile: &str, pressure: f64) -> SelectionInput {
         SelectionInput {
             community_profile: profile.into(),
+            district_stage: "periphery".into(),
             center_pressure: pressure,
             lot_width_m: 24.0,
             lot_depth_m: 26.0,
@@ -371,5 +441,20 @@ mod tests {
         mixed.center_pressure = 0.92;
         mixed.needs_jobs = true;
         assert_eq!(choose(&mixed).kind, "office_tower");
+    }
+
+    #[test]
+    fn district_stage_changes_parcel_morphology() {
+        let mut old = input("china-gated", 0.5);
+        old.district_stage = "old-core".into();
+        assert_eq!(choose(&old).id, "old-core-lane-house");
+
+        let mut renewal = old.clone();
+        renewal.district_stage = "renewal".into();
+        assert_eq!(choose(&renewal).id, "renewal-block");
+
+        let mut new = renewal.clone();
+        new.district_stage = "new-growth".into();
+        assert_eq!(choose(&new).id, "new-town-midrise");
     }
 }

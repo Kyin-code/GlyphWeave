@@ -96,6 +96,8 @@ pub struct Building {
     pub coverage_ratio: f64,
     #[serde(default)]
     pub frontage_road_point: Option<[i32; 2]>,
+    #[serde(default)]
+    pub district_stage: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -276,12 +278,22 @@ pub fn plan(
                         route.id, segment_index, sample, side_index
                     );
                     let access = route.road_width_m as f64 * 0.5 + f64::from(program.setback_m);
-                    let center_x =
+                    let mut center_x =
                         road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
-                    let center_z =
+                    let mut center_z =
                         road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
-                    let x = center_x.round() as i32;
-                    let z = center_z.round() as i32;
+                    let mut x = center_x.round() as i32;
+                    let mut z = center_z.round() as i32;
+                    let mut center_distance =
+                        (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
+                    let district_stage = district_stage(style, center_distance);
+                    let (lot_width_m, lot_depth_m) =
+                        staged_lot_size(district_stage, lot_width_m, lot_depth_m);
+                    center_x = road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
+                    center_z = road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
+                    x = center_x.round() as i32;
+                    z = center_z.round() as i32;
+                    center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     if let Err(reason) = lot_is_legal(
                         scene,
                         terrain,
@@ -329,7 +341,6 @@ pub fn plan(
                         });
                         continue;
                     }
-                    let center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     let pressure = (1.0 - center_distance / 650.0).clamp(0.15, 1.0);
                     let wants_retail = demand.retail_floor_area_m2 > 0.0 && pressure > 0.28;
                     let wants_jobs = demand.jobs > 0 && (pressure > 0.55 || demand.households == 0);
@@ -337,6 +348,7 @@ pub fn plan(
                         community_profile: typology
                             .as_ref()
                             .map_or_else(|| "generic".into(), |value| value.profile.clone()),
+                        district_stage: district_stage.into(),
                         center_pressure: pressure,
                         lot_width_m,
                         lot_depth_m,
@@ -406,6 +418,7 @@ pub fn plan(
                         lot_area_m2: f64::from(lot_width_m) * f64::from(lot_depth_m),
                         coverage_ratio: f64::from(form.coverage_ratio),
                         frontage_road_point: Some([road_x.round() as i32, road_z.round() as i32]),
+                        district_stage: district_stage.into(),
                     };
                     demand.households -= homes;
                     demand.jobs -= jobs;
@@ -419,35 +432,21 @@ pub fn plan(
                     accepted_lots += 1;
                     accepted_lot_centers.push((x, z));
                     buildings.push(building);
-                    if demand.households == 0
-                        && demand.jobs == 0
-                        && demand.retail_floor_area_m2 <= 1e-6
-                        && demand.service_budget <= 1e-6
-                    {
+                    if demand_is_empty(&demand) {
                         break;
                     }
                 }
-                if demand.households == 0
-                    && demand.jobs == 0
-                    && demand.retail_floor_area_m2 <= 1e-6
-                    && demand.service_budget <= 1e-6
-                {
+                if demand_is_empty(&demand) {
                     break;
                 }
             }
-            if demand.households == 0
-                && demand.jobs == 0
-                && demand.retail_floor_area_m2 <= 1e-6
-                && demand.service_budget <= 1e-6
-            {
+            if demand_is_empty(&demand) {
                 break;
             }
         }
     }
-    let complete = demand.households == 0
-        && demand.jobs == 0
-        && demand.retail_floor_area_m2 <= 1e-6
-        && demand.service_budget <= 1e-6;
+    let unmet_demand = demand.clone();
+    let complete = demand_is_empty(&unmet_demand);
     Ok(Some(Plan {
         format: "glyphweave.settlement-evolution-plan".into(),
         version: 1,
@@ -463,7 +462,7 @@ pub fn plan(
             service_budget: program.service_budget,
         },
         delivered,
-        unmet_demand: demand,
+        unmet_demand,
         capacity: Capacity {
             candidate_lots,
             accepted_lots,
@@ -493,6 +492,48 @@ fn route_center(plan: &RoutePlan) -> (f64, f64) {
             .sum::<f64>()
             / count,
     )
+}
+
+fn district_stage(style: &Value, center_distance_m: f64) -> &'static str {
+    let radius = |field: &str, fallback: f64| {
+        style
+            .get("epochProgram")
+            .and_then(|program| program.get(field))
+            .and_then(Value::as_f64)
+            .unwrap_or(fallback)
+    };
+    let old_core = radius("oldCoreRadiusM", 130.0);
+    let expansion = radius("expansionRadiusM", 210.0);
+    let modern = radius("modernRadiusM", 340.0);
+    if center_distance_m <= old_core {
+        "old-core"
+    } else if center_distance_m <= expansion {
+        "renewal"
+    } else if center_distance_m <= modern {
+        "new-growth"
+    } else {
+        "periphery"
+    }
+}
+
+fn staged_lot_size(stage: &str, width_m: f32, depth_m: f32) -> (f32, f32) {
+    let (width_scale, depth_scale) = match stage {
+        "old-core" => (0.72, 0.88),
+        "renewal" => (0.95, 0.95),
+        "new-growth" => (1.20, 1.05),
+        _ => (1.30, 0.95),
+    };
+    (
+        (width_m * width_scale).clamp(8.0, 80.0),
+        (depth_m * depth_scale).clamp(8.0, 80.0),
+    )
+}
+
+fn demand_is_empty(demand: &Demand) -> bool {
+    demand.households == 0
+        && demand.jobs == 0
+        && demand.retail_floor_area_m2 <= 1e-6
+        && demand.service_budget <= 1e-6
 }
 
 fn lot_is_legal(
@@ -775,7 +816,7 @@ mod tests {
         let high = plan(&scene, &terrain, water, &routes, &style(300, 120, 0.0))
             .unwrap()
             .unwrap();
-        assert_eq!(low.status, "pass");
+        assert_eq!(low.status, "pass", "{:?}", low.unmet_demand);
         assert!(high.buildings.len() > low.buildings.len());
         assert!(
             high.buildings
