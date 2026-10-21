@@ -1706,28 +1706,30 @@ async function drawNear(buildToken) {
       const dz = stairs.to[1] - stairs.from[1]
       const run = Math.hypot(dx, dz) || 2
       const rise = Math.max(.12, (stairs.highMm - stairs.lowMm) / 1000)
-      const alongX = Math.abs(dx) >= Math.abs(dz)
       const stepRun = run / steps
       const stepRise = rise / steps
       const lowPoint = stairs.fromMm <= stairs.toMm ? stairs.from : stairs.to
-      const alongSignX = Math.sign(dx) * (lowPoint === stairs.from ? 1 : -1)
-      const alongSignZ = Math.sign(dz) * (lowPoint === stairs.from ? 1 : -1)
+      const direction = lowPoint === stairs.from ? 1 : -1
+      const ux = dx / run * direction
+      const uz = dz / run * direction
+      const yaw = Math.atan2(uz, ux)
       const material = new THREE.MeshStandardMaterial({ color: '#9a9184', roughness: .96 })
       for (let index = 0; index < steps; index++) {
         const step = new THREE.Mesh(
           new THREE.BoxGeometry(
-            alongX ? stepRun + .04 : stairs.widthM,
+            stepRun + .04,
             stepRise * (index + 1),
-            alongX ? stairs.widthM : stepRun + .04,
+            stairs.widthM,
           ),
           material,
         )
         const outward = stepRun * (index + .5)
         step.position.set(
-          lowPoint[0] + (alongX ? alongSignX * outward : 0),
+          lowPoint[0] + ux * outward,
           stepRise * (index + 1) * .5,
-          lowPoint[1] + (alongX ? 0 : alongSignZ * outward),
+          lowPoint[1] + uz * outward,
         )
+        step.rotation.y = -yaw
         group.add(step)
       }
       group.position.y = Math.min(stairs.lowMm, stairs.highMm) / 1000

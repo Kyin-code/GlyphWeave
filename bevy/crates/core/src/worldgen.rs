@@ -3345,8 +3345,40 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 else {
                     continue;
                 };
-                if let Some(stair) =
-                    settlement_evolution::attach_frontage_stair(&mut entities[index], &baked_samples)
+                let planned_frontage = rejected_id
+                    .strip_prefix("generated.settlement-evolution.")
+                    .and_then(|id| {
+                        settlement_evolution_result
+                            .as_ref()?
+                            .buildings
+                            .iter()
+                            .find(|building| building.id == id)
+                    })
+                    .and_then(|building| building.frontage_road_point);
+                let existing_target = entities[index]
+                    .grounding
+                    .stair_connection
+                    .as_ref()
+                    .map(|stairs| stairs.to);
+                let fallback_frontage = entities[index].grounding.frontage_road_point;
+                let frontage = match (
+                    existing_target,
+                    planned_frontage,
+                    fallback_frontage,
+                ) {
+                    (Some(existing), planned, Some(fallback)) if existing == fallback => planned,
+                    (_, _, Some(fallback)) => Some(fallback),
+                    (_, planned, None) => planned,
+                };
+                let Some(frontage) = frontage
+                else {
+                    continue;
+                };
+                if let Some(stair) = settlement_evolution::attach_frontage_stair(
+                    &mut entities[index],
+                    &baked_samples,
+                    frontage,
+                )
                 {
                     promoted_frontage_stairs.push(stair.entity_id.clone());
                     entities.push(stair);

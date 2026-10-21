@@ -1,7 +1,7 @@
 # 门前静态楼梯与 AccessGraph 连接
 
 日期：2026-10-21  
-控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2e/`
+控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2h/`
 
 ## 目标
 
@@ -37,7 +37,7 @@
 
 楼梯不是 AccessGraph 中的“跳过门”标记，而是显式静态实体和路径点。
 
-## r2e 结果
+## r2h 结果
 
 | 项 | r2a | r2b |
 |---|---:|---:|
@@ -54,9 +54,9 @@
 
 - `stair_connection_invalid`：长直梯到道路的路径仍被现有实体/水体/廊道合同拒绝。
 
-短梯不足以到达道路时，入口拒绝回合会把楼梯提升为从 facade 到已声明
-frontage road point 的长直梯；长梯仍必须通过实体、水体和跨度检查。
-剩余情况需要真正的 L 形/switchback 路径与平台分段。
+短梯不足以到达道路时，入口拒绝回合会先尝试从 facade 到规划 frontage
+road point 的长直梯，再回退到稳定的 facade 外推落点；任一目标仍必须通过
+实体、水体和跨度检查。剩余情况需要真正的 L 形/switchback 路径与平台分段。
 
 ## 验证
 

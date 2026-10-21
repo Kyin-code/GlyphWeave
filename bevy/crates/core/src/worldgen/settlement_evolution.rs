@@ -1083,9 +1083,9 @@ pub fn materialize_stairs(buildings: &[EntityInstance]) -> Vec<EntityInstance> {
 pub fn attach_frontage_stair(
     building: &mut EntityInstance,
     terrain: &BakedTerrain,
+    to: [i32; 2],
 ) -> Option<EntityInstance> {
     let anchor = building.anchors.first()?;
-    let to = building.grounding.frontage_road_point?;
     if let Some(existing) = &building.grounding.stair_connection {
         if existing.to == to {
             return None;
@@ -1125,11 +1125,6 @@ fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
     let dx = stairs.to[0] - stairs.from[0];
     let dz = stairs.to[1] - stairs.from[1];
     let run_m = f64::from(dx).hypot(f64::from(dz)) as f32;
-    let (width_m, depth_m) = if dx != 0 {
-        (run_m + 0.4, stairs.width_m)
-    } else {
-        (stairs.width_m, run_m + 0.4)
-    };
     let world_y = stairs.low_mm.div_euclid(1000);
     let bottom_offset_m = stairs.low_mm.rem_euclid(1000) as f32 / 1000.0;
     EntityInstance {
@@ -1140,10 +1135,10 @@ fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
         world_z: (stairs.from[1] + stairs.to[1]) / 2,
         world_y,
         scale: 1.0,
-        width_m,
-        depth_m,
+        width_m: run_m + 0.4,
+        depth_m: stairs.width_m,
         height_m: (stairs.high_mm - stairs.low_mm) as f32 / 1000.0 + 0.2,
-        rotation_y_deg: 0.0,
+        rotation_y_deg: f64::from(dz).atan2(f64::from(dx)).to_degrees() as f32,
         grounding: super::GroundingSpec {
             bottom_offset_m,
             stair_connection: Some(stairs.clone()),

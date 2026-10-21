@@ -512,7 +512,7 @@ r2a 控制：
 执行原有道路搜索，连通状态写为 `walkable_route_with_stairs`。超过 2.40m
 仍拒绝，不使用放宽台阶阈值。
 
-r2e 控制：
+r2h 控制：
 
 - 23 个短梯 + 3 个从 facade 到 frontage road 的长直梯，共 26 个；
 - 最终聚落建筑 28→34；

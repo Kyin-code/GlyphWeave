@@ -2,7 +2,7 @@
 
 日期：2026-10-21  
 控制 Manifest：`examples/hong-kong-central-natural-evolution-1km.manifest.json`  
-最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2e/`
+最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2h/`
 
 ## 1. 定位与边界
 
@@ -75,7 +75,7 @@
 - `?view=skyline` 按视口宽高比扩大取景，保证整个 1km 世界和东侧水面都在画面内；
 - 战略图、街景和全景不再出现裁掉的三角 chunk 边界。
 
-## 4. r2e 最终控制数据
+## 4. r2h 最终控制数据
 
 | 项 | 结果 |
 |---|---:|
@@ -113,7 +113,7 @@
 
 ## 6. 视觉证据
 
-运行态检查使用 r2e：
+运行态检查使用 r2h：
 
 - **战略图**：可辨认西侧山地绿区、旧核与更新带的多组街区、连续弯曲道路、
   东侧长条海港；
