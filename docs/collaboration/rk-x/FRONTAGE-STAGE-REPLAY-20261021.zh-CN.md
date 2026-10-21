@@ -64,6 +64,12 @@ nonzero_engineering_control_keeps_natural_and_final_distinct    pass
 a_recomputed_graph_reaches_every_assigned_street...             pass
 ```
 
+完整 Core 实跑：
+
+```text
+880 passed; 0 failed; 34 ignored
+```
+
 最新 1km 控制世界：
 
 ```text
