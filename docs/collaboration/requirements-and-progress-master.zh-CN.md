@@ -43,6 +43,11 @@
 > scale/quality/visual 均 pass。见
 > `docs/collaboration/rk-x/MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。
 
+> **2026-10-21 已知道路缺陷**：自然道路存在大量 45°/135° 斜向段，当前
+> 普通道路 carve 只正确处理 0°/90°，其余角度仍按 X 向长条近似。此问题已
+> 登记为可能导致入口/terrain ownership 偏差的风险，详见
+> `docs/collaboration/rk-x/KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

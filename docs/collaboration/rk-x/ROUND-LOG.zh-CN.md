@@ -441,3 +441,11 @@ visual feedback 全部 pass。市场入口锚点随后改为与旋转矩形求�
 `market.0` 的边界错误消失；其唯一剩余失败原因变为真实的
 `entrance_step_requires_engineering`。证据见
 `MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。
+
+## Round 64 · 2026-10-21 · 斜向道路 carve 缺口登记
+
+审查确认 1km 道路中有 60 段 45°、25 段 135° 以及少量其他斜向段，但普通
+道路 carve 仍只正确处理 0°/90°，其余按 X 向长条近似。这个缺口会影响
+flat top、填方过渡和入口 support ownership，不能由当前可读截图或
+scale-audit pass 证明为正确。已登记修复切片，下一步先做 oriented
+footprint 与 0/45/90/135 门禁测试。

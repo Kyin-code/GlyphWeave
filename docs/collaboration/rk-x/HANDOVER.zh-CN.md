@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 已知道路缺陷**：自然道路中 45°/135° 等斜向段占多数之一，
+> 但普通道路 carve 仍只正确处理 0°/90°；其余角度按 X 向长条处理。
+> 当前预览可读不等于土方 footprint 正确。修复需统一 oriented footprint
+> 到 carve、support/cut window、ledger 与审计。见
+> [`KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`](KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md)。
+
 > **2026-10-21 市场占地去重叠**：市场候选现在按离路 12m 后的真实 footprint
 > 检查 2m 净距，不再只按路线节点去重。`market.4` 从与 `market.1` 重叠的
 > 节点改选到 `(378,506)`；1km 控制最终 4 个市场，AccessGraph 20 连通/0
