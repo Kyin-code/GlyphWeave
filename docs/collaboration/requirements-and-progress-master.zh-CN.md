@@ -20,8 +20,8 @@
 
 > **2026-10-21 市场落地审计**：`market-materialization-report.json` 已把
 > 计划市场、最终保留数、失败市场 ID、位置、容量和 AccessGraph 状态固化。
-> 1km 控制保留 3 个市场，`market.0` 与 `market.3` 具名失败；市场专用入口
-> 台阶/台地工程仍开放。证据见
+> 首版控制保留 3 个；后续占地去重叠与毫米标高修复后保留 4 个。市场专用
+> 入口台阶/台地工程仍开放。证据见
 > `docs/collaboration/rk-x/MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`。
 
 > **2026-10-21 街景空屏修复**：street 2.5D 焦点由边缘单店改为城区实体

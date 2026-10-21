@@ -437,5 +437,7 @@ AccessGraph 20 个连通/0 断点，scale/quality/visual feedback 均 pass。
 最终旋转 footprint，并要求 2m 净距。`market.4` 改选到 `(378,506)`。
 
 r12 控制最终 4 个市场，AccessGraph 20 连通/0 断点，scale、quality 与
-visual feedback 全部 pass；唯一失败市场为 `market.0`，仍具名记录边界锚点
-问题。证据见 `MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。
+visual feedback 全部 pass。市场入口锚点随后改为与旋转矩形求交，
+`market.0` 的边界错误消失；其唯一剩余失败原因变为真实的
+`entrance_step_requires_engineering`。证据见
+`MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。

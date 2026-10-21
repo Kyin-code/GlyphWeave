@@ -21,9 +21,9 @@
 > [`PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`](PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md)。
 
 > **2026-10-21 市场失败具名**：启用市场的场景现在输出
-> `market-materialization-report.json`。1km 控制保留 3 个市场，2 个失败
-> 市场分别因边界锚点和入口台阶工程具名，不再静默消失；AccessGraph 13
-> 个实体连通、断点 0。市场专用台阶/台地入口仍未完成，详见
+> `market-materialization-report.json`。首版控制保留 3 个市场；后续占地
+> 去重叠和毫米标高修复使控制提升到 4 个市场，失败市场仍具名，不再静默
+> 消失。市场专用台阶/台地入口仍未完成，详见
 > [`MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`](MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md)。
 
 > **2026-10-21 分时代需求预留**：`settlementEvolution.districtDemand`

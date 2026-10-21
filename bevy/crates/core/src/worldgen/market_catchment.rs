@@ -529,8 +529,35 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
                 center_x = station.x - station.normal_x * (depth * 0.5 + 12.0);
                 center_z = station.z - station.normal_z * (depth * 0.5 + 12.0);
             }
-            let anchor_x = center_x - station.normal_x * (depth * 0.5 + 1.0);
-            let anchor_z = center_z - station.normal_z * (depth * 0.5 + 1.0);
+            let dx = station.x - center_x;
+            let dz = station.z - center_z;
+            let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
+            let local_x = dx * cos - dz * sin;
+            let local_z = dx * sin + dz * cos;
+            let tx = if local_x.abs() > 1e-9 {
+                f64::from(market.width_m) * 0.5 / local_x.abs()
+            } else {
+                f64::INFINITY
+            };
+            let tz = if local_z.abs() > 1e-9 {
+                f64::from(market.depth_m) * 0.5 / local_z.abs()
+            } else {
+                f64::INFINITY
+            };
+            let edge_t = tx.min(tz).min(1.0);
+            let anchor_x = center_x + dx * edge_t;
+            let anchor_z = center_z + dz * edge_t;
+            let direction = if dx.abs() > dz.abs() {
+                if dx > 0.0 {
+                    "east"
+                } else {
+                    "west"
+                }
+            } else if dz > 0.0 {
+                "south"
+            } else {
+                "north"
+            };
             let world_y = terrain
                 .height(center_x.round() as i32, center_z.round() as i32)?
                 .ceil() as i32;
@@ -551,18 +578,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
                     id: "front".into(),
                     world_x: anchor_x.round() as i32,
                     world_z: anchor_z.round() as i32,
-                    direction: if station.normal_x.abs() > station.normal_z.abs() {
-                        if station.normal_x > 0.0 {
-                            "west"
-                        } else {
-                            "east"
-                        }
-                    } else if station.normal_z > 0.0 {
-                        "north"
-                    } else {
-                        "south"
-                    }
-                    .into(),
+                    direction: direction.into(),
                     target: Some("road".into()),
                 }],
                 bounds: None,

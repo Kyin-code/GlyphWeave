@@ -48,8 +48,10 @@
 | quality report | pass |
 | visual feedback | pass |
 
-`market.4` 从重叠位置 `(374,346)` 改选到 `(378,506)`。当前唯一失败市场为
-`market.0`，原因是 `anchor_not_on_building_boundary`，已具名写入
+`market.4` 从重叠位置 `(374,346)` 改选到 `(378,506)`。市场入口锚点也已
+改为与旋转建筑矩形求交，`market.0` 不再报
+`anchor_not_on_building_boundary`；当前唯一失败市场仍为 `market.0`，
+实际原因是 `entrance_step_requires_engineering`，已具名写入
 `market-materialization-report.json`。
 
 ## 4. 边界
