@@ -203,8 +203,18 @@ function resize() {
   canvas.width = canvas.clientWidth * devicePixelRatio
   canvas.height = canvas.clientHeight * devicePixelRatio
   context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+  const viewport = document.querySelector('#viewport')
+  const viewportWidth = Math.max(1, viewport.clientWidth)
+  const viewportHeight = Math.max(1, viewport.clientHeight)
+  if (nearRenderer) {
+    nearRenderer.setSize(viewportWidth, viewportHeight, false)
+  }
+  if (nearCamera?.isPerspectiveCamera) {
+    nearCamera.aspect = viewportWidth / viewportHeight
+    nearCamera.updateProjectionMatrix()
+  }
   if (window.__nearFx) {
-    window.__nearFx.setSize(window.innerWidth, window.innerHeight)
+    window.__nearFx.setSize(viewportWidth, viewportHeight)
   }
   if (scene) draw()
 }
@@ -708,26 +718,33 @@ async function drawNear(buildToken) {
   const harbour = (scene.landmarks ?? []).find(landmark => landmark.type === 'river')
   const harbourBridge = (scene.landmarks ?? []).find(landmark => landmark.type === 'bridge') ?? (scene.entities ?? []).find(entity => entity.kind === 'bridge')
   const centreDist = e => Math.hypot(e.worldX - (scene.originX + scene.widthM / 2), e.worldZ - (scene.originZ + scene.depthM / 2))
+  const streetFabricKinds = new Set(['residential_home', 'residential_block', 'residential_tower', 'storefront', 'market', 'urban_building', 'office_tower', 'community_plaza'])
+  const streetFabric = (scene.entities ?? []).filter(entity => streetFabricKinds.has(entity.kind))
+  const streetFabricCentre = streetFabric.length ? {
+    x: streetFabric.reduce((sum, entity) => sum + entity.worldX, 0) / streetFabric.length,
+    z: streetFabric.reduce((sum, entity) => sum + entity.worldZ, 0) / streetFabric.length,
+    y: streetFabric.reduce((sum, entity) => sum + (entity.worldY || 0), 0) / streetFabric.length,
+  } : null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
-  const streetX = streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
-  const streetZ = streetAnchor?.worldZ ?? scene.depthM * .5
+  const streetX = streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
+  const streetZ = streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5
   const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
   const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : isHarbourOverview && harbourBridge ? harbourBridge.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isStreetView ? 0 : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isExplore ? 0 : isStreet ? (streetFabricCentre?.y ?? 0) : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
   const isNaturalExplore = isExplore && Boolean(naturalFeature || routeFocus)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
   const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : isHarbourOverview ? 10 : focusY + 6
-  const focusTargetZ = isStreet ? focusZ + 55 : focusZ
+  const focusTargetZ = focusZ
   const viewOffsetX = nearPreset === 'bridgehead' ? 100 : 0
   const viewOffsetZ = nearPreset === 'bridgehead' ? 105 : 72
   const landmarkViewDistance = Math.max(180, (focusLandmark?.heightM || 100) * 1.15)
   nearCamera.position.set(
-    focusX + viewOffsetX + (isNaturalExplore ? 190 : isExplore ? 130 : isStreet ? 150 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : isHarbourOverview ? orthoHeight * .46 : orthoHeight * .5),
-    focusY + (isNaturalExplore ? 42 : isExplore ? 16 : isStreet ? 64 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .64 : isHarbourOverview ? orthoHeight * .56 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
-    focusZ + (isNaturalExplore ? 210 : isExplore ? 125 : isStreet ? -160 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .40 : isHarbourOverview ? -orthoHeight * .18 : orthoHeight * .42),
+    focusX + viewOffsetX + (isNaturalExplore ? 190 : isExplore ? 130 : isStreet ? 105 : isLandmarkFocus ? orthoHeight * .72 : isSkyline ? orthoHeight * .3 : isHarbourOverview ? orthoHeight * .46 : orthoHeight * .5),
+    focusY + (isNaturalExplore ? 42 : isExplore ? 16 : isStreet ? 44 : isBridgeFocus ? 34 : isLandmarkFocus ? (focusLandmark.heightM || 100) * 1.08 : isSkyline ? orthoHeight * .64 : isHarbourOverview ? orthoHeight * .56 : orthoHeight * .95) + (isLandmarkFocus && !isExplore ? orthoHeight * .2 : 0),
+    focusZ + (isNaturalExplore ? 210 : isExplore ? 125 : isStreet ? 150 : isBridgeFocus ? viewOffsetZ : isLandmarkFocus ? landmarkViewDistance : isSkyline ? orthoHeight * .40 : isHarbourOverview ? -orthoHeight * .18 : orthoHeight * .42),
   )
   // Harbour overview is an orientation shot, not a bridge close-up. Look
   // obliquely across the bay so the bridge, water and both shores can read in

@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 街景空屏修复**：`?view=street` 不再聚焦单个边缘 storefront，
+> 改用城市实体质心和稳定斜俯视，运行态不再出现大面积黑屏；窗口/全屏 resize
+> 会同步 WebGLRenderer、透视相机 aspect 和 postFX。r6 控制
+> scale/quality/visual feedback 均 pass。证据见
+> [`PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`](PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md)。
+
 > **2026-10-21 市场失败具名**：启用市场的场景现在输出
 > `market-materialization-report.json`。1km 控制保留 3 个市场，2 个失败
 > 市场分别因边界锚点和入口台阶工程具名，不再静默消失；AccessGraph 13

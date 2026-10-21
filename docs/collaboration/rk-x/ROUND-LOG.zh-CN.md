@@ -406,3 +406,14 @@ core lib **642 passed / 31 ignored**（+8 新测试，其中 1 个是 1 km 已�
 会把市场变成无依据深坑。因此该实验从生产路径撤回，避免以放宽入口阈值制造
 假连通。后续必须使用 landing + stairs/switchback 或可审计台地，并纳入统一
 工程账本。证据见 `MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`。
+
+## Round 61 · 2026-10-21 · street 2.5D 黑屏修复
+
+运行态复现 `?view=street` 的大面积黑屏。根因是焦点取离地图中心最近的单店，
+该店位于东南边缘，固定相机偏移把视锥大半推向世界外侧；同时 resize 未同步
+WebGLRenderer 和透视相机。
+
+street 现以住宅/商业/市场/办公/公共空间的整体质心为焦点，使用稳定的斜俯视
+相机，`resize()` 同步 renderer、aspect 和 postFX。r6 控制中战略图、street
+均可见，13 个建筑/市场连通、断点 0，scale/quality/visual feedback 全部
+pass。证据见 `PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`。

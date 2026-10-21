@@ -24,6 +24,12 @@
 > 台阶/台地工程仍开放。证据见
 > `docs/collaboration/rk-x/MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`。
 
+> **2026-10-21 街景空屏修复**：street 2.5D 焦点由边缘单店改为城区实体
+> 质心，并修复 renderer/camera/postFX resize。r6 运行态战略图与 street
+> 均可见，AccessGraph 断点 0，`visual-feedback.json=pass`，scale/quality
+> 均 pass。证据见
+> `docs/collaboration/rk-x/PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。
