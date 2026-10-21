@@ -20,6 +20,7 @@
     "render-server": "node server/index.mjs",
     "doc-tree": "node scripts/generate-tree.mjs",
     "doc-tree:check": "node scripts/generate-tree.mjs --check",
+    "check:urban-cases": "node scripts/audit-urban-case-completeness.mjs",
     "bevy:fps": "bash scripts/check-bevy-fps.sh",
     "bevy:web:build": "bash scripts/build-bevy-web.sh",
     "bevy:web:deploy": "pnpm run deploy:bevy",

@@ -526,3 +526,22 @@ r2h 控制：
 新增回归测试 `linked_stairs_connect_a_stepped_threshold`，确认楼梯不是
 AccessGraph 里的假跳过，而是显式路点。完整记录见
 `STAIRS-THRESHOLD-CONNECTIONS-20261021.zh-CN.md`。
+
+## Round 68 · 2026-10-21 · 48 城自然地理与历史完整性门禁
+
+新增 `scripts/audit-urban-case-completeness.mjs` 和
+`pnpm check:urban-cases`，对 48 城先验、证据入口和历史分类做联合审计。
+
+结果：
+
+- 48/48 case；
+- 48/48 source-audited evidence；
+- 48/48 measurement windows；
+- 48/48 three-stage history audits；
+- 自然地理字段完整覆盖 48/48；
+- settlementScale：city 18、megacity 19、metropolis 10、town 1；
+- flood 36、storm-surge 24、landslide 21、earthquake 15、typhoon 12；
+- `heuristicGeographyCases=48`，说明自然地理仍是机制先验，不是逐案来源核实。
+
+该门禁支持“切面先验可用”，但明确阻止把 48 城自然地理误报为已全部完成
+来源审计。完整记录见 `URBAN-CASE-COMPLETENESS-AUDIT-20261021.zh-CN.md`。

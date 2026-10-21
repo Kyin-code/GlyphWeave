@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 48 城完整性审计**：新增 `pnpm check:urban-cases`。48/48
+> 均具备自然地理字段、三阶段历史、城市四层结构、土地压力、来源入口和
+> OSM 测量窗口。审计同时明确 `heuristicGeographyCases=48`：自然地理仍是
+> mechanism-prior，不能宣称已逐案升级为 source-verified。见
+> [`URBAN-CASE-COMPLETENESS-AUDIT-20261021.zh-CN.md`](URBAN-CASE-COMPLETENESS-AUDIT-20261021.zh-CN.md)。
+
 > **2026-10-21 香港中环机制切面完成**：新增合成 1km
 > `feature-cut`，表达陡坡山体、旧市场核心、更新台地、新城区和东侧填海水岸。
 > 修复市场挤占规划建筑、办公/住宅缺少 support carve、对角入口锚点、
