@@ -564,3 +564,18 @@ fill ring、road support/cut 与扰动语义的统一格点判定。世界轴 AA
 871/913 通过；修正后两个辅助用例单独通过。仍有 6 个旧 bounded-cut /
 frontage / assigned-road 基线失败，已在本轮记录中具名，不能宣称全量绿。
 完整记录见 `ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。
+
+## Round 70 · 2026-10-21 · 香港 r3c 与道路轴街景
+
+任意角度 carve 后重烘香港中环 1km：
+
+- 3,010 实体；
+- 34/35 建筑，剩余 1 栋仍为 `stair_connection_invalid`；
+- 25 楼梯、6 市场；
+- AccessGraph 41 连通 / 0 断点；
+- scale-audit、quality-report 均 pass。
+
+HTML street 预设原先用全城建筑质心，焦点落入聚落间草坡。现在按店铺、市场、
+住宅的局部权重选择商业热点，再沿最近真实道路的轴向取景；运行画面已能看到
+道路、临街建筑和高层。城市密度、连续街墙、立面与地面材质仍判 visual `warn`。
+见 `STREET-CORRIDOR-CAMERA-20261021.zh-CN.md`。

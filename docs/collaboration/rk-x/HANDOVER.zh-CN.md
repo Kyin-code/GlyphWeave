@@ -20,7 +20,9 @@
 > **2026-10-21 已知道路缺陷**：自然道路中 45°/135° 等斜向段占多数之一，
 > Core 现已统一到 oriented footprint：carve 保存真实 yaw 与局部半长，
 > 土方、索引、bounded-cut、transport 与桥面审计使用同一格点判定。
-> 轴对齐 0°/90° 的旧边界保持不变；香港 1km 重烘及视觉复核仍待执行。见
+> 轴对齐 0°/90° 的旧边界保持不变。r3c 重烘为 3,010 实体、34/35 建筑、
+> 6 市场、25 楼梯、AccessGraph 41/0，scale/quality pass；街景相机已改为
+> 沿真实道路轴线，密度与材质仍 visual `warn`。见
 > [`ORIENTED-ROAD-CARVE-20261021.zh-CN.md`](ORIENTED-ROAD-CARVE-20261021.zh-CN.md)。
 
 > **2026-10-21 市场占地去重叠**：市场候选现在按离路 12m 后的真实 footprint

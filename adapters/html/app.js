@@ -723,16 +723,46 @@ async function drawNear(buildToken) {
   const centreDist = e => Math.hypot(e.worldX - (scene.originX + scene.widthM / 2), e.worldZ - (scene.originZ + scene.depthM / 2))
   const streetFabricKinds = new Set(['residential_home', 'residential_block', 'residential_tower', 'storefront', 'market', 'urban_building', 'office_tower', 'community_plaza'])
   const streetFabric = (scene.entities ?? []).filter(entity => streetFabricKinds.has(entity.kind))
+  const streetRoads = (scene.entities ?? []).filter(entity => entity.kind === 'road')
   const streetFabricCentre = streetFabric.length ? {
     x: streetFabric.reduce((sum, entity) => sum + entity.worldX, 0) / streetFabric.length,
     z: streetFabric.reduce((sum, entity) => sum + entity.worldZ, 0) / streetFabric.length,
     y: streetFabric.reduce((sum, entity) => sum + (entity.worldY || 0), 0) / streetFabric.length,
   } : null
+  // A single global centroid of every storefront and home lands in the open
+  // field between separated settlements. Street view instead chooses the
+  // densest local commercial fabric and a real road through it.
+  const streetWeight = entity => entity.kind === 'market' ? 6
+    : entity.kind === 'storefront' ? 5
+      : entity.kind === 'community_plaza' ? 4
+        : entity.kind === 'residential_block' ? 2.5
+          : entity.kind === 'residential_home' || entity.kind === 'residential_tower' ? 2
+            : 1.5
+  const nearestStreetRoad = candidate => streetRoads.reduce((best, road) => {
+    const d = Math.hypot(road.worldX - candidate.worldX, road.worldZ - candidate.worldZ)
+    return !best || d < best.distance ? { road, distance: d } : best
+  }, null)
+  const streetHotspot = streetFabric.map(candidate => {
+    let score = streetWeight(candidate)
+    for (const other of streetFabric) {
+      if (other === candidate) continue
+      const d = Math.hypot(other.worldX - candidate.worldX, other.worldZ - candidate.worldZ)
+      if (d <= 90) score += streetWeight(other) * (1 - d / 110)
+    }
+    const road = nearestStreetRoad(candidate)
+    if (road && road.distance <= 46) score += 8 * (1 - road.distance / 52)
+    score -= centreDist(candidate) * .0008
+    return { entity: candidate, road, score }
+  }).sort((a, b) => b.score - a.score || a.entity.entityId.localeCompare(b.entity.entityId))[0] ?? null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
-  const streetX = streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)
-  const streetZ = streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5
+  const streetX = (streetHotspot?.entity.worldX ?? streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)) - scene.originX
+  const streetZ = (streetHotspot?.entity.worldZ ?? streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5) - scene.originZ
+  const streetYaw = ((streetHotspot?.road?.rotationYDeg ?? 0) * Math.PI) / 180
+  const streetForward = { x: Math.cos(streetYaw), z: Math.sin(streetYaw) }
+  const streetTargetX = streetX + streetForward.x * 58
+  const streetTargetZ = streetZ + streetForward.z * 58
   const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
   const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
   const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isExplore ? 0 : isStreet ? (streetFabricCentre?.y ?? 0) : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
@@ -761,6 +791,17 @@ async function drawNear(buildToken) {
   if (isWaterfront) {
     nearCamera.position.set(focusX - Math.max(420, orthoHeight * .72), focusY + Math.max(260, orthoHeight * .62), focusZ + Math.max(300, orthoHeight * .48))
     nearCamera.lookAt(focusX, focusY + 4, focusZ)
+  }
+  // Street view is a road-axis shot. Looking along the selected frontage road
+  // puts pavement, storefronts and street furniture in the same frame instead
+  // of aiming at a building centroid across an empty parcel.
+  if (isStreet) {
+    nearCamera.position.set(
+      focusX - streetForward.x * 108 - streetForward.z * 12,
+      focusY + 34,
+      focusZ - streetForward.z * 108 + streetForward.x * 12,
+    )
+    nearCamera.lookAt(streetTargetX, focusY + 8, streetTargetZ)
   }
   if (nearScene) {
     // Persistent scene: remove the old chunk root so we can rebuild it, but
@@ -803,7 +844,7 @@ async function drawNear(buildToken) {
     }
   }
   nearControls = new OrbitControls(nearCamera, webglCanvas)
-  nearControls.target.set(focusX, isNaturalExplore ? focusY + 2 : isExplore ? focusY + 26 : isStreet ? focusY + 9 : focusTargetY, focusTargetZ)
+  nearControls.target.set(isStreet ? streetTargetX : focusX, isNaturalExplore ? focusY + 2 : isExplore ? focusY + 26 : isStreet ? focusY + 8 : focusTargetY, isStreet ? streetTargetZ : focusTargetZ)
   nearControls.enableDamping = true
   nearControls.enablePan = true
   nearControls.enableRotate = true

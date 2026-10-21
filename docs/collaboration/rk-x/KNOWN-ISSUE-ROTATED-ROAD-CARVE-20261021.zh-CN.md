@@ -2,7 +2,7 @@
 
 日期：2026-10-21
 
-状态：**Core 几何已修复并接入审计；1km 重烘与视觉复核待完成。**
+状态：**Core 几何已修复并接入审计；1km 重烘与街景相机复核已完成。**
 
 ## 1. 事实
 
@@ -60,6 +60,9 @@
 `apply_terrain_carves`、`CarveIndex`、bounded-cut、道路运输带和桥面审计
 统一使用局部矩形判定。轴对齐 0°/90° 的既有整数边界保持不变。
 
-尚未完成第 6 项：香港中环 1km 尚未在本模块后重新烘焙，因此不能宣称
-最终入口数、土方面积和视觉结果已经验证。完整记录见
-`ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。
+第 6 项已完成基础复跑：r3c 为 3,010 实体、34/35 建筑、25 楼梯、6 市场，
+AccessGraph 41 连通 / 0 断点，scale 与 quality 均 pass。斜向 carve 没有再
+制造额外建筑收益；街景相机已改为沿真实道路轴线。城市密度与材质仍为
+visual `warn`，不能据此宣称城市表达完成。完整记录见
+`ORIENTED-ROAD-CARVE-20261021.zh-CN.md` 与
+`STREET-CORRIDOR-CAMERA-20261021.zh-CN.md`。

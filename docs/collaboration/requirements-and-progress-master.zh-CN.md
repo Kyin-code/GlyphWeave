@@ -65,7 +65,9 @@
 > **2026-10-21 已知道路缺陷**：自然道路存在大量 45°/135° 斜向段，当前
 > Core 已改为任意角度道路局部矩形 carve，并同步 carve 索引、bounded-cut、
 > support/transport 和桥面审计；0°/90° 合同保持原边界。香港 1km 重烘和
-> 视觉复核仍未完成，不能提前宣称最终入口收益。详见
+> 视觉复核已完成：r3c 为 3,010 实体、34/35 建筑、6 市场、25 楼梯、
+> AccessGraph 41/0，scale/quality pass；街景相机已沿真实道路取景。
+> 城市密度/材质仍为 visual `warn`。详见
 > `docs/collaboration/rk-x/ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。
 
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。

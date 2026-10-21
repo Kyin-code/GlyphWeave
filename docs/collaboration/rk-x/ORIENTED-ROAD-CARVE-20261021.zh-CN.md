@@ -1,7 +1,7 @@
 # 任意角度道路土方与审计统一
 
 日期：2026-10-21
-状态：Core 几何、入口支撑、bounded-cut 与道路审计已接入；1km 重烘仍待执行。
+状态：Core 几何、入口支撑、bounded-cut 与道路审计已接入；1km 重烘完成。
 
 ## 1. 问题
 
@@ -78,7 +78,30 @@ g10_preflight_identity_binding
 g11_preflight_rule_identity_invariants
 ```
 
-## 5. 全量回归基线
+## 5. 香港中环 1km 重烘
+
+控制输出：
+
+```text
+bevy/work/rk-x/hk-central-oriented-road-1km-r3c
+```
+
+| 指标 | r2h | r3c |
+|---|---:|---:|
+| entities | 3,011 | 3,010 |
+| stairs | 26 | 25 |
+| buildings | 34 / 35 | 34 / 35 |
+| markets | 6 | 6 |
+| AccessGraph | 41 / 0 | 41 / 0 |
+| scale-audit | pass | pass |
+| quality-report | pass | pass |
+
+剩余拒绝建筑仍为 1 栋，原因为 `stair_connection_invalid`。实体与楼梯各减少
+1，说明斜向 carve 修复改变了入口工程候选；没有形成“多出一批建筑”的假收益。
+运行视觉经独立相机修复后可从街景看到道路纵深，但城市密度与材质仍为 `warn`。
+见 `STREET-CORRIDOR-CAMERA-20261021.zh-CN.md`。
+
+## 6. 全量回归基线
 
 最新一次全量 Core 回归在修正审查辅助断言前为 `871 passed / 8 failed /
 34 ignored`。随后两个 `auto_roads` 辅助断言已单独复跑通过；剩余 6 个失败
@@ -95,9 +118,9 @@ assigned-road 场景：
 这些失败不应被“斜向 carve 已完成”掩盖。它们需要独立核对工程账本基线，
 不能通过放宽入口或土方门限消除。
 
-## 6. 剩余工作
+## 7. 剩余工作
 
-1. 重烘香港中环 1km 切面，比较拒绝入口、道路土方面积与入口高差；
-2. 检查 HTML 道路/地形贴合与 skyline/street/waterfront；
-3. 追查上述 6 个旧基线失败，区分规格过期与真实实现缺陷；
-4. 把普通演化道路纳入可直接切坡的道路 profile，而不只是 fill-only carve。
+1. 完成空置、错接、悬空与落水的逐图复核；
+2. 追查上述 6 个旧基线失败，区分规格过期与真实实现缺陷；
+3. 把普通演化道路纳入可直接切坡的道路 profile，而不只是 fill-only carve；
+4. 进入新旧城连续街墙、拆合关系和公共空间组合。
