@@ -39,7 +39,7 @@
 
 > **2026-10-21 HTML 街景运行态修复**：修正街景 road wrapper 导致的相机
 > NaN、routeFocus 覆盖街景点、approach 误选、店铺朝向后被通用 yaw
-> 覆盖和办公塔 fallback。香港 r4 控制 3,011 实体、41 连通/0 断点，
+> 覆盖和办公塔 fallback。香港 r6 控制 3,011 实体、41 连通/0 断点，
 > scale pass；战略/街景/天际线均非空，但 `visual-feedback=warn`：
 > 前景留白、立面材质偏简、战略图仍偏 3D 沙盘。证据见
 > `docs/collaboration/rk-x/HTML-STREET-CAMERA-FACADE-20261021.zh-CN.md`。

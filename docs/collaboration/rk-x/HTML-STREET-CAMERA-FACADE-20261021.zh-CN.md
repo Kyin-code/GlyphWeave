@@ -31,7 +31,7 @@
 - 使用最终 `frontageRoadPoint` 找道路，而不是建筑中心；
 - 排除 `.approach.` 短引道；
 - 按路线 ID 的数字后缀重建真实道路链；
-- 只选择路线内部、前后都有足够路段的候选；
+- 只选择至少 12 段路线的内部节点，候选索引至少为 5；
 - 相机采用道路链节点与道路轴线，不再使用路网全局中点。
 
 ### 相机
@@ -55,7 +55,7 @@
 
 输出：
 
-`bevy/work/rk-x/hk-central-visual-1km-r4/`
+`bevy/work/rk-x/hk-central-visual-1km-r6/`
 
 运行数据：
 
@@ -100,9 +100,9 @@ node --check adapters/html/render/buildings.js
 
 glyphweave generate-world `
   examples/hong-kong-central-natural-evolution-1km.manifest.json `
-  bevy/work/rk-x/hk-central-visual-1km-r4
+  bevy/work/rk-x/hk-central-visual-1km-r6
 
-glyphweave scale-audit bevy/work/rk-x/hk-central-visual-1km-r4
-glyphweave quality-report bevy/work/rk-x/hk-central-visual-1km-r4
-glyphweave preview bevy/work/rk-x/hk-central-visual-1km-r4 8097
+glyphweave scale-audit bevy/work/rk-x/hk-central-visual-1km-r6
+glyphweave quality-report bevy/work/rk-x/hk-central-visual-1km-r6
+glyphweave preview bevy/work/rk-x/hk-central-visual-1km-r6 8099
 ```
