@@ -1,0 +1,109 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-stockholm-gamla-stan",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Gamla Stan, Stockholm",
+    "displayName": "Gamla stan, Centralbron, Gamla stan, Södermalms stadsdelsområde, Stockholm, Stockholms kommun, Stockholms län, 111 28, Sverige",
+    "osmType": "node",
+    "osmId": 4225502323,
+    "lat": 59.3233049,
+    "lon": 18.0670022
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 52326.391,
+    "roadDensityKmPerKm2": 52.326,
+    "drivableCenterlineLengthM": 17390.437,
+    "drivableDensityKmPerKm2": 17.39,
+    "roadLengthByClassM": {
+      "tertiary": 5372.839,
+      "pedestrian": 14778.93,
+      "footway": 12604.867,
+      "unclassified": 4183.301,
+      "service": 1917.682,
+      "trunk_link": 510.247,
+      "trunk": 2269.449,
+      "residential": 2792.52,
+      "cycleway": 5152.991,
+      "secondary_link": 26.759,
+      "steps": 945.539,
+      "road": 49.827,
+      "path": 206.041,
+      "tertiary_link": 111.17,
+      "secondary": 804.819,
+      "platform": 209.692,
+      "proposed": 140.176,
+      "construction": 249.542
+    },
+    "buildingCountInsideCircleCentroid": 565,
+    "estimatedBuildingFootprintM2": 182174.107,
+    "estimatedBuildingCoverageRatio": 0.182,
+    "buildingLevelsObservedCount": 387,
+    "buildingLevelsObservedRatio": 0.685,
+    "estimatedObservedFloorAreaM2": 549714.061,
+    "observedFloorAreaRatioProxy": 0.55,
+    "freshFoodFacilityCounts": {
+      "supermarket": 3,
+      "convenience": 5,
+      "seafood": 1,
+      "bakery": 5
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3373,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 14,
+        "demandBuildingCount": 565,
+        "buildingsWithTime": 559,
+        "unreachableBuildingCount": 6,
+        "medianMinutes": 2.214,
+        "p90Minutes": 4.538,
+        "within5MinuteRatio": 0.91,
+        "within10MinuteRatio": 0.97,
+        "within15MinuteRatio": 0.989
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 4,
+        "demandBuildingCount": 565,
+        "buildingsWithTime": 559,
+        "unreachableBuildingCount": 6,
+        "medianMinutes": 3.878,
+        "p90Minutes": 6.063,
+        "within5MinuteRatio": 0.743,
+        "within10MinuteRatio": 0.968,
+        "within15MinuteRatio": 0.989
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

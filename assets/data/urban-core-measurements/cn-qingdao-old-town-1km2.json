@@ -1,0 +1,104 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-qingdao-old-town",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "St. Michael Cathedral, Qingdao",
+    "displayName": "圣弥爱尔大教堂 （浙江路天主教堂）, 15, 浙江路, 观海山社区, 中山路街道, 市南区, 青岛市, 山东省, 266001, 中国",
+    "osmType": "way",
+    "osmId": 133905023,
+    "lat": 36.0680103,
+    "lon": 120.3156485
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 26878.339,
+    "roadDensityKmPerKm2": 26.878,
+    "drivableCenterlineLengthM": 17407.343,
+    "drivableDensityKmPerKm2": 17.407,
+    "roadLengthByClassM": {
+      "trunk": 0,
+      "tertiary": 3952.583,
+      "pedestrian": 6437.763,
+      "residential": 9832.485,
+      "unclassified": 129.288,
+      "living_street": 0,
+      "service": 1926.02,
+      "secondary": 1566.969,
+      "footway": 2795.355,
+      "trunk_link": 0,
+      "tertiary_link": 0,
+      "steps": 237.878,
+      "elevator": 0
+    },
+    "buildingCountInsideCircleCentroid": 752,
+    "estimatedBuildingFootprintM2": 337621.75,
+    "estimatedBuildingCoverageRatio": 0.338,
+    "buildingLevelsObservedCount": 85,
+    "buildingLevelsObservedRatio": 0.113,
+    "estimatedObservedFloorAreaM2": 576760.93,
+    "observedFloorAreaRatioProxy": 0.577,
+    "freshFoodFacilityCounts": {
+      "supermarket": 1,
+      "convenience": 16,
+      "bakery": 4,
+      "greengrocer": 4
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 1279,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 25,
+        "demandBuildingCount": 752,
+        "buildingsWithTime": 747,
+        "unreachableBuildingCount": 5,
+        "medianMinutes": 2.611,
+        "p90Minutes": 4.575,
+        "within5MinuteRatio": 0.938,
+        "within10MinuteRatio": 0.993,
+        "within15MinuteRatio": 0.993
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 5,
+        "demandBuildingCount": 752,
+        "buildingsWithTime": 747,
+        "unreachableBuildingCount": 5,
+        "medianMinutes": 5.518,
+        "p90Minutes": 8.582,
+        "within5MinuteRatio": 0.406,
+        "within10MinuteRatio": 0.98,
+        "within15MinuteRatio": 0.993
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

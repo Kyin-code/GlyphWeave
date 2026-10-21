@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-new-orleans-french-quarter",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "French Quarter, New Orleans",
+    "displayName": "French Quarter, New Orleans, Orleans Parish, Louisiana, 70116, United States",
+    "osmType": "node",
+    "osmId": 151385190,
+    "lat": 29.9594926,
+    "lon": -90.0655403
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 38974.43,
+    "roadDensityKmPerKm2": 38.974,
+    "drivableCenterlineLengthM": 22644.391,
+    "drivableDensityKmPerKm2": 22.644,
+    "roadLengthByClassM": {
+      "service": 4991.011,
+      "tertiary_link": 140.52,
+      "footway": 12880.41,
+      "tertiary": 1592.332,
+      "residential": 12875.936,
+      "pedestrian": 2707.848,
+      "unclassified": 153.355,
+      "secondary": 1936.34,
+      "motorway_link": 8.601,
+      "steps": 234.477,
+      "path": 59.96,
+      "cycleway": 298.223,
+      "primary": 0,
+      "living_street": 1095.416
+    },
+    "buildingCountInsideCircleCentroid": 1644,
+    "estimatedBuildingFootprintM2": 382009.287,
+    "estimatedBuildingCoverageRatio": 0.382,
+    "buildingLevelsObservedCount": 67,
+    "buildingLevelsObservedRatio": 0.041,
+    "estimatedObservedFloorAreaM2": 115326.609,
+    "observedFloorAreaRatioProxy": 0.115,
+    "freshFoodFacilityCounts": {
+      "marketplace": 6,
+      "bakery": 1,
+      "convenience": 6,
+      "supermarket": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 2526,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 13,
+        "demandBuildingCount": 1644,
+        "buildingsWithTime": 1644,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 3.121,
+        "p90Minutes": 4.787,
+        "within5MinuteRatio": 0.93,
+        "within10MinuteRatio": 1,
+        "within15MinuteRatio": 1
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 6,
+        "demandBuildingCount": 1644,
+        "buildingsWithTime": 1644,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 6.041,
+        "p90Minutes": 9.875,
+        "within5MinuteRatio": 0.386,
+        "within10MinuteRatio": 0.908,
+        "within15MinuteRatio": 1
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

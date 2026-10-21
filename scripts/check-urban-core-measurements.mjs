@@ -124,8 +124,8 @@ for (const name of names) {
   })
 }
 
-if (rows.length !== 12) {
-  failures.push(`expected 12 measured core windows, got ${rows.length}`)
+if (rows.length !== 48) {
+  failures.push(`expected 48 measured core windows, got ${rows.length}`)
 }
 
 if (failures.length) {

@@ -1,0 +1,106 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-san-francisco-union-square",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Union Square, San Francisco",
+    "displayName": "Union Square, Tenderloin, San Francisco, California, United States",
+    "osmType": "way",
+    "osmId": 25278818,
+    "lat": 37.7879363,
+    "lon": -122.4075174
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 59876.275,
+    "roadDensityKmPerKm2": 59.876,
+    "drivableCenterlineLengthM": 23704.019,
+    "drivableDensityKmPerKm2": 23.704,
+    "roadLengthByClassM": {
+      "service": 5377.561,
+      "residential": 3270.635,
+      "pedestrian": 1587.815,
+      "secondary": 7339.882,
+      "living_street": 138.952,
+      "tertiary": 7471.849,
+      "footway": 31912.612,
+      "steps": 1278.958,
+      "busway": 401.673,
+      "corridor": 130.036,
+      "platform": 592.01,
+      "tertiary_link": 244.068,
+      "unclassified": 105.139,
+      "secondary_link": 0,
+      "cycleway": 25.085
+    },
+    "buildingCountInsideCircleCentroid": 813,
+    "estimatedBuildingFootprintM2": 519707.41,
+    "estimatedBuildingCoverageRatio": 0.52,
+    "buildingLevelsObservedCount": 151,
+    "buildingLevelsObservedRatio": 0.186,
+    "estimatedObservedFloorAreaM2": 1864630.484,
+    "observedFloorAreaRatioProxy": 1.865,
+    "freshFoodFacilityCounts": {
+      "bakery": 5,
+      "convenience": 18,
+      "butcher": 1,
+      "supermarket": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3998,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 25,
+        "demandBuildingCount": 813,
+        "buildingsWithTime": 799,
+        "unreachableBuildingCount": 14,
+        "medianMinutes": 1.997,
+        "p90Minutes": 3.37,
+        "within5MinuteRatio": 0.967,
+        "within10MinuteRatio": 0.983,
+        "within15MinuteRatio": 0.983
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 2,
+        "demandBuildingCount": 813,
+        "buildingsWithTime": 796,
+        "unreachableBuildingCount": 17,
+        "medianMinutes": 6.842,
+        "p90Minutes": 10.916,
+        "within5MinuteRatio": 0.269,
+        "within10MinuteRatio": 0.804,
+        "within15MinuteRatio": 0.979
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

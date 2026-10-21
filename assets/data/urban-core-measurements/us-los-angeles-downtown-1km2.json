@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-los-angeles-downtown",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Downtown Los Angeles",
+    "displayName": "Downtown, Los Angeles, Los Angeles County, California, 90071, United States",
+    "osmType": "node",
+    "osmId": 7310117254,
+    "lat": 34.047996,
+    "lon": -118.2521002
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 61312.582,
+    "roadDensityKmPerKm2": 61.313,
+    "drivableCenterlineLengthM": 23970.981,
+    "drivableDensityKmPerKm2": 23.971,
+    "roadLengthByClassM": {
+      "service": 9625.306,
+      "secondary": 5798.808,
+      "residential": 201.64,
+      "unclassified": 91.703,
+      "primary_link": 151.325,
+      "footway": 31519.136,
+      "motorway_link": 0,
+      "primary": 8253.524,
+      "tertiary": 0,
+      "pedestrian": 1163.819,
+      "steps": 695.512,
+      "path": 123.575,
+      "corridor": 94.509,
+      "cycleway": 3593.724
+    },
+    "buildingCountInsideCircleCentroid": 363,
+    "estimatedBuildingFootprintM2": 449472.379,
+    "estimatedBuildingCoverageRatio": 0.449,
+    "buildingLevelsObservedCount": 157,
+    "buildingLevelsObservedRatio": 0.433,
+    "estimatedObservedFloorAreaM2": 3491008.117,
+    "observedFloorAreaRatioProxy": 3.491,
+    "freshFoodFacilityCounts": {
+      "marketplace": 1,
+      "convenience": 6,
+      "bakery": 4,
+      "greengrocer": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3655,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 13,
+        "demandBuildingCount": 363,
+        "buildingsWithTime": 362,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 3.07,
+        "p90Minutes": 6.837,
+        "within5MinuteRatio": 0.788,
+        "within10MinuteRatio": 0.983,
+        "within15MinuteRatio": 0.997
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 3,
+        "demandBuildingCount": 363,
+        "buildingsWithTime": 362,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 9.466,
+        "p90Minutes": 13.616,
+        "within5MinuteRatio": 0.165,
+        "within10MinuteRatio": 0.537,
+        "within15MinuteRatio": 0.97
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

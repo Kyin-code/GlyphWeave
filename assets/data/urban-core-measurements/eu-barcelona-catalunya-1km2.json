@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-barcelona-catalunya",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Placa de Catalunya, Barcelona",
+    "displayName": "Plaça de Catalunya, la Dreta de l'Eixample, l'Eixample, Barcelona, Barcelonès, Barcelona, Catalunya, 08007, España",
+    "osmType": "way",
+    "osmId": 931616773,
+    "lat": 41.3863845,
+    "lon": 2.1695859
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 70634.513,
+    "roadDensityKmPerKm2": 70.635,
+    "drivableCenterlineLengthM": 18775.001,
+    "drivableDensityKmPerKm2": 18.775,
+    "roadLengthByClassM": {
+      "pedestrian": 16087.713,
+      "residential": 6417.082,
+      "service": 2643.937,
+      "living_street": 3374.753,
+      "tertiary": 744.694,
+      "secondary": 4353.415,
+      "primary": 1241.12,
+      "primary_link": 34.012,
+      "steps": 693.123,
+      "footway": 29061.477,
+      "corridor": 1380.581,
+      "cycleway": 4602.606
+    },
+    "buildingCountInsideCircleCentroid": 882,
+    "estimatedBuildingFootprintM2": 319960.278,
+    "estimatedBuildingCoverageRatio": 0.32,
+    "buildingLevelsObservedCount": 650,
+    "buildingLevelsObservedRatio": 0.737,
+    "estimatedObservedFloorAreaM2": 1455561.459,
+    "observedFloorAreaRatioProxy": 1.456,
+    "freshFoodFacilityCounts": {
+      "bakery": 24,
+      "convenience": 32,
+      "greengrocer": 5,
+      "butcher": 2,
+      "supermarket": 28,
+      "marketplace": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 4216,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 91,
+        "demandBuildingCount": 882,
+        "buildingsWithTime": 879,
+        "unreachableBuildingCount": 3,
+        "medianMinutes": 1.215,
+        "p90Minutes": 2.333,
+        "within5MinuteRatio": 0.995,
+        "within10MinuteRatio": 0.997,
+        "within15MinuteRatio": 0.997
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 35,
+        "demandBuildingCount": 882,
+        "buildingsWithTime": 879,
+        "unreachableBuildingCount": 3,
+        "medianMinutes": 1.795,
+        "p90Minutes": 3.377,
+        "within5MinuteRatio": 0.993,
+        "within10MinuteRatio": 0.997,
+        "within15MinuteRatio": 0.997
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

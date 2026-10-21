@@ -1,0 +1,101 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-milan-duomo",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Duomo di Milano",
+    "displayName": "Duomo di Milano, 1_33051, Duomo, Cerchia dei Navigli, Municipio 1, Milano, Rodano, Milano, Lombardia, 20122, Italia",
+    "osmType": "relation",
+    "osmId": 18017026,
+    "lat": 45.4641669,
+    "lon": 9.1916121
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 83341.114,
+    "roadDensityKmPerKm2": 83.341,
+    "drivableCenterlineLengthM": 19290.359,
+    "drivableDensityKmPerKm2": 19.29,
+    "roadLengthByClassM": {
+      "tertiary": 444.04,
+      "residential": 15967.974,
+      "pedestrian": 12103.462,
+      "service": 2756.62,
+      "footway": 48934.347,
+      "steps": 1643.319,
+      "cycleway": 438.311,
+      "platform": 857.166,
+      "path": 74.15,
+      "living_street": 118.786,
+      "unclassified": 2.939
+    },
+    "buildingCountInsideCircleCentroid": 512,
+    "estimatedBuildingFootprintM2": 279842.703,
+    "estimatedBuildingCoverageRatio": 0.28,
+    "buildingLevelsObservedCount": 186,
+    "buildingLevelsObservedRatio": 0.363,
+    "estimatedObservedFloorAreaM2": 575817.633,
+    "observedFloorAreaRatioProxy": 0.576,
+    "freshFoodFacilityCounts": {
+      "convenience": 4,
+      "bakery": 6,
+      "supermarket": 3
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 7661,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 13,
+        "demandBuildingCount": 512,
+        "buildingsWithTime": 511,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 2.554,
+        "p90Minutes": 4.82,
+        "within5MinuteRatio": 0.914,
+        "within10MinuteRatio": 0.998,
+        "within15MinuteRatio": 0.998
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 3,
+        "demandBuildingCount": 512,
+        "buildingsWithTime": 511,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 5.326,
+        "p90Minutes": 9.243,
+        "within5MinuteRatio": 0.451,
+        "within10MinuteRatio": 0.936,
+        "within15MinuteRatio": 0.998
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

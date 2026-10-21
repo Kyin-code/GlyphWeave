@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-zurich-hauptbahnhof",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Zurich Hauptbahnhof",
+    "displayName": "Zürich Hauptbahnhof, Passage Löwenstrasse, City, Altstadt, Zürich, Bezirk Zürich, Zürich, 8021, Schweiz/Suisse/Svizzera/Svizra",
+    "osmType": "node",
+    "osmId": 1236383343,
+    "lat": 47.3781008,
+    "lon": 8.5393635
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 77193.362,
+    "roadDensityKmPerKm2": 77.193,
+    "drivableCenterlineLengthM": 26503.028,
+    "drivableDensityKmPerKm2": 26.503,
+    "roadLengthByClassM": {
+      "service": 8596.97,
+      "tertiary": 9783.882,
+      "footway": 37042.846,
+      "pedestrian": 6518.665,
+      "residential": 6773.126,
+      "living_street": 1193.755,
+      "path": 1081.513,
+      "steps": 3296.947,
+      "cycleway": 1345.035,
+      "unclassified": 155.294,
+      "platform": 826.465,
+      "elevator": 451.775,
+      "corridor": 33.961,
+      "construction": 93.126,
+      "busway": 0
+    },
+    "buildingCountInsideCircleCentroid": 825,
+    "estimatedBuildingFootprintM2": 325310.743,
+    "estimatedBuildingCoverageRatio": 0.325,
+    "buildingLevelsObservedCount": 364,
+    "buildingLevelsObservedRatio": 0.441,
+    "estimatedObservedFloorAreaM2": 941449.556,
+    "observedFloorAreaRatioProxy": 0.941,
+    "freshFoodFacilityCounts": {
+      "convenience": 10,
+      "bakery": 13,
+      "supermarket": 10
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 8362,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 33,
+        "demandBuildingCount": 825,
+        "buildingsWithTime": 809,
+        "unreachableBuildingCount": 16,
+        "medianMinutes": 2.109,
+        "p90Minutes": 4.569,
+        "within5MinuteRatio": 0.927,
+        "within10MinuteRatio": 0.981,
+        "within15MinuteRatio": 0.981
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 10,
+        "demandBuildingCount": 825,
+        "buildingsWithTime": 809,
+        "unreachableBuildingCount": 16,
+        "medianMinutes": 4.272,
+        "p90Minutes": 6.652,
+        "within5MinuteRatio": 0.622,
+        "within10MinuteRatio": 0.981,
+        "within15MinuteRatio": 0.981
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-miami-downtown",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Downtown Miami",
+    "displayName": "Downtown Miami, Torch of Friendship, Miami, Miami-Dade County, Florida, 33131, United States",
+    "osmType": "node",
+    "osmId": 13765005355,
+    "lat": 25.7744981,
+    "lon": -80.191995
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 61248.053,
+    "roadDensityKmPerKm2": 61.248,
+    "drivableCenterlineLengthM": 22815.469,
+    "drivableDensityKmPerKm2": 22.815,
+    "roadLengthByClassM": {
+      "motorway_link": 3474.51,
+      "footway": 33266.83,
+      "primary_link": 308.433,
+      "secondary": 6230.029,
+      "residential": 2327.992,
+      "tertiary": 4304.889,
+      "primary": 2795.096,
+      "pedestrian": 1001.121,
+      "unclassified": 234.576,
+      "secondary_link": 99.018,
+      "service": 6922.888,
+      "cycleway": 82.421,
+      "steps": 186.452,
+      "tertiary_link": 13.801
+    },
+    "buildingCountInsideCircleCentroid": 247,
+    "estimatedBuildingFootprintM2": 373870.344,
+    "estimatedBuildingCoverageRatio": 0.374,
+    "buildingLevelsObservedCount": 70,
+    "buildingLevelsObservedRatio": 0.283,
+    "estimatedObservedFloorAreaM2": 3759032.145,
+    "observedFloorAreaRatioProxy": 3.759,
+    "freshFoodFacilityCounts": {
+      "convenience": 3,
+      "supermarket": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 5547,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 5,
+        "demandBuildingCount": 247,
+        "buildingsWithTime": 241,
+        "unreachableBuildingCount": 6,
+        "medianMinutes": 4.931,
+        "p90Minutes": 8.762,
+        "within5MinuteRatio": 0.518,
+        "within10MinuteRatio": 0.927,
+        "within15MinuteRatio": 0.976
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 2,
+        "demandBuildingCount": 247,
+        "buildingsWithTime": 240,
+        "unreachableBuildingCount": 7,
+        "medianMinutes": 7.676,
+        "p90Minutes": 11.81,
+        "within5MinuteRatio": 0.239,
+        "within10MinuteRatio": 0.704,
+        "within15MinuteRatio": 0.964
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

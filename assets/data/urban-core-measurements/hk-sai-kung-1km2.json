@@ -1,0 +1,103 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "hk-sai-kung",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Sai Kung, Hong Kong",
+    "displayName": "西貢 Sai Kung, 香港 Hong Kong, 中国",
+    "osmType": "node",
+    "osmId": 1809087008,
+    "lat": 22.3822489,
+    "lon": 114.2728277
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 35705.305,
+    "roadDensityKmPerKm2": 35.705,
+    "drivableCenterlineLengthM": 12094.951,
+    "drivableDensityKmPerKm2": 12.095,
+    "roadLengthByClassM": {
+      "tertiary": 986.404,
+      "unclassified": 1012.041,
+      "footway": 16824.977,
+      "pedestrian": 3759.86,
+      "secondary": 1091.326,
+      "residential": 3655.329,
+      "service": 5236.263,
+      "steps": 614.943,
+      "living_street": 113.587,
+      "platform": 407.178,
+      "path": 419.478,
+      "construction": 1583.917
+    },
+    "buildingCountInsideCircleCentroid": 937,
+    "estimatedBuildingFootprintM2": 134210.775,
+    "estimatedBuildingCoverageRatio": 0.134,
+    "buildingLevelsObservedCount": 11,
+    "buildingLevelsObservedRatio": 0.012,
+    "estimatedObservedFloorAreaM2": 45821.625,
+    "observedFloorAreaRatioProxy": 0.046,
+    "freshFoodFacilityCounts": {
+      "marketplace": 1,
+      "convenience": 5,
+      "supermarket": 3,
+      "greengrocer": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3965,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 10,
+        "demandBuildingCount": 937,
+        "buildingsWithTime": 921,
+        "unreachableBuildingCount": 16,
+        "medianMinutes": 3.164,
+        "p90Minutes": 5.908,
+        "within5MinuteRatio": 0.807,
+        "within10MinuteRatio": 0.969,
+        "within15MinuteRatio": 0.983
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 5,
+        "demandBuildingCount": 937,
+        "buildingsWithTime": 921,
+        "unreachableBuildingCount": 16,
+        "medianMinutes": 3.934,
+        "p90Minutes": 5.969,
+        "within5MinuteRatio": 0.744,
+        "within10MinuteRatio": 0.968,
+        "within15MinuteRatio": 0.983
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

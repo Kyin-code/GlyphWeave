@@ -1,0 +1,104 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-las-vegas-strip",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Las Vegas Strip",
+    "displayName": "Las Vegas Strip, Plaza del Cerro, Spanish Oaks, Rancho Oakey, Las Vegas, Clark County, Nevada, 89106, United States",
+    "osmType": "way",
+    "osmId": 586928078,
+    "lat": 36.1194215,
+    "lon": -115.1742536
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 39957.398,
+    "roadDensityKmPerKm2": 39.957,
+    "drivableCenterlineLengthM": 21788.273,
+    "drivableDensityKmPerKm2": 21.788,
+    "roadLengthByClassM": {
+      "motorway_link": 355.057,
+      "residential": 0,
+      "footway": 12969.474,
+      "primary": 2943.745,
+      "motorway": 112.989,
+      "secondary": 1365.628,
+      "service": 14271.006,
+      "unclassified": 3094.907,
+      "primary_link": 220.06,
+      "steps": 530.867,
+      "construction": 913.692,
+      "elevator": 100.347,
+      "corridor": 2251.512,
+      "secondary_link": 100.994,
+      "pedestrian": 727.121
+    },
+    "buildingCountInsideCircleCentroid": 84,
+    "estimatedBuildingFootprintM2": 534451.109,
+    "estimatedBuildingCoverageRatio": 0.534,
+    "buildingLevelsObservedCount": 41,
+    "buildingLevelsObservedRatio": 0.488,
+    "estimatedObservedFloorAreaM2": 2381646.859,
+    "observedFloorAreaRatioProxy": 2.382,
+    "freshFoodFacilityCounts": {
+      "bakery": 2,
+      "convenience": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3224,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 3,
+        "demandBuildingCount": 84,
+        "buildingsWithTime": 68,
+        "unreachableBuildingCount": 16,
+        "medianMinutes": 10.078,
+        "p90Minutes": 12.739,
+        "within5MinuteRatio": 0.131,
+        "within10MinuteRatio": 0.393,
+        "within15MinuteRatio": 0.81
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 0,
+        "demandBuildingCount": 84,
+        "buildingsWithTime": 0,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": null,
+        "p90Minutes": null,
+        "within5MinuteRatio": null,
+        "within10MinuteRatio": null,
+        "within15MinuteRatio": null
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

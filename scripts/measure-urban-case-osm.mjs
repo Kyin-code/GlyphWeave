@@ -43,22 +43,13 @@ const metresPerDegreeLat = 111_320
 const latDelta = radiusM / metresPerDegreeLat
 const lonDelta =
   radiusM / (metresPerDegreeLat * Math.cos(lat * Math.PI / 180))
-const mapUrl = new URL('https://api.openstreetmap.org/api/0.6/map')
-mapUrl.searchParams.set(
-  'bbox',
-  [lon - lonDelta, lat - latDelta, lon + lonDelta, lat + latDelta]
-    .map((value) => value.toFixed(7))
-    .join(','),
-)
-const mapResponse = await fetch(mapUrl, {
-  headers: { 'User-Agent': userAgent },
-  signal: AbortSignal.timeout(120_000),
+const parsedOsm = await fetchOsmMapBbox({
+  minLat: lat - latDelta,
+  minLon: lon - lonDelta,
+  maxLat: lat + latDelta,
+  maxLon: lon + lonDelta,
+  userAgent,
 })
-if (!mapResponse.ok) {
-  fail(`OSM map API returned ${mapResponse.status}: ${await mapResponse.text()}`)
-}
-const osmXml = await mapResponse.text()
-const parsedOsm = parseOsmXml(osmXml)
 
 const drivable = new Set([
   'motorway',
@@ -213,6 +204,7 @@ const result = {
   limitations: [
     'OSM is a current collaborative map snapshot, not a historical census.',
     'Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.',
+    'Building counts are way-based; multipolygon building relations are not expanded.',
     'Road density is centreline length, not lane capacity or right-of-way area.',
     'Facility counts do not prove capacity, catchment, load, quality or opening hours.',
     'Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.',
@@ -375,6 +367,90 @@ function parseOsmXml(xml) {
     ways,
     relations,
   }
+}
+
+async function fetchOsmMapBbox({
+  minLat,
+  minLon,
+  maxLat,
+  maxLon,
+  userAgent,
+  depth = 0,
+}) {
+  const mapUrl = new URL('https://api.openstreetmap.org/api/0.6/map')
+  mapUrl.searchParams.set(
+    'bbox',
+    [minLon, minLat, maxLon, maxLat]
+      .map((value) => value.toFixed(7))
+      .join(','),
+  )
+  const response = await fetch(mapUrl, {
+    headers: { 'User-Agent': userAgent },
+    signal: AbortSignal.timeout(120_000),
+  })
+  if (response.ok) {
+    return parseOsmXml(await response.text())
+  }
+  const body = await response.text()
+  if (
+    response.status === 400
+    && body.includes('too many nodes')
+    && depth < 4
+  ) {
+    const midLat = (minLat + maxLat) / 2
+    const midLon = (minLon + maxLon) / 2
+    const bounds = [
+      { minLat, minLon, maxLat: midLat, maxLon: midLon },
+      { minLat, minLon: midLon, maxLat: midLat, maxLon },
+      { minLat: midLat, minLon, maxLat, maxLon: midLon },
+      { minLat: midLat, minLon: midLon, maxLat, maxLon },
+    ]
+    const parts = []
+    for (const part of bounds) {
+      parts.push(await fetchOsmMapBbox({
+        ...part,
+        userAgent,
+        depth: depth + 1,
+      }))
+      await delay(250)
+    }
+    return mergeParsedOsm(parts)
+  }
+  fail(`OSM map API returned ${response.status}: ${body}`)
+}
+
+function mergeParsedOsm(parts) {
+  const nodes = new Map()
+  const nodesWithTags = new Map()
+  const ways = new Map()
+  const relations = new Map()
+  for (const part of parts) {
+    for (const [id, node] of part.nodes) {
+      nodes.set(id, node)
+    }
+    for (const node of part.nodesWithTags) {
+      nodesWithTags.set(node.id, node)
+    }
+    for (const way of part.ways) {
+      ways.set(way.id, way)
+    }
+    for (const relation of part.relations) {
+      relations.set(relation.id, relation)
+    }
+  }
+  return {
+    timestamp: parts.at(-1)?.timestamp ?? null,
+    nodes,
+    nodesWithTags: [...nodesWithTags.values()],
+    ways: [...ways.values()],
+    relations: [...relations.values()],
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolveDelay) => {
+    setTimeout(resolveDelay, milliseconds)
+  })
 }
 
 function parseTagBlock(block) {

@@ -1,0 +1,110 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-portland-pioneer-square",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Pioneer Courthouse Square, Portland",
+    "displayName": "Pioneer Courthouse Square, Downtown, Portland, Multnomah County, Oregon, United States",
+    "osmType": "relation",
+    "osmId": 11590670,
+    "lat": 45.5189007,
+    "lon": -122.6792966
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 75590.806,
+    "roadDensityKmPerKm2": 75.591,
+    "drivableCenterlineLengthM": 31274.986,
+    "drivableDensityKmPerKm2": 31.275,
+    "roadLengthByClassM": {
+      "primary": 2531.476,
+      "secondary_link": 115.936,
+      "primary_link": 354.943,
+      "motorway_link": 40.797,
+      "unclassified": 5671.525,
+      "secondary": 8209.983,
+      "tertiary": 9023.533,
+      "path": 247.525,
+      "footway": 39478.763,
+      "pedestrian": 1265.088,
+      "service": 5442.367,
+      "cycleway": 1511.017,
+      "steps": 346.954,
+      "motorway": 396.101,
+      "platform": 793.323,
+      "corridor": 65.84,
+      "elevator": 16.865,
+      "tertiary_link": 0,
+      "construction": 78.768
+    },
+    "buildingCountInsideCircleCentroid": 395,
+    "estimatedBuildingFootprintM2": 416005.527,
+    "estimatedBuildingCoverageRatio": 0.416,
+    "buildingLevelsObservedCount": 376,
+    "buildingLevelsObservedRatio": 0.952,
+    "estimatedObservedFloorAreaM2": 3744670.996,
+    "observedFloorAreaRatioProxy": 3.745,
+    "freshFoodFacilityCounts": {
+      "supermarket": 1,
+      "convenience": 12,
+      "bakery": 3,
+      "marketplace": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 4957,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 17,
+        "demandBuildingCount": 395,
+        "buildingsWithTime": 392,
+        "unreachableBuildingCount": 3,
+        "medianMinutes": 2.27,
+        "p90Minutes": 3.557,
+        "within5MinuteRatio": 0.992,
+        "within10MinuteRatio": 0.992,
+        "within15MinuteRatio": 0.992
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 2,
+        "demandBuildingCount": 395,
+        "buildingsWithTime": 392,
+        "unreachableBuildingCount": 3,
+        "medianMinutes": 8.068,
+        "p90Minutes": 11.726,
+        "within5MinuteRatio": 0.243,
+        "within10MinuteRatio": 0.711,
+        "within15MinuteRatio": 0.987
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

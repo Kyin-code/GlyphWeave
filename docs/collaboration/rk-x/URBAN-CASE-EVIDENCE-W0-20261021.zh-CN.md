@@ -2,7 +2,8 @@
 
 日期：2026-10-21
 
-状态：**48 案来源审计完成；12 个完成首轮 OSM 米制观测，36 个仍待米制测量**
+状态：**48 案来源审计与首轮 OSM 米制观测完成；尚无案例达到完整
+`measured-core-window`**
 
 上游设计：
 
@@ -15,6 +16,7 @@
 - `assets/data/urban-history-patterns.json`
 - `assets/data/urban-pressure-patterns.json`
 - `scripts/check-urban-case-evidence.mjs`
+- `scripts/attach-urban-core-measurements.mjs`
 - `scripts/summarize-urban-history.mjs`
 - `scripts/summarize-urban-pressure.mjs`
 - `assets/data/urban-core-measurements/`
@@ -33,6 +35,7 @@
 
 ```powershell
 node scripts/check-urban-case-evidence.mjs
+node scripts/attach-urban-core-measurements.mjs
 node scripts/check-urban-case-priors.mjs
 node scripts/check-urban-core-measurements.mjs
 node scripts/summarize-urban-history.mjs
@@ -48,7 +51,7 @@ node scripts/summarize-urban-pressure.mjs
   "sourceAuditedCases": 48,
   "screenedCases": 0,
   "sources": 81,
-  "partialOsmWindows": 12
+  "partialOsmWindows": 48
 }
 ```
 
@@ -67,12 +70,12 @@ cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib
 | 等级 | 含义 | 当前用途 |
 |---|---|---|
 | `source-audited-core-cut` | 至少两个不同发布者来源；能支持核心切面机制 | 代表性案例 |
-| `partial-osm-core-window` | 已有约 1km² 当前 OSM 道路、建筑覆盖和设施点观测 | 12 个代表案例 |
+| `partial-osm-core-window` | 已有约 1km² 当前 OSM 道路、建筑覆盖和设施点观测 | 48 个核心切面 |
 | `screened-heuristic` | 已进入机制筛选，尚无逐案公开来源矩阵 | 0 案 |
 | `measured-core-window` | 已定义米制 crop，并完成路网/地块/密度/市场等测量 | **尚无案例达到** |
 | `bake-calibrated` | 已用真实或合成控制世界完成烘焙对照 | **尚无 V3 案例达到** |
 
-本轮把 48 案全部提升到 `source-audited-core-cut`，其中前 12 案同时达到
+本轮把 48 案全部提升到 `source-audited-core-cut`，同时全部达到
 `partial-osm-core-window`。没有案例被错误提升为完整的
 `measured-core-window`，因为地块、FAR、市场容量和网络时距仍未全部测量。
 
@@ -388,12 +391,13 @@ cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib
 | 香港观塘 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [Housing Authority](https://www.housingauthority.gov.hk/en/) | 工业更新、屋邨与陡坡连接待测 |
 | 香港西贡 | [HKPSG](https://www.pland.gov.hk/pland_en/tech_doc/hkpsg/) | [AFCD](https://www.afcd.gov.hk/english/index.html) | 渔村、码头与郊野公园边界待测 |
 
-至此 48/48 案都有至少两个不同发布者的公开来源。该成果只关闭 Source Gate
-的最小入口要求；真实地块、道路、FAR、历史和市场的米制测量仍未完成。
+至此 48/48 案都有至少两个不同发布者的公开来源。该成果关闭 Source Gate
+的最小入口要求；真实地块、FAR、历史和市场的完整测量仍未完成。
 
 ## 4. 首轮 1km² 米制观测
 
-测量脚本以命名核心锚点为中心，取面积约 1km² 的圆形当前 OSM 快照：
+48 个核心切面都已完成一轮约 1km² 的 OSM 快照。下表保留首批 12 个窗口作为
+可读样本，完整 48 窗口在 `assets/data/urban-core-measurements/`：
 
 ```powershell
 $env:HTTP_PROXY="http://127.0.0.1:7890"
@@ -407,6 +411,8 @@ node scripts/measure-urban-case-osm.mjs `
 
 这不是历史统计，也不是全城平均；它只用于校准核心切面的空间量级。
 无代理环境或本地可直接访问 OSM 时，可删除前三行环境变量。
+当单次 OSM map API 超过 5 万节点时，脚本递归切成四象限，按元素 ID 去重后
+合并；丹佛样本即通过该路径完成。
 
 | 核心窗口 | 可驾驶中心线 km/km² | 建筑数 | 覆盖率 | 生鲜点 | 市场型中位步行 | 10 分钟覆盖 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -429,18 +435,18 @@ node scripts/measure-urban-case-osm.mjs `
 
 | 指标 | 最小 | 中位数 | 最大 |
 |---|---:|---:|---:|
-| 可驾驶道路中心线密度 | 14.26 | 20.59 | 36.70 |
-| 建筑 centroid 数 | 177 | 394.5 | 4,153 |
-| 建筑覆盖率 | 0.193 | 0.3075 | 0.569 |
-| OSM 生鲜设施点 | 2 | 18.5 | 66 |
-| 建筑层数标注覆盖率 | 0.075 | 0.2255 | 0.800 |
-| 市场型中位步行时间（9 窗口） | 2.42 | 3.87 | 19.12 |
-| 市场型 10 分钟覆盖（9 窗口） | 0.249 | 0.962 | 0.998 |
+| 可驾驶道路中心线密度 | 12.10 | 20.31 | 36.70 |
+| 建筑 centroid 数 | 48 | 405.5 | 4,153 |
+| 建筑覆盖率 | 0.022 | 0.3165 | 0.569 |
+| OSM 生鲜设施点 | 2 | 18 | 92 |
+| 建筑层数标注覆盖率 | 0 | 0.2755 | 0.952 |
+| 市场型中位步行时间（42 窗口） | 1.80 | 4.40 | 19.12 |
+| 市场型 10 分钟覆盖（42 窗口） | 0.161 | 0.961 | 0.999 |
 
 ### 4.1 旧控制范围需要修正
 
-V3 早期把中心网格/混合区的“路网密度”写成 10–18 km/km²。12 个核心样本显示，
-只看可驾驶中心线，中位数已经约 20.6，范围 14.3–36.7。旧范围对高密核心偏低，
+V3 早期把中心网格/混合区的“路网密度”写成 10–18 km/km²。48 个核心样本显示，
+只看可驾驶中心线，中位数为 20.31，范围 12.10–36.70。旧范围对高密核心偏低，
 应把中心区控制带改为 18–34，历史细街网改为 14–23。
 
 包含步行道、服务道、平台和楼梯的总中心线密度会更高；巴黎样本达到
@@ -467,16 +473,17 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 ### 4.4 步行网络首次校准
 
 测量把建筑 centroid 和生鲜设施吸附到 120m 内的 OSM 步行/道路网络，以
-`1.3m/s` 计算网络步行时间。9 个能路由市场型设施的窗口中：
+`1.3m/s` 计算网络步行时间。42 个能路由市场型设施的窗口中：
 
-- 市场型中位步行时间的中位数为 3.87 分钟；
-- 10 分钟覆盖比例的中位数为 96.2%；
+- 市场型中位步行时间的中位数为 4.40 分钟；
+- 10 分钟覆盖比例的中位数为 96.1%；
 - 欧洲/日本核心普遍在 2–4 分钟内形成高频生鲜网络；
 - 重庆解放碑为 8.96 分钟、10 分钟覆盖 60.9%；
 - 香港沙田站为 7.64 分钟、73.6%；
 - 深圳福田 CBD 为 19.12 分钟、24.9%，是明显的待调查异常。
 
-北京、上海、芝加哥窗口没有映射到市场型设施，不能据此判定“没有市场”。
+北京、上海、芝加哥、东京湾、拉斯维加斯和华盛顿 DC 窗口没有映射到市场型设施，
+不能据此判定“没有市场”。
 这要求正式生成前增加数据完整性 gate：设施数量、分类和道路连通性不足时，
 只能输出“数据不足”，不能输出“服务缺口”。
 
@@ -484,7 +491,7 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 
 ### 4.5 建筑层数与 FAR 代理
 
-只有 7.5%–80.0% 的建筑具有明确 OSM 层数标签，中位数 22.55%。因此
+只有 0%–95.2% 的建筑具有明确 OSM 层数标签，中位数 27.55%。因此
 `observedFloorAreaRatioProxy` 只能作为下界参考，不能作为样本 FAR 统计。
 要获得可靠 FAR，仍须使用官方建筑轮廓/楼层数据或规划控制资料。
 
@@ -495,6 +502,7 @@ OSM 的 `marketplace/shop=supermarket/convenience/...` 点可用于空间开场�
 - 道路是中心线，不代表车道容量或道路红线面积；
 - 设施点不代表容量、质量或服务覆盖；
 - 步行网络等权建筑，不代表住户、就业或游客人数；
+- 建筑计数基于 way；multipolygon building relation 尚未展开，可能低估复杂建筑群；
 - OSM 设施分类和连通性缺失会改变覆盖结果；
 - 指定锚点只代表一个核心窗口，不能外推全城。
 
@@ -574,7 +582,7 @@ town 只有香港西贡 1 个样本，不能形成统计结论。
 - 政治首都的地形稀缺低于其他组，说明政治中心不能简单等同于高密开发。
 
 当前权重与样本方向没有根本冲突，但尚不足以证明权重数值正确。下一步应在
-12 个已测量核心窗口和更多官方地块数据上做 sensitivity test，而不是直接调参。
+48 个已测量核心窗口和更多官方地块数据上做 sensitivity test，而不是直接调参。
 
 ## 7. 本轮调查得到的跨案规律
 
@@ -612,15 +620,15 @@ town 只有香港西贡 1 个样本，不能形成统计结论。
 
 ## 8. 仍未完成的证据工作
 
-### 8.1 36 个待补测量案例
+### 8.1 完整测量仍缺
 
 `assets/data/urban-case-evidence.json` 已为全部 48 案登记来源状态。
-除前 12 个 OSM 窗口外，其余 36 案仍不能用于声称官方密度、人口、路网或
-市场统计；其中里斯本、巴塞罗那等案例还需要补强官方规划史料。
+48 案都已有首轮 OSM 道路、建筑和生鲜设施观测，但 OSM 不是人口普查，
+也不是完整地块/FAR 数据；其中里斯本、巴塞罗那等案例还需要补强官方规划史料。
 
 ### 8.2 米制核心窗口
 
-12 案虽已有首轮 OSM 观测，但尚未完成：
+48 案虽已有首轮 OSM 观测，但尚未完成：
 
 - 统一 1km/2km 窗口边界；
 - 坐标参考系和朝向；
@@ -648,12 +656,12 @@ town 只有香港西贡 1 个样本，不能形成统计结论。
 
 W0 继续按以下顺序推进：
 
-1. 对 24 个已审案例定义米制 core-window；
-2. 使用官方开放数据/OSM 辅助测量道路、地块、建筑高度和设施；
+1. 对 48 个已审案例确定最终米制 core-window 与边界敏感性；
+2. 使用官方开放数据补齐地块、建筑高度和设施容量；
 3. 每个数值分别标记 `observed`、`derived` 或 `heuristic`；
 4. 补齐市场专用来源；
-5. 将剩余 36 个案例按核心窗口逐批测量；
-6. 只有通过来源 gate 后，才把参数写入生成 Manifest 或 Rust fixture。
+5. 对 48 个 OSM 窗口做多锚点复核，避免单点广场/公园导致采样偏差；
+6. 只有通过完整 measurement gate 后，才把参数写入生成 Manifest 或 Rust fixture。
 
 在这些工作完成前，V3 审核稿中的道路密度、FAR、市场和工程系数仍只能当作
 待校准范围，不能当作真实城市统计。

@@ -1,0 +1,99 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "jp-tokyo-bay-odaiba",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Odaiba, Tokyo",
+    "displayName": "お台場, 江東区, 東京都, 日本",
+    "osmType": "relation",
+    "osmId": 3782450,
+    "lat": 35.6190032,
+    "lon": 139.7793576
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 41395.875,
+    "roadDensityKmPerKm2": 41.396,
+    "drivableCenterlineLengthM": 18557.192,
+    "drivableDensityKmPerKm2": 18.557,
+    "roadLengthByClassM": {
+      "tertiary": 9033.707,
+      "secondary": 2001.544,
+      "footway": 15195.265,
+      "service": 7497.243,
+      "pedestrian": 6234.172,
+      "steps": 560.254,
+      "path": 371.755,
+      "unclassified": 24.697,
+      "corridor": 206.576,
+      "elevator": 93.659,
+      "tertiary_link": 177.002
+    },
+    "buildingCountInsideCircleCentroid": 86,
+    "estimatedBuildingFootprintM2": 153267.59,
+    "estimatedBuildingCoverageRatio": 0.153,
+    "buildingLevelsObservedCount": 11,
+    "buildingLevelsObservedRatio": 0.128,
+    "estimatedObservedFloorAreaM2": 316042.109,
+    "observedFloorAreaRatioProxy": 0.316,
+    "freshFoodFacilityCounts": {
+      "convenience": 6
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 1786,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 6,
+        "demandBuildingCount": 86,
+        "buildingsWithTime": 82,
+        "unreachableBuildingCount": 4,
+        "medianMinutes": 5.286,
+        "p90Minutes": 7.825,
+        "within5MinuteRatio": 0.453,
+        "within10MinuteRatio": 0.884,
+        "within15MinuteRatio": 0.907
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 0,
+        "demandBuildingCount": 86,
+        "buildingsWithTime": 0,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": null,
+        "p90Minutes": null,
+        "within5MinuteRatio": null,
+        "within10MinuteRatio": null,
+        "within15MinuteRatio": null
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-vienna-stephansplatz",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Stephansplatz, Vienna",
+    "displayName": "Stephansplatz, Stock-im-Eisen-Platz, Kärntner Viertel, Katastralgemeinde Innere Stadt, Innere Stadt, Wien, 1010, Österreich",
+    "osmType": "node",
+    "osmId": 3500528328,
+    "lat": 48.2080838,
+    "lon": 16.3715166
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 43972.523,
+    "roadDensityKmPerKm2": 43.973,
+    "drivableCenterlineLengthM": 18170.021,
+    "drivableDensityKmPerKm2": 18.17,
+    "roadLengthByClassM": {
+      "pedestrian": 10516.026,
+      "living_street": 3228.605,
+      "residential": 13352.371,
+      "steps": 1126.85,
+      "footway": 13761.394,
+      "service": 1589.045,
+      "tertiary": 0,
+      "cycleway": 100.38,
+      "path": 60.958,
+      "secondary": 0,
+      "primary": 0,
+      "platform": 177.3,
+      "corridor": 45.46,
+      "elevator": 14.133,
+      "busway": 0
+    },
+    "buildingCountInsideCircleCentroid": 553,
+    "estimatedBuildingFootprintM2": 259519.711,
+    "estimatedBuildingCoverageRatio": 0.26,
+    "buildingLevelsObservedCount": 364,
+    "buildingLevelsObservedRatio": 0.658,
+    "estimatedObservedFloorAreaM2": 1020459.743,
+    "observedFloorAreaRatioProxy": 1.02,
+    "freshFoodFacilityCounts": {
+      "convenience": 7,
+      "bakery": 25,
+      "marketplace": 2,
+      "supermarket": 9,
+      "butcher": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 4175,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 42,
+        "demandBuildingCount": 553,
+        "buildingsWithTime": 548,
+        "unreachableBuildingCount": 5,
+        "medianMinutes": 1.656,
+        "p90Minutes": 2.948,
+        "within5MinuteRatio": 0.976,
+        "within10MinuteRatio": 0.991,
+        "within15MinuteRatio": 0.991
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 12,
+        "demandBuildingCount": 553,
+        "buildingsWithTime": 548,
+        "unreachableBuildingCount": 5,
+        "medianMinutes": 2.975,
+        "p90Minutes": 5.157,
+        "within5MinuteRatio": 0.873,
+        "within10MinuteRatio": 0.991,
+        "within15MinuteRatio": 0.991
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

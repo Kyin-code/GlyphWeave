@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "jp-yokohama-minato-mirai",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Minato Mirai, Yokohama",
+    "displayName": "Minato Mirai, 高島, 西区, 横浜市, 神奈川県, 231-0017, 日本",
+    "osmType": "way",
+    "osmId": 675155766,
+    "lat": 35.4594441,
+    "lon": 139.6323669
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 57840.105,
+    "roadDensityKmPerKm2": 57.84,
+    "drivableCenterlineLengthM": 18870.765,
+    "drivableDensityKmPerKm2": 18.871,
+    "roadLengthByClassM": {
+      "tertiary": 13958.32,
+      "unclassified": 1178.168,
+      "service": 3509.103,
+      "motorway_link": 71.406,
+      "footway": 27930.223,
+      "pedestrian": 7364.943,
+      "motorway": 0,
+      "steps": 1378.735,
+      "tertiary_link": 349.155,
+      "residential": 225.173,
+      "corridor": 0,
+      "trunk": 0,
+      "cycleway": 1686.28,
+      "elevator": 33.024,
+      "proposed": 155.573
+    },
+    "buildingCountInsideCircleCentroid": 149,
+    "estimatedBuildingFootprintM2": 324279.457,
+    "estimatedBuildingCoverageRatio": 0.324,
+    "buildingLevelsObservedCount": 70,
+    "buildingLevelsObservedRatio": 0.47,
+    "estimatedObservedFloorAreaM2": 3428276.512,
+    "observedFloorAreaRatioProxy": 3.428,
+    "freshFoodFacilityCounts": {
+      "bakery": 5,
+      "convenience": 12,
+      "supermarket": 4
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3964,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 21,
+        "demandBuildingCount": 149,
+        "buildingsWithTime": 148,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 3.528,
+        "p90Minutes": 6.031,
+        "within5MinuteRatio": 0.779,
+        "within10MinuteRatio": 0.993,
+        "within15MinuteRatio": 0.993
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 4,
+        "demandBuildingCount": 149,
+        "buildingsWithTime": 148,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 5.176,
+        "p90Minutes": 8.588,
+        "within5MinuteRatio": 0.45,
+        "within10MinuteRatio": 0.966,
+        "within15MinuteRatio": 0.993
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

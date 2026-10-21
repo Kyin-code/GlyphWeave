@@ -1,0 +1,102 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-rome-piazza-venezia",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Piazza Venezia, Rome",
+    "displayName": "Piazza Venezia, Trevi, Municipio Roma I, Roma, Roma Capitale, Lazio, Italia",
+    "osmType": "way",
+    "osmId": 713360712,
+    "lat": 41.8962446,
+    "lon": 12.4823704
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 56635.672,
+    "roadDensityKmPerKm2": 56.636,
+    "drivableCenterlineLengthM": 20052.212,
+    "drivableDensityKmPerKm2": 20.052,
+    "roadLengthByClassM": {
+      "service": 9297.293,
+      "pedestrian": 11891.578,
+      "tertiary": 3650.589,
+      "footway": 23107.595,
+      "residential": 6274.159,
+      "primary": 0,
+      "unclassified": 793.39,
+      "steps": 1408.694,
+      "living_street": 36.781,
+      "proposed": 105.36,
+      "path": 70.232
+    },
+    "buildingCountInsideCircleCentroid": 1016,
+    "estimatedBuildingFootprintM2": 227149.595,
+    "estimatedBuildingCoverageRatio": 0.227,
+    "buildingLevelsObservedCount": 50,
+    "buildingLevelsObservedRatio": 0.049,
+    "estimatedObservedFloorAreaM2": 121239.534,
+    "observedFloorAreaRatioProxy": 0.121,
+    "freshFoodFacilityCounts": {
+      "convenience": 9,
+      "bakery": 8,
+      "supermarket": 1,
+      "marketplace": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 6204,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 18,
+        "demandBuildingCount": 1016,
+        "buildingsWithTime": 976,
+        "unreachableBuildingCount": 40,
+        "medianMinutes": 3.759,
+        "p90Minutes": 9.704,
+        "within5MinuteRatio": 0.523,
+        "within10MinuteRatio": 0.914,
+        "within15MinuteRatio": 0.961
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 1,
+        "demandBuildingCount": 1016,
+        "buildingsWithTime": 976,
+        "unreachableBuildingCount": 40,
+        "medianMinutes": 10.51,
+        "p90Minutes": 14.313,
+        "within5MinuteRatio": 0.203,
+        "within10MinuteRatio": 0.444,
+        "within15MinuteRatio": 0.933
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-london-bank",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Bank of England, London",
+    "displayName": "Bank of England, 8AH, Threadneedle Street, Leadenhall Market, Bank, City of London, Greater London, England, EC2R 8AH, United Kingdom",
+    "osmType": "relation",
+    "osmId": 553472,
+    "lat": 51.5141618,
+    "lon": -0.0889387
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 76530.928,
+    "roadDensityKmPerKm2": 76.531,
+    "drivableCenterlineLengthM": 24856.429,
+    "drivableDensityKmPerKm2": 24.856,
+    "roadLengthByClassM": {
+      "tertiary": 5543.757,
+      "primary": 4710.169,
+      "residential": 1892.867,
+      "pedestrian": 6043.662,
+      "cycleway": 1511.674,
+      "unclassified": 9706.984,
+      "footway": 40441.75,
+      "service": 2896.451,
+      "steps": 1919.86,
+      "primary_link": 121.706,
+      "corridor": 1415.8,
+      "track": 62.518,
+      "living_street": 55.789,
+      "tertiary_link": 0,
+      "road": 50.413,
+      "path": 70.85,
+      "proposed": 41.283,
+      "elevator": 45.396,
+      "platform": 0
+    },
+    "buildingCountInsideCircleCentroid": 721,
+    "estimatedBuildingFootprintM2": 566001.185,
+    "estimatedBuildingCoverageRatio": 0.566,
+    "buildingLevelsObservedCount": 331,
+    "buildingLevelsObservedRatio": 0.459,
+    "estimatedObservedFloorAreaM2": 3071060.875,
+    "observedFloorAreaRatioProxy": 3.071,
+    "freshFoodFacilityCounts": {
+      "marketplace": 1,
+      "convenience": 15,
+      "bakery": 7,
+      "butcher": 1,
+      "supermarket": 4
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 9078,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 25,
+        "demandBuildingCount": 721,
+        "buildingsWithTime": 713,
+        "unreachableBuildingCount": 8,
+        "medianMinutes": 1.868,
+        "p90Minutes": 3.717,
+        "within5MinuteRatio": 0.947,
+        "within10MinuteRatio": 0.989,
+        "within15MinuteRatio": 0.989
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 5,
+        "demandBuildingCount": 721,
+        "buildingsWithTime": 713,
+        "unreachableBuildingCount": 8,
+        "medianMinutes": 3.643,
+        "p90Minutes": 6.571,
+        "within5MinuteRatio": 0.696,
+        "within10MinuteRatio": 0.989,
+        "within15MinuteRatio": 0.989
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

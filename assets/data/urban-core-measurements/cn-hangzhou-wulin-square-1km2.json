@@ -1,0 +1,106 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-hangzhou-wulin-square",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Wulin Square, Hangzhou",
+    "displayName": "武林广场, 展览东路, 仓桥社区, 天水街道, 拱墅区, 杭州市, 浙江省, 310006, 中国",
+    "osmType": "way",
+    "osmId": 514668801,
+    "lat": 30.2746998,
+    "lon": 120.1596218
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 36725.433,
+    "roadDensityKmPerKm2": 36.725,
+    "drivableCenterlineLengthM": 18805.549,
+    "drivableDensityKmPerKm2": 18.806,
+    "roadLengthByClassM": {
+      "secondary": 5494.076,
+      "trunk_link": 1501.434,
+      "tertiary": 1479.122,
+      "service": 5848.943,
+      "unclassified": 1354.068,
+      "cycleway": 6020.41,
+      "residential": 214.601,
+      "primary": 2207.5,
+      "footway": 8985.136,
+      "steps": 457.138,
+      "pedestrian": 755.202,
+      "secondary_link": 113.445,
+      "trunk": 2202.275,
+      "elevator": 22.108,
+      "living_street": 4.964,
+      "platform": 65.012
+    },
+    "buildingCountInsideCircleCentroid": 93,
+    "estimatedBuildingFootprintM2": 210176.07,
+    "estimatedBuildingCoverageRatio": 0.21,
+    "buildingLevelsObservedCount": 0,
+    "buildingLevelsObservedRatio": 0,
+    "estimatedObservedFloorAreaM2": 0,
+    "observedFloorAreaRatioProxy": 0,
+    "freshFoodFacilityCounts": {
+      "convenience": 3,
+      "supermarket": 1,
+      "bakery": 4
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 1655,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 8,
+        "demandBuildingCount": 93,
+        "buildingsWithTime": 92,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 4.751,
+        "p90Minutes": 7.872,
+        "within5MinuteRatio": 0.527,
+        "within10MinuteRatio": 0.978,
+        "within15MinuteRatio": 0.989
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 1,
+        "demandBuildingCount": 93,
+        "buildingsWithTime": 92,
+        "unreachableBuildingCount": 1,
+        "medianMinutes": 15.342,
+        "p90Minutes": 18.672,
+        "within5MinuteRatio": 0.043,
+        "within10MinuteRatio": 0.161,
+        "within15MinuteRatio": 0.441
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -8,7 +8,7 @@
     "minimumSourceCountForAuditedCase": 2,
     "minimumPublisherDiversity": 2,
     "expectedSourceAuditedCases": 48,
-    "expectedPartialOsmWindows": 12,
+    "expectedPartialOsmWindows": 48,
     "heuristicValuesMayBePromotedOnlyWithMeasuredStatus": true,
     "browserOrReaderAccessAccepted": true,
     "unverifiedAiSummariesAccepted": false
@@ -1022,7 +1022,11 @@
     {
       "caseId": "cn-beijing",
       "level": "source-audited-core-cut",
-      "sourceIds": ["bj-master-plan", "bj-urban-design-guideline", "bj-hutong-story"],
+      "sourceIds": [
+        "bj-master-plan",
+        "bj-urban-design-guideline",
+        "bj-hutong-story"
+      ],
       "supportedMechanisms": [
         "capital-axis planning and historic-city conservation",
         "hutong fine grain and adaptive reuse",
@@ -1031,13 +1035,29 @@
       "measurementFile": "assets/data/urban-core-measurements/cn-beijing-wangfujing-1km2.json",
       "measurementCaseId": "cn-beijing-wangfujing",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["additional core-window comparison", "parcel frontage", "FAR", "fresh-food access time", "boundary sensitivity"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "additional core-window comparison",
+        "parcel frontage",
+        "FAR",
+        "fresh-food access time",
+        "boundary sensitivity"
+      ]
     },
     {
       "caseId": "cn-shanghai",
       "level": "source-audited-core-cut",
-      "sourceIds": ["sh-master-plan", "sh-master-plan-home", "sh-lilong-rehab"],
+      "sourceIds": [
+        "sh-master-plan",
+        "sh-master-plan-home",
+        "sh-lilong-rehab"
+      ],
       "supportedMechanisms": [
         "long-term municipal spatial plan",
         "lilong fine-grain housing and redevelopment pressure",
@@ -1046,13 +1066,27 @@
       "measurementFile": "assets/data/urban-core-measurements/cn-shanghai-bund-1km2.json",
       "measurementCaseId": "cn-shanghai-bund",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["lilong parcel distribution", "FAR", "market access time", "boundary sensitivity"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "lilong parcel distribution",
+        "FAR",
+        "market access time",
+        "boundary sensitivity"
+      ]
     },
     {
       "caseId": "cn-chongqing",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cq-state-council-approval", "cq-adb-green-low-carbon"],
+      "sourceIds": [
+        "cq-state-council-approval",
+        "cq-adb-green-low-carbon"
+      ],
       "supportedMechanisms": [
         "national spatial-plan approval",
         "green and low-carbon development pressure"
@@ -1060,13 +1094,29 @@
       "measurementFile": "assets/data/urban-core-measurements/cn-chongqing-jiefangbei-1km2.json",
       "measurementCaseId": "cn-chongqing-jiefangbei",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["two-river crop", "slope distribution", "terrace/retaining-wall density", "road grade", "engineering volumes"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "two-river crop",
+        "slope distribution",
+        "terrace/retaining-wall density",
+        "road grade",
+        "engineering volumes"
+      ]
     },
     {
       "caseId": "cn-shenzhen",
       "level": "source-audited-core-cut",
-      "sourceIds": ["sz-spatial-plan", "sz-state-council-approval", "sz-unep"],
+      "sourceIds": [
+        "sz-spatial-plan",
+        "sz-state-council-approval",
+        "sz-unep"
+      ],
       "supportedMechanisms": [
         "recent territorial spatial plan",
         "state-level planning approval",
@@ -1075,13 +1125,28 @@
       "measurementFile": "assets/data/urban-core-measurements/cn-shenzhen-futian-cbd-1km2.json",
       "measurementCaseId": "cn-shenzhen-futian-cbd",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["urban-village parcel sample", "reclaimed land area", "bayfront public access", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "urban-village parcel sample",
+        "reclaimed land area",
+        "bayfront public access",
+        "market access time"
+      ]
     },
     {
       "caseId": "us-new-york",
       "level": "source-audited-core-cut",
-      "sourceIds": ["nyc-zoning-resolution", "nyc-street-design-manual", "nyc-open-data"],
+      "sourceIds": [
+        "nyc-zoning-resolution",
+        "nyc-street-design-manual",
+        "nyc-open-data"
+      ],
       "supportedMechanisms": [
         "district-based zoning and special regulations",
         "street and pedestrian design guidance",
@@ -1090,13 +1155,28 @@
       "measurementFile": "assets/data/urban-core-measurements/us-new-york-times-square-1km2.json",
       "measurementCaseId": "us-new-york-times-square",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["Manhattan crop", "block and parcel distribution", "FAR/height", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "Manhattan crop",
+        "block and parcel distribution",
+        "FAR/height",
+        "market access time"
+      ]
     },
     {
       "caseId": "us-chicago",
       "level": "source-audited-core-cut",
-      "sourceIds": ["chi-dcd", "chi-data", "chi-history-museum"],
+      "sourceIds": [
+        "chi-dcd",
+        "chi-data",
+        "chi-history-museum"
+      ],
       "supportedMechanisms": [
         "municipal planning and development function",
         "parcel/zoning/public-infrastructure data",
@@ -1105,13 +1185,29 @@
       "measurementFile": "assets/data/urban-core-measurements/us-chicago-loop-1km2.json",
       "measurementCaseId": "us-chicago-loop",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["lakefront crop", "grid block dimensions", "rail/industrial layers", "FAR/height", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "lakefront crop",
+        "grid block dimensions",
+        "rail/industrial layers",
+        "FAR/height",
+        "market access time"
+      ]
     },
     {
       "caseId": "eu-paris",
       "level": "source-audited-core-cut",
-      "sourceIds": ["paris-open-data", "paris-apur", "paris-open-markets-dataset"],
+      "sourceIds": [
+        "paris-open-data",
+        "paris-apur",
+        "paris-open-markets-dataset"
+      ],
       "supportedMechanisms": [
         "municipal open data",
         "Paris/Greater Paris planning analysis",
@@ -1120,13 +1216,28 @@
       "measurementFile": "assets/data/urban-core-measurements/eu-paris-hotel-de-ville-1km2.json",
       "measurementCaseId": "eu-paris-hotel-de-ville",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["Seine crop", "perimeter-block parcel data", "FAR/height", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "Seine crop",
+        "perimeter-block parcel data",
+        "FAR/height",
+        "market access time"
+      ]
     },
     {
       "caseId": "eu-prague",
       "level": "source-audited-core-cut",
-      "sourceIds": ["prague-city", "prague-open-data", "unesco-prague"],
+      "sourceIds": [
+        "prague-city",
+        "prague-open-data",
+        "unesco-prague"
+      ],
       "supportedMechanisms": [
         "municipal planning and heritage entry point",
         "municipal open data",
@@ -1135,13 +1246,29 @@
       "measurementFile": "assets/data/urban-core-measurements/eu-prague-old-town-1km2.json",
       "measurementCaseId": "eu-prague-old-town",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["river-valley crop", "medieval parcel pattern", "panel-estate sample", "FAR/height", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "river-valley crop",
+        "medieval parcel pattern",
+        "panel-estate sample",
+        "FAR/height",
+        "market access time"
+      ]
     },
     {
       "caseId": "jp-tokyo-shitamachi",
       "level": "source-audited-core-cut",
-      "sourceIds": ["tokyo-urban-planning", "mlit-street-design", "taito-city"],
+      "sourceIds": [
+        "tokyo-urban-planning",
+        "mlit-street-design",
+        "taito-city"
+      ],
       "supportedMechanisms": [
         "metropolitan urban-planning framework",
         "walkable street-design guidance",
@@ -1150,13 +1277,29 @@
       "measurementFile": "assets/data/urban-core-measurements/jp-tokyo-asakusa-1km2.json",
       "measurementCaseId": "jp-tokyo-asakusa",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["Taito crop", "fine parcel/street distribution", "FAR/height", "station access", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "Taito crop",
+        "fine parcel/street distribution",
+        "FAR/height",
+        "station access",
+        "market access time"
+      ]
     },
     {
       "caseId": "jp-kobe-sannomiya",
       "level": "source-audited-core-cut",
-      "sourceIds": ["kobe-urban-planning", "kobe-city", "mlit-street-design"],
+      "sourceIds": [
+        "kobe-urban-planning",
+        "kobe-city",
+        "mlit-street-design"
+      ],
       "supportedMechanisms": [
         "development permission and zoning controls",
         "municipal planning portal",
@@ -1165,13 +1308,29 @@
       "measurementFile": "assets/data/urban-core-measurements/jp-kobe-sannomiya-1km2.json",
       "measurementCaseId": "jp-kobe-sannomiya",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["mountain-sea crop", "slope/steep-lane sample", "port interface", "block/parcel data", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "mountain-sea crop",
+        "slope/steep-lane sample",
+        "port interface",
+        "block/parcel data",
+        "market access time"
+      ]
     },
     {
       "caseId": "hk-central",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-planning", "hk-amo"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-planning",
+        "hk-amo"
+      ],
       "supportedMechanisms": [
         "land-use and facility planning standards",
         "statutory planning information",
@@ -1180,13 +1339,29 @@
       "measurementFile": "assets/data/urban-core-measurements/hk-central-statue-square-1km2.json",
       "measurementCaseId": "hk-central-statue-square",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["Central/Admiralty crop", "steep slope and podium sample", "pedestrian network elevation", "FAR/height", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "Central/Admiralty crop",
+        "steep slope and podium sample",
+        "pedestrian network elevation",
+        "FAR/height",
+        "market access time"
+      ]
     },
     {
       "caseId": "hk-sha-tin",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-planning", "hk-housing-authority"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-planning",
+        "hk-housing-authority"
+      ],
       "supportedMechanisms": [
         "new-town land-use and facility standards",
         "statutory planning information",
@@ -1195,368 +1370,1036 @@
       "measurementFile": "assets/data/urban-core-measurements/hk-sha-tin-station-1km2.json",
       "measurementCaseId": "hk-sha-tin-station",
       "measurementStatus": "partial-osm",
-      "observedFields": ["road-density", "building-coverage", "fresh-food-points"],
-      "measurementGaps": ["Shing Mun River crop", "new-town block and estate data", "school/retail access", "riverfront access", "market access time"]
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ],
+      "measurementGaps": [
+        "Shing Mun River crop",
+        "new-town block and estate data",
+        "school/retail access",
+        "riverfront access",
+        "market access time"
+      ]
     },
     {
       "caseId": "cn-guangzhou",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-guangzhou-spatial-plan", "osm-map-api"],
+      "sourceIds": [
+        "cn-guangzhou-spatial-plan",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "2021-2035 municipal territorial spatial plan",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["core-window crop", "arcade old-city parcel sample", "road density", "FAR", "market access time"]
+      "measurementGaps": [
+        "core-window crop",
+        "arcade old-city parcel sample",
+        "road density",
+        "FAR",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-guangzhou-beijing-road-1km2.json",
+      "measurementCaseId": "cn-guangzhou-beijing-road",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-chengdu",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-chengdu-ecological-plan", "osm-map-api"],
+      "sourceIds": [
+        "cn-chengdu-ecological-plan",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal ecological-restoration planning",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["core-window crop", "old-grid parcel sample", "road density", "FAR", "market access time"]
+      "measurementGaps": [
+        "core-window crop",
+        "old-grid parcel sample",
+        "road density",
+        "FAR",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-chengdu-tianfu-square-1km2.json",
+      "measurementCaseId": "cn-chengdu-tianfu-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-xian",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-xian-state-approval", "osm-map-api"],
+      "sourceIds": [
+        "cn-xian-state-approval",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "state-approved 2021-2035 territorial spatial plan",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["wall-city crop", "protected-core parcel sample", "road density", "FAR", "market access time"]
+      "measurementGaps": [
+        "wall-city crop",
+        "protected-core parcel sample",
+        "road density",
+        "FAR",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-xian-bell-tower-1km2.json",
+      "measurementCaseId": "cn-xian-bell-tower",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-hangzhou",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-hangzhou-portal", "osm-map-api"],
+      "sourceIds": [
+        "cn-hangzhou-portal",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "official municipal planning information entry point",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["West Lake core-window crop", "lakeside parcel sample", "protected-view constraints", "road density", "market access time"]
+      "measurementGaps": [
+        "West Lake core-window crop",
+        "lakeside parcel sample",
+        "protected-view constraints",
+        "road density",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-hangzhou-wulin-square-1km2.json",
+      "measurementCaseId": "cn-hangzhou-wulin-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-wuhan",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-wuhan-spatial-plan", "osm-map-api"],
+      "sourceIds": [
+        "cn-wuhan-spatial-plan",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "2021-2035 municipal territorial spatial plan",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["river-confluence crop", "lakefront parcel sample", "bridge density", "road density", "market access time"]
+      "measurementGaps": [
+        "river-confluence crop",
+        "lakefront parcel sample",
+        "bridge density",
+        "road density",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-wuhan-jianghan-road-1km2.json",
+      "measurementCaseId": "cn-wuhan-jianghan-road",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-qingdao",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-qingdao-portal", "osm-map-api"],
+      "sourceIds": [
+        "cn-qingdao-portal",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "official municipal planning information entry point",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["mountain-coast crop", "stepped-street sample", "slope distribution", "road grade", "market access time"]
+      "measurementGaps": [
+        "mountain-coast crop",
+        "stepped-street sample",
+        "slope distribution",
+        "road grade",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-qingdao-old-town-1km2.json",
+      "measurementCaseId": "cn-qingdao-old-town",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-xiamen",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-xiamen-portal", "osm-map-api"],
+      "sourceIds": [
+        "cn-xiamen-portal",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "official municipal planning information entry point",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["island waterfront crop", "arcade parcel sample", "reclaimed-edge area", "road density", "market access time"]
+      "measurementGaps": [
+        "island waterfront crop",
+        "arcade parcel sample",
+        "reclaimed-edge area",
+        "road density",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-xiamen-zhongshan-road-1km2.json",
+      "measurementCaseId": "cn-xiamen-zhongshan-road",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "cn-kunming",
       "level": "source-audited-core-cut",
-      "sourceIds": ["cn-kunming-portal", "osm-map-api"],
+      "sourceIds": [
+        "cn-kunming-portal",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "official municipal planning information entry point",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["plateau-lake crop", "basin parcel sample", "slope distribution", "road density", "market access time"]
+      "measurementGaps": [
+        "plateau-lake crop",
+        "basin parcel sample",
+        "slope distribution",
+        "road density",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/cn-kunming-nanping-street-1km2.json",
+      "measurementCaseId": "cn-kunming-nanping-street",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-san-francisco",
       "level": "source-audited-core-cut",
-      "sourceIds": ["us-san-francisco-planning", "osm-map-api"],
+      "sourceIds": [
+        "us-san-francisco-planning",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal planning and zoning information",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["steep-grid crop", "block and parcel distribution", "FAR/height", "market access time"]
+      "measurementGaps": [
+        "steep-grid crop",
+        "block and parcel distribution",
+        "FAR/height",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-san-francisco-union-square-1km2.json",
+      "measurementCaseId": "us-san-francisco-union-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-los-angeles",
       "level": "source-audited-core-cut",
-      "sourceIds": ["us-los-angeles-planning", "osm-map-api"],
+      "sourceIds": [
+        "us-los-angeles-planning",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal planning, zoning and urban-design information",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["polycentric core selection", "commercial-strip sample", "parcel/FAR data", "market access time"]
+      "measurementGaps": [
+        "polycentric core selection",
+        "commercial-strip sample",
+        "parcel/FAR data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-los-angeles-downtown-1km2.json",
+      "measurementCaseId": "us-los-angeles-downtown",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-seattle",
       "level": "source-audited-core-cut",
-      "sourceIds": ["us-seattle-opcd", "osm-map-api"],
+      "sourceIds": [
+        "us-seattle-opcd",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal planning and community-development framework",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["hill-bay crop", "urban-village parcel sample", "FAR/height", "market access time"]
+      "measurementGaps": [
+        "hill-bay crop",
+        "urban-village parcel sample",
+        "FAR/height",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-seattle-pike-place-1km2.json",
+      "measurementCaseId": "us-seattle-pike-place",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-boston",
       "level": "source-audited-core-cut",
-      "sourceIds": ["us-boston-planning", "osm-map-api"],
+      "sourceIds": [
+        "us-boston-planning",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal neighborhood planning, zoning and urban-design information",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["colonial-lane crop", "filled-waterfront boundary", "block and parcel distribution", "market access time"]
+      "measurementGaps": [
+        "colonial-lane crop",
+        "filled-waterfront boundary",
+        "block and parcel distribution",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-boston-common-1km2.json",
+      "measurementCaseId": "us-boston-common",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-miami",
       "level": "source-audited-core-cut",
-      "sourceIds": ["miami-planning", "osm-map-api"],
+      "sourceIds": [
+        "miami-planning",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "planning, zoning and land-use regulation",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["bayfront crop", "Art Deco parcel sample", "seawall and flood exposure", "market access time"]
+      "measurementGaps": [
+        "bayfront crop",
+        "Art Deco parcel sample",
+        "seawall and flood exposure",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-miami-downtown-1km2.json",
+      "measurementCaseId": "us-miami-downtown",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-denver",
       "level": "source-audited-core-cut",
-      "sourceIds": ["denver-planning", "denver-open-data"],
+      "sourceIds": [
+        "denver-planning",
+        "denver-open-data"
+      ],
       "supportedMechanisms": [
         "municipal planning and development framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["plain-grid crop", "front-range edge", "warehouse and rail layers", "market access time"]
+      "measurementGaps": [
+        "plain-grid crop",
+        "front-range edge",
+        "warehouse and rail layers",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-denver-union-station-1km2.json",
+      "measurementCaseId": "us-denver-union-station",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-portland",
       "level": "source-audited-core-cut",
-      "sourceIds": ["portland-bps", "osm-map-api"],
+      "sourceIds": [
+        "portland-bps",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal planning and growth-management framework",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["river small-block crop", "urban-growth boundary", "block/parcel data", "market access time"]
+      "measurementGaps": [
+        "river small-block crop",
+        "urban-growth boundary",
+        "block/parcel data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-portland-pioneer-square-1km2.json",
+      "measurementCaseId": "us-portland-pioneer-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-washington-dc",
       "level": "source-audited-core-cut",
-      "sourceIds": ["dc-planning", "dc-open-data"],
+      "sourceIds": [
+        "dc-planning",
+        "dc-open-data"
+      ],
       "supportedMechanisms": [
         "comprehensive-plan and zoning framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["capital-axis crop", "height-control boundary", "civic parcel layer", "market access time"]
+      "measurementGaps": [
+        "capital-axis crop",
+        "height-control boundary",
+        "civic parcel layer",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-washington-dc-white-house-1km2.json",
+      "measurementCaseId": "us-washington-dc-white-house",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-las-vegas",
       "level": "source-audited-core-cut",
-      "sourceIds": ["las-vegas-planning", "osm-map-api"],
+      "sourceIds": [
+        "las-vegas-planning",
+        "osm-map-api"
+      ],
       "supportedMechanisms": [
         "municipal planning and development information",
         "current map geometry available for bounded-window measurement"
       ],
-      "measurementGaps": ["entertainment-corridor crop", "casino parcel sample", "desert-edge interface", "market access time"]
+      "measurementGaps": [
+        "entertainment-corridor crop",
+        "casino parcel sample",
+        "desert-edge interface",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-las-vegas-strip-1km2.json",
+      "measurementCaseId": "us-las-vegas-strip",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "us-new-orleans",
       "level": "source-audited-core-cut",
-      "sourceIds": ["new-orleans-planning", "new-orleans-open-data"],
+      "sourceIds": [
+        "new-orleans-planning",
+        "new-orleans-open-data"
+      ],
       "supportedMechanisms": [
         "city planning and land-use framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["delta-grid crop", "levee and wetland-edge constraints", "historic parcel sample", "market access time"]
+      "measurementGaps": [
+        "delta-grid crop",
+        "levee and wetland-edge constraints",
+        "historic parcel sample",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/us-new-orleans-french-quarter-1km2.json",
+      "measurementCaseId": "us-new-orleans-french-quarter",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-london",
       "level": "source-audited-core-cut",
-      "sourceIds": ["london-datastore", "unesco-westminster"],
+      "sourceIds": [
+        "london-datastore",
+        "unesco-westminster"
+      ],
       "supportedMechanisms": [
         "municipal spatial and infrastructure datasets",
         "Westminster political and religious monumental core"
       ],
-      "measurementGaps": ["historic-city-to-Docklands crop", "medieval lane sample", "dockland redevelopment data", "market access time"]
+      "measurementGaps": [
+        "historic-city-to-Docklands crop",
+        "medieval lane sample",
+        "dockland redevelopment data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-london-bank-1km2.json",
+      "measurementCaseId": "eu-london-bank",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-amsterdam",
       "level": "source-audited-core-cut",
-      "sourceIds": ["amsterdam-urban-development", "amsterdam-open-data"],
+      "sourceIds": [
+        "amsterdam-urban-development",
+        "amsterdam-open-data"
+      ],
       "supportedMechanisms": [
         "municipal urban-development policy",
         "municipal open spatial data"
       ],
-      "measurementGaps": ["canal-ring crop", "canal-plot dimensions", "bridge network", "market access time"]
+      "measurementGaps": [
+        "canal-ring crop",
+        "canal-plot dimensions",
+        "bridge network",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-amsterdam-dam-square-1km2.json",
+      "measurementCaseId": "eu-amsterdam-dam-square",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-berlin",
       "level": "source-audited-core-cut",
-      "sourceIds": ["berlin-stadtentwicklung", "berlin-open-data"],
+      "sourceIds": [
+        "berlin-stadtentwicklung",
+        "berlin-open-data"
+      ],
       "supportedMechanisms": [
         "Senate urban-development framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["tenement-to-divided-city crop", "perimeter-block dimensions", "post-reunification projects", "market access time"]
+      "measurementGaps": [
+        "tenement-to-divided-city crop",
+        "perimeter-block dimensions",
+        "post-reunification projects",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-berlin-alexanderplatz-1km2.json",
+      "measurementCaseId": "eu-berlin-alexanderplatz",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-zurich",
       "level": "source-audited-core-cut",
-      "sourceIds": ["zurich-planning", "zurich-open-data"],
+      "sourceIds": [
+        "zurich-planning",
+        "zurich-open-data"
+      ],
       "supportedMechanisms": [
         "municipal planning and construction framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["lakefront old-town crop", "slope and tram network", "block/parcel data", "market access time"]
+      "measurementGaps": [
+        "lakefront old-town crop",
+        "slope and tram network",
+        "block/parcel data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-zurich-hauptbahnhof-1km2.json",
+      "measurementCaseId": "eu-zurich-hauptbahnhof",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-milan",
       "level": "source-audited-core-cut",
-      "sourceIds": ["milan-urban-planning", "milan-open-data"],
+      "sourceIds": [
+        "milan-urban-planning",
+        "milan-open-data"
+      ],
       "supportedMechanisms": [
         "municipal urban-planning and building framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["historic courtyard crop", "industrial-periphery comparison", "block/parcel data", "market access time"]
+      "measurementGaps": [
+        "historic courtyard crop",
+        "industrial-periphery comparison",
+        "block/parcel data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-milan-duomo-1km2.json",
+      "measurementCaseId": "eu-milan-duomo",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-rome",
       "level": "source-audited-core-cut",
-      "sourceIds": ["rome-open-data", "unesco-rome"],
+      "sourceIds": [
+        "rome-open-data",
+        "unesco-rome"
+      ],
       "supportedMechanisms": [
         "municipal open datasets",
         "historic-centre monument and archaeological constraints"
       ],
-      "measurementGaps": ["archaeological-core crop", "protected-building footprints", "modern-periphery comparison", "market access time"]
+      "measurementGaps": [
+        "archaeological-core crop",
+        "protected-building footprints",
+        "modern-periphery comparison",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-rome-piazza-venezia-1km2.json",
+      "measurementCaseId": "eu-rome-piazza-venezia",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-barcelona",
       "level": "source-audited-core-cut",
-      "sourceIds": ["barcelona-open-data-api", "unesco-gaudi"],
+      "sourceIds": [
+        "barcelona-open-data-api",
+        "unesco-gaudi"
+      ],
       "supportedMechanisms": [
         "machine-readable urbanism datasets",
         "architectural-heritage constraint"
       ],
-      "measurementGaps": ["Gothic/Eixample crop", "chamfered-block dimensions", "waterfront transition", "market access time"]
+      "measurementGaps": [
+        "Gothic/Eixample crop",
+        "chamfered-block dimensions",
+        "waterfront transition",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-barcelona-catalunya-1km2.json",
+      "measurementCaseId": "eu-barcelona-catalunya",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-lisbon",
       "level": "source-audited-core-cut",
-      "sourceIds": ["lisbon-tourism", "unesco-lisbon-belem"],
+      "sourceIds": [
+        "lisbon-tourism",
+        "unesco-lisbon-belem"
+      ],
       "supportedMechanisms": [
         "historic-district and visitor geography",
         "Belem waterfront heritage complex"
       ],
-      "measurementGaps": ["hillside-old-city crop", "official municipal planning source", "slope and stair network", "market access time"]
+      "measurementGaps": [
+        "hillside-old-city crop",
+        "official municipal planning source",
+        "slope and stair network",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-lisbon-comercio-1km2.json",
+      "measurementCaseId": "eu-lisbon-comercio",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-stockholm",
       "level": "source-audited-core-cut",
-      "sourceIds": ["stockholm-city", "stockholm-data"],
+      "sourceIds": [
+        "stockholm-city",
+        "stockholm-data"
+      ],
       "supportedMechanisms": [
         "municipal planning and city-information entry point",
         "municipal open datasets"
       ],
-      "measurementGaps": ["island-core crop", "waterfront block data", "bridge network", "market access time"]
+      "measurementGaps": [
+        "island-core crop",
+        "waterfront block data",
+        "bridge network",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-stockholm-gamla-stan-1km2.json",
+      "measurementCaseId": "eu-stockholm-gamla-stan",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "eu-vienna",
       "level": "source-audited-core-cut",
-      "sourceIds": ["vienna-planning", "vienna-data"],
+      "sourceIds": [
+        "vienna-planning",
+        "vienna-data"
+      ],
       "supportedMechanisms": [
         "urban-development and planning framework",
         "municipal open datasets"
       ],
-      "measurementGaps": ["Ringstrasse/public-housing crop", "perimeter-block data", "Danube transition", "market access time"]
+      "measurementGaps": [
+        "Ringstrasse/public-housing crop",
+        "perimeter-block data",
+        "Danube transition",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/eu-vienna-stephansplatz-1km2.json",
+      "measurementCaseId": "eu-vienna-stephansplatz",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "jp-tokyo-bay",
       "level": "source-audited-core-cut",
-      "sourceIds": ["tokyo-urban-planning", "mlit-street-design"],
+      "sourceIds": [
+        "tokyo-urban-planning",
+        "mlit-street-design"
+      ],
       "supportedMechanisms": [
         "metropolitan urban-planning framework",
         "walkable street-design guidance"
       ],
-      "measurementGaps": ["reclaimed-bay crop", "podium and elevated-walk sample", "waterfront public access", "market access time"]
+      "measurementGaps": [
+        "reclaimed-bay crop",
+        "podium and elevated-walk sample",
+        "waterfront public access",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-tokyo-bay-odaiba-1km2.json",
+      "measurementCaseId": "jp-tokyo-bay-odaiba",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "jp-osaka-namba",
       "level": "source-audited-core-cut",
-      "sourceIds": ["osaka-city", "mlit-street-design"],
+      "sourceIds": [
+        "osaka-city",
+        "mlit-street-design"
+      ],
       "supportedMechanisms": [
         "municipal planning information entry point",
         "walkable street-design guidance"
       ],
-      "measurementGaps": ["canal-commerce crop", "fine merchant parcel data", "covered shopping street", "market access time"]
+      "measurementGaps": [
+        "canal-commerce crop",
+        "fine merchant parcel data",
+        "covered shopping street",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-osaka-namba-1km2.json",
+      "measurementCaseId": "jp-osaka-namba",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "jp-kyoto-gion",
       "level": "source-audited-core-cut",
-      "sourceIds": ["kyoto-city", "unesco-kyoto"],
+      "sourceIds": [
+        "kyoto-city",
+        "unesco-kyoto"
+      ],
       "supportedMechanisms": [
         "municipal planning and heritage information",
         "historic monument and urban-setting constraint"
       ],
-      "measurementGaps": ["Gion machiya crop", "temple-ground interface", "protected-building inventory", "market access time"]
+      "measurementGaps": [
+        "Gion machiya crop",
+        "temple-ground interface",
+        "protected-building inventory",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-kyoto-gion-1km2.json",
+      "measurementCaseId": "jp-kyoto-gion",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "jp-yokohama-minato",
       "level": "source-audited-core-cut",
-      "sourceIds": ["yokohama-city", "mlit-street-design"],
+      "sourceIds": [
+        "yokohama-city",
+        "mlit-street-design"
+      ],
       "supportedMechanisms": [
         "municipal planning and waterfront information",
         "walkable street-design guidance"
       ],
-      "measurementGaps": ["old-port-to-Minato-Mirai crop", "waterfront block data", "rail and pier interfaces", "market access time"]
+      "measurementGaps": [
+        "old-port-to-Minato-Mirai crop",
+        "waterfront block data",
+        "rail and pier interfaces",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/jp-yokohama-minato-mirai-1km2.json",
+      "measurementCaseId": "jp-yokohama-minato-mirai",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "hk-mong-kok",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-ura"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-ura"
+      ],
       "supportedMechanisms": [
         "land-use and facility planning standards",
         "urban-renewal and redevelopment framework"
       ],
-      "measurementGaps": ["dense street-market crop", "narrow-frontage parcel data", "vertical mixed-use floors", "market access time"]
+      "measurementGaps": [
+        "dense street-market crop",
+        "narrow-frontage parcel data",
+        "vertical mixed-use floors",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-mong-kok-1km2.json",
+      "measurementCaseId": "hk-mong-kok",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "hk-causeway-bay",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-transport"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-transport"
+      ],
       "supportedMechanisms": [
         "land-use and facility planning standards",
         "transport and pedestrian-flow information"
       ],
-      "measurementGaps": ["reclaimed-retail crop", "retail podium sample", "pedestrian-flow data", "market access time"]
+      "measurementGaps": [
+        "reclaimed-retail crop",
+        "retail podium sample",
+        "pedestrian-flow data",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-causeway-bay-1km2.json",
+      "measurementCaseId": "hk-causeway-bay",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "hk-kwun-tong",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-housing-authority"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-housing-authority"
+      ],
       "supportedMechanisms": [
         "land-use and facility planning standards",
         "public-housing estate layer"
       ],
-      "measurementGaps": ["industrial-to-waterfront-renewal crop", "estate and industrial floor-area data", "steep-connector network", "market access time"]
+      "measurementGaps": [
+        "industrial-to-waterfront-renewal crop",
+        "estate and industrial floor-area data",
+        "steep-connector network",
+        "market access time"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-kwun-tong-1km2.json",
+      "measurementCaseId": "hk-kwun-tong",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     },
     {
       "caseId": "hk-sai-kung",
       "level": "source-audited-core-cut",
-      "sourceIds": ["hk-hkpsg", "hk-afcd"],
+      "sourceIds": [
+        "hk-hkpsg",
+        "hk-afcd"
+      ],
       "supportedMechanisms": [
         "land-use and facility planning standards",
         "country-park and conservation constraints"
       ],
-      "measurementGaps": ["ria-village crop", "pier and waterfront lane network", "country-park boundary", "seasonal visitor demand"]
+      "measurementGaps": [
+        "ria-village crop",
+        "pier and waterfront lane network",
+        "country-park boundary",
+        "seasonal visitor demand"
+      ],
+      "measurementFile": "assets/data/urban-core-measurements/hk-sai-kung-1km2.json",
+      "measurementCaseId": "hk-sai-kung",
+      "measurementStatus": "partial-osm",
+      "observedFields": [
+        "road-density",
+        "building-coverage",
+        "building-level-coverage",
+        "fresh-food-points",
+        "fresh-food-network-access"
+      ]
     }
   ]
 }

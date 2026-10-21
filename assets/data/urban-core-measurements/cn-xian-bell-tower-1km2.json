@@ -1,0 +1,98 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-xian-bell-tower",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Bell Tower, Xian",
+    "displayName": "唐代钟楼, 燕赵南大街, 正定县, 石家庄市, 河北省, 中国",
+    "osmType": "way",
+    "osmId": 1448529307,
+    "lat": 38.1398561,
+    "lon": 114.565187
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 12645.291,
+    "roadDensityKmPerKm2": 12.645,
+    "drivableCenterlineLengthM": 12284.387,
+    "drivableDensityKmPerKm2": 12.284,
+    "roadLengthByClassM": {
+      "unclassified": 4477.474,
+      "residential": 1293.817,
+      "tertiary": 3773.371,
+      "secondary": 1420.272,
+      "service": 1319.454,
+      "path": 111.128,
+      "pedestrian": 75.91,
+      "footway": 173.866
+    },
+    "buildingCountInsideCircleCentroid": 48,
+    "estimatedBuildingFootprintM2": 22069.836,
+    "estimatedBuildingCoverageRatio": 0.022,
+    "buildingLevelsObservedCount": 0,
+    "buildingLevelsObservedRatio": 0,
+    "estimatedObservedFloorAreaM2": 0,
+    "observedFloorAreaRatioProxy": 0,
+    "freshFoodFacilityCounts": {
+      "bakery": 1,
+      "convenience": 4,
+      "supermarket": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 368,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 7,
+        "demandBuildingCount": 48,
+        "buildingsWithTime": 48,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 6.267,
+        "p90Minutes": 9.588,
+        "within5MinuteRatio": 0.375,
+        "within10MinuteRatio": 0.896,
+        "within15MinuteRatio": 1
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 2,
+        "demandBuildingCount": 48,
+        "buildingsWithTime": 48,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 9.675,
+        "p90Minutes": 14.621,
+        "within5MinuteRatio": 0.167,
+        "within10MinuteRatio": 0.542,
+        "within15MinuteRatio": 0.917
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

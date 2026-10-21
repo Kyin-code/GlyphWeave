@@ -1,0 +1,108 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-boston-common",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Boston Common",
+    "displayName": "Boston Common, Beacon Hill, Boston, Suffolk County, Massachusetts, United States",
+    "osmType": "relation",
+    "osmId": 17995454,
+    "lat": 42.35504,
+    "lon": -71.066071
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 70884.756,
+    "roadDensityKmPerKm2": 70.885,
+    "drivableCenterlineLengthM": 19341.622,
+    "drivableDensityKmPerKm2": 19.342,
+    "roadLengthByClassM": {
+      "secondary": 1264.775,
+      "service": 2394.293,
+      "primary": 6948.8,
+      "residential": 7886.08,
+      "pedestrian": 1944.714,
+      "unclassified": 577.558,
+      "motorway_link": 0,
+      "tertiary": 270.116,
+      "footway": 45998.886,
+      "trunk_link": 0,
+      "primary_link": 50.667,
+      "steps": 361.045,
+      "cycleway": 312.966,
+      "corridor": 2799.337,
+      "motorway": 0,
+      "trunk": 0,
+      "path": 75.519
+    },
+    "buildingCountInsideCircleCentroid": 1154,
+    "estimatedBuildingFootprintM2": 351934.852,
+    "estimatedBuildingCoverageRatio": 0.352,
+    "buildingLevelsObservedCount": 246,
+    "buildingLevelsObservedRatio": 0.213,
+    "estimatedObservedFloorAreaM2": 2025258.846,
+    "observedFloorAreaRatioProxy": 2.025,
+    "freshFoodFacilityCounts": {
+      "bakery": 3,
+      "convenience": 5,
+      "supermarket": 3,
+      "marketplace": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 6712,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 12,
+        "demandBuildingCount": 1154,
+        "buildingsWithTime": 1147,
+        "unreachableBuildingCount": 7,
+        "medianMinutes": 2.481,
+        "p90Minutes": 4.159,
+        "within5MinuteRatio": 0.961,
+        "within10MinuteRatio": 0.994,
+        "within15MinuteRatio": 0.994
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 4,
+        "demandBuildingCount": 1154,
+        "buildingsWithTime": 1147,
+        "unreachableBuildingCount": 7,
+        "medianMinutes": 4.339,
+        "p90Minutes": 7.802,
+        "within5MinuteRatio": 0.58,
+        "within10MinuteRatio": 0.994,
+        "within15MinuteRatio": 0.994
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "hk-mong-kok",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Mong Kok, Hong Kong",
+    "displayName": "旺角 Mong Kok, 九龍城天橋 Kowloon City flyover, 靠背石 Kau Pui Shek, 馬頭圍 Ma Tau Wai, 九龍城區 Kowloon City District, 九龍 Kowloon, 香港 Hong Kong, 中国",
+    "osmType": "way",
+    "osmId": 112427969,
+    "lat": 22.319308,
+    "lon": 114.1698076
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 78846.654,
+    "roadDensityKmPerKm2": 78.847,
+    "drivableCenterlineLengthM": 29293.795,
+    "drivableDensityKmPerKm2": 29.294,
+    "roadLengthByClassM": {
+      "primary": 7745.131,
+      "secondary": 3805.422,
+      "service": 3052.81,
+      "pedestrian": 1519.483,
+      "primary_link": 470.878,
+      "footway": 45693.362,
+      "unclassified": 4420.602,
+      "trunk": 1275.842,
+      "residential": 4814.151,
+      "trunk_link": 196.388,
+      "tertiary": 4121.474,
+      "steps": 616.323,
+      "living_street": 58.363,
+      "tertiary_link": 23.011,
+      "path": 26.686,
+      "corridor": 258.035,
+      "secondary_link": 30.363,
+      "junction": 718.33
+    },
+    "buildingCountInsideCircleCentroid": 1370,
+    "estimatedBuildingFootprintM2": 445308.842,
+    "estimatedBuildingCoverageRatio": 0.445,
+    "buildingLevelsObservedCount": 942,
+    "buildingLevelsObservedRatio": 0.688,
+    "estimatedObservedFloorAreaM2": 3138808.09,
+    "observedFloorAreaRatioProxy": 3.139,
+    "freshFoodFacilityCounts": {
+      "marketplace": 7,
+      "convenience": 43,
+      "supermarket": 20,
+      "greengrocer": 1,
+      "seafood": 1,
+      "butcher": 1,
+      "bakery": 9
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 5707,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 81,
+        "demandBuildingCount": 1370,
+        "buildingsWithTime": 1322,
+        "unreachableBuildingCount": 48,
+        "medianMinutes": 1.31,
+        "p90Minutes": 2.433,
+        "within5MinuteRatio": 0.961,
+        "within10MinuteRatio": 0.965,
+        "within15MinuteRatio": 0.965
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 29,
+        "demandBuildingCount": 1370,
+        "buildingsWithTime": 1311,
+        "unreachableBuildingCount": 59,
+        "medianMinutes": 2.141,
+        "p90Minutes": 4.81,
+        "within5MinuteRatio": 0.866,
+        "within10MinuteRatio": 0.956,
+        "within15MinuteRatio": 0.957
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

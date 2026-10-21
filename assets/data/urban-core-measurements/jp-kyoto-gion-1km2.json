@@ -1,0 +1,106 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "jp-kyoto-gion",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Gion, Kyoto",
+    "displayName": "祇園, 東山区, 京都市, 京都府, 日本",
+    "osmType": "relation",
+    "osmId": 9541222,
+    "lat": 35.0046897,
+    "lon": 135.778403
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 49833.205,
+    "roadDensityKmPerKm2": 49.833,
+    "drivableCenterlineLengthM": 22350.86,
+    "drivableDensityKmPerKm2": 22.351,
+    "roadLengthByClassM": {
+      "tertiary": 1784.396,
+      "residential": 9600.192,
+      "unclassified": 665.389,
+      "footway": 19150.171,
+      "service": 8277.852,
+      "pedestrian": 2139.81,
+      "secondary": 1364.178,
+      "primary": 658.854,
+      "steps": 1047.768,
+      "path": 4886.536,
+      "corridor": 128.795,
+      "track": 129.264
+    },
+    "buildingCountInsideCircleCentroid": 4004,
+    "estimatedBuildingFootprintM2": 366113.656,
+    "estimatedBuildingCoverageRatio": 0.366,
+    "buildingLevelsObservedCount": 66,
+    "buildingLevelsObservedRatio": 0.016,
+    "estimatedObservedFloorAreaM2": 82048.277,
+    "observedFloorAreaRatioProxy": 0.082,
+    "freshFoodFacilityCounts": {
+      "supermarket": 4,
+      "convenience": 15,
+      "bakery": 6,
+      "butcher": 2,
+      "marketplace": 1,
+      "seafood": 3,
+      "greengrocer": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 4416,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 32,
+        "demandBuildingCount": 4004,
+        "buildingsWithTime": 3994,
+        "unreachableBuildingCount": 10,
+        "medianMinutes": 1.927,
+        "p90Minutes": 4.073,
+        "within5MinuteRatio": 0.928,
+        "within10MinuteRatio": 0.994,
+        "within15MinuteRatio": 0.998
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 11,
+        "demandBuildingCount": 4004,
+        "buildingsWithTime": 3994,
+        "unreachableBuildingCount": 10,
+        "medianMinutes": 4.301,
+        "p90Minutes": 9.161,
+        "within5MinuteRatio": 0.625,
+        "within10MinuteRatio": 0.941,
+        "within15MinuteRatio": 0.998
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

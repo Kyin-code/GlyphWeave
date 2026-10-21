@@ -1,0 +1,101 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "cn-xiamen-zhongshan-road",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Zhongshan Road, Xiamen",
+    "displayName": "中山路, 文安社区, 中华街道, 思明区, 厦门市, 福建省, 361001, 中国",
+    "osmType": "way",
+    "osmId": 127162549,
+    "lat": 24.4565521,
+    "lon": 118.0746864
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 21787.65,
+    "roadDensityKmPerKm2": 21.788,
+    "drivableCenterlineLengthM": 19283.368,
+    "drivableDensityKmPerKm2": 19.283,
+    "roadLengthByClassM": {
+      "primary": 1603.332,
+      "secondary": 3256.105,
+      "residential": 6882.274,
+      "tertiary": 3999.16,
+      "pedestrian": 1115.841,
+      "primary_link": 142.512,
+      "living_street": 2106.582,
+      "footway": 1143.321,
+      "service": 1056.474,
+      "unclassified": 379.441,
+      "path": 102.608
+    },
+    "buildingCountInsideCircleCentroid": 92,
+    "estimatedBuildingFootprintM2": 101400.99,
+    "estimatedBuildingCoverageRatio": 0.101,
+    "buildingLevelsObservedCount": 1,
+    "buildingLevelsObservedRatio": 0.011,
+    "estimatedObservedFloorAreaM2": 46475.773,
+    "observedFloorAreaRatioProxy": 0.046,
+    "freshFoodFacilityCounts": {
+      "marketplace": 2,
+      "supermarket": 1,
+      "bakery": 1
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 878,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 4,
+        "demandBuildingCount": 92,
+        "buildingsWithTime": 90,
+        "unreachableBuildingCount": 2,
+        "medianMinutes": 6.29,
+        "p90Minutes": 8.544,
+        "within5MinuteRatio": 0.261,
+        "within10MinuteRatio": 0.935,
+        "within15MinuteRatio": 0.978
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 3,
+        "demandBuildingCount": 92,
+        "buildingsWithTime": 90,
+        "unreachableBuildingCount": 2,
+        "medianMinutes": 8.299,
+        "p90Minutes": 9.972,
+        "within5MinuteRatio": 0.098,
+        "within10MinuteRatio": 0.88,
+        "within15MinuteRatio": 0.978
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

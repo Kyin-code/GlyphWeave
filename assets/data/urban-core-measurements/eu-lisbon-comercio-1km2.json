@@ -1,0 +1,105 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "eu-lisbon-comercio",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Praca do Comercio, Lisbon",
+    "displayName": "Praça do Comércio, São Nicolau, Santa Maria Maior, Madalena, Lisboa, 1100-148, Portugal",
+    "osmType": "way",
+    "osmId": 677181958,
+    "lat": 38.7077151,
+    "lon": -9.1365238
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 46596.426,
+    "roadDensityKmPerKm2": 46.596,
+    "drivableCenterlineLengthM": 14602.538,
+    "drivableDensityKmPerKm2": 14.603,
+    "roadLengthByClassM": {
+      "pedestrian": 12437.351,
+      "residential": 8419.518,
+      "secondary": 1219.267,
+      "steps": 1443.847,
+      "tertiary": 2023.839,
+      "primary": 1223.523,
+      "footway": 16661.464,
+      "service": 1675.853,
+      "tertiary_link": 23.481,
+      "path": 181.769,
+      "living_street": 40.538,
+      "cycleway": 1127.857,
+      "elevator": 118.118
+    },
+    "buildingCountInsideCircleCentroid": 1007,
+    "estimatedBuildingFootprintM2": 251672.479,
+    "estimatedBuildingCoverageRatio": 0.252,
+    "buildingLevelsObservedCount": 589,
+    "buildingLevelsObservedRatio": 0.585,
+    "estimatedObservedFloorAreaM2": 734534.364,
+    "observedFloorAreaRatioProxy": 0.735,
+    "freshFoodFacilityCounts": {
+      "butcher": 1,
+      "supermarket": 5,
+      "bakery": 16,
+      "convenience": 13,
+      "seafood": 3
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 3656,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 38,
+        "demandBuildingCount": 1007,
+        "buildingsWithTime": 964,
+        "unreachableBuildingCount": 43,
+        "medianMinutes": 1.784,
+        "p90Minutes": 3.8,
+        "within5MinuteRatio": 0.939,
+        "within10MinuteRatio": 0.957,
+        "within15MinuteRatio": 0.957
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 9,
+        "demandBuildingCount": 1007,
+        "buildingsWithTime": 964,
+        "unreachableBuildingCount": 43,
+        "medianMinutes": 3.164,
+        "p90Minutes": 4.872,
+        "within5MinuteRatio": 0.876,
+        "within10MinuteRatio": 0.957,
+        "within15MinuteRatio": 0.957
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

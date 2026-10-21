@@ -1,0 +1,107 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-denver-union-station",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "Denver Union Station",
+    "displayName": "Union Station, 1701, Wynkoop Street, 16th Street Mall, Highland, Denver, Colorado, 80202, United States",
+    "osmType": "node",
+    "osmId": 7327224311,
+    "lat": 39.75363,
+    "lon": -105.0007481
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 74726.396,
+    "roadDensityKmPerKm2": 74.726,
+    "drivableCenterlineLengthM": 24864.883,
+    "drivableDensityKmPerKm2": 24.865,
+    "roadLengthByClassM": {
+      "tertiary": 5410.042,
+      "secondary": 3597.812,
+      "service": 10076.291,
+      "cycleway": 5881.425,
+      "primary": 2407.598,
+      "residential": 2083.637,
+      "path": 1421.54,
+      "footway": 33700.653,
+      "unclassified": 694.725,
+      "steps": 402.309,
+      "pedestrian": 4453.314,
+      "busway": 2839.596,
+      "living_street": 594.777,
+      "primary_link": 56.712,
+      "elevator": 107.819,
+      "motorway_link": 967.273,
+      "tertiary_link": 30.872
+    },
+    "buildingCountInsideCircleCentroid": 386,
+    "estimatedBuildingFootprintM2": 331303.762,
+    "estimatedBuildingCoverageRatio": 0.331,
+    "buildingLevelsObservedCount": 311,
+    "buildingLevelsObservedRatio": 0.806,
+    "estimatedObservedFloorAreaM2": 2459733.766,
+    "observedFloorAreaRatioProxy": 2.46,
+    "freshFoodFacilityCounts": {
+      "convenience": 1,
+      "marketplace": 2,
+      "supermarket": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 5362,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 5,
+        "demandBuildingCount": 386,
+        "buildingsWithTime": 386,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 5.038,
+        "p90Minutes": 8.536,
+        "within5MinuteRatio": 0.497,
+        "within10MinuteRatio": 1,
+        "within15MinuteRatio": 1
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 4,
+        "demandBuildingCount": 386,
+        "buildingsWithTime": 386,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": 5.286,
+        "p90Minutes": 8.668,
+        "within5MinuteRatio": 0.461,
+        "within10MinuteRatio": 0.995,
+        "within15MinuteRatio": 1
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

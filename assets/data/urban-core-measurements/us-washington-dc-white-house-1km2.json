@@ -1,0 +1,107 @@
+{
+  "format": "glyphweave.urban-core-osm-measurement",
+  "version": 1,
+  "caseId": "us-washington-dc-white-house",
+  "retrievedAt": "2026-10-21",
+  "osmSnapshotTimestamp": null,
+  "anchor": {
+    "query": "White House, Washington DC",
+    "displayName": "White House, 1600, Pennsylvania Avenue Northwest, Ward 2, Washington, District of Columbia, 20500, United States",
+    "osmType": "relation",
+    "osmId": 19761182,
+    "lat": 38.8976387,
+    "lon": -77.0365525
+  },
+  "sample": {
+    "shape": "circle",
+    "radiusM": 564.1895835477563,
+    "areaKm2": 1.0000000000000002,
+    "rationale": "One-square-kilometre circular sample centred on the named core anchor; not a whole-city average."
+  },
+  "observed": {
+    "roadCenterlineLengthM": 56627.266,
+    "roadDensityKmPerKm2": 56.627,
+    "drivableCenterlineLengthM": 19857.973,
+    "drivableDensityKmPerKm2": 19.858,
+    "roadLengthByClassM": {
+      "residential": 506.414,
+      "tertiary": 2929.979,
+      "unclassified": 109.742,
+      "secondary": 4384.11,
+      "primary": 3132.645,
+      "service": 8200.866,
+      "primary_link": 85.423,
+      "footway": 33021.212,
+      "steps": 351.693,
+      "trunk_link": 66.021,
+      "trunk": 294.727,
+      "cycleway": 1555.92,
+      "living_street": 299.49,
+      "elevator": 22.066,
+      "pedestrian": 434.298,
+      "path": 845.776,
+      "track": 144.43,
+      "construction": 208.438,
+      "corridor": 34.015
+    },
+    "buildingCountInsideCircleCentroid": 240,
+    "estimatedBuildingFootprintM2": 261812.453,
+    "estimatedBuildingCoverageRatio": 0.262,
+    "buildingLevelsObservedCount": 117,
+    "buildingLevelsObservedRatio": 0.488,
+    "estimatedObservedFloorAreaM2": 2090683.158,
+    "observedFloorAreaRatioProxy": 2.091,
+    "freshFoodFacilityCounts": {
+      "convenience": 2
+    },
+    "freshFoodNetworkAccess": {
+      "model": "walking-network-proxy",
+      "walkSpeedMps": 1.3,
+      "snapRadiusM": 120,
+      "sampleRadiusM": 564.1895835477563,
+      "routingGraphNodeCount": 4494,
+      "allMappedFreshFood": {
+        "routedFacilityCount": 2,
+        "demandBuildingCount": 240,
+        "buildingsWithTime": 229,
+        "unreachableBuildingCount": 11,
+        "medianMinutes": 9.472,
+        "p90Minutes": 13.503,
+        "within5MinuteRatio": 0.2,
+        "within10MinuteRatio": 0.554,
+        "within15MinuteRatio": 0.933
+      },
+      "marketLikeFreshFood": {
+        "routedFacilityCount": 0,
+        "demandBuildingCount": 240,
+        "buildingsWithTime": 0,
+        "unreachableBuildingCount": 0,
+        "medianMinutes": null,
+        "p90Minutes": null,
+        "within5MinuteRatio": null,
+        "within10MinuteRatio": null,
+        "within15MinuteRatio": null
+      },
+      "limitations": [
+        "Equal building weight substitutes for household or occupancy weight.",
+        "OSM network connectivity and facility completeness affect the result.",
+        "Capacity, competition, opening hours, transit and quality are not modelled."
+      ]
+    }
+  },
+  "limitations": [
+    "OSM is a current collaborative map snapshot, not a historical census.",
+    "Building coverage uses centroid inclusion and projected polygon area; boundary clipping is approximate.",
+    "Road density is centreline length, not lane capacity or right-of-way area.",
+    "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
+    "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
+    "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
+  ],
+  "attribution": {
+    "source": "OpenStreetMap contributors",
+    "license": "Open Database License 1.0",
+    "copyright": "https://www.openstreetmap.org/copyright"
+  }
+}

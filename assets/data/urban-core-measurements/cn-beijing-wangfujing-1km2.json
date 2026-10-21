@@ -90,7 +90,8 @@
     "Facility counts do not prove capacity, catchment, load, quality or opening hours.",
     "Fresh-food access is a walking-network proxy using OSM connectivity; it does not model queues, capacity, opening hours, transit or competition.",
     "Observed FAR uses only buildings with explicit OSM level tags and is therefore a lower-bound proxy.",
-    "The circular window is a measurement sample and must not be described as the whole city."
+    "The circular window is a measurement sample and must not be described as the whole city.",
+    "Building counts are way-based; multipolygon building relations are not expanded."
   ],
   "attribution": {
     "source": "OpenStreetMap contributors",
