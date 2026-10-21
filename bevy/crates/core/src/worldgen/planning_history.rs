@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
-use super::{urban_slice, BakedTerrain, EntityInstance, SceneSpec};
+use super::{BakedTerrain, EntityInstance, SceneSpec, urban_slice};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -39,6 +39,8 @@ pub struct Centre {
     pub network_degree: usize,
     pub influence: f64,
     pub source: String,
+    #[serde(default)]
+    pub signals: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -205,6 +207,23 @@ impl Graph {
             self.distance_to_centres_mm[node] as f64 / 1000.0
         };
         snap + network
+    }
+
+    fn reachable_node_count(&self, source: usize) -> usize {
+        let mut seen = vec![false; self.points.len()];
+        let mut stack = vec![source];
+        seen[source] = true;
+        let mut count = 0;
+        while let Some(node) = stack.pop() {
+            count += 1;
+            for (next, _) in &self.adjacency[node] {
+                if !seen[*next] {
+                    seen[*next] = true;
+                    stack.push(*next);
+                }
+            }
+        }
+        count
     }
 }
 
@@ -912,14 +931,36 @@ fn derive_centres(
         .into_iter()
         .take(roles.len())
         .enumerate()
-        .map(|(index, (anchor, _, degree, point))| Centre {
-            id: format!("centre.{index}.{}", anchor.id),
-            role: roles[index].into(),
-            world_x: point[0],
-            world_z: point[1],
-            network_degree: degree,
-            influence: (0.45 + degree as f64 * 0.12) * scale,
-            source: format!("route-anchor:{}", anchor.role),
+        .map(|(index, (anchor, node, degree, point))| {
+            let reachable = graph.reachable_node_count(node);
+            let degree_signal = degree as f64 / (degree as f64 + 2.0);
+            let reach_signal = reachable as f64 / graph.points.len().max(1) as f64;
+            let role = roles[index].as_ref();
+            let role_signal = match role {
+                "historic" => 0.18,
+                "financial" | "political" => 0.15,
+                "port" | "tourism" => 0.10,
+                _ => 0.0,
+            };
+            let influence =
+                (0.22 + degree_signal * 0.24 + reach_signal * 0.26 + role_signal) * scale;
+            let mut signals = vec!["road-network".into(), "route-reachability".into()];
+            if !anchor.role.is_empty() {
+                signals.push(format!("anchor:{}", anchor.role));
+            }
+            if role_signal > 0.0 {
+                signals.push(format!("special-role:{role}"));
+            }
+            Centre {
+                id: format!("centre.{index}.{}", anchor.id),
+                role: role.into(),
+                world_x: point[0],
+                world_z: point[1],
+                network_degree: degree,
+                influence,
+                source: format!("route-anchor:{}", anchor.role),
+                signals,
+            }
         })
         .collect()
 }
@@ -1042,6 +1083,7 @@ mod tests {
                     role: "junction".into(),
                 },
             ],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "old".into(),
@@ -1084,6 +1126,7 @@ mod tests {
             center_distance_m: 0.0,
             community_profile: "china-gated".into(),
             income_band: "mixed-market-rate".into(),
+            ..Building::default()
         };
         SettlementPlan {
             format: "settlement".into(),
@@ -1151,18 +1194,21 @@ mod tests {
             .unwrap();
         assert_eq!(plan.status, "pass");
         assert_eq!(plan.centres.len(), 1);
-        assert!(plan
-            .actions
-            .iter()
-            .any(|action| action.kind == "widen-and-rebuild-street"));
-        assert!(plan
-            .actions
-            .iter()
-            .any(|action| action.kind == "public-park"));
-        assert!(plan
-            .actions
-            .iter()
-            .any(|action| action.kind == "parcel-consolidation"));
+        assert!(
+            plan.actions
+                .iter()
+                .any(|action| action.kind == "widen-and-rebuild-street")
+        );
+        assert!(
+            plan.actions
+                .iter()
+                .any(|action| action.kind == "public-park")
+        );
+        assert!(
+            plan.actions
+                .iter()
+                .any(|action| action.kind == "parcel-consolidation")
+        );
     }
 
     #[test]
@@ -1176,15 +1222,17 @@ mod tests {
         .unwrap();
         assert_eq!(plan.centres[0].role, "financial");
         assert!(plan.centres.len() >= 2);
-        assert!(plan
-            .actions
-            .iter()
-            .any(|action| action.kind == "office-and-transit-cluster"));
-        assert!(plan
-            .actions
-            .iter()
-            .find(|action| action.kind == "widen-and-rebuild-street")
-            .is_some_and(|action| action.area_m2 > 5_000.0));
+        assert!(
+            plan.actions
+                .iter()
+                .any(|action| action.kind == "office-and-transit-cluster")
+        );
+        assert!(
+            plan.actions
+                .iter()
+                .find(|action| action.kind == "widen-and-rebuild-street")
+                .is_some_and(|action| action.area_m2 > 5_000.0)
+        );
     }
 
     #[test]

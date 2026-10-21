@@ -131,8 +131,8 @@ pub fn plan(
     let mut operations = Vec::new();
     let mut assigned_buildings = Vec::new();
     for building in &settlement.buildings {
-        let distance = (f64::from(building.world_x) - center.0)
-            .hypot(f64::from(building.world_z) - center.1);
+        let distance =
+            (f64::from(building.world_x) - center.0).hypot(f64::from(building.world_z) - center.1);
         let functional_area = if building.kind == "storefront" {
             "commercial-street"
         } else if building.kind == "office_tower" {
@@ -267,7 +267,11 @@ pub fn plan(
     Ok(Some(Plan {
         format: "glyphweave.epoch-evolution-plan".into(),
         version: 1,
-        status: if failures.is_empty() { "pass".into() } else { "fail".into() },
+        status: if failures.is_empty() {
+            "pass".into()
+        } else {
+            "fail".into()
+        },
         center: [center.0, center.1],
         epochs: vec![
             "founding".into(),
@@ -290,8 +294,16 @@ fn route_center(plan: &RoutePlan) -> (f64, f64) {
     }
     let count = plan.anchors.len() as f64;
     (
-        plan.anchors.iter().map(|anchor| f64::from(anchor.x)).sum::<f64>() / count,
-        plan.anchors.iter().map(|anchor| f64::from(anchor.z)).sum::<f64>() / count,
+        plan.anchors
+            .iter()
+            .map(|anchor| f64::from(anchor.x))
+            .sum::<f64>()
+            / count,
+        plan.anchors
+            .iter()
+            .map(|anchor| f64::from(anchor.z))
+            .sum::<f64>()
+            / count,
     )
 }
 
@@ -314,9 +326,20 @@ mod tests {
             max_terrain_slope: 0.5,
             max_fill_m: 6.0,
             anchors: vec![
-                Anchor { id: "a".into(), x: 100, z: 100, role: String::new() },
-                Anchor { id: "b".into(), x: 500, z: 100, role: String::new() },
+                Anchor {
+                    id: "a".into(),
+                    x: 100,
+                    z: 100,
+                    role: String::new(),
+                },
+                Anchor {
+                    id: "b".into(),
+                    x: 500,
+                    z: 100,
+                    role: String::new(),
+                },
             ],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "a".into(),
@@ -365,15 +388,36 @@ mod tests {
             center_distance_m: 0.0,
             community_profile: "generic".into(),
             income_band: "mixed".into(),
+            ..Building::default()
         };
         SettlementPlan {
             format: "settlement".into(),
             version: 1,
             status: "pass".into(),
-            demand: Demand { households: 60, jobs: 15, retail_floor_area_m2: 60.0, service_budget: 0.0 },
-            delivered: Demand { households: 60, jobs: 15, retail_floor_area_m2: 60.0, service_budget: 0.0 },
-            unmet_demand: Demand { households: 0, jobs: 0, retail_floor_area_m2: 0.0, service_budget: 0.0 },
-            capacity: Capacity { candidate_lots: 3, accepted_lots: 3, rejected_lots: 0, floor_area_m2: 900.0 },
+            demand: Demand {
+                households: 60,
+                jobs: 15,
+                retail_floor_area_m2: 60.0,
+                service_budget: 0.0,
+            },
+            delivered: Demand {
+                households: 60,
+                jobs: 15,
+                retail_floor_area_m2: 60.0,
+                service_budget: 0.0,
+            },
+            unmet_demand: Demand {
+                households: 0,
+                jobs: 0,
+                retail_floor_area_m2: 0.0,
+                service_budget: 0.0,
+            },
+            capacity: Capacity {
+                candidate_lots: 3,
+                accepted_lots: 3,
+                rejected_lots: 0,
+                floor_area_m2: 900.0,
+            },
             buildings: vec![
                 make("shop", 280, "storefront", 4),
                 make("home", 300, "residential_home", 3),
@@ -398,15 +442,17 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(plan.operations.iter().any(|op| op.operation == "modify"));
         assert!(plan.operations.iter().any(|op| op.operation == "demolish"));
-        assert!(plan
-            .assigned_buildings
-            .iter()
-            .any(|building| building.operation == "replace"));
-        assert!(plan
-            .assigned_buildings
-            .iter()
-            .filter(|building| building.operation == "replace")
-            .all(|building| building.parent_id.is_some()));
+        assert!(
+            plan.assigned_buildings
+                .iter()
+                .any(|building| building.operation == "replace")
+        );
+        assert!(
+            plan.assigned_buildings
+                .iter()
+                .filter(|building| building.operation == "replace")
+                .all(|building| building.parent_id.is_some())
+        );
     }
 
     #[test]

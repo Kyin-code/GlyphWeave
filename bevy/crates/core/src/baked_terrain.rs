@@ -8,6 +8,19 @@ use crate::height_payload::{HeightEncoding, HeightPayload};
 use crate::worldgen::{STREAM_CHUNK_METERS, SceneSpec};
 use thiserror::Error;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeightComparison {
+    pub cells: usize,
+    pub unchanged_cells: usize,
+    pub changed_cells: usize,
+    pub raised_cells: usize,
+    pub lowered_cells: usize,
+    pub max_rise_mm: i32,
+    pub max_lower_mm: i32,
+    pub mean_absolute_change_m: f64,
+}
+
 #[derive(Debug, Error)]
 #[error("invalid baked terrain: {0}")]
 pub struct TerrainError(pub String);
@@ -197,12 +210,73 @@ impl BakedTerrain {
     pub fn height_millimetres(&self, x: i32, z: i32) -> Option<i32> {
         let dx = i64::from(x) - i64::from(self.origin_x);
         let dz = i64::from(z) - i64::from(self.origin_z);
-        if dx < 0 || dz < 0 || dx >= i64::from(self.width) || dz >= i64::from(self.depth) { return None; }
+        if dx < 0 || dz < 0 || dx >= i64::from(self.width) || dz >= i64::from(self.depth) {
+            return None;
+        }
         let (dx, dz) = (dx as u32, dz as u32);
-        let chunk = dz / STREAM_CHUNK_METERS * self.width.div_ceil(STREAM_CHUNK_METERS) + dx / STREAM_CHUNK_METERS;
+        let chunk = dz / STREAM_CHUNK_METERS * self.width.div_ceil(STREAM_CHUNK_METERS)
+            + dx / STREAM_CHUNK_METERS;
         self.loaded[chunk as usize].then(|| {
             let i = (dz * self.width + dx) as usize;
-            self.millimetres.as_ref().map_or_else(|| i32::from(self.samples[i]) * 250, |s| s[i])
+            self.millimetres
+                .as_ref()
+                .map_or_else(|| i32::from(self.samples[i]) * 250, |s| s[i])
+        })
+    }
+
+    /// Exact per-cell comparison between two complete rasters with the same
+    /// scene identity. Values are converted to millimetres before comparison,
+    /// so quarter-metre and millimetre rasters remain comparable.
+    pub fn compare_heightfields(&self, other: &Self) -> Result<HeightComparison, TerrainError> {
+        self.require_complete()?;
+        other.require_complete()?;
+        if (self.origin_x, self.origin_z, self.width, self.depth)
+            != (other.origin_x, other.origin_z, other.width, other.depth)
+        {
+            return Err(TerrainError(
+                "cannot compare heightfields with different scene identity".into(),
+            ));
+        }
+        let mut changed_cells = 0usize;
+        let mut raised_cells = 0usize;
+        let mut lowered_cells = 0usize;
+        let mut max_rise_mm = 0i32;
+        let mut max_lower_mm = 0i32;
+        let mut total_absolute_change_mm = 0i128;
+        for row in 0..self.depth as i32 {
+            for col in 0..self.width as i32 {
+                let x = self.origin_x + col;
+                let z = self.origin_z + row;
+                let from = self
+                    .height_millimetres(x, z)
+                    .ok_or_else(|| TerrainError("missing source height sample".into()))?;
+                let to = other
+                    .height_millimetres(x, z)
+                    .ok_or_else(|| TerrainError("missing target height sample".into()))?;
+                let delta = to - from;
+                if delta != 0 {
+                    changed_cells += 1;
+                    total_absolute_change_mm += i128::from(delta.unsigned_abs());
+                    if delta > 0 {
+                        raised_cells += 1;
+                        max_rise_mm = max_rise_mm.max(delta);
+                    } else {
+                        lowered_cells += 1;
+                        max_lower_mm = max_lower_mm.max(-delta);
+                    }
+                }
+            }
+        }
+        let cells = self.width as usize * self.depth as usize;
+        Ok(HeightComparison {
+            cells,
+            unchanged_cells: cells - changed_cells,
+            changed_cells,
+            raised_cells,
+            lowered_cells,
+            max_rise_mm,
+            max_lower_mm,
+            mean_absolute_change_m: total_absolute_change_mm as f64 / cells.max(1) as f64 / 1000.,
         })
     }
 
@@ -307,5 +381,50 @@ mod tests {
             s.origin_x = x;
             assert!(BakedTerrain::new(&s).is_err());
         }
+    }
+
+    #[test]
+    fn heightfield_comparison_is_exact_and_scene_bound() {
+        let spec = SceneSpec {
+            scene_id: "compare".into(),
+            width_m: 2,
+            depth_m: 2,
+            origin_x: 10,
+            origin_z: -4,
+            seed_offset: 0,
+        };
+        let mut natural = BakedTerrain::new(&spec).unwrap();
+        let mut final_terrain = BakedTerrain::new(&spec).unwrap();
+        natural
+            .insert_chunk(
+                10,
+                -4,
+                2,
+                2,
+                &crate::height_payload::encode_millimetres(2, 2, [0., 0., 0., 0.]).unwrap(),
+            )
+            .unwrap();
+        final_terrain
+            .insert_chunk(
+                10,
+                -4,
+                2,
+                2,
+                &crate::height_payload::encode_millimetres(2, 2, [0., 1.5, -0.5, 0.]).unwrap(),
+            )
+            .unwrap();
+        let comparison = natural.compare_heightfields(&final_terrain).unwrap();
+        assert_eq!(comparison.cells, 4);
+        assert_eq!(comparison.changed_cells, 2);
+        assert_eq!(comparison.raised_cells, 1);
+        assert_eq!(comparison.lowered_cells, 1);
+        assert_eq!(comparison.max_rise_mm, 1500);
+        assert_eq!(comparison.max_lower_mm, 500);
+        assert!((comparison.mean_absolute_change_m - 0.5).abs() < 1e-9);
+
+        let mut other_scene = spec.clone();
+        other_scene.origin_x += 1;
+        let other = BakedTerrain::new(&other_scene).unwrap();
+        assert!(natural.compare_heightfields(&other).is_err());
     }
 }

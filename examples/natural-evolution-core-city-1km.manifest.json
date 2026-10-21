@@ -1,0 +1,473 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "Natural-evolution mountain-lake core slice",
+    "seed": 42,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 1000,
+      "depthM": 1000,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "mountain-foot",
+    "heightPrecision": "millimeter",
+    "terrainPolicy": {
+      "earthworkBlend": "derived-from-fill"
+    },
+    "naturalGeography": {
+      "version": 1,
+      "mode": "derived",
+      "setting": "coastal-mountain",
+      "regionalReliefM": 820,
+      "climateBand": "humid-subtropical",
+      "derivationSeed": 42,
+      "hints": {
+        "karst": false,
+        "glacial": false
+      }
+    },
+    "urbanSlice": {
+      "version": 1,
+      "semanticsVersion": 2,
+      "settlementScale": "metropolis",
+      "mode": "feature-cut",
+      "focusFeature": "old-lake-core-and-financial-waterfront",
+      "cropReason": "show the old market core, constrained mountain lake and new financial waterfront as one relational slice rather than a whole metropolis",
+      "contextRadiusM": 2500,
+      "offMapContinuity": [
+        "roads",
+        "rail",
+        "river",
+        "urban-fabric",
+        "coast"
+      ],
+      "specialFactors": [
+        "financial-center",
+        "historic-core",
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "viewpoint": "old-core-to-financial-waterfront",
+      "focusRelations": [
+        {
+          "subject": "old-market-core",
+          "relation": "faces-and-drains-to",
+          "object": "mountain-lake"
+        },
+        {
+          "subject": "financial-waterfront",
+          "relation": "occupies-reclaimed-edge-of",
+          "object": "lake-basin"
+        },
+        {
+          "subject": "new-growth",
+          "relation": "follows-terrain-corridors-around",
+          "object": "protected-mountain-foot"
+        }
+      ],
+      "requiredAnchors": [
+        {
+          "id": "lake-shore",
+          "kind": "waterfront",
+          "role": "main-public-frontage"
+        },
+        {
+          "id": "old-market",
+          "kind": "market",
+          "role": "historic-core"
+        },
+        {
+          "id": "financial-station",
+          "kind": "employment",
+          "role": "new-financial-centre"
+        }
+      ],
+      "contextAnchors": [
+        {
+          "id": "regional-rail",
+          "kind": "transit",
+          "role": "off-map-access"
+        }
+      ],
+      "edgeIntents": [
+        {
+          "edge": "west",
+          "kind": "rail",
+          "destinationRole": "regional-metropolis"
+        },
+        {
+          "edge": "north",
+          "kind": "roads",
+          "destinationRole": "upstream-valley"
+        },
+        {
+          "edge": "east",
+          "kind": "coast",
+          "destinationRole": "outer-bay"
+        }
+      ]
+    },
+    "referenceData": {
+      "sources": [
+        "assets/data/urban-case-priors-48.json",
+        "docs/collaboration/b04-case-register.zh-CN.md"
+      ],
+      "caseIds": [
+        "cn-hangzhou",
+        "hk-central",
+        "us-seattle"
+      ],
+      "crop": "synthetic 1km feature cut combining lake-city and steep-waterfront mechanisms",
+      "retrievedAt": "2026-10-21",
+      "seedBasis": "deterministic composite, not a reconstruction of a named city",
+      "inferenceReason": "the slice expresses a geographic relationship rather than a whole-city density average"
+    },
+    "communityProfile": {
+      "version": 1,
+      "profile": "china-gated"
+    },
+    "routeEvolution": {
+      "version": 1,
+      "enabled": true,
+      "gridStepM": 16,
+      "roadWidthM": 8,
+      "maxGrade": 0.08,
+      "maxTerrainSlope": 0.55,
+      "maxFillM": 6,
+      "allowBridge": true,
+      "maxBridgeSpanM": 420,
+      "turnPenalty": 1.4,
+      "anchors": [],
+      "routes": []
+    },
+    "settlementEvolution": {
+      "version": 1,
+      "enabled": true,
+      "householdsTarget": 1200,
+      "jobsTarget": 700,
+      "retailFloorAreaM2": 8000,
+      "serviceBudget": 20,
+      "lotWidthM": 18,
+      "lotDepthM": 22,
+      "roadStepM": 24,
+      "setbackM": 8,
+      "maxSlope": 0.25,
+      "floorAreaRatio": 2.2,
+      "maxFloors": 16,
+      "accessHeightToleranceM": 6
+    },
+    "planningHistory": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 140,
+      "parkAreaM2PerPerson": 8,
+      "renewalShare": 0.35
+    },
+    "marketCatchment": {
+      "version": 1,
+      "enabled": true,
+      "beta": 0.08,
+      "maxTravelMinutes": 15,
+      "walkSpeedMps": 1.3,
+      "marketCapacity": 500,
+      "marketQuality": 1.0,
+      "coverageTarget": 0.9,
+      "maxMarkets": 8,
+      "candidateSpacingM": 120,
+      "tiers": [
+        {
+          "id": "street-market",
+          "kind": "community-market-hall",
+          "capacity": 250,
+          "quality": 1.12,
+          "maxTravelMinutes": 8,
+          "maxCount": 3,
+          "candidateSpacingM": 80,
+          "preference": 1.2
+        },
+        {
+          "id": "neighbourhood",
+          "kind": "neighbourhood-supermarket",
+          "capacity": 600,
+          "quality": 1.0,
+          "maxTravelMinutes": 15,
+          "maxCount": 2,
+          "candidateSpacingM": 160,
+          "preference": 1.0
+        },
+        {
+          "id": "district",
+          "kind": "large-supermarket",
+          "capacity": 1800,
+          "quality": 0.92,
+          "maxTravelMinutes": 25,
+          "maxCount": 1,
+          "candidateSpacingM": 240,
+          "preference": 0.82
+        }
+      ]
+    },
+    "epochProgram": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 130,
+      "expansionRadiusM": 210,
+      "modernRadiusM": 340
+    },
+    "water": {
+      "waterType": "lake",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "shoreProfile": {
+        "transitionRadius": 1.25,
+        "shallowBandM": 12,
+        "averageDepthM": 2.0
+      },
+      "waveModel": {
+        "preset": "calm-lake-breeze",
+        "amplitudeM": 0.04,
+        "wavelengthM": 8,
+        "roughness": 0.22
+      },
+      "flowDirection": null,
+      "flowSpeedMps": 0.0
+    },
+    "assetContracts": {
+      "tree": {
+        "type": "tree",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 2,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "maxDepthM": 5.5,
+        "minHeightM": 4,
+        "maxHeightM": 9
+      },
+      "bush": {
+        "type": "bush",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.6,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.6,
+        "maxHeightM": 2.6
+      },
+      "grass_clump": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.3,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.3,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.5,
+        "maxHeightM": 1.6
+      },
+      "rock": {
+        "type": "rock",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.2,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "maxDepthM": 8,
+        "minHeightM": 0.2,
+        "maxHeightM": 5
+      },
+      "road": {
+        "type": "road",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 4,
+        "maxWidthM": 10000,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "residential_home": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 8,
+        "maxWidthM": 40,
+        "minDepthM": 8,
+        "maxDepthM": 40,
+        "minHeightM": 3,
+        "maxHeightM": 24
+      },
+      "residential_block": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 8,
+        "maxWidthM": 120,
+        "minDepthM": 8,
+        "maxDepthM": 90,
+        "minHeightM": 12,
+        "maxHeightM": 60
+      },
+      "residential_tower": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 120,
+        "minDepthM": 16,
+        "maxDepthM": 90,
+        "minHeightM": 50,
+        "maxHeightM": 100
+      },
+      "urban_building": {
+        "type": "building",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 8,
+        "maxWidthM": 120,
+        "minDepthM": 8,
+        "maxDepthM": 120,
+        "minHeightM": 24,
+        "maxHeightM": 100
+      },
+      "market": {
+        "type": "market",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 100,
+        "minDepthM": 12,
+        "maxDepthM": 80,
+        "minHeightM": 3,
+        "maxHeightM": 20
+      },
+      "storefront": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 40,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 2,
+        "maxHeightM": 30
+      },
+      "office_tower": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 12,
+        "maxWidthM": 60,
+        "minDepthM": 12,
+        "maxDepthM": 60,
+        "minHeightM": 12,
+        "maxHeightM": 120
+      },
+      "town_hall": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 24,
+        "maxWidthM": 100,
+        "minDepthM": 20,
+        "maxDepthM": 80,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "industrial": {
+        "type": "industrial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 30,
+        "maxWidthM": 180,
+        "minDepthM": 24,
+        "maxDepthM": 120,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "community_plaza": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 160,
+        "minDepthM": 20,
+        "maxDepthM": 120,
+        "minHeightM": 0.1,
+        "maxHeightM": 2
+      },
+      "park": {
+        "type": "green",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 240,
+        "minDepthM": 16,
+        "maxDepthM": 240,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "lake": {
+        "type": "water",
+        "placement": "water-surface",
+        "allowedSurfaces": ["water", "deep_water"],
+        "forbiddenSurfaces": ["grass", "forest", "soil", "stone", "underground"],
+        "minWidthM": 360,
+        "maxWidthM": 360,
+        "minDepthM": 250,
+        "maxDepthM": 250,
+        "minHeightM": 1,
+        "maxHeightM": 1
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.core-lake",
+      "name": "核心湖湾",
+      "type": "lake",
+      "purpose": "expresses the lake-old-core-financial-waterfront relationship",
+      "description": "山脚湖湾作为核心切面的自然骨架，周边道路、旧城与新区围绕其地貌关系展开。",
+      "sceneId": "scene-0",
+      "worldX": 720,
+      "worldZ": 250,
+      "worldY": 0,
+      "widthM": 360,
+      "depthM": 250,
+      "heightM": 1,
+      "assetId": "water.modern-lakeside"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

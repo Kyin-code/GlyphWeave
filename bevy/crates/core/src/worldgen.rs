@@ -16,70 +16,72 @@ use crate::settlement::{
 };
 mod access;
 pub mod bounded_cut;
+/// OPT-IN `style.terrainPolicy.earthworkBlend`: derive each structure's
+/// fill-transition ring from its own footprint instead of the fixed envelope
+/// (see the module docs for the constants and their derivation).
+pub mod earthwork_blend;
+#[path = "worldgen/entity_identity.rs"]
+mod entity_identity;
 /// OPT-IN `style.terrainPolicy.entryCorridor = "graded"`: the graded, fill-only
 /// walking corridor a pad needs when the street it is assigned to stands above it
 /// and only the street's own fill slope lies between the door and the pavement
 /// (see the module docs for the contract and the ledger).
 pub mod entry_corridor;
-/// The graded road's bounded-cut support contract: the plan-stage probe that
-/// refuses a road BY NAME when its own cut still cannot bring the roadbed inside
-/// the 6 m fill contract (see the module docs).
-pub mod road_support;
-/// OPT-IN `style.terrainPolicy.earthworkBlend`: derive each structure's
-/// fill-transition ring from its own footprint instead of the fixed envelope
-/// (see the module docs for the constants and their derivation).
-pub mod earthwork_blend;
 /// The entity-stage completion of a planned pad's declared platform: the loop
 /// between "the plan accepted a pad" and "the rule-engine earthwork stands on top
 /// of it" (see the module docs).
 pub mod pad_completion;
-#[path = "worldgen/entity_identity.rs"]
-mod entity_identity;
-pub use entity_identity::{ENTITY_ID_SCHEME, EntityCandidateKey, EntityChangeKind, EntityChangeApproval, EntityInventoryMode, EntityInventoryChange, EntityInventoryAudit, audit_entity_inventory};
+/// The graded road's bounded-cut support contract: the plan-stage probe that
+/// refuses a road BY NAME when its own cut still cannot bring the roadbed inside
+/// the 6 m fill contract (see the module docs).
+pub mod road_support;
 use entity_identity::CandidateIds;
+pub use entity_identity::{
+    ENTITY_ID_SCHEME, EntityCandidateKey, EntityChangeApproval, EntityChangeKind,
+    EntityInventoryAudit, EntityInventoryChange, EntityInventoryMode, audit_entity_inventory,
+};
 mod access_surface;
 pub use access::{AccessGraph, AccessLink, AccessPoint, build_access_graph};
 pub use access_surface::{AccessSurface, bake_access_surfaces, validate_access_surfaces};
 mod engineered_placement;
-pub use engineered_placement::{
-    PlacementReportAudit, verify_published_placement,
-};
-pub mod joint_frontage;
-pub mod road_network;
-pub mod road_alignment;
-pub mod road_profile;
-pub mod road_extensions;
-pub mod auto_roads;
-pub mod engineering_connections;
-pub mod frontage;
-pub mod conversion_budget;
-pub mod conversion_fringe;
-pub mod community_typology;
-pub mod epoch_evolution;
-pub mod engineering_scale;
-pub mod land_pressure;
-mod frontage_supply;
-pub mod parcel_geometry;
-pub mod planning_history;
-pub mod road_parcel_feasibility;
-pub mod services;
-pub mod natural_geography;
-pub mod natural_only;
-pub mod market_catchment;
-pub mod route_evolution;
-pub mod settlement_evolution;
-pub mod urban_case_priors;
-pub mod urban_slice;
-mod shorefront;
-mod terrain_context;
-mod water_query;
-pub mod shore_band;
-pub mod urban_growth;
-pub mod zoning;
+pub use engineered_placement::{PlacementReportAudit, verify_published_placement};
 #[cfg(test)]
 mod assigned_road_tests;
+pub mod auto_roads;
+pub mod community_typology;
+pub mod conversion_budget;
+pub mod conversion_fringe;
+pub mod engineering_connections;
+pub mod engineering_scale;
 #[cfg(test)]
 mod entrance_recheck_tests;
+pub mod epoch_evolution;
+pub mod frontage;
+mod frontage_supply;
+pub mod joint_frontage;
+pub mod land_pressure;
+pub mod market_catchment;
+pub mod natural_baseline;
+pub mod natural_geography;
+pub mod natural_only;
+pub mod parcel_geometry;
+pub mod planning_history;
+pub mod road_alignment;
+pub mod road_extensions;
+pub mod road_network;
+pub mod road_parcel_feasibility;
+pub mod road_profile;
+pub mod route_evolution;
+pub mod services;
+pub mod settlement_evolution;
+pub mod shore_band;
+mod shorefront;
+mod terrain_context;
+pub mod urban_case_priors;
+pub mod urban_growth;
+pub mod urban_slice;
+mod water_query;
+pub mod zoning;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -190,7 +192,7 @@ pub enum GroundingPivot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GroundingSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub frontage_road_point: Option<[i32;2]>,
+    pub frontage_road_point: Option<[i32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_profile: Option<road_profile::RoadProfile>,
     /// Authored road-tier provenance for an automatic/extension road. Base
@@ -1102,7 +1104,6 @@ pub fn plan_landuse_zones_for_style(
     Ok(urban_growth::plan(scene, profile, network.as_ref(), water))
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LandUseBudget {
@@ -1765,7 +1766,9 @@ fn legacy_water_geometry(
 
 impl GroundingSpec {
     pub fn validate(&self, owner: &str) -> WorldgenResult<()> {
-        if let Some(p)=&self.road_profile {p.validate_shape()?;}
+        if let Some(p) = &self.road_profile {
+            p.validate_shape()?;
+        }
         if !self.bottom_offset_m.is_finite()
             || !self.roadbed_offset_m.is_finite()
             || !self.tolerance_m.is_finite()
@@ -2022,17 +2025,16 @@ impl WorldManifest {
         height_encoding_from_style(&self.style)?;
         community_typology::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         epoch_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
-        planning_history::validate_style(&self.style)
-            .map_err(WorldgenError::InvalidRules)?;
+        planning_history::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_geography::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         natural_only::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         market_catchment::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         route_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
-        settlement_evolution::validate_style(&self.style)
-            .map_err(WorldgenError::InvalidRules)?;
+        settlement_evolution::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
         urban_slice::validate_style(&self.style).map_err(WorldgenError::InvalidRules)?;
-        crate::settlement::farm_program::validate_manifest(&effective.style,&effective.scenes).map_err(WorldgenError::InvalidRules)?;
-        crate::settlement::residual_land::validate_manifest(&effective.style,&effective.scenes)
+        crate::settlement::farm_program::validate_manifest(&effective.style, &effective.scenes)
+            .map_err(WorldgenError::InvalidRules)?;
+        crate::settlement::residual_land::validate_manifest(&effective.style, &effective.scenes)
             .map_err(WorldgenError::InvalidRules)?;
         crate::settlement::morphology::validate_manifest(&self.style)
             .map_err(WorldgenError::InvalidRules)?;
@@ -2346,7 +2348,7 @@ pub fn declared_natural_source(
         Some(other) => {
             return Err(WorldgenError::InvalidRules(format!(
                 "unsupported authored terrain source {other:?}: this build has no declared non-authored source for the independent audit"
-            )))
+            )));
         }
     }
     Ok(NaturalSource::AuthoredSeed {
@@ -2357,11 +2359,24 @@ pub fn declared_natural_source(
 
 // Opt-in stderr telemetry is observational, never part of world identity or
 // release acceptance. The external runner measures process resources.
-struct BakeTrace { enabled: bool, started: std::time::Instant }
+struct BakeTrace {
+    enabled: bool,
+    started: std::time::Instant,
+}
 impl BakeTrace {
-    fn new()->Self { Self { enabled:std::env::var_os("GLYPHWEAVE_BAKE_TRACE").is_some_and(|v|v=="1"),started:std::time::Instant::now() } }
-    fn stage(&self,scene:&str,stage:&str) {
-        if self.enabled {eprintln!("{}",serde_json::json!({"format":"glyphweave.bake-trace","event":"begin","sceneId":scene,"stage":stage,"elapsedMs":self.started.elapsed().as_millis()}));}
+    fn new() -> Self {
+        Self {
+            enabled: std::env::var_os("GLYPHWEAVE_BAKE_TRACE").is_some_and(|v| v == "1"),
+            started: std::time::Instant::now(),
+        }
+    }
+    fn stage(&self, scene: &str, stage: &str) {
+        if self.enabled {
+            eprintln!(
+                "{}",
+                serde_json::json!({"format":"glyphweave.bake-trace","event":"begin","sceneId":scene,"stage":stage,"elapsedMs":self.started.elapsed().as_millis()})
+            );
+        }
     }
 }
 /// The published bounded-cut ledger of ONE scene, or `None` when the style never
@@ -2397,13 +2412,9 @@ fn bounded_cut_ledger_for(
     let mut cut_entities = plan.entities();
     cut_entities.extend(plan.site_entities());
     let road_tops = bounded_cut::road_flat_tops(&cut_entities);
-    let pads = bounded_cut::measure_from_rasters(
-        &plan.roadside_sites,
-        natural,
-        final_terrain,
-        &road_tops,
-    )
-    .map_err(WorldgenError::InvalidRules)?;
+    let pads =
+        bounded_cut::measure_from_rasters(&plan.roadside_sites, natural, final_terrain, &road_tops)
+            .map_err(WorldgenError::InvalidRules)?;
     let mut ledger = bounded_cut::CutLedger {
         requested: Some(
             manifest
@@ -2454,7 +2465,7 @@ fn bounded_cut_ledger_for(
 }
 
 pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<WorldIndex> {
-    let trace=BakeTrace::new();
+    let trace = BakeTrace::new();
     trace.stage("", "manifest-validation");
     manifest.validate()?;
     // Compile the single effective program set for this bake. Roads, frontage,
@@ -2500,24 +2511,23 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         return Err(WorldgenError::OutputNotEmpty(output.display().to_string()));
     }
     fs::create_dir_all(output)?;
-    let geography_plan = natural_geography::compile(&manifest.style)
-        .map_err(WorldgenError::InvalidRules)?;
+    let geography_plan =
+        natural_geography::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &geography_plan {
         fs::write(
             output.join("natural-geography-plan.json"),
             serde_json::to_vec_pretty(plan)?,
         )?;
     }
-    let slice_plan =
-        urban_slice::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+    let slice_plan = urban_slice::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &slice_plan {
         fs::write(
             output.join("urban-slice-plan.json"),
             serde_json::to_vec_pretty(plan)?,
         )?;
     }
-    let land_pressure_plan = land_pressure::plan(&manifest.style, None)
-        .map_err(WorldgenError::InvalidRules)?;
+    let land_pressure_plan =
+        land_pressure::plan(&manifest.style, None).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &land_pressure_plan {
         fs::write(
             output.join("land-pressure-plan.json"),
@@ -2571,14 +2581,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "explicit service program requires supported road-first scene".into(),
             ));
         }
-        if crate::settlement::farm_program::for_scene(&effective_style,scene).map_err(WorldgenError::InvalidRules)?.is_some()
-            && !road_network::enabled(&manifest.style,water) {
-            return Err(WorldgenError::InvalidRules("explicit agriculture program requires supported road-first scene".into()));
+        if crate::settlement::farm_program::for_scene(&effective_style, scene)
+            .map_err(WorldgenError::InvalidRules)?
+            .is_some()
+            && !road_network::enabled(&manifest.style, water)
+        {
+            return Err(WorldgenError::InvalidRules(
+                "explicit agriculture program requires supported road-first scene".into(),
+            ));
         }
         // Establish and publish the natural fact layer before any human
         // candidate exists. Only heights are baked here, not unused LOD or
         // derivative payloads; final engineering has its own later bake.
-        trace.stage(&scene.scene_id,"natural-heightfield");
+        trace.stage(&scene.scene_id, "natural-heightfield");
         let natural_samples = bake_natural_heightfield(
             manifest.world.seed ^ scene.seed_offset,
             scene,
@@ -2588,7 +2603,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         )?;
         natural_samples.require_complete()?;
 
-        trace.stage(&scene.scene_id,"natural-drainage");
+        trace.stage(&scene.scene_id, "natural-drainage");
         let natural_terrain = {
             let kind = match water.kind {
                 WaterKind::None => "none",
@@ -2616,9 +2631,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             snapshot
         };
+        let natural_baseline = natural_baseline::freeze(
+            scene,
+            &natural_samples,
+            manifest.style.get("naturalGeography"),
+        )?;
+        fs::write(
+            scene_dir.join("natural-baseline.json"),
+            serde_json::to_vec_pretty(&natural_baseline)?,
+        )?;
         let route_evolution_plan =
             route_evolution::plan(scene, &natural_samples, water, &effective_style)?;
         let mut settlement_evolution_result = None;
+        let mut market_catchment_result = None;
         let mut planning_history_result = None;
         let mut planning_materialization_report: Option<serde_json::Value> = None;
         if let Some(route_plan) = &route_evolution_plan {
@@ -2638,9 +2663,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     serde_json::to_vec_pretty(&pressure_plan)?,
                 )?;
             }
-            if let Some(engineering_plan) =
-                engineering_scale::plan(route_plan, &effective_style)
-                    .map_err(WorldgenError::InvalidRules)?
+            if let Some(engineering_plan) = engineering_scale::plan(route_plan, &effective_style)
+                .map_err(WorldgenError::InvalidRules)?
             {
                 fs::write(
                     scene_dir.join("engineering-scale-plan.json"),
@@ -2660,6 +2684,22 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 fs::write(
                     scene_dir.join("settlement-evolution-plan.json"),
                     serde_json::to_vec_pretty(&settlement_plan)?,
+                )?;
+                fs::write(
+                    scene_dir.join("settlement-candidates.json"),
+                    serde_json::to_vec_pretty(&serde_json::json!({
+                        "format": "glyphweave.settlement-candidates",
+                        "version": 1,
+                        "sceneId": scene.scene_id,
+                        "status": &settlement_plan.status,
+                        "demand": &settlement_plan.demand,
+                        "delivered": &settlement_plan.delivered,
+                        "unmetDemand": &settlement_plan.unmet_demand,
+                        "capacity": &settlement_plan.capacity,
+                        "acceptedBuildings": &settlement_plan.buildings,
+                        "rejectedCandidates": &settlement_plan.rejections,
+                        "countPolicy": "emergent-no-fill",
+                    }))?,
                 )?;
                 if let Some(epoch_plan) =
                     epoch_evolution::plan(route_plan, &settlement_plan, &effective_style)
@@ -2684,6 +2724,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     market_catchment::plan(route_plan, &settlement_plan, &effective_style)
                         .map_err(WorldgenError::InvalidRules)?
                 {
+                    market_catchment_result = Some(market_plan.clone());
                     fs::write(
                         scene_dir.join("market-catchment-plan.json"),
                         serde_json::to_vec_pretty(&market_plan)?,
@@ -2691,7 +2732,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 }
             }
         }
-        trace.stage(&scene.scene_id,"road-and-service-planning");
+        trace.stage(&scene.scene_id, "road-and-service-planning");
         let planned_zones = match LandUseProfile::from_style(&manifest.style) {
             Some(profile) => Some(
                 plan_landuse_zones_for_style(
@@ -2730,15 +2771,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 serde_json::to_vec_pretty(plan)?,
             )?;
         }
-        trace.stage(&scene.scene_id,"development-partition");
+        trace.stage(&scene.scene_id, "development-partition");
         let mut development_plan = if let Some(roads) = &road_plan {
             let zones = planned_zones.as_deref().ok_or_else(|| {
                 WorldgenError::InvalidRules("road development requires land-use profile".into())
             })?;
-            Some(
-                development::plan(scene, zones, roads)
-                    .map_err(WorldgenError::InvalidRules)?,
-            )
+            Some(development::plan(scene, zones, roads).map_err(WorldgenError::InvalidRules)?)
         } else {
             None
         };
@@ -2761,7 +2799,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             zoning: zoning_mask.as_ref(),
         };
         validate_authored_landmarks_clear_water(&landmarks, scene, water)?;
-        trace.stage(&scene.scene_id,"entity-generation-and-preflight");
+        trace.stage(&scene.scene_id, "entity-generation-and-preflight");
         let (mut entities, placement_outcome, development_proposals, candidate_claims) =
             generate_entities_with_profile_report(
                 manifest.world.seed ^ scene.seed_offset,
@@ -2803,10 +2841,24 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             let count = materialized.len();
             drop(existing);
             entities.extend(materialized);
+            let approaches = settlement_evolution::materialize_approaches(plan, &natural_samples);
+            let approach_count = approaches.len();
+            entities.extend(approaches);
             engineering_reports.push(serde_json::json!({
                 "sceneId": scene.scene_id,
                 "phase": "settlement-evolution-materialization",
                 "materializedBuildings": count,
+                "materializedBuildingApproaches": approach_count,
+            }));
+        }
+        if let (Some(plan), Some(routes)) = (&market_catchment_result, &route_evolution_plan) {
+            let materialized = market_catchment::materialize(plan, routes, &natural_samples);
+            let count = materialized.len();
+            entities.extend(materialized);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "market-catchment-materialization",
+                "materializedMarkets": count,
             }));
         }
         if let Some(plan) = &planning_history_result {
@@ -2820,22 +2872,26 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .map(|entity| entity.entity_id.clone())
                 .collect::<Vec<_>>();
             entities.extend(centres.entities);
-            let parks =
-                planning_history::materialize_public_space(plan, scene, &natural_samples, &entities);
+            let parks = planning_history::materialize_public_space(
+                plan,
+                scene,
+                &natural_samples,
+                &entities,
+            );
             let park_count = parks.entities.len();
             entities.extend(parks.entities);
             planning_materialization_report = Some(serde_json::json!({
-                    "format": "glyphweave.planning-materialization-report",
-                    "version": 1,
-                    "sceneId": scene.scene_id,
-                    "widenedRoadSegments": widened.len(),
-                    "widenedRoadIds": widened,
-                    "materializedCentres": centre_count,
-                    "materializedCentreIds": centre_ids,
-                    "skippedCentres": centres.skipped,
-                    "materializedParks": park_count,
-                    "skippedActions": parks.skipped,
-                }));
+                "format": "glyphweave.planning-materialization-report",
+                "version": 1,
+                "sceneId": scene.scene_id,
+                "widenedRoadSegments": widened.len(),
+                "widenedRoadIds": widened,
+                "materializedCentres": centre_count,
+                "materializedCentreIds": centre_ids,
+                "skippedCentres": centres.skipped,
+                "materializedParks": park_count,
+                "skippedActions": parks.skipped,
+            }));
         }
         if let Some(route_plan) = &route_evolution_plan {
             let removed = route_evolution::retain_clearance(&mut entities, route_plan, 2.0);
@@ -2888,7 +2944,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             entity.normalize_spatial_semantics();
         }
         sanitize_generated_transport_collisions(&mut entities);
-        for e in &entities { if let Some(p)=&e.grounding.road_profile { p.validate_entity(e)?; } frontage::validate_entity(e)?; }
+        for e in &entities {
+            if let Some(p) = &e.grounding.road_profile {
+                p.validate_entity(e)?;
+            }
+            frontage::validate_entity(e)?;
+        }
         let mut carves = plan_terrain_carves(&entities);
         // Reconcile grounded entities against the preliminary carved surface
         // so roadbeds cannot make a nearby object fail final baked audit.
@@ -3032,7 +3093,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
         }
         let mut chunks = Vec::new();
-        trace.stage(&scene.scene_id,"final-heightfield-and-semantics");
+        trace.stage(&scene.scene_id, "final-heightfield-and-semantics");
         let mut baked_samples = BakedTerrain::new(scene)?;
         for chunk_z in 0..chunk_count_z {
             for chunk_x in 0..chunk_count_x {
@@ -3117,7 +3178,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }
         }
         // One compact raster and one audit preparation path for bake and CLI.
-        trace.stage(&scene.scene_id,"final-entity-access-and-audit");
+        trace.stage(&scene.scene_id, "final-entity-access-and-audit");
         baked_samples.require_complete()?;
         rebase_entities_to_baked_surface(&mut entities, &baked_samples);
         if water.road_water_crossings() {
@@ -3175,8 +3236,37 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )
             .collect();
         let rejected_access = access::rejectable_candidates(&access_graph, &protected_access_ids);
+        let rejected_access_statuses = access_graph
+            .links
+            .iter()
+            .filter(|link| rejected_access.contains(&link.entity_id) && !link.connected)
+            .fold(
+                BTreeMap::<String, Vec<String>>::new(),
+                |mut statuses, link| {
+                    statuses
+                        .entry(link.entity_id.clone())
+                        .or_default()
+                        .push(link.status.clone());
+                    statuses
+                },
+            );
         if !rejected_access.is_empty() {
-            entities.retain(|entity| !rejected_access.contains(&entity.entity_id));
+            let rejected_buildings = rejected_access
+                .iter()
+                .filter_map(|id| id.strip_prefix("generated.settlement-evolution."))
+                .collect::<BTreeSet<_>>();
+            entities.retain(|entity| {
+                if rejected_access.contains(&entity.entity_id) {
+                    return false;
+                }
+                let Some(rejected_id) = entity
+                    .entity_id
+                    .strip_prefix("generated.settlement-evolution.approach.")
+                else {
+                    return true;
+                };
+                !rejected_buildings.contains(rejected_id)
+            });
             access_graph =
                 access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
             engineering_reports.push(serde_json::json!({
@@ -3199,18 +3289,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .unwrap_or_default();
             let retained = materialized_centres
                 .iter()
-                .filter(|id| {
-                    id.as_str()
-                        .is_some_and(|id| final_ids.contains(id))
-                })
+                .filter(|id| id.as_str().is_some_and(|id| final_ids.contains(id)))
                 .cloned()
                 .collect::<Vec<_>>();
             let rejected = materialized_centres
                 .iter()
-                .filter(|id| {
-                    id.as_str()
-                        .is_some_and(|id| !final_ids.contains(id))
-                })
+                .filter(|id| id.as_str().is_some_and(|id| !final_ids.contains(id)))
                 .cloned()
                 .collect::<Vec<_>>();
             report["materializedCentres"] = serde_json::json!(retained.len());
@@ -3232,13 +3316,21 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .filter_map(|building| {
                     let entity_id =
                         format!("generated.settlement-evolution.{}", building.id);
-                    (!final_ids.contains(entity_id.as_str())).then_some(serde_json::json!({
+                    if final_ids.contains(entity_id.as_str()) {
+                        return None;
+                    }
+                    let access_statuses = rejected_access_statuses
+                        .get(entity_id.as_str())
+                        .cloned()
+                        .unwrap_or_default();
+                    Some(serde_json::json!({
                         "entityId": entity_id,
                         "kind": building.kind,
                         "households": building.households,
                         "jobs": building.jobs,
                         "retailFloorAreaM2": building.retail_floor_area_m2,
-                        "reason": "strict generated-facade access contract produced no verified route"
+                        "reason": "strict generated-facade access contract produced no verified route",
+                        "accessStatuses": access_statuses,
                     }))
                 })
                 .collect::<Vec<_>>();
@@ -3405,7 +3497,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         "building_or_parcel_pad"
                     }
                     .into(),
-                    entity_id: carve.profile.as_deref().and_then(|p|entities.iter().find(|e|e.grounding.road_profile.as_ref()==Some(p))).map(|e|e.entity_id.clone()).unwrap_or_else(||format!("generated.terrain-carve.{index}")),
+                    entity_id: carve
+                        .profile
+                        .as_deref()
+                        .and_then(|p| {
+                            entities
+                                .iter()
+                                .find(|e| e.grounding.road_profile.as_ref() == Some(p))
+                        })
+                        .map(|e| e.entity_id.clone())
+                        .unwrap_or_else(|| format!("generated.terrain-carve.{index}")),
                     center_x: carve.cx as f32,
                     center_z: carve.cz as f32,
                     half_width_m: carve.half_w as f32,
@@ -3471,6 +3572,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             snapshot
         };
+        let natural_diff = natural_baseline::final_diff(
+            scene,
+            &natural_baseline,
+            &natural_samples,
+            &baked_samples,
+            engineered_terrain.operations.len(),
+        )?;
+        fs::write(
+            scene_dir.join("natural-final-diff.json"),
+            serde_json::to_vec_pretty(&natural_diff)?,
+        )?;
         // The rule engine's own provenance for the buildings it placed. Kept out
         // of every world that publishes no development plan: with no ledger to
         // audit there is no rule building to distinguish, and those worlds keep
@@ -3478,12 +3590,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let rule_building_candidates = development_plan
             .as_ref()
             .map(|plan| {
-                development::rule_building_candidates(
-                    scene,
-                    plan,
-                    &entities,
-                    &candidate_claims,
-                )
+                development::rule_building_candidates(scene, plan, &entities, &candidate_claims)
             })
             .unwrap_or_default();
         let mut index = SceneIndex {
@@ -3526,9 +3633,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             index.land_use_zones = zones;
             if let Some(plan) = &index.development_plan {
-                let landcover = development::plan_landcover_with_program(scene, plan, &effective_style)
-                    .map_err(WorldgenError::InvalidRules)?;
-                trace.stage(&scene.scene_id,"landcover-realization");
+                let landcover =
+                    development::plan_landcover_with_program(scene, plan, &effective_style)
+                        .map_err(WorldgenError::InvalidRules)?;
+                trace.stage(&scene.scene_id, "landcover-realization");
                 let surfaces = landcover::realize(
                     scene,
                     plan,
@@ -3538,7 +3646,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     &index.entities,
                 )
                 .map_err(WorldgenError::InvalidRules)?;
-                trace.stage(&scene.scene_id,"landcover-independent-reconstruction");
+                trace.stage(&scene.scene_id, "landcover-independent-reconstruction");
                 let landcover_audit = landcover::verify(
                     &surfaces,
                     scene,
@@ -3549,7 +3657,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     &index.entities,
                 )
                 .map_err(WorldgenError::InvalidRules)?;
-                trace.stage(&scene.scene_id,"landcover-serialization");
+                trace.stage(&scene.scene_id, "landcover-serialization");
                 fs::write(
                     scene_dir.join("landcover-surfaces.json"),
                     serde_json::to_vec_pretty(&surfaces)?,
@@ -3601,7 +3709,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 )?;
                 index.parcel_plan = Some(parcel_plan);
             }
-            trace.stage(&scene.scene_id,"landuse-accounting");
+            trace.stage(&scene.scene_id, "landuse-accounting");
             let budget = plan_landuse_budget(&index, &profile);
             fs::write(
                 scene_dir.join("land-use-budget.json"),
@@ -3674,9 +3782,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     "morphologyCoverage=audit requires a realized development plan".into(),
                 )
             })?;
-            let coverage =
-                super::settlement::morphology_coverage::audit(development, &profile)
-                    .map_err(WorldgenError::InvalidRules)?;
+            let coverage = super::settlement::morphology_coverage::audit(development, &profile)
+                .map_err(WorldgenError::InvalidRules)?;
             fs::write(
                 scene_dir.join("morphology-coverage-audit.json"),
                 serde_json::to_vec_pretty(&coverage)?,
@@ -3697,12 +3804,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             natural_only::require_pass(&audit).map_err(WorldgenError::InvalidRules)?;
             natural_only_reports.push(audit);
         }
-        trace.stage(&scene.scene_id,"scene-serialization");
+        trace.stage(&scene.scene_id, "scene-serialization");
         fs::write(
             scene_dir.join("scene.json"),
             serde_json::to_vec_pretty(&index)?,
         )?;
-        crate::preview_stream::write(&index,&revision,&scene_dir).map_err(|e|WorldgenError::InvalidRules(format!("preview projection: {e}")))?;
+        crate::preview_stream::write(&index, &revision, &scene_dir)
+            .map_err(|e| WorldgenError::InvalidRules(format!("preview projection: {e}")))?;
         scene_paths.push(format!("scenes/{}/scene.json", scene.scene_id));
     }
     if natural_only::enabled(&effective_style) {
@@ -3750,7 +3858,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }))?,
         )?;
     }
-    trace.stage("","world-publication");
+    trace.stage("", "world-publication");
     write_gemap_anchor(output, manifest, &revision)?;
     let index = WorldIndex {
         format: WORLD_FORMAT.to_owned(),
@@ -4129,10 +4237,12 @@ pub fn road_geometry_revision_for_style(style: &serde_json::Value) -> Option<&'s
         .and_then(|program| program.get("corridors"))
         .and_then(serde_json::Value::as_array)
     {
-        if corridors
-            .iter()
-            .any(|corridor| corridor.get("roadWidthM").and_then(serde_json::Value::as_u64) == Some(16))
-        {
+        if corridors.iter().any(|corridor| {
+            corridor
+                .get("roadWidthM")
+                .and_then(serde_json::Value::as_u64)
+                == Some(16)
+        }) {
             return Some(GRADED_ROAD_GEOMETRY_REVISION);
         }
     }
@@ -4255,11 +4365,20 @@ pub fn apply_patch(manifest: &WorldManifest, patch: &WorldPatch) -> WorldgenResu
 }
 
 /// Refresh only HTML adapter modules, never authoritative generation files.
-pub fn refresh_html_adapter(output:&Path)->WorldgenResult<()> {
-    let preview=output.join("preview");fs::create_dir_all(&preview)?;
-    fs::write(preview.join("index.html"),include_str!("../../../../adapters/html/index.html"))?;
-    fs::write(preview.join("app.js"),include_str!("../../../../adapters/html/app.js"))?;
-    write_html_preview_modules(&preview)?;write_preview_assets(output)?;Ok(())
+pub fn refresh_html_adapter(output: &Path) -> WorldgenResult<()> {
+    let preview = output.join("preview");
+    fs::create_dir_all(&preview)?;
+    fs::write(
+        preview.join("index.html"),
+        include_str!("../../../../adapters/html/index.html"),
+    )?;
+    fs::write(
+        preview.join("app.js"),
+        include_str!("../../../../adapters/html/app.js"),
+    )?;
+    write_html_preview_modules(&preview)?;
+    write_preview_assets(output)?;
+    Ok(())
 }
 
 fn write_adapter_templates(output: &Path) -> WorldgenResult<()> {
@@ -4623,7 +4742,9 @@ fn write_preview_assets(output: &Path) -> WorldgenResult<()> {
     )?;
     fs::create_dir_all(assets.join("licenses"))?;
     fs::write(
-        assets.join("licenses").join("quaternius-stylized-nature-CC0.txt"),
+        assets
+            .join("licenses")
+            .join("quaternius-stylized-nature-CC0.txt"),
         include_bytes!(
             "../../../../assets/third_party/quaternius/stylized-nature/License_Standard.txt"
         ),
@@ -5040,12 +5161,8 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
     } else {
         1.0
     };
-    let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0)
-        * 60.0
-        * sinuosity;
-    let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0)
-        * 60.0
-        * sinuosity;
+    let warp_x = fbm2d(seed.wrapping_add(0x9e37_79b9), xf / 240.0, zf / 240.0) * 60.0 * sinuosity;
+    let warp_z = fbm2d(seed.wrapping_add(0xbf58_476d), xf / 240.0, zf / 240.0) * 60.0 * sinuosity;
     let drainage_spacing = if geography.authored {
         0.72 + (1.0 - f64::from(geography.river_density)).clamp(0.0, 1.0) * 1.35
     } else {
@@ -5076,8 +5193,7 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
     // Smoothstep so channel banks ease out instead of a hard V cut.
     let strength_s = strength * strength * (3.0 - 2.0 * strength);
     let incision = if geography.authored {
-        14.0
-            + f64::from(geography.fluvial_incision) * 38.0
+        14.0 + f64::from(geography.fluvial_incision) * 38.0
             + f64::from(geography.incised_valleys) * 10.0
     } else {
         30.0
@@ -5089,8 +5205,7 @@ fn approximate_valley_carve(seed: u64, x: i32, z: i32, water: WaterGeometry) -> 
             (xf + shift + warp_x * 0.8) / 760.0,
             (zf - shift * 0.35 + warp_z * 0.8) / 760.0,
         );
-        let floodplain_radius =
-            f64::from(geography.floodplain_width_m.clamp(40.0, 1800.0)) * 0.18;
+        let floodplain_radius = f64::from(geography.floodplain_width_m.clamp(40.0, 1800.0)) * 0.18;
         let d_historical =
             (historical.abs() * 760.0).min(floodplain_radius) / floodplain_radius.max(1.0);
         let floodplain = (1.0 - d_historical).powi(2)
@@ -5216,16 +5331,10 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     let across = (xf - cx) * theta.cos() + (zf - cz) * theta.sin();
     let axis_band = (-(across / (scale * 0.42)).powi(2)).exp();
     let uplift = axis_band * (12.0 + f64::from(geography.uplift_bias) * 42.0);
-    let glacial_trough = f64::from(geography.glacial)
-        * (-(across / (scale * 0.24)).powi(2)).exp()
-        * 13.0;
+    let glacial_trough =
+        f64::from(geography.glacial) * (-(across / (scale * 0.24)).powi(2)).exp() * 13.0;
     let karst = if geography.karst > 0.0 {
-        let sink = value_noise2d(
-            seed.wrapping_add(0x6a09_e667),
-            xf / 135.0,
-            zf / 135.0,
-        )
-        .abs();
+        let sink = value_noise2d(seed.wrapping_add(0x6a09_e667), xf / 135.0, zf / 135.0).abs();
         f64::from(geography.karst) * (1.0 - sink).powi(2) * 7.0
     } else {
         0.0
@@ -5239,27 +5348,20 @@ fn landform_field(seed: u64, x: i32, z: i32, water: WaterGeometry) -> f64 {
     } else {
         0.0
     };
-    let tectonic_subsidence = f64::from(geography.tectonic_subsidence)
-        * (-(across / (scale * 0.6)).powi(2)).exp()
-        * 10.0;
-    let fluvial_deposition = f64::from(geography.fluvial_deposition)
-        * (-(across / (scale * 0.34)).powi(2)).exp()
-        * 5.5;
+    let tectonic_subsidence =
+        f64::from(geography.tectonic_subsidence) * (-(across / (scale * 0.6)).powi(2)).exp() * 10.0;
+    let fluvial_deposition =
+        f64::from(geography.fluvial_deposition) * (-(across / (scale * 0.34)).powi(2)).exp() * 5.5;
     let coastal_wave_erosion = f64::from(geography.coastal_erosion)
         * radial.powi(4)
         * 9.0
         * (1.0 - across.abs() / scale.max(1.0)).clamp(0.0, 1.0);
     let mass_wasting = f64::from(geography.mass_wasting)
-        * fbm2d(
-            seed.wrapping_add(0x517c_c1b7),
-            xf / 115.0,
-            zf / 115.0,
-        )
-        .abs()
+        * fbm2d(seed.wrapping_add(0x517c_c1b7), xf / 115.0, zf / 115.0).abs()
         * 3.5;
-    (base * f64::from(geography.relief_scale) + uplift + radial * radial
-        * f64::from(geography.coastality)
-        * 26.0
+    (base * f64::from(geography.relief_scale)
+        + uplift
+        + radial * radial * f64::from(geography.coastality) * 26.0
         - glacial_trough
         - karst
         - tectonic_subsidence
@@ -5753,7 +5855,11 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             None
         };
         carves.push(TerrainCarve {
-            profile: entity.grounding.road_profile.clone().map(std::sync::Arc::new),
+            profile: entity
+                .grounding
+                .road_profile
+                .clone()
+                .map(std::sync::Arc::new),
             cx: f64::from(entity.world_x),
             cz: f64::from(entity.world_z),
             half_w,
@@ -5780,20 +5886,22 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
             priority: if is_road { 10 } else { 1 },
             disturbance: if is_road { 255 } else { 160 },
             cut_cap_mm,
-        
+
             ramp: None,
-});
+        });
         if is_building {
-            if let Some([rx,rz]) = entity.grounding.frontage_road_point {
+            if let Some([rx, rz]) = entity.grounding.frontage_road_point {
                 if let Some(anchor) = entity.anchors.first() {
                     carves.push(TerrainCarve {
                         profile: None,
-                        cx: (f64::from(anchor.world_x)+f64::from(rx))*0.5,
-                        cz: (f64::from(anchor.world_z)+f64::from(rz))*0.5,
-                        half_w: (f64::from(anchor.world_x)-f64::from(rx)).abs()*0.5+2.,
-                        half_d: (f64::from(anchor.world_z)-f64::from(rz)).abs()*0.5+2.,
+                        cx: (f64::from(anchor.world_x) + f64::from(rx)) * 0.5,
+                        cz: (f64::from(anchor.world_z) + f64::from(rz)) * 0.5,
+                        half_w: (f64::from(anchor.world_x) - f64::from(rx)).abs() * 0.5 + 2.,
+                        half_d: (f64::from(anchor.world_z) - f64::from(rz)).abs() * 0.5 + 2.,
                         target_h_m: f64::from(entity.ground_height_m()),
-                        blend_m: ENTRANCE_APRON_RUN_M, priority: 2, disturbance:160,
+                        blend_m: ENTRANCE_APRON_RUN_M,
+                        priority: 2,
+                        disturbance: 160,
                         // The aprons stay fill-only. Scoping the cap to the
                         // pad's OWN flat top keeps one auditable footprint per
                         // pad: the ledger, the raster and the audit all describe
@@ -5801,9 +5909,9 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                         // walkable 25% approach over the 20 m setback carries the
                         // same rise the cut takes out of the platform.
                         cut_cap_mm: None,
-                    
+
                         ramp: None,
-});
+                    });
                 }
             }
             // Generated entrance aprons are part of the engineered support
@@ -5836,8 +5944,8 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     (f64::from(across_lo) + f64::from(across_hi)) * 0.5,
                     (f64::from(near) + f64::from(far)) * 0.5,
                 );
-                let half_across = (f64::from(across_hi) - f64::from(across_lo)) * 0.5
-                    + entry_corridor::RING_M;
+                let half_across =
+                    (f64::from(across_hi) - f64::from(across_lo)) * 0.5 + entry_corridor::RING_M;
                 let half_along =
                     (f64::from(far) - f64::from(near)).abs() * 0.5 + entry_corridor::RING_M;
                 let (cx, cz, half_w, half_d) = if corridor.along_x() {
@@ -6250,9 +6358,7 @@ fn terrain_height_metres_core(
     // structured water body or the shoreline public passage band. A fill is not
     // this clause's business - the historical world fills banks - so only a cell
     // that actually stands BELOW its natural datum is reset.
-    if composed < terrain
-        && (water.contains_point(xf, zf) || water.shore_band_cell(x, z))
-    {
+    if composed < terrain && (water.contains_point(xf, zf) || water.shore_band_cell(x, z)) {
         return terrain.clamp(-32., 256.);
     }
     composed
@@ -6391,7 +6497,8 @@ impl CarveIndex {
         }
         let bx = ((f64::from(x) - self.min_x) / self.cell).floor();
         let bz = ((f64::from(z) - self.min_z) / self.cell).floor();
-        if !(0.0..f64::from(self.cols)).contains(&bx) || !(0.0..f64::from(self.rows)).contains(&bz) {
+        if !(0.0..f64::from(self.cols)).contains(&bx) || !(0.0..f64::from(self.rows)).contains(&bz)
+        {
             return &[];
         }
         &self.buckets[bz as usize * self.cols as usize + bx as usize]
@@ -6550,9 +6657,9 @@ where
     // frozen plan no longer matched - measured as one 64x8 road cell missing from
     // the realized transport ledger in the 1 km fixture. Roads are the carves
     // `plan_terrain_carves` gives priority 10.
-    let mut graded_influence=false;
-    let mut full_priority=i32::MIN;
-    let mut full_target=base_terrain;
+    let mut graded_influence = false;
+    let mut full_priority = i32::MIN;
+    let mut full_target = base_terrain;
     // The deepest bounded cut any carve asks for at this cell (a strictly lower
     // surface than the natural one). `None` unless an OPT-IN frontage pad's carve
     // or one of its aprons reaches here, so every fill-only input leaves it
@@ -6624,8 +6731,8 @@ where
         // counts; the former used to be its own walk over the same list.
         for i in 0..count {
             let other = at(i);
-            let out = ((xf - other.cx).abs() - other.half_w)
-                .max((zf - other.cz).abs() - other.half_d);
+            let out =
+                ((xf - other.cx).abs() - other.half_w).max((zf - other.cz).abs() - other.half_d);
             if other.priority == 10 && out <= 0.0 {
                 road_flat_here = true;
             }
@@ -6660,11 +6767,9 @@ where
                 let across = ramp.across(xf, zf);
                 let target = ramp.target_m(xf, zf);
                 if across <= ramp.half_width {
-                    ramp_claim =
-                        Some(ramp_claim.map_or(target, |known: f64| known.max(target)));
+                    ramp_claim = Some(ramp_claim.map_or(target, |known: f64| known.max(target)));
                 } else if across <= ramp.half_width + carve.blend_m && target > base_terrain {
-                    let t =
-                        ((across - ramp.half_width) / carve.blend_m).clamp(0.0, 1.0);
+                    let t = ((across - ramp.half_width) / carve.blend_m).clamp(0.0, 1.0);
                     let smooth_t = t * t * (3.0 - 2.0 * t);
                     let bank = target + (base_terrain - target) * smooth_t;
                     ramp_claim = Some(ramp_claim.map_or(bank, |known: f64| known.max(bank)));
@@ -6677,13 +6782,26 @@ where
         let outside_x = dx - carve.half_w;
         let outside_z = dz - carve.half_d;
         let outside = outside_x.max(outside_z);
-        let target = carve.profile.as_ref().and_then(|p|p.height_at(xf,zf)).unwrap_or(carve.target_h_m);
-        let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p|base_terrain + f64::from(p.max_fill_mm)/1000.);
-        if carve.priority == 10 && outside < carve.blend_m { graded_influence = true; }
-        if carve.priority == 10 && outside <= 0. { road_owns_cell = true; }
+        let target = carve
+            .profile
+            .as_ref()
+            .and_then(|p| p.height_at(xf, zf))
+            .unwrap_or(carve.target_h_m);
+        let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p| {
+            base_terrain + f64::from(p.max_fill_mm) / 1000.
+        });
+        if carve.priority == 10 && outside < carve.blend_m {
+            graded_influence = true;
+        }
+        if carve.priority == 10 && outside <= 0. {
+            road_owns_cell = true;
+        }
         if outside <= 0. && carve.priority >= full_priority {
-            if carve.priority > full_priority { full_target=base_terrain; }
-            full_priority=carve.priority; full_target=full_target.max(target);
+            if carve.priority > full_priority {
+                full_target = base_terrain;
+            }
+            full_priority = carve.priority;
+            full_target = full_target.max(target);
         }
         // A generated pad is an earthwork fill, not an implicit excavation.
         // Never lower existing terrain to an entity's center sample: doing so
@@ -6726,8 +6844,7 @@ where
                     support_windows
                 };
                 if blocking_cut - i32::from(own_cut_window) <= 0 {
-                    let cut =
-                        bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
+                    let cut = bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
                     if cut < base_terrain {
                         road_cut_floor =
                             Some(road_cut_floor.map_or(cut, |known: f64| known.min(cut)));
@@ -6735,8 +6852,7 @@ where
                 }
                 let own_support = outside <= 0.0;
                 if blocking_support - i32::from(own_support) <= 0 {
-                    let cut =
-                        bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
+                    let cut = bounded_cut::cut_surface_m(base_terrain, target, outside, cap);
                     let margin_m = road_transport_margin_m(profile);
                     let along_x = profile.start[1] == profile.end[1];
                     let support_outside = if along_x {
@@ -6784,8 +6900,7 @@ where
             // It is inert wherever the fill-first answer is already the declared
             // top, and it never survives a bench its cap cannot reach.
             if platform.active() && outside <= 0.0 {
-                let surface =
-                    bounded_cut::platform_surface_m(base_terrain, target.min(limit), cap);
+                let surface = bounded_cut::platform_surface_m(base_terrain, target.min(limit), cap);
                 pad_platform = Some(pad_platform.map_or(surface, |known: f64| known.max(surface)));
             }
         }
@@ -6793,7 +6908,9 @@ where
     // A neighbouring blended fill cannot overwrite a validated hard support
     // surface. New graded worlds resolve overlaps by road/building priority;
     // legacy worlds without a graded influence retain their old envelopes.
-    if graded_influence && full_priority!=i32::MIN { terrain=full_target.max(base_terrain); }
+    if graded_influence && full_priority != i32::MIN {
+        terrain = full_target.max(base_terrain);
+    }
     // Fill always wins over an implicit excavation: a cell that any carve raises
     // above the natural surface is a fill cell and no pad's cut may trench it. The
     // exceptions are audited surfaces, each blocked by every other entity's support
@@ -7089,7 +7206,8 @@ fn generate_entities_with_profile(
     style: &serde_json::Value,
 ) -> Vec<EntityInstance> {
     generate_entities_with_profile_report(seed, scene, landmarks, geometry, style, None, None, None)
-        .expect("valid candidate identity").0
+        .expect("valid candidate identity")
+        .0
 }
 
 /// `zones` is the land-use plan the bake ALREADY decided (see
@@ -7122,13 +7240,10 @@ fn generate_entities_with_profile_report(
     // name), the world keeps the commerce it already had instead of trading it for nothing.
     let shorefront_row = road_plan.is_some_and(|plan| {
         frontage::shorefront_row_contract(style).is_some()
-            && plan
-                .service_outcomes
-                .iter()
-                .any(|outcome| {
-                    outcome.request.id == shorefront::SHOREFRONT_ROW
-                        && !outcome.planned_site_ids.is_empty()
-                })
+            && plan.service_outcomes.iter().any(|outcome| {
+                outcome.request.id == shorefront::SHOREFRONT_ROW
+                    && !outcome.planned_site_ids.is_empty()
+            })
     });
     let mut entities = generate_entities_template(
         seed,
@@ -7417,17 +7532,9 @@ fn generate_entities_with_profile_report(
     let mut placement_outcome = None;
     if rules_mode == "rules" {
         let proposed_count = entities.len();
-        let (rule_entities, outcome) =
-            apply_rules_mode(
-                seed,
-                scene,
-                geometry,
-                style,
-                landmarks,
-                entities,
-                road_plan,
-                zones,
-            );
+        let (rule_entities, outcome) = apply_rules_mode(
+            seed, scene, geometry, style, landmarks, entities, road_plan, zones,
+        );
         entities = rule_entities;
         placement_outcome = Some((proposed_count, outcome));
         sanitize_natural_detail_clearance(&mut entities);
@@ -8239,10 +8346,9 @@ fn rebase_grounded_entities_to_carved_surface(
     entities: &mut [EntityInstance],
     carves: &[TerrainCarve],
 ) {
-    for entity in entities
-        .iter_mut()
-        .filter(|entity| is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none())
-    {
+    for entity in entities.iter_mut().filter(|entity| {
+        is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none()
+    }) {
         let (half_w, half_d) =
             spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
         let mut ceiling = f64::NEG_INFINITY;
@@ -8314,10 +8420,9 @@ pub fn rebase_entities_to_baked_surface(
     entities: &mut [EntityInstance],
     baked_samples: &BakedTerrain,
 ) {
-    for entity in entities
-        .iter_mut()
-        .filter(|entity| is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none())
-    {
+    for entity in entities.iter_mut().filter(|entity| {
+        is_grounded_entity_kind(&entity.kind) && entity.grounding.frontage_road_point.is_none()
+    }) {
         let (half_w, half_d) =
             spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
         let mut ceiling = f32::NEG_INFINITY;
@@ -8699,7 +8804,11 @@ fn append_waterfront_intent_settlement(
             }
             let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
-                ids.claim(&format!("intent-{kind}"), kind, &[i64::from(core_x), i64::from(core_z), offset as i64]),
+                ids.claim(
+                    &format!("intent-{kind}"),
+                    kind,
+                    &[i64::from(core_x), i64::from(core_z), offset as i64],
+                ),
                 kind,
                 x,
                 z,
@@ -8732,7 +8841,11 @@ fn append_waterfront_intent_settlement(
             }
             let y = (i32::from(terrain_height_with_geometry(seed, x, z, water)) / 4).max(1);
             entities.push(generated_intent_entity(
-                ids.claim("intent-residential", "residential_block", &[i64::from(core_x), i64::from(core_z), i64::from(row)]),
+                ids.claim(
+                    "intent-residential",
+                    "residential_block",
+                    &[i64::from(core_x), i64::from(core_z), i64::from(row)],
+                ),
                 "residential_block",
                 x,
                 z,
@@ -8833,7 +8946,11 @@ fn append_pastoral_intent_content(
                         "residential_home",
                     ) {
                         entities.push(generated_intent_entity(
-                            ids.claim("intent-home", "residential_home", &[i64::from(x), i64::from(z)]),
+                            ids.claim(
+                                "intent-home",
+                                "residential_home",
+                                &[i64::from(x), i64::from(z)],
+                            ),
                             "residential_home",
                             home_x,
                             home_z,
@@ -8910,7 +9027,12 @@ fn append_natural_content(
     }
 }
 
-fn append_generic_land_content(seed: u64, scene: &SceneSpec, entities: &mut Vec<EntityInstance>, ids: &CandidateIds) {
+fn append_generic_land_content(
+    seed: u64,
+    scene: &SceneSpec,
+    entities: &mut Vec<EntityInstance>,
+    ids: &CandidateIds,
+) {
     let center_x = scene.origin_x + (scene.width_m / 2) as i32;
     let center_z = scene.origin_z + (scene.depth_m / 2) as i32;
     let road_y = i32::from(terrain_height(
@@ -9399,24 +9521,21 @@ fn append_modern_landuse_content(
             // the radial plan's order, so a land-use building can stand where no pad was before and
             // its fill envelope can bury a pad's declared flat top - which the bake then reports as
             // `bounded_cut_pad_top_not_flat` on a pad the frontage programme was right to accept.
-            let planned_roadside = if source_water.road_water_crossings()
-                || urban_growth::enabled(style)
-            {
-                road_plan.map(|plan| plan.site_entities()).unwrap_or_default()
-            } else {
-                Vec::new()
-            };
+            let planned_roadside =
+                if source_water.road_water_crossings() || urban_growth::enabled(style) {
+                    road_plan
+                        .map(|plan| plan.site_entities())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
             if road_network::building_fill_conflicts(&terrain_context, &planned_roads, &proposed)
                 || road_network::building_fill_conflicts(
                     &terrain_context,
                     &planned_sites,
                     &proposed,
                 )
-                || road_network::pad_fill_conflicts(
-                    &terrain_context,
-                    &planned_roadside,
-                    &proposed,
-                )
+                || road_network::pad_fill_conflicts(&terrain_context, &planned_roadside, &proposed)
             {
                 return false;
             }
@@ -9443,7 +9562,9 @@ fn append_modern_landuse_content(
             grounding: GroundingSpec::default(),
             anchors: Vec::new(),
             bounds: None,
-            entity_id: planned_id.or(optional_id).unwrap_or_else(|| format!("generated.landuse-{kind}.{serial}")),
+            entity_id: planned_id
+                .or(optional_id)
+                .unwrap_or_else(|| format!("generated.landuse-{kind}.{serial}")),
             asset_id: format!("prop.{entity_kind}"),
             kind: entity_kind.to_owned(),
             world_x: x,
@@ -9998,7 +10119,11 @@ fn append_modern_landuse_content(
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: ids.claim("landuse-forest-belt", "mountain_forest", &[i64::from(bx), i64::from(bz)]),
+                entity_id: ids.claim(
+                    "landuse-forest-belt",
+                    "mountain_forest",
+                    &[i64::from(bx), i64::from(bz)],
+                ),
                 asset_id: "prop.mountain_forest".to_owned(),
                 kind: "mountain_forest".to_owned(),
                 world_x: bx,
@@ -10404,7 +10529,11 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: ids.claim("resort-lodge", "resort_lodge", &[i64::from(band_lo), i64::from(x), i64::from(z)]),
+                            entity_id: ids.claim(
+                                "resort-lodge",
+                                "resort_lodge",
+                                &[i64::from(band_lo), i64::from(x), i64::from(z)],
+                            ),
                             asset_id: "prop.resort-lodge".to_owned(),
                             kind: "resort_lodge".to_owned(),
                             world_x,
@@ -10422,7 +10551,11 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: ids.claim("block-tower", "building_tower", &[i64::from(band_lo), i64::from(x), i64::from(z)]),
+                            entity_id: ids.claim(
+                                "block-tower",
+                                "building_tower",
+                                &[i64::from(band_lo), i64::from(x), i64::from(z)],
+                            ),
                             asset_id: "prop.building-tower".to_owned(),
                             kind: "building_tower".to_owned(),
                             world_x,
@@ -10470,7 +10603,11 @@ fn generate_entities_template(
                         grounding: GroundingSpec::default(),
                         anchors: Vec::new(),
                         bounds: None,
-                        entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 0, i64::from(z)]),
+                        entity_id: ids.claim(
+                            "storefront",
+                            "storefront",
+                            &[i64::from(side), 0, i64::from(z)],
+                        ),
                         asset_id: "prop.storefront".to_owned(),
                         kind: "storefront".to_owned(),
                         world_x: frontage_x,
@@ -10508,7 +10645,11 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: ids.claim("street-tree", "tree", &[i64::from(side), 0, i64::from(z)]),
+                    entity_id: ids.claim(
+                        "street-tree",
+                        "tree",
+                        &[i64::from(side), 0, i64::from(z)],
+                    ),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
                     world_x: tree_x,
@@ -10538,7 +10679,11 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: ids.claim("street-tree", "tree", &[i64::from(side), 1, i64::from(z)]),
+                    entity_id: ids.claim(
+                        "street-tree",
+                        "tree",
+                        &[i64::from(side), 1, i64::from(z)],
+                    ),
                     asset_id: "prop.tree".to_owned(),
                     kind: "tree".to_owned(),
                     world_x: second_tree_x,
@@ -10574,7 +10719,11 @@ fn generate_entities_template(
                         grounding: GroundingSpec::default(),
                         anchors: Vec::new(),
                         bounds: None,
-                        entity_id: ids.claim("storefront", "storefront", &[i64::from(side), 1, i64::from(z)]),
+                        entity_id: ids.claim(
+                            "storefront",
+                            "storefront",
+                            &[i64::from(side), 1, i64::from(z)],
+                        ),
                         asset_id: "prop.storefront".to_owned(),
                         kind: "storefront".to_owned(),
                         world_x: second_row_x,
@@ -10631,7 +10780,11 @@ fn generate_entities_template(
                             grounding: GroundingSpec::default(),
                             anchors: Vec::new(),
                             bounds: None,
-                            entity_id: ids.claim("urban-building", "urban_building", &[i64::from(side), i64::from(x), i64::from(z)]),
+                            entity_id: ids.claim(
+                                "urban-building",
+                                "urban_building",
+                                &[i64::from(side), i64::from(x), i64::from(z)],
+                            ),
                             asset_id: "prop.building".to_owned(),
                             kind: "urban_building".to_owned(),
                             world_x,
@@ -10713,7 +10866,11 @@ fn generate_entities_template(
                 grounding: GroundingSpec::default(),
                 anchors: Vec::new(),
                 bounds: None,
-                entity_id: ids.claim(&format!("template-{kind}"), kind, &[i64::from(x), i64::from(z)]),
+                entity_id: ids.claim(
+                    &format!("template-{kind}"),
+                    kind,
+                    &[i64::from(x), i64::from(z)],
+                ),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.to_owned(),
                 world_x,
@@ -10785,7 +10942,11 @@ fn generate_entities_template(
                     grounding: GroundingSpec::default(),
                     anchors: Vec::new(),
                     bounds: None,
-                    entity_id: ids.claim(&format!("shore-{kind}"), kind, &[i64::from(x), i64::from(z)]),
+                    entity_id: ids.claim(
+                        &format!("shore-{kind}"),
+                        kind,
+                        &[i64::from(x), i64::from(z)],
+                    ),
                     asset_id: format!("prop.{kind}"),
                     kind: kind.to_owned(),
                     world_x,
@@ -10893,7 +11054,11 @@ mod tests {
         // ...and generation drops exactly the sample the audit would refuse.
         let mut proposed = vec![three_point_nine, four_point_one];
         retain_shore_clearance(&mut proposed, water);
-        assert_eq!(proposed.len(), 1, "only the 4.1 m tree may survive generation");
+        assert_eq!(
+            proposed.len(),
+            1,
+            "only the 4.1 m tree may survive generation"
+        );
         assert_eq!(proposed[0].entity_id, "tree-4.1");
     }
 
@@ -11450,7 +11615,11 @@ mod tests {
         });
         let geometry = water_geometry(WaterKind::Lake, &[], &scene, &style);
         let entities = generate_entities_with_profile(11, &scene, &[], geometry, &style);
-        assert!(entities.iter().all(|entity| natural_only::is_natural_kind(&entity.kind)));
+        assert!(
+            entities
+                .iter()
+                .all(|entity| natural_only::is_natural_kind(&entity.kind))
+        );
         assert!(!entities.iter().any(|entity| {
             matches!(
                 entity.kind.as_str(),
@@ -11679,11 +11848,18 @@ mod tests {
             priority: 10,
             disturbance: 255,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
-        let (height, surface, lod2, terrain) =
-            generate_chunk_with_geometry(20260903, 0, 0, 64, 64, water, std::slice::from_ref(&carve));
+        };
+        let (height, surface, lod2, terrain) = generate_chunk_with_geometry(
+            20260903,
+            0,
+            0,
+            64,
+            64,
+            water,
+            std::slice::from_ref(&carve),
+        );
         assert_eq!(height.len(), 64 * 64 * 2);
         assert_eq!(surface.len(), 64 * 64);
         assert_eq!(lod2.len(), 3);
@@ -11750,9 +11926,9 @@ mod tests {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
-                
+
                     ramp: None,
-},
+                },
                 TerrainCarve {
                     profile: None,
                     cx: f64::from(base_x) - 2000.,
@@ -11764,9 +11940,9 @@ mod tests {
                     priority: 1,
                     disturbance: 160,
                     cut_cap_mm: None,
-                
+
                     ramp: None,
-},
+                },
             ];
             let filtered: Vec<_> = carves
                 .iter()
@@ -11794,9 +11970,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
+        };
         let far = TerrainCarve {
             profile: None,
             cx: 2_000.,
@@ -11808,9 +11984,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
+        };
         assert!(carve_intersects_chunk(&near, 0, 0, 512, 512));
         assert!(!carve_intersects_chunk(&far, 0, 0, 512, 512));
         assert!(carve_intersects_chunk(&near, 512, 512, 16, 16));
@@ -11856,9 +12032,9 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
+        };
         let b = TerrainCarve {
             profile: None,
             cx: 410.,
@@ -11891,11 +12067,17 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
+        };
         assert_eq!(
-            terrain_height_with_geometry_carved(20260829, 400, 400, water, std::slice::from_ref(&carve)),
+            terrain_height_with_geometry_carved(
+                20260829,
+                400,
+                400,
+                water,
+                std::slice::from_ref(&carve)
+            ),
             natural,
             "generated pad excavated natural ground"
         );
@@ -11915,14 +12097,20 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
             ramp: None,
-};
+        };
         // Inside the pad the height is the flat target, independent of the
         // underlying natural terrain (which varies with position).
         for (x, z) in [(350, 360), (400, 400), (449, 439), (370, 425)] {
             assert_eq!(
-                terrain_height_with_geometry_carved(20260829, x, z, water, std::slice::from_ref(&carve)),
+                terrain_height_with_geometry_carved(
+                    20260829,
+                    x,
+                    z,
+                    water,
+                    std::slice::from_ref(&carve)
+                ),
                 12 * 4,
                 "pad at ({x},{z}) not flattened to target"
             );
@@ -11930,29 +12118,71 @@ mod tests {
         // Far outside the pad the natural terrain is untouched.
         let natural_at = terrain_height_with_geometry_carved(20260829, 700, 700, water, &[]);
         assert_eq!(
-            terrain_height_with_geometry_carved(20260829, 700, 700, water, std::slice::from_ref(&carve)),
+            terrain_height_with_geometry_carved(
+                20260829,
+                700,
+                700,
+                water,
+                std::slice::from_ref(&carve)
+            ),
             natural_at,
             "far field altered by carve"
         );
         // Inside the pad the terrain is flat (zero local slope).
-        let a = terrain_height_with_geometry_carved(20260829, 380, 400, water, std::slice::from_ref(&carve));
-        let b = terrain_height_with_geometry_carved(20260829, 420, 400, water, std::slice::from_ref(&carve));
-        let c = terrain_height_with_geometry_carved(20260829, 400, 380, water, std::slice::from_ref(&carve));
+        let a = terrain_height_with_geometry_carved(
+            20260829,
+            380,
+            400,
+            water,
+            std::slice::from_ref(&carve),
+        );
+        let b = terrain_height_with_geometry_carved(
+            20260829,
+            420,
+            400,
+            water,
+            std::slice::from_ref(&carve),
+        );
+        let c = terrain_height_with_geometry_carved(
+            20260829,
+            400,
+            380,
+            water,
+            std::slice::from_ref(&carve),
+        );
         assert_eq!(a, b, "pad not flat along X");
         assert_eq!(a, c, "pad not flat along Z");
         // The blend ring is continuous (each step bounded) so no cliff appears.
         let mut max_step = 0_i16;
         for z in 430..450 {
             for x in 440..460 {
-                let here = terrain_height_with_geometry_carved(20260829, x, z, water, std::slice::from_ref(&carve));
+                let here = terrain_height_with_geometry_carved(
+                    20260829,
+                    x,
+                    z,
+                    water,
+                    std::slice::from_ref(&carve),
+                );
                 max_step = max_step.max(
                     (here
-                        - terrain_height_with_geometry_carved(20260829, x - 1, z, water, std::slice::from_ref(&carve)))
+                        - terrain_height_with_geometry_carved(
+                            20260829,
+                            x - 1,
+                            z,
+                            water,
+                            std::slice::from_ref(&carve),
+                        ))
                     .abs(),
                 );
                 max_step = max_step.max(
                     (here
-                        - terrain_height_with_geometry_carved(20260829, x, z - 1, water, std::slice::from_ref(&carve)))
+                        - terrain_height_with_geometry_carved(
+                            20260829,
+                            x,
+                            z - 1,
+                            water,
+                            std::slice::from_ref(&carve),
+                        ))
                     .abs(),
                 );
             }
@@ -13330,166 +13560,365 @@ mod tests {
     }
     #[test]
     fn stable_v1_optional_generation_keeps_ids_when_prior_candidates_are_removed() {
-        let scene = SceneSpec {scene_id:"stable-scene".into(),width_m:512,depth_m:512,origin_x:-256,origin_z:384,seed_offset:7};
-        let style=serde_json::json!({"generationIntent":{"settlement":"wilderness"}});
-        let water=water_geometry(WaterKind::None,&[],&scene,&style);
-        let base=generate_entities_with_profile(7,&scene,&[],water,&style);
-        let repeat=generate_entities_with_profile(7,&scene,&[],water,&style);
-        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&repeat).unwrap());
+        let scene = SceneSpec {
+            scene_id: "stable-scene".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: -256,
+            origin_z: 384,
+            seed_offset: 7,
+        };
+        let style = serde_json::json!({"generationIntent":{"settlement":"wilderness"}});
+        let water = water_geometry(WaterKind::None, &[], &scene, &style);
+        let base = generate_entities_with_profile(7, &scene, &[], water, &style);
+        let repeat = generate_entities_with_profile(7, &scene, &[], water, &style);
+        assert_eq!(
+            serde_json::to_vec(&base).unwrap(),
+            serde_json::to_vec(&repeat).unwrap()
+        );
         assert!(!base.is_empty());
-        assert!(base.iter().all(|e|e.entity_id.contains(".stable-v1.")));
+        assert!(base.iter().all(|e| e.entity_id.contains(".stable-v1.")));
         // Explicit IDs are determined by membership, even with a generated prefix.
         let far:LandmarkSpec=serde_json::from_value(serde_json::json!({
             "entityId":"generated.authored-keep-exact","name":"far","type":"rock","purpose":"test",
             "description":"unrelated authored input","sceneId":scene.scene_id,"worldX":10000,"worldZ":10000,
             "widthM":1,"depthM":1,"heightM":1,"assetId":"prop.rock"
         })).unwrap();
-        let with_far=generate_entities_with_profile(7,&scene,&[far.clone()],water,&style);
-        assert!(with_far.iter().any(|e|e.entity_id==far.entity_id));
-        let generated:Vec<_>=with_far.iter().filter(|e|e.entity_id!=far.entity_id).collect();
-        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&generated).unwrap());
-        let first=base.iter().find(|e|matches!(e.kind.as_str(),"tree"|"rock"|"bush"|"grass_clump")).unwrap();
-        let mut blocker=far.clone();
-        blocker.entity_id="authored.blocker".into();blocker.entity_type="building".into();
-        blocker.world_x=first.world_x;blocker.world_z=first.world_z;
-        blocker.width_m=24;blocker.depth_m=24;blocker.height_m=8;blocker.asset_id="prop.building".into();
-        let filtered=generate_entities_with_profile(7,&scene,&[blocker.clone()],water,&style);
-        assert!(!filtered.iter().any(|e|e.entity_id==first.entity_id));
-        let old:BTreeMap<_,_>=base.iter().map(|e|(&e.entity_id,serde_json::to_value(e).unwrap())).collect();
-        let mut retained=0;
-        for e in filtered.iter().filter(|e|e.entity_id!=blocker.entity_id) {
-            assert_eq!(old.get(&e.entity_id),Some(&serde_json::to_value(e).unwrap()),"survivors must not be renumbered or moved");
-            retained+=1;
+        let with_far = generate_entities_with_profile(7, &scene, &[far.clone()], water, &style);
+        assert!(with_far.iter().any(|e| e.entity_id == far.entity_id));
+        let generated: Vec<_> = with_far
+            .iter()
+            .filter(|e| e.entity_id != far.entity_id)
+            .collect();
+        assert_eq!(
+            serde_json::to_vec(&base).unwrap(),
+            serde_json::to_vec(&generated).unwrap()
+        );
+        let first = base
+            .iter()
+            .find(|e| matches!(e.kind.as_str(), "tree" | "rock" | "bush" | "grass_clump"))
+            .unwrap();
+        let mut blocker = far.clone();
+        blocker.entity_id = "authored.blocker".into();
+        blocker.entity_type = "building".into();
+        blocker.world_x = first.world_x;
+        blocker.world_z = first.world_z;
+        blocker.width_m = 24;
+        blocker.depth_m = 24;
+        blocker.height_m = 8;
+        blocker.asset_id = "prop.building".into();
+        let filtered = generate_entities_with_profile(7, &scene, &[blocker.clone()], water, &style);
+        assert!(!filtered.iter().any(|e| e.entity_id == first.entity_id));
+        let old: BTreeMap<_, _> = base
+            .iter()
+            .map(|e| (&e.entity_id, serde_json::to_value(e).unwrap()))
+            .collect();
+        let mut retained = 0;
+        for e in filtered.iter().filter(|e| e.entity_id != blocker.entity_id) {
+            assert_eq!(
+                old.get(&e.entity_id),
+                Some(&serde_json::to_value(e).unwrap()),
+                "survivors must not be renumbered or moved"
+            );
+            retained += 1;
         }
-        assert!(retained>10 && retained<base.len());
-        let mut other_scene=scene.clone();other_scene.scene_id="stable-other-scene".into();
-        let other=generate_entities_with_profile(7,&other_scene,&[],water,&style);
-        assert_eq!(other.len(),base.len());
-        for (a,b) in base.iter().zip(&other) {
-            assert_ne!(a.entity_id,b.entity_id);
-            let mut value=serde_json::to_value(b).unwrap();value["entityId"]=serde_json::json!(a.entity_id);
-            assert_eq!(serde_json::to_value(a).unwrap(),value,"scene namespace must not alter geometry");
+        assert!(retained > 10 && retained < base.len());
+        let mut other_scene = scene.clone();
+        other_scene.scene_id = "stable-other-scene".into();
+        let other = generate_entities_with_profile(7, &other_scene, &[], water, &style);
+        assert_eq!(other.len(), base.len());
+        for (a, b) in base.iter().zip(&other) {
+            assert_ne!(a.entity_id, b.entity_id);
+            let mut value = serde_json::to_value(b).unwrap();
+            value["entityId"] = serde_json::json!(a.entity_id);
+            assert_eq!(
+                serde_json::to_value(a).unwrap(),
+                value,
+                "scene namespace must not alter geometry"
+            );
         }
     }
 
     #[test]
     fn stable_v1_candidate_keys_are_bound_before_movement_and_planned_ids_stay_explicit() {
-        let scene=SceneSpec {scene_id:"slots".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
-        let geometry=legacy_water_geometry(WaterKind::None,scene.width_m,scene.depth_m,0.0);
-        let a=CandidateIds::new(&scene.scene_id);
-        let mut base=vec![];
-        append_natural_content(7,&scene,geometry,&mut base,&a);
+        let scene = SceneSpec {
+            scene_id: "slots".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let geometry = legacy_water_geometry(WaterKind::None, scene.width_m, scene.depth_m, 0.0);
+        let a = CandidateIds::new(&scene.scene_id);
+        let mut base = vec![];
+        append_natural_content(7, &scene, geometry, &mut base, &a);
         a.finish(&base).unwrap();
-        let b=CandidateIds::new(&scene.scene_id);
-        let extra=b.claim("unrelated-request","rock",&[1000,1000]);
-        let mut expanded=vec![generated_intent_entity(extra,"rock",1000,1000,0,1.,1.,1.)];
-        append_natural_content(7,&scene,geometry,&mut expanded,&b);
+        let b = CandidateIds::new(&scene.scene_id);
+        let extra = b.claim("unrelated-request", "rock", &[1000, 1000]);
+        let mut expanded = vec![generated_intent_entity(
+            extra, "rock", 1000, 1000, 0, 1., 1., 1.,
+        )];
+        append_natural_content(7, &scene, geometry, &mut expanded, &b);
         b.finish(&expanded).unwrap();
-        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&expanded[1..]).unwrap());
-        let mut moved=base[0].clone();moved.world_x+=1;
-        assert_eq!(moved.entity_id,base[0].entity_id);
-        let denied=audit_entity_inventory(&base[..1],&[moved],&[],EntityInventoryMode::Preserving{old_scheme:ENTITY_ID_SCHEME.into(),new_scheme:ENTITY_ID_SCHEME.into()});
-        assert_eq!(denied.status,"fail");assert!(denied.entries[0].changes.contains(&EntityChangeKind::Moved));
-        let site:road_network::RoadsideSite=serde_json::from_value(serde_json::json!({
+        assert_eq!(
+            serde_json::to_vec(&base).unwrap(),
+            serde_json::to_vec(&expanded[1..]).unwrap()
+        );
+        let mut moved = base[0].clone();
+        moved.world_x += 1;
+        assert_eq!(moved.entity_id, base[0].entity_id);
+        let denied = audit_entity_inventory(
+            &base[..1],
+            &[moved],
+            &[],
+            EntityInventoryMode::Preserving {
+                old_scheme: ENTITY_ID_SCHEME.into(),
+                new_scheme: ENTITY_ID_SCHEME.into(),
+            },
+        );
+        assert_eq!(denied.status, "fail");
+        assert!(denied.entries[0].changes.contains(&EntityChangeKind::Moved));
+        let site: road_network::RoadsideSite = serde_json::from_value(serde_json::json!({
             "id":"generated.frontage.request.exact","roadId":"planned.road","worldX":64,"worldZ":64,
             "widthM":24,"depthM":24,"supportLevelM":-2,"supportLevelMm":-1354,
             "frontageRoadPoint":[64,40],"rotationYDeg":0,"naturalMinM":-2.,"naturalMaxM":-1.
-        })).unwrap();
-        let planned=site.entity();
-        assert_eq!(planned.entity_id,site.id);assert_eq!(planned.grounding.frontage_road_point,Some([64,40]));
-        let mut inventory=base.clone();inventory.push(planned.clone());
+        }))
+        .unwrap();
+        let planned = site.entity();
+        assert_eq!(planned.entity_id, site.id);
+        assert_eq!(planned.grounding.frontage_road_point, Some([64, 40]));
+        let mut inventory = base.clone();
+        inventory.push(planned.clone());
         a.finish(&inventory).unwrap();
-        assert_eq!(serde_json::to_value(&inventory.last().unwrap()).unwrap(),serde_json::to_value(&planned).unwrap());
-        let duplicate=vec![planned.clone(),planned];
+        assert_eq!(
+            serde_json::to_value(&inventory.last().unwrap()).unwrap(),
+            serde_json::to_value(&planned).unwrap()
+        );
+        let duplicate = vec![planned.clone(), planned];
         assert!(a.finish(&duplicate).unwrap_err().contains("duplicate"));
     }
 
     #[test]
     fn stable_v1_legacy_transport_identity_coupling_is_explicit_not_blindly_migrated() {
-        let e=generated_intent_entity("generated.landuse-road-ns.200000".into(),"road",0,0,0,80.,8.,0.2);
-        assert_eq!(e.rotation_y_deg,90.);
-        let renamed=generated_intent_entity("generated.opaque.stable-v1.hash".into(),"road",0,0,0,80.,8.,0.2);
-        assert_eq!(renamed.rotation_y_deg,0.,"minimal witness: blind ID replacement changes road geometry");
-        let scene=SceneSpec {scene_id:"legacy-transport-boundary".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
-        let ids=CandidateIds::new(&scene.scene_id);let mut entities=vec![];
-        append_generic_land_content(7,&scene,&mut entities,&ids);
-        assert_eq!(entities[0].entity_id,"generated.auto-road-east-west");
-        assert_eq!(entities[1].entity_id,"generated.auto-road-north-south");
-        assert!(entities[2..].iter().all(|e|e.entity_id.contains(".stable-v1.")));
+        let e = generated_intent_entity(
+            "generated.landuse-road-ns.200000".into(),
+            "road",
+            0,
+            0,
+            0,
+            80.,
+            8.,
+            0.2,
+        );
+        assert_eq!(e.rotation_y_deg, 90.);
+        let renamed = generated_intent_entity(
+            "generated.opaque.stable-v1.hash".into(),
+            "road",
+            0,
+            0,
+            0,
+            80.,
+            8.,
+            0.2,
+        );
+        assert_eq!(
+            renamed.rotation_y_deg, 0.,
+            "minimal witness: blind ID replacement changes road geometry"
+        );
+        let scene = SceneSpec {
+            scene_id: "legacy-transport-boundary".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let ids = CandidateIds::new(&scene.scene_id);
+        let mut entities = vec![];
+        append_generic_land_content(7, &scene, &mut entities, &ids);
+        assert_eq!(entities[0].entity_id, "generated.auto-road-east-west");
+        assert_eq!(entities[1].entity_id, "generated.auto-road-north-south");
+        assert!(
+            entities[2..]
+                .iter()
+                .all(|e| e.entity_id.contains(".stable-v1."))
+        );
         ids.finish(&entities).unwrap();
     }
 
     #[test]
     fn stable_v1_transport_ids_preserve_direction_and_survive_unrelated_input() {
-        let scene=SceneSpec {scene_id:"stable-transport".into(),width_m:1000,depth_m:1000,origin_x:-500,origin_z:-500,seed_offset:0};
-        let style=serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.25}});
-        let water=water_geometry(WaterKind::None,&[],&scene,&style);
-        let base=generate_entities_with_profile(7,&scene,&[],water,&style);
-        let transport:Vec<_>=base.iter().filter(|e|matches!(e.kind.as_str(),"road"|"sidewalk"|"canal"|"railway")).collect();
+        let scene = SceneSpec {
+            scene_id: "stable-transport".into(),
+            width_m: 1000,
+            depth_m: 1000,
+            origin_x: -500,
+            origin_z: -500,
+            seed_offset: 0,
+        };
+        let style = serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.25}});
+        let water = water_geometry(WaterKind::None, &[], &scene, &style);
+        let base = generate_entities_with_profile(7, &scene, &[], water, &style);
+        let transport: Vec<_> = base
+            .iter()
+            .filter(|e| matches!(e.kind.as_str(), "road" | "sidewalk" | "canal" | "railway"))
+            .collect();
         assert!(!transport.is_empty());
         for entity in &transport {
             if entity.entity_id.starts_with("generated.landuse-") {
-                assert!(entity.entity_id.contains(".stable-v1."),"transport serial ID remained: {}",entity.entity_id);
+                assert!(
+                    entity.entity_id.contains(".stable-v1."),
+                    "transport serial ID remained: {}",
+                    entity.entity_id
+                );
             }
         }
-        let ns=transport.iter().find(|e|e.entity_id.contains("landuse-road-ns.stable-v1.")).expect("stable NS road");
-        assert_eq!(ns.rotation_y_deg,90.0,"NS direction must remain encoded after stable-ID migration");
-        let ew=transport.iter().find(|e|e.entity_id.contains("landuse-road-ew.stable-v1.")).expect("stable EW road");
-        assert_eq!(ew.rotation_y_deg,0.0,"EW direction must remain encoded after stable-ID migration");
+        let ns = transport
+            .iter()
+            .find(|e| e.entity_id.contains("landuse-road-ns.stable-v1."))
+            .expect("stable NS road");
+        assert_eq!(
+            ns.rotation_y_deg, 90.0,
+            "NS direction must remain encoded after stable-ID migration"
+        );
+        let ew = transport
+            .iter()
+            .find(|e| e.entity_id.contains("landuse-road-ew.stable-v1."))
+            .expect("stable EW road");
+        assert_eq!(
+            ew.rotation_y_deg, 0.0,
+            "EW direction must remain encoded after stable-ID migration"
+        );
         let far:LandmarkSpec=serde_json::from_value(serde_json::json!({
             "entityId":"generated.transport-unrelated-authored","name":"far","type":"rock","purpose":"test",
             "description":"unrelated authored input","sceneId":scene.scene_id,"worldX":10000,"worldZ":10000,
             "widthM":1,"depthM":1,"heightM":1,"assetId":"prop.rock"
         })).unwrap();
-        let with_far=generate_entities_with_profile(7,&scene,&[far.clone()],water,&style);
-        let generated:Vec<_>=with_far.iter().filter(|e|e.entity_id!=far.entity_id).collect();
-        assert_eq!(serde_json::to_vec(&base).unwrap(),serde_json::to_vec(&generated).unwrap());
+        let with_far = generate_entities_with_profile(7, &scene, &[far.clone()], water, &style);
+        let generated: Vec<_> = with_far
+            .iter()
+            .filter(|e| e.entity_id != far.entity_id)
+            .collect();
+        assert_eq!(
+            serde_json::to_vec(&base).unwrap(),
+            serde_json::to_vec(&generated).unwrap()
+        );
     }
 
     #[test]
     fn stable_v1_small_modern_and_pastoral_planners_keep_determinism_and_unique_ids() {
-        let scene=SceneSpec {scene_id:"small-modern".into(),width_m:512,depth_m:512,origin_x:0,origin_z:0,seed_offset:0};
-        for style in [serde_json::json!({"generationIntent":{"settlement":"pastoral"}}),
-            serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.3}})] {
-            let water=water_geometry(WaterKind::None,&[],&scene,&style);
-            let a=generate_entities_with_profile(7,&scene,&[],water,&style);
-            let b=generate_entities_with_profile(7,&scene,&[],water,&style);
-            assert_eq!(serde_json::to_vec(&a).unwrap(),serde_json::to_vec(&b).unwrap());
-            assert!(a.iter().any(|e|e.entity_id.contains(".stable-v1.")));
-            let ids:std::collections::BTreeSet<_>=a.iter().map(|e|&e.entity_id).collect();assert_eq!(ids.len(),a.len());
+        let scene = SceneSpec {
+            scene_id: "small-modern".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        for style in [
+            serde_json::json!({"generationIntent":{"settlement":"pastoral"}}),
+            serde_json::json!({"generationIntent":{"settlement":"city"},"landUseProfile":{"theme":"temperate-plain","urbanCoreRatio":0.3}}),
+        ] {
+            let water = water_geometry(WaterKind::None, &[], &scene, &style);
+            let a = generate_entities_with_profile(7, &scene, &[], water, &style);
+            let b = generate_entities_with_profile(7, &scene, &[], water, &style);
+            assert_eq!(
+                serde_json::to_vec(&a).unwrap(),
+                serde_json::to_vec(&b).unwrap()
+            );
+            assert!(a.iter().any(|e| e.entity_id.contains(".stable-v1.")));
+            let ids: std::collections::BTreeSet<_> = a.iter().map(|e| &e.entity_id).collect();
+            assert_eq!(ids.len(), a.len());
         }
     }
     #[test]
-    fn stable_v1_manifest_patch_keeps_explicit_operations_without_claiming_inventory_preservation() {
-        let mut manifest=WorldManifest::default_demo();
-        let landmark:LandmarkSpec=serde_json::from_value(serde_json::json!({
+    fn stable_v1_manifest_patch_keeps_explicit_operations_without_claiming_inventory_preservation()
+    {
+        let mut manifest = WorldManifest::default_demo();
+        let landmark: LandmarkSpec = serde_json::from_value(serde_json::json!({
             "entityId":"generated.authored-explicit","name":"kept","type":"rock","purpose":"test",
             "description":"explicit membership","sceneId":manifest.scenes[0].scene_id,
             "worldX":300,"worldZ":300,"widthM":2,"depthM":2,"heightM":1,"assetId":"prop.rock"
-        })).unwrap();
-        manifest.landmarks=vec![landmark.clone()];
-        let make_patch=|base:&WorldManifest,operations| WorldPatch {
-            format:"glyphweave-world-patch".into(),version:2,patch_id:"inventory-scope-test".into(),
-            base_revision:world_manifest_revision(base).unwrap(),parent_patch_hash:Some(base.patch_chain_hash.clone()),sequence:1,operations,
+        }))
+        .unwrap();
+        manifest.landmarks = vec![landmark.clone()];
+        let make_patch = |base: &WorldManifest, operations| WorldPatch {
+            format: "glyphweave-world-patch".into(),
+            version: 2,
+            patch_id: "inventory-scope-test".into(),
+            base_revision: world_manifest_revision(base).unwrap(),
+            parent_patch_hash: Some(base.patch_chain_hash.clone()),
+            sequence: 1,
+            operations,
         };
-        let moved=apply_patch(&manifest,&make_patch(&manifest,vec![PatchOperation::MoveLandmark{
-            entity_id:landmark.entity_id.clone(),world_x:301,world_z:302,world_y:-2,
-        }])).unwrap();
-        assert_eq!(moved.landmarks[0].entity_id,landmark.entity_id);
-        assert_eq!((moved.landmarks[0].world_x,moved.landmarks[0].world_z,moved.landmarks[0].world_y),(301,302,-2));
-        let mut update=moved.landmarks[0].clone();update.height_m=3;
-        let set=apply_patch(&moved,&make_patch(&moved,vec![PatchOperation::SetLandmark{landmark:update}])).unwrap();
-        assert_eq!(set.landmarks[0].height_m,3);
-        let removed=apply_patch(&set,&make_patch(&set,vec![PatchOperation::RemoveLandmark{entity_id:landmark.entity_id.clone()}])).unwrap();
+        let moved = apply_patch(
+            &manifest,
+            &make_patch(
+                &manifest,
+                vec![PatchOperation::MoveLandmark {
+                    entity_id: landmark.entity_id.clone(),
+                    world_x: 301,
+                    world_z: 302,
+                    world_y: -2,
+                }],
+            ),
+        )
+        .unwrap();
+        assert_eq!(moved.landmarks[0].entity_id, landmark.entity_id);
+        assert_eq!(
+            (
+                moved.landmarks[0].world_x,
+                moved.landmarks[0].world_z,
+                moved.landmarks[0].world_y
+            ),
+            (301, 302, -2)
+        );
+        let mut update = moved.landmarks[0].clone();
+        update.height_m = 3;
+        let set = apply_patch(
+            &moved,
+            &make_patch(
+                &moved,
+                vec![PatchOperation::SetLandmark { landmark: update }],
+            ),
+        )
+        .unwrap();
+        assert_eq!(set.landmarks[0].height_m, 3);
+        let removed = apply_patch(
+            &set,
+            &make_patch(
+                &set,
+                vec![PatchOperation::RemoveLandmark {
+                    entity_id: landmark.entity_id.clone(),
+                }],
+            ),
+        )
+        .unwrap();
         assert!(removed.landmarks.is_empty());
-        let unknown=make_patch(&manifest,vec![PatchOperation::RemoveLandmark{entity_id:"not-authored".into()}]);
-        assert!(apply_patch(&manifest,&unknown).is_err());
+        let unknown = make_patch(
+            &manifest,
+            vec![PatchOperation::RemoveLandmark {
+                entity_id: "not-authored".into(),
+            }],
+        );
+        assert!(apply_patch(&manifest, &unknown).is_err());
         // Patch success alone is not an approval to alter stored generated objects.
-        let old=vec![landmark_to_entity(&landmark)];
-        let new=vec![landmark_to_entity(&moved.landmarks[0])];
-        assert_eq!(audit_entity_inventory(&old,&new,&[],EntityInventoryMode::Preserving{
-            old_scheme:"legacy".into(),new_scheme:"legacy".into(),
-        }).status,"fail");
+        let old = vec![landmark_to_entity(&landmark)];
+        let new = vec![landmark_to_entity(&moved.landmarks[0])];
+        assert_eq!(
+            audit_entity_inventory(
+                &old,
+                &new,
+                &[],
+                EntityInventoryMode::Preserving {
+                    old_scheme: "legacy".into(),
+                    new_scheme: "legacy".into(),
+                }
+            )
+            .status,
+            "fail"
+        );
     }
 
     /// B02-W1 closeout: the graded road geometry revision is bound only into
@@ -13516,11 +13945,13 @@ mod tests {
             })
         };
         // Legacy input: automatic roads, no hierarchy, no explicit corridors.
-        assert!(road_geometry_revision_for_style(&auto(
-            serde_json::Value::Null,
-            serde_json::json!(["urban", "rural"])
-        ))
-        .is_none());
+        assert!(
+            road_geometry_revision_for_style(&auto(
+                serde_json::Value::Null,
+                serde_json::json!(["urban", "rural"])
+            ))
+            .is_none()
+        );
         // Default world: no graded program at all.
         assert!(road_geometry_revision_for_style(&WorldManifest::default_demo().style).is_none());
         // Explicit 16m corridor: bound. 8m/12m only: not bound.
@@ -13540,11 +13971,9 @@ mod tests {
             Some(GRADED_ROAD_GEOMETRY_REVISION)
         );
         // Same tiers, but only rural is prioritised and the 16m tier is urban.
-        assert!(road_geometry_revision_for_style(&auto(
-            tiers,
-            serde_json::json!(["rural"])
-        ))
-        .is_none());
+        assert!(
+            road_geometry_revision_for_style(&auto(tiers, serde_json::json!(["rural"]))).is_none()
+        );
         // A morphology profile always compiles in the 16m collector tier.
         assert_eq!(
             road_geometry_revision_for_style(&serde_json::json!({
@@ -13593,8 +14022,9 @@ mod tests {
         // Deterministic.
         assert_eq!(bound, world_manifest_revision(&manifest).unwrap());
         // The geometry revision alone changes the identity: v1 vs v2.
-        let v1 = world_manifest_revision_with_geometry(&manifest, None, Some("graded-road-band-v1"))
-            .unwrap();
+        let v1 =
+            world_manifest_revision_with_geometry(&manifest, None, Some("graded-road-band-v1"))
+                .unwrap();
         let v2 = bound.clone();
         assert_ne!(v1, v2);
         // 12m corridors carry no geometry binding: their identity is exactly
@@ -13739,10 +14169,12 @@ mod morphology_profile_integration {
         let (scene, terrain, water, zones) = fixture();
         let raw = control_style(profile);
         let effective = match profile {
-            Some(_) => morphology_compile::compile(&raw, std::slice::from_ref(&scene))
-                .unwrap()
-                .expect("profile compiles")
-                .style,
+            Some(_) => {
+                morphology_compile::compile(&raw, std::slice::from_ref(&scene))
+                    .unwrap()
+                    .expect("profile compiles")
+                    .style
+            }
             None => raw.clone(),
         };
         let mut plan = base_plan(&terrain.content_hash().unwrap());
@@ -13752,9 +14184,11 @@ mod morphology_profile_integration {
     }
 
     fn parcel_size(site: &road_network::RoadsideSite) -> (i64, i64) {
-        let boundary =
-            parcel_geometry::boundary_for_entity(&site.entity(), site.parcel_insets.unwrap_or_default())
-                .unwrap();
+        let boundary = parcel_geometry::boundary_for_entity(
+            &site.entity(),
+            site.parcel_insets.unwrap_or_default(),
+        )
+        .unwrap();
         (boundary[2] - boundary[0], boundary[3] - boundary[1])
     }
 
@@ -13785,8 +14219,11 @@ mod morphology_profile_integration {
         for plan in [&legacy_plan, &compact_plan, &cluster_plan] {
             let report = plan.frontage.as_ref().unwrap();
             assert!(
-                report.outcomes.iter().all(|outcome| outcome.unfilled == 0
-                    && outcome.stop_reason == "demand_satisfied"),
+                report
+                    .outcomes
+                    .iter()
+                    .all(|outcome| outcome.unfilled == 0
+                        && outcome.stop_reason == "demand_satisfied"),
                 "unsatisfied demand must be reported, never resized: {report:?}"
             );
         }
@@ -13797,20 +14234,28 @@ mod morphology_profile_integration {
         let cluster_size = first(&cluster_plan);
         assert_eq!(legacy_size, (16, 14), "legacy insets stay 2/2/2 metres");
         assert_eq!(compact_size, (16, 18), "compact-mixed-block insets 4/2/4");
-        assert_eq!(cluster_size, (20, 32), "clustered-residential insets 6/4/16");
+        assert_eq!(
+            cluster_size,
+            (20, 32),
+            "clustered-residential insets 6/4/16"
+        );
         assert_ne!(legacy_size, compact_size);
         assert_ne!(compact_size, cluster_size);
 
         // Profiles also change the stored parcel policy, not only the numbers
         // this test computes.
-        assert!(compact_plan
-            .roadside_sites
-            .iter()
-            .all(|site| site.parcel_insets.is_some()));
-        assert!(legacy_plan
-            .roadside_sites
-            .iter()
-            .all(|site| site.parcel_insets.is_none()));
+        assert!(
+            compact_plan
+                .roadside_sites
+                .iter()
+                .all(|site| site.parcel_insets.is_some())
+        );
+        assert!(
+            legacy_plan
+                .roadside_sites
+                .iter()
+                .all(|site| site.parcel_insets.is_none())
+        );
         assert_ne!(
             compact_plan.roadside_sites[0].parcel_insets,
             cluster_plan.roadside_sites[0].parcel_insets
@@ -13834,16 +14279,18 @@ mod morphology_profile_integration {
                 serde_json::json!(HOMES)
             );
         }
-        assert!(morphology_compile::compile(
-            &control_style(Some("compact-mixed-block")),
-            std::slice::from_ref(&fixture().0)
-        )
-        .unwrap()
-        .unwrap()
-        .report
-        .field_sources
-        .iter()
-        .any(|entry| entry.source == SOURCE_PROFILE && entry.profile_field == "sideInsetM"));
+        assert!(
+            morphology_compile::compile(
+                &control_style(Some("compact-mixed-block")),
+                std::slice::from_ref(&fixture().0)
+            )
+            .unwrap()
+            .unwrap()
+            .report
+            .field_sources
+            .iter()
+            .any(|entry| entry.source == SOURCE_PROFILE && entry.profile_field == "sideInsetM")
+        );
     }
 
     #[test]
@@ -14012,7 +14459,13 @@ mod morphology_profile_integration {
             .collect();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
         terrain
-            .insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &encode_millimetres(512, 512, values).unwrap(),
+            )
             .unwrap();
         let mut reports = Vec::new();
         for (raw, profile_id) in [
@@ -14123,8 +14576,7 @@ mod morphology_profile_integration {
             seed_offset: 0,
         };
         let mut terrain = BakedTerrain::new(&scene).unwrap();
-        let payload =
-            crate::height_payload::encode_millimetres(32, 32, vec![6.; 32 * 32]).unwrap();
+        let payload = crate::height_payload::encode_millimetres(32, 32, vec![6.; 32 * 32]).unwrap();
         terrain.insert_chunk(0, 0, 32, 32, &payload).unwrap();
         let mut deck: EntityInstance = serde_json::from_value(serde_json::json!({
             "entityId": "generated.road.deck",

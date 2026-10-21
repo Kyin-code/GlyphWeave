@@ -1,5 +1,14 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 V3 审核通过并进入实现**：项目负责人已确认自然基线、取消普通
+> 建筑固定完成数、地形驱动建筑尺寸、新旧城 epoch、网络中心、分级市场、
+> 48 城特征复刻和宏观工程弱门限。已落地自然基线冻结/最终差分、自然节点
+> 多路网、建筑原型、分级市场实体和入口自身碰撞修复。当前 1km 候选为
+> `examples/natural-evolution-core-city-1km.manifest.json`，实烘焙输出
+> `bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final2/`；详细证据与剩余
+> 入口缺口见
+> [`NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md`](NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md)。
+
 > 生成于本轮会话结束时。**基线需求**始终是
 > [`requirements-and-progress-master.zh-CN.md`](requirements-and-progress-master.zh-CN.md)，
 > 本文件是它的"当前状态快照 + 待办 + 操作手册"，不替代基线。

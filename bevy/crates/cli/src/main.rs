@@ -1,5 +1,5 @@
-mod context_preview3d;
 mod context_preview;
+mod context_preview3d;
 mod context_preview_entry;
 mod engineering_connections;
 mod engineering_context;
@@ -16,10 +16,10 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
-use glyphweave_core::intent::{IntentDraft, WorldIntent, draft_from_text};
-use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
-use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
-use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
+use glyphweave_core::intent::{draft_from_text, IntentDraft, WorldIntent};
+use glyphweave_core::migration::{migrate_legacy_json, MigrationMode};
+use glyphweave_core::rules::{load_descriptor, load_dir, ObjectRegistry};
+use glyphweave_core::storage::archive::{read_entries, ArchiveLimits};
 use glyphweave_core::storage::bitpack::unpack_indices;
 use glyphweave_core::storage::canonical::chunk_id;
 use glyphweave_core::storage::codec::{
@@ -27,14 +27,14 @@ use glyphweave_core::storage::codec::{
 };
 use glyphweave_core::storage::model::{Manifest, RegionManifest};
 use glyphweave_core::voxel::{
-    CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
+    ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord, CHUNK_VOLUME,
 };
 use glyphweave_core::worldgen::{
-    EntityChangeApproval, EntityChangeKind, EntityInstance, EntityInventoryMode, LandUseProfile,
-    SceneIndex, WorldIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
-    audit_baked_scene, audit_entity_inventory, bake_world, build_access_graph,
-    footprint_intersects_water, validate_access_surfaces, water_geometry, water_kind,
-    world_manifest_revision, write_demo_manifest,
+    analyze_landuse_areas, apply_patch, audit_baked_scene, audit_entity_inventory, bake_world,
+    build_access_graph, footprint_intersects_water, validate_access_surfaces, water_geometry,
+    water_kind, world_manifest_revision, write_demo_manifest, EntityChangeApproval,
+    EntityChangeKind, EntityInstance, EntityInventoryMode, LandUseProfile, SceneIndex, WorldIndex,
+    WorldManifest, WorldPatch,
 };
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
@@ -552,8 +552,7 @@ fn apply_patch_preserving_command(args: &[String]) -> CliResult<()> {
     if output.exists() {
         return Err(format!("output directory already exists: {}", output.display()).into());
     }
-    let base_world: WorldIndex =
-        serde_json::from_slice(&fs::read(base_root.join("world.json"))?)?;
+    let base_world: WorldIndex = serde_json::from_slice(&fs::read(base_root.join("world.json"))?)?;
     if base_world.generator_revision.is_empty()
         || base_world.generator_revision != glyphweave_core::worldgen::WORLD_GENERATOR_REVISION
     {
@@ -629,10 +628,7 @@ fn inventory_staging_path(output: &Path) -> CliResult<PathBuf> {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
-    let staging = parent.join(format!(
-        ".{name}.inventory-{}-{nonce}",
-        std::process::id()
-    ));
+    let staging = parent.join(format!(".{name}.inventory-{}-{nonce}", std::process::id()));
     if staging.exists() {
         return Err(format!(
             "inventory staging path already exists: {}",
@@ -693,10 +689,7 @@ fn read_inventory_approvals(path: &Path) -> CliResult<Vec<EntityChangeApproval>>
 /// morphology profile are recompiled and compared with the published
 /// `effective-programs.json`; the returned value is the recompiled effective
 /// style used by the downstream program audits.
-fn audit_effective_programs(
-    root: &Path,
-    manifest: &WorldManifest,
-) -> CliResult<serde_json::Value> {
+fn audit_effective_programs(root: &Path, manifest: &WorldManifest) -> CliResult<serde_json::Value> {
     let published: Option<serde_json::Value> = fs::read(root.join("effective-programs.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -1038,7 +1031,10 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
             .ok_or("quality report missing scenes")?
         {
             if scene["frontageAudit"].is_object() && scene["frontageAudit"]["status"] != "pass" {
-                failures.push(format!("{} local-height frontage demand or realization remains incomplete",scene["sceneId"]));
+                failures.push(format!(
+                    "{} local-height frontage demand or realization remains incomplete",
+                    scene["sceneId"]
+                ));
             }
             if scene["purposeConversionAudit"].is_object()
                 && scene["purposeConversionAudit"]["status"] != "pass"
@@ -1048,8 +1044,15 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
-            if scene["automaticRoads"]["unservedTargets"].as_u64().unwrap_or(0)>0 {
-                failures.push(format!("{} automatic road targets remain out of reach after {}",scene["sceneId"],scene["automaticRoads"]["stopReason"]));
+            if scene["automaticRoads"]["unservedTargets"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+            {
+                failures.push(format!(
+                    "{} automatic road targets remain out of reach after {}",
+                    scene["sceneId"], scene["automaticRoads"]["stopReason"]
+                ));
             }
             if scene["roadNetworkAudit"].is_object()
                 && scene["roadNetworkAudit"]["status"] != "pass"
@@ -1059,9 +1062,7 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
-            if scene["roadTierAudit"].is_object()
-                && scene["roadTierAudit"]["status"] != "pass"
-            {
+            if scene["roadTierAudit"].is_object() && scene["roadTierAudit"]["status"] != "pass" {
                 failures.push(format!(
                     "{} final road tier provenance failed independent audit",
                     scene["sceneId"]
@@ -1075,9 +1076,7 @@ fn world_quality_gate_command(args: &[String]) -> CliResult<()> {
                     scene["sceneId"]
                 ));
             }
-            if scene["shoreBandAudit"].is_object()
-                && scene["shoreBandAudit"]["status"] != "pass"
-            {
+            if scene["shoreBandAudit"].is_object() && scene["shoreBandAudit"]["status"] != "pass" {
                 failures.push(format!(
                     "{} shoreline public passage band failed its independent audit",
                     scene["sceneId"]
@@ -1499,8 +1498,11 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             if let Some(entry) = entry {
                 let published: BTreeSet<String> =
                     scene.entities.iter().map(|e| e.entity_id.clone()).collect();
-                let authored: BTreeSet<String> =
-                    scene.landmarks.iter().map(|l| l.entity_id.clone()).collect();
+                let authored: BTreeSet<String> = scene
+                    .landmarks
+                    .iter()
+                    .map(|l| l.entity_id.clone())
+                    .collect();
                 match glyphweave_core::worldgen::verify_published_placement(
                     entry,
                     &published,
@@ -1625,7 +1627,8 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                     .ok_or("missing required road-first development plan")?;
                 let published: serde_json::Value =
                     serde_json::from_slice(&fs::read(folder.join("development-plan.json"))?)?;
-                let canonical: serde_json::Value = serde_json::from_slice(&serde_json::to_vec(plan)?)?;
+                let canonical: serde_json::Value =
+                    serde_json::from_slice(&serde_json::to_vec(plan)?)?;
                 if published != canonical {
                     return Err("development-plan.json differs from scene plan".into());
                 }
@@ -1955,12 +1958,11 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 &effective_style,
                 &manifest.scenes,
             )?;
-            let expected_residual =
-                glyphweave_core::settlement::residual_land::audit_source(
-                    plan.residual_program.as_ref(),
-                    &effective_style,
-                    spec,
-                )?;
+            let expected_residual = glyphweave_core::settlement::residual_land::audit_source(
+                plan.residual_program.as_ref(),
+                &effective_style,
+                spec,
+            )?;
             glyphweave_core::settlement::development::audit_landcover(
                 plan,
                 spec,
@@ -2312,13 +2314,15 @@ fn contract_limits(
 
 /// BakedTerrain::height already returns metres, not quarter-metre integers.
 fn road_is_below_ground(entity: &glyphweave_core::worldgen::EntityInstance, ground_m: f32) -> bool {
-    if let Some(profile)=&entity.grounding.road_profile {
-        if !ground_m.is_finite() || profile.validate_entity(entity).is_err(){return true;}
+    if let Some(profile) = &entity.grounding.road_profile {
+        if !ground_m.is_finite() || profile.validate_entity(entity).is_err() {
+            return true;
+        }
         // Both the profile and its required raster use integer millimetres.
         // Reconstruct that integer, not (-1 + 0.904f32) < -0.096f32.
         // No geometric tolerance is added: a one-millimetre burial still fails.
-        let ground_mm=(f64::from(ground_m)*1000.).round() as i64;
-        return profile.elevations_mm[profile.elevations_mm.len()/2] < ground_mm;
+        let ground_mm = (f64::from(ground_m) * 1000.).round() as i64;
+        return profile.elevations_mm[profile.elevations_mm.len() / 2] < ground_mm;
     }
     entity.ground_height_m() < ground_m
 }
@@ -2709,19 +2713,26 @@ fn scale_audit_command(args: &[String]) -> CliResult<()> {
                     }
                 }
                 "road" => {
-                    if let Some(profile)=&entity.grounding.road_profile {
-                        if let Err(error)=profile.validate_entity(entity){failures.push(error.to_string());continue;}
+                    if let Some(profile) = &entity.grounding.road_profile {
+                        if let Err(error) = profile.validate_entity(entity) {
+                            failures.push(error.to_string());
+                            continue;
+                        }
                     }
                     // Only procedurally generated roads must sit on the ground
                     // heightfield. GIS/landmark roads carry author-specified
                     // heights (bridges, viaducts) and are exempt.
-                    if entity.entity_id.starts_with("generated.") {
+                    if entity.entity_id.starts_with("generated.")
+                        && !entity.grounding.structure_deck
+                    {
                         if let Some(ground_y) = baked_terrain.height(entity.world_x, entity.world_z)
                         {
                             if road_is_below_ground(entity, ground_y) {
                                 failures.push(format!(
                                     "{} road y={} is below ground y={}",
-                                    entity.entity_id, entity.ground_height_m(), ground_y
+                                    entity.entity_id,
+                                    entity.ground_height_m(),
+                                    ground_y
                                 ));
                             }
                         } else {
@@ -3434,16 +3445,25 @@ mod tests {
 
     #[test]
     fn graded_road_grounding_compares_exact_millimetres_without_cancellation() {
-        for mm in [-31999_i64,-322,-96,0,96,2049,5861,255999] {
-            let level=mm as f64/1000.;
+        for mm in [-31999_i64, -322, -96, 0, 96, 2049, 5861, 255999] {
+            let level = mm as f64 / 1000.;
             let mut road:glyphweave_core::worldgen::EntityInstance=serde_json::from_value(serde_json::json!({
                 "entityId":"generated.road-auto.test","assetId":"prop.road","kind":"road","worldX":0,"worldZ":0,"worldY":level.floor() as i32,"widthM":64,"depthM":8,"heightM":0.24,"scale":1,
                 "grounding":{"bottomOffsetM":level-level.floor(),"roadProfile":{"version":1,"start":[-32,0],"end":[32,0],"elevationsMm":vec![mm;65],"maxFillMm":6000}}
             })).unwrap();
-            assert!(!road_is_below_ground(&road,level as f32),"{mm}mm must not fail from f32 cancellation");
-            assert!(road_is_below_ground(&road,(level+0.001) as f32),"1mm burial must fail");
-            road.grounding.bottom_offset_m+=0.01;
-            assert!(road_is_below_ground(&road,level as f32),"invalid profile/entity centre must not bypass checks");
+            assert!(
+                !road_is_below_ground(&road, level as f32),
+                "{mm}mm must not fail from f32 cancellation"
+            );
+            assert!(
+                road_is_below_ground(&road, (level + 0.001) as f32),
+                "1mm burial must fail"
+            );
+            road.grounding.bottom_offset_m += 0.01;
+            assert!(
+                road_is_below_ground(&road, level as f32),
+                "invalid profile/entity centre must not bypass checks"
+            );
         }
     }
     #[test]

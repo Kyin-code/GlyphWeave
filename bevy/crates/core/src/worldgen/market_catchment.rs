@@ -10,8 +10,11 @@ use std::collections::BinaryHeap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::baked_terrain::BakedTerrain;
+
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
+use super::{EntityInstance, SpatialAnchor};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -35,6 +38,24 @@ pub struct Program {
     pub max_markets: usize,
     #[serde(default = "default_spacing")]
     pub candidate_spacing_m: f64,
+    /// Optional fresh-food hierarchy. When omitted, the legacy single market
+    /// values above remain the exact fallback.
+    #[serde(default)]
+    pub tiers: Vec<Tier>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Tier {
+    pub id: String,
+    pub kind: String,
+    pub capacity: f64,
+    pub quality: f64,
+    pub max_travel_minutes: f64,
+    pub max_count: usize,
+    pub candidate_spacing_m: f64,
+    #[serde(default = "default_preference")]
+    pub preference: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -51,10 +72,18 @@ pub struct DemandPoint {
 #[serde(rename_all = "camelCase")]
 pub struct Market {
     pub id: String,
+    #[serde(default)]
+    pub tier: String,
+    #[serde(default)]
+    pub kind: String,
     pub world_x: i32,
     pub world_z: i32,
     pub capacity: f64,
     pub quality: f64,
+    pub max_travel_minutes: f64,
+    pub width_m: f32,
+    pub depth_m: f32,
+    pub height_m: f32,
     pub load: f64,
 }
 
@@ -113,6 +142,9 @@ const fn default_max_markets() -> usize {
 const fn default_spacing() -> f64 {
     80.0
 }
+const fn default_preference() -> f64 {
+    1.0
+}
 
 pub fn enabled(style: &Value) -> bool {
     from_style(style).is_ok_and(|program| program.is_some_and(|program| program.enabled))
@@ -138,7 +170,42 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
     {
         return Err("invalid marketCatchment limits".into());
     }
+    let mut tier_ids = std::collections::BTreeSet::new();
+    for tier in &program.tiers {
+        if tier.id.trim().is_empty()
+            || tier.kind.trim().is_empty()
+            || !tier_ids.insert(tier.id.as_str())
+            || !(20.0..=5000.0).contains(&tier.capacity)
+            || !(0.2..=3.0).contains(&tier.quality)
+            || !(3.0..=60.0).contains(&tier.max_travel_minutes)
+            || tier.max_count == 0
+            || tier.max_count > 32
+            || !(24.0..=1000.0).contains(&tier.candidate_spacing_m)
+            || !(0.2..=2.0).contains(&tier.preference)
+        {
+            return Err("invalid marketCatchment tier".into());
+        }
+    }
     Ok(())
+}
+
+impl Program {
+    fn effective_tiers(&self) -> Vec<Tier> {
+        if self.tiers.is_empty() {
+            vec![Tier {
+                id: "market".into(),
+                kind: "mixed-market".into(),
+                capacity: self.market_capacity,
+                quality: self.market_quality,
+                max_travel_minutes: self.max_travel_minutes,
+                max_count: self.max_markets,
+                candidate_spacing_m: self.candidate_spacing_m,
+                preference: 1.0,
+            }]
+        } else {
+            self.tiers.clone()
+        }
+    }
 }
 
 fn from_style(style: &Value) -> Result<Option<Program>, String> {
@@ -199,49 +266,68 @@ pub fn plan(
                 .0
         })
         .collect();
-    let candidates = graph.candidates(program.candidate_spacing_m);
-    let mut selected = Vec::<usize>::new();
+    let tiers = program.effective_tiers();
+    let candidates = tiers
+        .iter()
+        .map(|tier| graph.candidates(tier.candidate_spacing_m))
+        .collect::<Vec<_>>();
+    let mut selected = Vec::<(usize, usize)>::new();
+    let mut tier_counts = vec![0usize; tiers.len()];
     let total_demand: f64 = demand_points.iter().map(|point| point.demand).sum();
     let mut served = vec![0.0_f64; demand_points.len()];
     while selected.len() < program.max_markets {
-        let mut best = None;
-        for &candidate in &candidates {
-            if selected.contains(&candidate) {
+        let mut best: Option<(f64, usize, usize)> = None;
+        for (tier_index, tier) in tiers.iter().enumerate() {
+            if tier_counts[tier_index] >= tier.max_count {
                 continue;
             }
-            let times = graph.times_from(candidate, program.walk_speed_mps);
-            let reachable: f64 = demand_points
-                .iter()
-                .enumerate()
-                .filter(|(index, point)| served[*index] < point.demand)
-                .map(|(index, point)| {
-                    let minutes = times[demand_nodes[index]]
-                        + point.access_walk_m / program.walk_speed_mps / 60.0;
-                    if minutes <= program.max_travel_minutes {
-                        (point.demand - served[index]).max(0.0)
-                    } else {
-                        0.0
-                    }
-                })
-                .sum();
-            if best.is_none_or(|(_, score)| reachable > score) {
-                best = Some((candidate, reachable));
+            for &candidate in &candidates[tier_index] {
+                if selected.iter().any(|(node, _)| *node == candidate) {
+                    continue;
+                }
+                let times = graph.times_from(candidate, program.walk_speed_mps);
+                let reachable: f64 = demand_points
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, point)| served[*index] < point.demand)
+                    .map(|(index, point)| {
+                        let minutes = times[demand_nodes[index]]
+                            + point.access_walk_m / program.walk_speed_mps / 60.0;
+                        if minutes <= tier.max_travel_minutes {
+                            (point.demand - served[index]).max(0.0)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f64>()
+                    * tier.preference;
+                let order = (candidate, tier_index);
+                if best.is_none_or(|(score, prior_candidate, prior_tier)| {
+                    reachable > score
+                        || (reachable == score && order < (prior_candidate, prior_tier))
+                }) {
+                    best = Some((reachable, candidate, tier_index));
+                }
             }
         }
-        let Some((candidate, _)) = best else {
+        let Some((reachable, candidate, tier_index)) = best else {
             break;
         };
-        selected.push(candidate);
+        if reachable <= 0.0 {
+            break;
+        }
+        selected.push((candidate, tier_index));
+        tier_counts[tier_index] += 1;
+        let tier = &tiers[tier_index];
         let times = graph.times_from(candidate, program.walk_speed_mps);
-        let remaining = program.market_capacity;
-        let mut capacity = remaining;
+        let mut capacity = tier.capacity;
         let mut ranked: Vec<(usize, f64)> = demand_points
             .iter()
             .enumerate()
             .filter_map(|(index, point)| {
                 let minutes = times[demand_nodes[index]]
                     + point.access_walk_m / program.walk_speed_mps / 60.0;
-                (minutes <= program.max_travel_minutes && served[index] < point.demand)
+                (minutes <= tier.max_travel_minutes && served[index] < point.demand)
                     .then_some((index, minutes))
             })
             .collect();
@@ -262,47 +348,120 @@ pub fn plan(
     }
     let mut markets = Vec::new();
     let mut all_times = Vec::new();
-    for (index, &node) in selected.iter().enumerate() {
+    for (index, &(node, tier_index)) in selected.iter().enumerate() {
+        let tier = &tiers[tier_index];
         let times = graph.times_from(node, program.walk_speed_mps);
         markets.push(Market {
             id: format!("market.{index}"),
+            tier: tier.id.clone(),
+            kind: tier.kind.clone(),
             world_x: graph.nodes[node].x,
             world_z: graph.nodes[node].z,
-            capacity: program.market_capacity,
-            quality: program.market_quality,
+            capacity: tier.capacity,
+            quality: tier.quality,
+            max_travel_minutes: tier.max_travel_minutes,
+            width_m: match tier.id.as_str() {
+                "street-market" => 36.0,
+                "district" => 72.0,
+                _ => 48.0,
+            },
+            depth_m: match tier.id.as_str() {
+                "street-market" => 24.0,
+                "district" => 54.0,
+                _ => 32.0,
+            },
+            height_m: match tier.id.as_str() {
+                "street-market" => 7.0,
+                "district" => 15.0,
+                _ => 10.0,
+            },
             load: 0.0,
         });
         all_times.push(times);
     }
     let mut accessibility = Vec::new();
     let mut market_loads = vec![0.0_f64; markets.len()];
-    for (demand_index, point) in demand_points.iter().enumerate() {
-        let mut weights = Vec::new();
+    let mut served_by_demand = vec![0.0_f64; demand_points.len()];
+    let mut demand_order = (0..demand_points.len()).collect::<Vec<_>>();
+    demand_order.sort_by(|left, right| {
+        let best = |index: usize| {
+            markets
+                .iter()
+                .enumerate()
+                .map(|(market_index, market)| {
+                    all_times[market_index][demand_nodes[index]]
+                        + demand_points[index].access_walk_m / program.walk_speed_mps / 60.0
+                        - market.max_travel_minutes
+                })
+                .fold(f64::INFINITY, f64::min)
+        };
+        best(*left)
+            .partial_cmp(&best(*right))
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.cmp(right))
+    });
+    for demand_index in demand_order {
+        let point = &demand_points[demand_index];
+        let mut best_market = None;
+        let mut best_minutes = f64::INFINITY;
         for (market_index, market) in markets.iter().enumerate() {
             let minutes = all_times[market_index][demand_nodes[demand_index]]
                 + point.access_walk_m / program.walk_speed_mps / 60.0;
-            let attraction = if minutes <= program.max_travel_minutes {
-                market.capacity * market.quality * (-program.beta * minutes).exp()
-            } else {
-                0.0
-            };
-            weights.push((market_index, minutes, attraction));
-        }
-        let total_weight: f64 = weights.iter().map(|(_, _, value)| value).sum();
-        let mut best_market = None;
-        let mut best_minutes = f64::INFINITY;
-        for (market_index, minutes, attraction) in &weights {
-            if *attraction <= 0.0 {
-                continue;
-            }
-            let share = attraction / total_weight;
-            market_loads[*market_index] += point.demand * share;
-            if *minutes < best_minutes {
-                best_minutes = *minutes;
-                best_market = Some(*market_index);
+            if minutes <= market.max_travel_minutes && minutes < best_minutes {
+                best_minutes = minutes;
+                best_market = Some(market_index);
             }
         }
-        let density: f64 = weights.iter().map(|(_, _, value)| value).sum();
+        let mut remaining = point.demand;
+        while remaining > 1e-9 {
+            let eligible = markets
+                .iter()
+                .enumerate()
+                .filter_map(|(market_index, market)| {
+                    let minutes = all_times[market_index][demand_nodes[demand_index]]
+                        + point.access_walk_m / program.walk_speed_mps / 60.0;
+                    let available = (market.capacity - market_loads[market_index]).max(0.0);
+                    (minutes <= market.max_travel_minutes && available > 1e-9).then_some((
+                        market_index,
+                        market.capacity * market.quality * (-program.beta * minutes).exp(),
+                        available,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let total_weight: f64 = eligible.iter().map(|(_, weight, _)| weight).sum();
+            if eligible.is_empty() || total_weight <= 1e-9 {
+                break;
+            }
+            let mut round_remaining = remaining;
+            let mut granted = 0.0;
+            for (market_index, weight, available) in eligible {
+                let grant = (round_remaining * weight / total_weight)
+                    .min(available)
+                    .min(round_remaining);
+                market_loads[market_index] += grant;
+                round_remaining -= grant;
+                granted += grant;
+            }
+            if granted <= 1e-9 {
+                break;
+            }
+            remaining = round_remaining;
+        }
+        let assigned = point.demand - remaining;
+        served_by_demand[demand_index] = assigned;
+        let density: f64 = markets
+            .iter()
+            .enumerate()
+            .map(|(market_index, market)| {
+                let minutes = all_times[market_index][demand_nodes[demand_index]]
+                    + point.access_walk_m / program.walk_speed_mps / 60.0;
+                if minutes <= market.max_travel_minutes {
+                    market.capacity * (-program.beta * minutes).exp()
+                } else {
+                    0.0
+                }
+            })
+            .sum();
         accessibility.push(Accessibility {
             demand_id: point.id.clone(),
             nearest_market_id: best_market.map(|index| markets[index].id.clone()),
@@ -311,15 +470,15 @@ pub fn plan(
             } else {
                 f64::INFINITY
             },
-            assigned_share: if total_weight > 0.0 { 1.0 } else { 0.0 },
+            assigned_share: (assigned / point.demand.max(1e-9)).clamp(0.0, 1.0),
             local_supply_density: density,
-            deficit: (point.demand - density).max(0.0),
+            deficit: remaining.max(0.0),
         });
     }
     for (market, load) in markets.iter_mut().zip(market_loads) {
         market.load = load;
     }
-    let served_demand: f64 = served.iter().sum();
+    let served_demand: f64 = served_by_demand.iter().sum();
     let coverage_ratio = served_demand / total_demand.max(1e-9);
     let mut failures = Vec::new();
     if coverage_ratio < program.coverage_target {
@@ -346,6 +505,112 @@ pub fn plan(
         accessibility,
         failures,
     }))
+}
+
+pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
+    plan.markets
+        .iter()
+        .filter_map(|market| {
+            let station = nearest_station(routes, market.world_x, market.world_z)?;
+            let depth = f64::from(market.depth_m);
+            let mut center_x = station.x + station.normal_x * (depth * 0.5 + 12.0);
+            let mut center_z = station.z + station.normal_z * (depth * 0.5 + 12.0);
+            if terrain
+                .height(center_x.round() as i32, center_z.round() as i32)
+                .is_none()
+            {
+                center_x = station.x - station.normal_x * (depth * 0.5 + 12.0);
+                center_z = station.z - station.normal_z * (depth * 0.5 + 12.0);
+            }
+            let anchor_x = center_x - station.normal_x * (depth * 0.5 + 1.0);
+            let anchor_z = center_z - station.normal_z * (depth * 0.5 + 1.0);
+            let world_y = terrain
+                .height(center_x.round() as i32, center_z.round() as i32)?
+                .ceil() as i32;
+            Some(EntityInstance {
+                entity_id: format!("generated.market-catchment.{}", market.id),
+                asset_id: format!("building.market.{}", market.tier),
+                kind: "market".into(),
+                world_x: center_x.round() as i32,
+                world_z: center_z.round() as i32,
+                world_y,
+                scale: 1.0,
+                width_m: market.width_m,
+                depth_m: market.depth_m,
+                height_m: market.height_m,
+                rotation_y_deg: station.rotation_y_deg,
+                grounding: super::GroundingSpec::default(),
+                anchors: vec![SpatialAnchor {
+                    id: "front".into(),
+                    world_x: anchor_x.round() as i32,
+                    world_z: anchor_z.round() as i32,
+                    direction: if station.normal_x.abs() > station.normal_z.abs() {
+                        if station.normal_x > 0.0 {
+                            "west"
+                        } else {
+                            "east"
+                        }
+                    } else if station.normal_z > 0.0 {
+                        "north"
+                    } else {
+                        "south"
+                    }
+                    .into(),
+                    target: Some("road".into()),
+                }],
+                bounds: None,
+            })
+        })
+        .collect()
+}
+
+struct Station {
+    x: f64,
+    z: f64,
+    normal_x: f64,
+    normal_z: f64,
+    rotation_y_deg: f32,
+}
+
+fn nearest_station(routes: &RoutePlan, x: i32, z: i32) -> Option<Station> {
+    let mut best: Option<(f64, Station)> = None;
+    for route in routes.routes.iter().filter(|route| route.status == "pass") {
+        for pair in route.polyline.windows(2) {
+            let ax = f64::from(pair[0].x);
+            let az = f64::from(pair[0].z);
+            let bx = f64::from(pair[1].x);
+            let bz = f64::from(pair[1].z);
+            let dx = bx - ax;
+            let dz = bz - az;
+            let length_squared = dx * dx + dz * dz;
+            if length_squared <= 1e-9 {
+                continue;
+            }
+            let t = (((f64::from(x) - ax) * dx + (f64::from(z) - az) * dz) / length_squared)
+                .clamp(0.0, 1.0);
+            let station_x = ax + dx * t;
+            let station_z = az + dz * t;
+            let distance = (f64::from(x) - station_x).hypot(f64::from(z) - station_z);
+            if best
+                .as_ref()
+                .is_some_and(|(prior_distance, _)| *prior_distance <= distance)
+            {
+                continue;
+            }
+            let length = length_squared.sqrt();
+            best = Some((
+                distance,
+                Station {
+                    x: station_x,
+                    z: station_z,
+                    normal_x: -dz / length,
+                    normal_z: dx / length,
+                    rotation_y_deg: dz.atan2(dx).to_degrees() as f32,
+                },
+            ));
+        }
+    }
+    best.map(|(_, station)| station)
 }
 
 #[derive(Clone)]
@@ -516,6 +781,7 @@ mod tests {
                     role: String::new(),
                 },
             ],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "a".into(),
@@ -559,6 +825,7 @@ mod tests {
                 center_distance_m: index as f64 * 40.0,
                 community_profile: "generic".into(),
                 income_band: "mixed".into(),
+                ..Building::default()
             })
             .collect();
         SettlementPlan {
@@ -614,10 +881,73 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
-        assert!(plan
-            .accessibility
+        assert!(
+            plan.accessibility
+                .iter()
+                .all(|point| point.nearest_market_id.is_some())
+        );
+        assert!(plan.markets.iter().all(|market| market.tier == "market"));
+        assert_eq!(
+            plan.markets
+                .iter()
+                .map(|market| market.kind.as_str())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["mixed-market"])
+        );
+    }
+
+    #[test]
+    fn tiered_markets_compete_on_capacity_time_and_type() {
+        let style = serde_json::json!({
+            "marketCatchment": {
+                "version": 1,
+                "beta": 0.08,
+                "maxTravelMinutes": 15,
+                "walkSpeedMps": 1.3,
+                "marketCapacity": 160,
+                "marketQuality": 1,
+                "coverageTarget": 0.95,
+                "maxMarkets": 3,
+                "candidateSpacingM": 100,
+                "tiers": [
+                    {
+                        "id": "street-market",
+                        "kind": "community-market-hall",
+                        "capacity": 40,
+                        "quality": 1.1,
+                        "maxTravelMinutes": 8,
+                        "maxCount": 1,
+                        "candidateSpacingM": 80,
+                        "preference": 1.2
+                    },
+                    {
+                        "id": "neighbourhood",
+                        "kind": "neighbourhood-supermarket",
+                        "capacity": 180,
+                        "quality": 1.0,
+                        "maxTravelMinutes": 15,
+                        "maxCount": 1,
+                        "candidateSpacingM": 160,
+                        "preference": 1.0
+                    }
+                ]
+            }
+        });
+        let plan = plan(&route_plan(), &settlement(), &style).unwrap().unwrap();
+        assert_eq!(plan.status, "pass");
+        assert!(plan.markets.len() >= 2);
+        let tiers = plan
+            .markets
             .iter()
-            .all(|point| point.nearest_market_id.is_some()));
+            .map(|market| market.tier.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(tiers.contains("street-market"));
+        assert!(tiers.contains("neighbourhood"));
+        assert!(
+            plan.markets
+                .iter()
+                .all(|market| market.load <= market.capacity + 1e-6)
+        );
     }
 
     #[test]

@@ -92,6 +92,21 @@ pub struct BridgeSpan {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct NaturalNode {
+    pub id: String,
+    pub x: i32,
+    pub z: i32,
+    pub quadrant: String,
+    pub elevation_m: f64,
+    pub slope: f64,
+    pub flatness: f64,
+    pub valley_score: f64,
+    pub water_access: f64,
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Route {
     pub id: String,
     pub from: String,
@@ -122,6 +137,8 @@ pub struct Plan {
     pub max_terrain_slope: f64,
     pub max_fill_m: f64,
     pub anchors: Vec<Anchor>,
+    #[serde(default)]
+    pub candidate_nodes: Vec<NaturalNode>,
     pub routes: Vec<Route>,
     pub failures: Vec<String>,
 }
@@ -234,8 +251,9 @@ pub fn plan(
     terrain.require_complete()?;
 
     let margin = (program.road_width_m / 2 + 12).max(24) as i32;
+    let candidate_nodes = natural_nodes(scene, terrain, water, margin);
     let anchors = if program.anchors.is_empty() {
-        auto_anchors(scene, terrain, water, margin)?
+        auto_anchors(scene, terrain, water, margin, &candidate_nodes)?
     } else {
         program.anchors.clone()
     };
@@ -245,14 +263,7 @@ pub fn plan(
         ));
     }
     let requests = if program.routes.is_empty() {
-        vec![RouteRequest {
-            id: "route-auto-0".into(),
-            from: anchors[0].id.clone(),
-            to: anchors[1].id.clone(),
-            via: None,
-            road_width_m: None,
-            allow_bridge: None,
-        }]
+        auto_route_requests(&anchors)
     } else {
         program.routes.clone()
     };
@@ -297,6 +308,7 @@ pub fn plan(
         max_terrain_slope: program.max_terrain_slope,
         max_fill_m: program.max_fill_m,
         anchors,
+        candidate_nodes,
         routes,
         failures,
     }))
@@ -880,6 +892,82 @@ fn auto_anchors(
     terrain: &BakedTerrain,
     water: WaterGeometry,
     margin: i32,
+    candidates: &[NaturalNode],
+) -> Result<Vec<Anchor>, TerrainError> {
+    let quadrants = ["northwest", "northeast", "southwest", "southeast"];
+    let mut anchors = Vec::new();
+    for quadrant in quadrants {
+        let selected = candidates
+            .iter()
+            .filter(|node| node.quadrant == quadrant)
+            .max_by(|left, right| {
+                left.score
+                    .partial_cmp(&right.score)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| right.z.cmp(&left.z))
+                    .then_with(|| right.x.cmp(&left.x))
+            });
+        if let Some(node) = selected {
+            anchors.push(Anchor {
+                id: format!("natural-{quadrant}"),
+                x: node.x,
+                z: node.z,
+                role: "natural-valley-or-water-node".into(),
+            });
+        }
+    }
+    if anchors.len() >= 2 {
+        return Ok(anchors);
+    }
+    fallback_anchors(scene, terrain, water, margin)
+}
+
+fn auto_route_requests(anchors: &[Anchor]) -> Vec<RouteRequest> {
+    let mut connected = vec![false; anchors.len()];
+    connected[0] = true;
+    let mut requests = Vec::with_capacity(anchors.len().saturating_sub(1));
+    while connected.iter().filter(|value| **value).count() < anchors.len() {
+        let mut best: Option<(i64, usize, usize)> = None;
+        for left in 0..anchors.len() {
+            if !connected[left] {
+                continue;
+            }
+            for (right, anchor) in anchors.iter().enumerate() {
+                if connected[right] {
+                    continue;
+                }
+                let dx = i64::from(anchors[left].x) - i64::from(anchor.x);
+                let dz = i64::from(anchors[left].z) - i64::from(anchor.z);
+                let distance_squared = dx * dx + dz * dz;
+                let candidate = (distance_squared, left, right);
+                if best.is_none_or(|current| {
+                    (candidate.0, candidate.1, candidate.2) < (current.0, current.1, current.2)
+                }) {
+                    best = Some(candidate);
+                }
+            }
+        }
+        let Some((_, left, right)) = best else {
+            break;
+        };
+        connected[right] = true;
+        requests.push(RouteRequest {
+            id: format!("route-auto-{}", requests.len()),
+            from: anchors[left].id.clone(),
+            to: anchors[right].id.clone(),
+            via: None,
+            road_width_m: None,
+            allow_bridge: None,
+        });
+    }
+    requests
+}
+
+fn fallback_anchors(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    margin: i32,
 ) -> Result<Vec<Anchor>, TerrainError> {
     let positions = [
         (
@@ -915,6 +1003,91 @@ fn auto_anchors(
         }
     }
     Ok(anchors)
+}
+
+fn natural_nodes(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    margin: i32,
+) -> Vec<NaturalNode> {
+    let (origin_x, origin_z) = terrain.scene_origin();
+    let (width, depth) = terrain.scene_dimensions();
+    let min_x = origin_x + margin;
+    let min_z = origin_z + margin;
+    let max_x = origin_x + width as i32 - margin;
+    let max_z = origin_z + depth as i32 - margin;
+    let mid_x = origin_x + width as i32 / 2;
+    let mid_z = origin_z + depth as i32 / 2;
+    let mut nodes = Vec::new();
+    for z in (min_z..max_z).step_by(64) {
+        for x in (min_x..max_x).step_by(64) {
+            if water.contains_point(f64::from(x), f64::from(z)) || water.shore_band_cell(x, z) {
+                continue;
+            }
+            let Some(elevation) = terrain.height(x, z) else {
+                continue;
+            };
+            let offsets = [(16, 0), (-16, 0), (0, 16), (0, -16)];
+            let mut neighbour_sum = 0.0;
+            let mut max_slope: f64 = 0.0;
+            let mut valid = true;
+            for (dx, dz) in offsets {
+                let Some(neighbour) = terrain.height(x + dx, z + dz) else {
+                    valid = false;
+                    break;
+                };
+                neighbour_sum += f64::from(neighbour);
+                max_slope =
+                    max_slope.max((f64::from(neighbour) - f64::from(elevation)).abs() / 16.0);
+            }
+            if !valid {
+                continue;
+            }
+            let neighbour_mean = neighbour_sum / 4.0;
+            let valley_score = ((neighbour_mean - f64::from(elevation)) / 6.0).clamp(-1.0, 1.0);
+            let flatness = (1.0 - max_slope / 0.35).clamp(0.0, 1.0);
+            let water_access = water_access_score(water, x, z);
+            let score = flatness * 0.52 + water_access * 0.28 + (valley_score + 1.0) * 0.10;
+            let quadrant = match (x < mid_x, z < mid_z) {
+                (true, true) => "northwest",
+                (false, true) => "northeast",
+                (true, false) => "southwest",
+                (false, false) => "southeast",
+            };
+            nodes.push(NaturalNode {
+                id: format!("natural.{x}.{z}"),
+                x,
+                z,
+                quadrant: quadrant.into(),
+                elevation_m: f64::from(elevation),
+                slope: max_slope,
+                flatness,
+                valley_score,
+                water_access,
+                score,
+            });
+        }
+    }
+    nodes
+}
+
+fn water_access_score(water: WaterGeometry, x: i32, z: i32) -> f64 {
+    for radius in [8_i32, 16, 32, 64, 96, 128] {
+        for dz in (-radius..=radius).step_by(8) {
+            for dx in (-radius..=radius).step_by(8) {
+                if dx.abs() != radius && dz.abs() != radius {
+                    continue;
+                }
+                if water.contains_point(f64::from(x + dx), f64::from(z + dz))
+                    || water.shore_band_cell(x + dx, z + dz)
+                {
+                    return 1.0 - f64::from(radius) / 160.0;
+                }
+            }
+        }
+    }
+    0.0
 }
 
 fn find_land_near(
@@ -1019,25 +1192,52 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
             }
             let rotation_y_deg = f64::from(dz).atan2(f64::from(dx)).to_degrees() as f32;
             let design_height_m = (pair[0].design_height_m + pair[1].design_height_m) * 0.5;
+            let structure_deck = route_segment_is_structure(route, &pair[0], &pair[1]);
             entities.push(EntityInstance {
                 asset_id: "road.generated".into(),
                 entity_id: format!("generated.route-evolution.{}.{}", route.id, index),
                 kind: "road".into(),
                 world_x: ((pair[0].x + pair[1].x) as f64 * 0.5).round() as i32,
                 world_z: ((pair[0].z + pair[1].z) as f64 * 0.5).round() as i32,
-                world_y: (design_height_m * 4.0).round() as i32,
+                world_y: design_height_m.round() as i32,
                 scale: 1.0,
                 width_m: length as f32,
                 depth_m: route.road_width_m as f32,
                 height_m: 0.45,
                 rotation_y_deg,
-                grounding: super::GroundingSpec::default(),
+                grounding: super::GroundingSpec {
+                    structure_deck,
+                    roadbed_offset_m: if structure_deck { 0.0 } else { 0.5 },
+                    ..super::GroundingSpec::default()
+                },
                 anchors: Vec::new(),
                 bounds: None,
             });
         }
     }
     entities
+}
+
+fn route_segment_is_structure(route: &Route, from: &RoutePoint, to: &RoutePoint) -> bool {
+    let first = route
+        .polyline
+        .iter()
+        .position(|point| (point.x, point.z) == (from.x, from.z));
+    let last = route
+        .polyline
+        .iter()
+        .rposition(|point| (point.x, point.z) == (to.x, to.z));
+    let (Some(first), Some(last)) = (first, last) else {
+        return false;
+    };
+    let (first, last) = if first <= last {
+        (first, last)
+    } else {
+        (last, first)
+    };
+    route.bridge_spans.iter().any(|span| {
+        !span.kind.starts_with("rejected-") && span.start_index <= last && span.end_index >= first
+    })
 }
 
 fn simplify_for_materialization(
@@ -1087,7 +1287,7 @@ fn point_segment_distance(px: f64, pz: f64, ax: f64, az: f64, bx: f64, bz: f64) 
 mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
-    use crate::worldgen::{water_geometry, WaterKind};
+    use crate::worldgen::{WaterKind, water_geometry};
 
     fn terrain(scene: &SceneSpec) -> BakedTerrain {
         let width = scene.width_m as usize;
@@ -1203,10 +1403,71 @@ mod tests {
         assert!(!route.bridge_spans.is_empty());
         assert!(route.maximum_grade <= 0.08 + 1e-6);
         assert!(route.maximum_terrain_fill_m <= 6.0 + 1e-6);
-        assert!(route
-            .bridge_spans
+        assert!(
+            route
+                .bridge_spans
+                .iter()
+                .all(|span| !span.kind.starts_with("rejected-"))
+        );
+    }
+
+    #[test]
+    fn auto_anchors_come_from_dry_natural_nodes_in_multiple_quadrants() {
+        let scene = SceneSpec {
+            scene_id: "natural-nodes".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let terrain = terrain(&scene);
+        let style = style(true);
+        let water = lake(&scene, &style);
+        let candidates = natural_nodes(&scene, &terrain, water, 40);
+        assert!(candidates.len() >= 16);
+        assert!(candidates.iter().all(|node| {
+            node.score.is_finite()
+                && node.slope >= 0.0
+                && (0.0..=1.0).contains(&node.flatness)
+                && (0.0..=1.0).contains(&node.water_access)
+                && !water.contains_point(f64::from(node.x), f64::from(node.z))
+        }));
+        let anchors = auto_anchors(&scene, &terrain, water, 40, &candidates).unwrap();
+        assert!(anchors.len() >= 3);
+        assert!(anchors.iter().all(|anchor| {
+            anchor.role == "natural-valley-or-water-node"
+                && anchor.id.starts_with("natural-")
+                && !water.contains_point(f64::from(anchor.x), f64::from(anchor.z))
+        }));
+        assert!(
+            anchors
+                .iter()
+                .map(|anchor| anchor.id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                >= 3
+        );
+
+        let requests = auto_route_requests(&anchors);
+        assert_eq!(requests.len(), anchors.len() - 1);
+        assert_eq!(
+            requests
+                .iter()
+                .map(|request| request.id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            requests.len()
+        );
+        let names = anchors
             .iter()
-            .all(|span| !span.kind.starts_with("rejected-")));
+            .map(|anchor| anchor.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        for request in &requests {
+            assert!(names.contains(request.from.as_str()));
+            assert!(names.contains(request.to.as_str()));
+            assert_ne!(request.from, request.to);
+        }
     }
 
     #[test]
@@ -1227,9 +1488,11 @@ mod tests {
         assert!(!entities.is_empty());
         assert!(entities.iter().all(|entity| entity.kind == "road"));
         assert!(entities.iter().all(|entity| entity.width_m >= 4.25));
-        assert!(entities
-            .iter()
-            .any(|entity| entity.rotation_y_deg.abs() > 1.0));
+        assert!(
+            entities
+                .iter()
+                .any(|entity| entity.rotation_y_deg.abs() > 1.0)
+        );
         let ids = entities
             .iter()
             .map(|entity| entity.entity_id.as_str())

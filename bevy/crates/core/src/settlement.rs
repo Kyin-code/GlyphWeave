@@ -5,21 +5,22 @@
 //! relations without letting the renderer invent urban structure.
 
 pub mod agriculture;
+pub mod building_archetypes;
 pub mod development;
 pub mod district_program;
 pub mod ecology;
 pub mod ecology_habitat;
-pub mod service_coverage;
 mod farm_access;
-mod pedestrian_index;
 pub mod farm_program;
 pub mod landcover;
 pub mod landuse_ledger;
 pub mod morphology;
 pub mod morphology_compile;
 pub mod morphology_coverage;
+mod pedestrian_index;
 pub mod proposals;
 pub mod residual_land;
+pub mod service_coverage;
 pub mod service_relations;
 
 use crate::worldgen::{EntityInstance, SceneSpec};

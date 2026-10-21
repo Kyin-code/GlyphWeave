@@ -405,7 +405,7 @@ pub(super) fn access_for_entity(
             } else if !segment_clear(facade_point, start, &entrance_obstacles, terrain, water) {
                 link.status = "entrance_clearance_blocked".into();
             } else if let Some((road, mut path, length)) =
-                route(start, &roads, &obstacles, terrain, water)
+                route(start, &roads, &entrance_obstacles, terrain, water)
             {
                 if length + distance(facade_point, start) > MAX_LENGTH {
                     links.push(link);
@@ -696,11 +696,7 @@ pub(super) fn place_generated_entrances(
                 let dx = at.x - f64::from(original.world_x);
                 let dz = at.z - f64::from(original.world_z);
                 let direction = if dx.abs() > dz.abs() {
-                    if dx > 0. {
-                        "east"
-                    } else {
-                        "west"
-                    }
+                    if dx > 0. { "east" } else { "west" }
                 } else if dz > 0. {
                     "south"
                 } else {
@@ -948,11 +944,12 @@ pub(crate) mod observation {
                 ("pathPoints", serde_json::json!(link.path.len())),
                 (
                     "path",
-                    serde_json::json!(link
-                        .path
-                        .iter()
-                        .map(|p| serde_json::json!([p.x, p.z]))
-                        .collect::<Vec<_>>()),
+                    serde_json::json!(
+                        link.path
+                            .iter()
+                            .map(|p| serde_json::json!([p.x, p.z]))
+                            .collect::<Vec<_>>()
+                    ),
                 ),
             ]));
         });
@@ -1386,10 +1383,12 @@ mod tests {
         assert_eq!(link.path[0], point(64., 59.)); // Actual 10m building facade.
         assert!((link.distance_m.unwrap() - 30.).abs() < 1e-8);
         let surfaces = bake_access_surfaces(&graph, &terrain).unwrap();
-        assert!(surfaces[0]
-            .vertices
-            .iter()
-            .any(|v| (v[2] - 59.).abs() < 1e-8));
+        assert!(
+            surfaces[0]
+                .vertices
+                .iter()
+                .any(|v| (v[2] - 59.).abs() < 1e-8)
+        );
     }
 
     #[test]
@@ -1414,14 +1413,18 @@ mod tests {
         let surfaces = bake_access_surfaces(&graph, &terrain).unwrap();
         assert_eq!(surfaces.len(), 1);
         assert!(!surfaces[0].triangles.is_empty());
-        assert!(surfaces[0]
-            .vertices
-            .iter()
-            .any(|v| v[0].fract().abs() > 1e-6 || v[2].fract().abs() > 1e-6));
-        assert!(surfaces[0]
-            .vertices
-            .iter()
-            .all(|v| (v[1] - 0.04).abs() < 1e-9));
+        assert!(
+            surfaces[0]
+                .vertices
+                .iter()
+                .any(|v| v[0].fract().abs() > 1e-6 || v[2].fract().abs() > 1e-6)
+        );
+        assert!(
+            surfaces[0]
+                .vertices
+                .iter()
+                .all(|v| (v[1] - 0.04).abs() < 1e-9)
+        );
         for tri in &surfaces[0].triangles {
             let [a, b, c] = tri.map(|i| surfaces[0].vertices[i as usize]);
             assert!(
@@ -1441,9 +1444,11 @@ mod tests {
         entities.retain(|e| e.kind != "road");
         let disconnected = build_access_graph(&entities, &terrain, water);
         assert_eq!(disconnected.connected_entities, 0);
-        assert!(bake_access_surfaces(&disconnected, &terrain)
-            .unwrap()
-            .is_empty());
+        assert!(
+            bake_access_surfaces(&disconnected, &terrain)
+                .unwrap()
+                .is_empty()
+        );
         assert!(validate_access_surfaces(&disconnected, &terrain, &surfaces).is_err());
     }
 
@@ -2215,10 +2220,12 @@ mod tests {
             g12_target_link(&graph, &target).status,
             "entrance_step_requires_engineering"
         );
-        assert!(trace
-            .entrance
-            .iter()
-            .any(|row| row["stepWithin"] == serde_json::json!(false)));
+        assert!(
+            trace
+                .entrance
+                .iter()
+                .any(|row| row["stepWithin"] == serde_json::json!(false))
+        );
         // the entrance clearance field must mirror the production branch: true when
         // the pavement reaches the door, false when a real obstacle blocks it
         let (plain_entities, plain_terrain, plain_water) = fixture();
@@ -2293,9 +2300,11 @@ mod tests {
             .samples
             .get("segment_reject.obstacle")
             .expect("the obstacle reason must be named");
-        assert!(obstacle_samples
-            .iter()
-            .any(|row| row["entityId"] == serde_json::json!("wall")));
+        assert!(
+            obstacle_samples
+                .iter()
+                .any(|row| row["entityId"] == serde_json::json!("wall"))
+        );
         assert!(obstacle_samples.len() <= 8);
         // water: the river fixture must be named as water, not as something else
         let (river_entities, _, mut river) = fixture();

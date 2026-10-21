@@ -13,6 +13,7 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 use super::community_typology;
 use super::route_evolution::Plan as RoutePlan;
 use super::{EntityInstance, SceneSpec, WaterGeometry};
+use crate::settlement::building_archetypes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -39,6 +40,8 @@ pub struct Program {
     pub floor_area_ratio: f32,
     #[serde(default = "default_max_floors")]
     pub max_floors: u32,
+    #[serde(default = "default_access_height_tolerance")]
+    pub access_height_tolerance_m: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -59,7 +62,7 @@ pub struct Capacity {
     pub floor_area_m2: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Building {
     pub id: String,
@@ -83,6 +86,16 @@ pub struct Building {
     pub community_profile: String,
     #[serde(default)]
     pub income_band: String,
+    #[serde(default)]
+    pub archetype_id: String,
+    #[serde(default)]
+    pub recommended_count: u32,
+    #[serde(default)]
+    pub lot_area_m2: f64,
+    #[serde(default)]
+    pub coverage_ratio: f64,
+    #[serde(default)]
+    pub frontage_road_point: Option<[i32; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -135,6 +148,9 @@ const fn default_far() -> f32 {
 const fn default_max_floors() -> u32 {
     18
 }
+const fn default_access_height_tolerance() -> f32 {
+    6.0
+}
 
 pub fn enabled(style: &Value) -> bool {
     from_style(style).is_ok_and(|program| program.is_some_and(|program| program.enabled))
@@ -156,6 +172,7 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         || !(0.02..=0.25).contains(&program.max_slope)
         || !(0.2..=8.0).contains(&program.floor_area_ratio)
         || !(1..=60).contains(&program.max_floors)
+        || !(1.0..=30.0).contains(&program.access_height_tolerance_m)
         || !program.retail_floor_area_m2.is_finite()
         || program.retail_floor_area_m2 < 0.0
         || !program.service_budget.is_finite()
@@ -235,6 +252,7 @@ pub fn plan(
     let mut accepted_lots = 0;
     let mut candidate_lots = 0;
     let mut total_floor_area = 0.0;
+    let mut accepted_lot_centers = Vec::<(i32, i32)>::new();
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         for (segment_index, segment) in route.polyline.windows(2).enumerate() {
             let dx = f64::from(segment[1].x - segment[0].x);
@@ -283,9 +301,23 @@ pub fn plan(
                         });
                         continue;
                     }
-                    if buildings.iter().any(|building: &Building| {
-                        (f64::from(building.world_x) - f64::from(x))
-                            .hypot(f64::from(building.world_z) - f64::from(z))
+                    let road_design_m = segment[0].design_height_m
+                        + (segment[1].design_height_m - segment[0].design_height_m) * t;
+                    let lot_ground_m = terrain.height(x, z).unwrap_or(f32::INFINITY);
+                    if (road_design_m - f64::from(lot_ground_m)).abs()
+                        > f64::from(program.access_height_tolerance_m)
+                    {
+                        rejections.push(Rejection {
+                            candidate_id,
+                            route_id: route.id.clone(),
+                            world_x: x,
+                            world_z: z,
+                            reason: "road_access_height_mismatch".into(),
+                        });
+                        continue;
+                    }
+                    if accepted_lot_centers.iter().any(|(lot_x, lot_z)| {
+                        (f64::from(*lot_x) - f64::from(x)).hypot(f64::from(*lot_z) - f64::from(z))
                             < f64::from(lot_width_m.min(lot_depth_m)) * 0.9
                     }) {
                         rejections.push(Rejection {
@@ -299,16 +331,29 @@ pub fn plan(
                     }
                     let center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     let pressure = (1.0 - center_distance / 650.0).clamp(0.15, 1.0);
-                    let floors =
-                        ((1.0 + pressure * f64::from(max_floors - 1)).round() as u32).max(1);
-                    let footprint = f64::from(lot_width_m) * f64::from(lot_depth_m) * 0.58;
-                    let floor_area = footprint * f64::from(floors) * f64::from(floor_area_ratio);
+                    let wants_retail = demand.retail_floor_area_m2 > 0.0 && pressure > 0.28;
+                    let wants_jobs = demand.jobs > 0 && (pressure > 0.55 || demand.households == 0);
+                    let selection = building_archetypes::SelectionInput {
+                        community_profile: typology
+                            .as_ref()
+                            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
+                        center_pressure: pressure,
+                        lot_width_m,
+                        lot_depth_m,
+                        needs_homes: demand.households > 0,
+                        needs_jobs: wants_jobs,
+                        needs_retail: wants_retail,
+                    };
+                    let archetype = building_archetypes::choose(&selection);
+                    let mut form = building_archetypes::form(&candidate_id, &selection, &archetype);
+                    form.floors = form.floors.min(max_floors);
+                    let floor_area = f64::from(form.footprint_m2)
+                        * f64::from(form.floors)
+                        * f64::from(floor_area_ratio);
                     let household_capacity = (floor_area / household_area_m2).floor() as u32;
                     let job_capacity = (floor_area / job_area_m2).floor() as u32;
                     let retail_capacity = floor_area * retail_share;
                     let service_capacity = floor_area / 700.0;
-                    let wants_retail = demand.retail_floor_area_m2 > 0.0 && pressure > 0.28;
-                    let wants_jobs = demand.jobs > 0 && (pressure > 0.55 || demand.households == 0);
                     let homes = household_capacity.min(demand.households);
                     let jobs = job_capacity.min(demand.jobs);
                     let retail = retail_capacity.min(demand.retail_floor_area_m2);
@@ -323,21 +368,10 @@ pub fn plan(
                         });
                         continue;
                     }
-                    let (kind, width, depth) = if wants_retail {
-                        ("storefront", lot_width_m.min(24.0), lot_depth_m.min(20.0))
-                    } else if wants_jobs {
-                        ("office_tower", lot_width_m.min(28.0), lot_depth_m.min(26.0))
-                    } else {
-                        (
-                            "residential_home",
-                            lot_width_m.min(24.0),
-                            lot_depth_m.min(26.0),
-                        )
-                    };
-                    let height = 4.0 + floors as f32 * 3.2;
+                    let height = 4.0 + form.floors as f32 * 3.2;
                     let building = Building {
                         id: candidate_id.clone(),
-                        kind: kind.into(),
+                        kind: form.kind.clone(),
                         route_id: route.id.clone(),
                         side: if side < 0.0 {
                             "left".into()
@@ -346,10 +380,10 @@ pub fn plan(
                         },
                         world_x: x,
                         world_z: z,
-                        width_m: width,
-                        depth_m: depth,
+                        width_m: form.width_m,
+                        depth_m: form.depth_m,
                         height_m: height,
-                        floors,
+                        floors: form.floors,
                         floor_area_m2: floor_area,
                         households: homes,
                         jobs,
@@ -367,6 +401,11 @@ pub fn plan(
                                     .into()
                             },
                         ),
+                        archetype_id: form.archetype_id,
+                        recommended_count: form.recommended_count,
+                        lot_area_m2: f64::from(lot_width_m) * f64::from(lot_depth_m),
+                        coverage_ratio: f64::from(form.coverage_ratio),
+                        frontage_road_point: Some([road_x.round() as i32, road_z.round() as i32]),
                     };
                     demand.households -= homes;
                     demand.jobs -= jobs;
@@ -378,6 +417,7 @@ pub fn plan(
                     delivered.service_budget += services;
                     total_floor_area += floor_area;
                     accepted_lots += 1;
+                    accepted_lot_centers.push((x, z));
                     buildings.push(building);
                     if demand.households == 0
                         && demand.jobs == 0
@@ -499,10 +539,30 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
     plan.buildings
         .iter()
         .map(|building| {
-            let world_y = terrain
-                .height(building.world_x, building.world_z)
-                .map_or(0.0, |height| height * 4.0)
-                .round() as i32;
+            let world_y = building_support_height_m(building, terrain).ceil() as i32;
+            let anchors = building
+                .frontage_road_point
+                .map_or_else(Vec::new, |[road_x, road_z]| {
+                    let dx = f64::from(road_x - building.world_x);
+                    let dz = f64::from(road_z - building.world_z);
+                    let length = dx.hypot(dz).max(1.0);
+                    let reach_x = dx / length * f64::from(building.width_m) * 0.5;
+                    let reach_z = dz / length * f64::from(building.depth_m) * 0.5;
+                    vec![super::SpatialAnchor {
+                        id: "front".into(),
+                        world_x: (f64::from(building.world_x) + reach_x).round() as i32,
+                        world_z: (f64::from(building.world_z) + reach_z).round() as i32,
+                        direction: if dx.abs() > dz.abs() {
+                            if dx > 0.0 { "east" } else { "west" }
+                        } else if dz > 0.0 {
+                            "south"
+                        } else {
+                            "north"
+                        }
+                        .into(),
+                        target: Some("road".into()),
+                    }]
+                });
             EntityInstance {
                 entity_id: format!("generated.settlement-evolution.{}", building.id),
                 asset_id: format!("building.{}", building.kind),
@@ -516,11 +576,77 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                 height_m: building.height_m,
                 rotation_y_deg: 0.0,
                 grounding: super::GroundingSpec::default(),
-                anchors: Vec::new(),
+                anchors,
                 bounds: None,
             }
         })
         .collect()
+}
+
+/// Short, explicit ground-level approaches from each planned building facade to
+/// the road station that generated the lot. They are road-class static geometry
+/// so access search, terrain carving and rendering all consume the same object.
+pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
+    plan.buildings
+        .iter()
+        .filter_map(|building| {
+            let [road_x, road_z] = building.frontage_road_point?;
+            let dx = f64::from(road_x - building.world_x);
+            let dz = f64::from(road_z - building.world_z);
+            let length = dx.hypot(dz);
+            if length < 0.5 {
+                return None;
+            }
+            let nx = dx / length;
+            let nz = dz / length;
+            let reach = (f64::from(building.width_m) * 0.5 / nx.abs().max(1e-9))
+                .min(f64::from(building.depth_m) * 0.5 / nz.abs().max(1e-9));
+            let edge_x = f64::from(building.world_x) + nx * reach;
+            let edge_z = f64::from(building.world_z) + nz * reach;
+            let center_x = (edge_x + f64::from(road_x)) * 0.5;
+            let center_z = (edge_z + f64::from(road_z)) * 0.5;
+            let approach_length = (f64::from(road_x) - edge_x).hypot(f64::from(road_z) - edge_z);
+            if approach_length < 0.5 {
+                return None;
+            }
+            let world_y = building_support_height_m(building, terrain).ceil() as i32;
+            Some(EntityInstance {
+                entity_id: format!("generated.settlement-evolution.approach.{}", building.id),
+                asset_id: "road.generated".into(),
+                kind: "road".into(),
+                world_x: center_x.round() as i32,
+                world_z: center_z.round() as i32,
+                world_y,
+                scale: 1.0,
+                width_m: approach_length as f32,
+                depth_m: 6.0,
+                height_m: 0.2,
+                rotation_y_deg: dz.atan2(dx).to_degrees() as f32,
+                grounding: super::GroundingSpec {
+                    roadbed_offset_m: 0.5,
+                    ..super::GroundingSpec::default()
+                },
+                anchors: Vec::new(),
+                bounds: None,
+            })
+        })
+        .collect()
+}
+
+fn building_support_height_m(building: &Building, terrain: &BakedTerrain) -> f32 {
+    let hw = building.width_m * 0.5;
+    let hd = building.depth_m * 0.5;
+    let mut highest = f32::NEG_INFINITY;
+    for dz in [-hd, 0.0, hd] {
+        for dx in [-hw, 0.0, hw] {
+            let x = f64::from(building.world_x) + f64::from(dx);
+            let z = f64::from(building.world_z) + f64::from(dz);
+            if let Some(height) = terrain.height(x.round() as i32, z.round() as i32) {
+                highest = highest.max(height);
+            }
+        }
+    }
+    highest
 }
 
 pub fn require_complete(plan: &Plan) -> Result<(), TerrainError> {
@@ -541,7 +667,7 @@ mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
     use crate::worldgen::route_evolution::{Anchor, Plan as RoutePlan, Route, RoutePoint};
-    use crate::worldgen::{water_geometry, WaterKind};
+    use crate::worldgen::{WaterKind, water_geometry};
 
     fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry) {
         let scene = SceneSpec {
@@ -594,6 +720,7 @@ mod tests {
                     role: "test".into(),
                 },
             ],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "a".into(),
@@ -646,10 +773,11 @@ mod tests {
             .unwrap();
         assert_eq!(low.status, "pass");
         assert!(high.buildings.len() > low.buildings.len());
-        assert!(high
-            .buildings
-            .iter()
-            .any(|building| building.kind == "office_tower"));
+        assert!(
+            high.buildings
+                .iter()
+                .any(|building| building.kind == "office_tower")
+        );
         let entities = materialize(&low, &terrain);
         assert_eq!(entities.len(), low.buildings.len());
         assert!(entities.iter().all(|entity| {
@@ -698,9 +826,10 @@ mod tests {
         assert_eq!(china.community_profile.as_deref(), Some("china-gated"));
         assert_eq!(us.community_profile.as_deref(), Some("us-suburban"));
         assert_ne!(china.buildings.len(), us.buildings.len());
-        assert!(us
-            .buildings
-            .iter()
-            .all(|building| building.income_band == "homeowner"));
+        assert!(
+            us.buildings
+                .iter()
+                .all(|building| building.income_band == "homeowner")
+        );
     }
 }
