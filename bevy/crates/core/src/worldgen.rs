@@ -3260,13 +3260,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 if rejected_access.contains(&entity.entity_id) {
                     return false;
                 }
-                let Some(rejected_id) = entity
+                if let Some(rejected_id) = entity
                     .entity_id
                     .strip_prefix("generated.settlement-evolution.approach.")
-                else {
-                    return true;
-                };
-                !rejected_buildings.contains(rejected_id)
+                {
+                    return !rejected_buildings.contains(rejected_id);
+                }
+                true
             });
             access_graph =
                 access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
@@ -3350,6 +3350,64 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     "plannedBuildings": plan.buildings.len(),
                     "materializedBuildings": plan.buildings.len() - omitted.len(),
                     "omittedBuildings": omitted,
+                }))?,
+            )?;
+        }
+        if let Some(plan) = &market_catchment_result {
+            let final_ids = entities
+                .iter()
+                .map(|entity| entity.entity_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let omitted = plan
+                .markets
+                .iter()
+                .filter_map(|market| {
+                    let entity_id =
+                        format!("generated.market-catchment.{}", market.id);
+                    if final_ids.contains(entity_id.as_str()) {
+                        return None;
+                    }
+                    let access_statuses = rejected_access_statuses
+                        .get(entity_id.as_str())
+                        .cloned()
+                        .unwrap_or_default();
+                    Some(serde_json::json!({
+                        "entityId": entity_id,
+                        "tier": market.tier,
+                        "kind": market.kind,
+                        "worldX": market.world_x,
+                        "worldZ": market.world_z,
+                        "widthM": market.width_m,
+                        "depthM": market.depth_m,
+                        "capacity": market.capacity,
+                        "load": market.load,
+                        "reason": if access_statuses.is_empty() {
+                            "no legal frontage site or complete entrance"
+                        } else {
+                            "strict generated-facade access contract produced no verified route"
+                        },
+                        "accessStatuses": access_statuses,
+                    }))
+                })
+                .collect::<Vec<_>>();
+            let final_markets = plan
+                .markets
+                .iter()
+                .filter(|market| {
+                    final_ids.contains(
+                        format!("generated.market-catchment.{}", market.id).as_str(),
+                    )
+                })
+                .count();
+            fs::write(
+                scene_dir.join("market-materialization-report.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format": "glyphweave.market-materialization-report",
+                    "version": 1,
+                    "sceneId": scene.scene_id,
+                    "plannedMarkets": plan.markets.len(),
+                    "materializedMarkets": final_markets,
+                    "omittedMarkets": omitted,
                 }))?,
             )?;
         }

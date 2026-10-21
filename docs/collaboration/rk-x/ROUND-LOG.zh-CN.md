@@ -392,3 +392,17 @@ core lib **642 passed / 31 ignored**（+8 新测试，其中 1 个是 1 km 已�
 仍未解决：坡地建筑入口台阶工程、市场与普通建筑同级的入口工程报告，
 以及新区站城/街区级公共空间组合。证据见
 `DISTRICT-DEMAND-ALLOCATION-20261021.zh-CN.md`。
+
+## Round 60 · 2026-10-21 · 市场失败具名与入口实验撤回
+
+为市场新增 `market-materialization-report.json`，记录计划数、最终保留数以及
+每个被 AccessGraph 拒绝的市场位置、容量、负载和状态。1km 控制继续保留
+3 个市场，`market.0` 因 `anchor_not_on_building_boundary`、`market.3`
+因 `entrance_step_requires_engineering` 具名失败；最终 13 个建筑/市场
+全部连通，断点 0。
+
+尝试过给市场增加 frontage pad、边界锚点和短引道，但 5 个市场全部被入口
+合同拒绝。坡地市场与道路常相差 5–8m，短引道超过 25% 步行坡；固定切深又
+会把市场变成无依据深坑。因此该实验从生产路径撤回，避免以放宽入口阈值制造
+假连通。后续必须使用 landing + stairs/switchback 或可审计台地，并纳入统一
+工程账本。证据见 `MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`。

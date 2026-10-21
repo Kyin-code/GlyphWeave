@@ -18,6 +18,12 @@
 > `docs/collaboration/rk-x/DISTRICT-DEMAND-ALLOCATION-20261021.zh-CN.md`。
 > 入口台阶/坡道工程、市场完整入口和街区级拆合仍是开放项。
 
+> **2026-10-21 市场落地审计**：`market-materialization-report.json` 已把
+> 计划市场、最终保留数、失败市场 ID、位置、容量和 AccessGraph 状态固化。
+> 1km 控制保留 3 个市场，`market.0` 与 `market.3` 具名失败；市场专用入口
+> 台阶/台地工程仍开放。证据见
+> `docs/collaboration/rk-x/MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

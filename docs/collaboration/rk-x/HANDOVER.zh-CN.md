@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 市场失败具名**：启用市场的场景现在输出
+> `market-materialization-report.json`。1km 控制保留 3 个市场，2 个失败
+> 市场分别因边界锚点和入口台阶工程具名，不再静默消失；AccessGraph 13
+> 个实体连通、断点 0。市场专用台阶/台地入口仍未完成，详见
+> [`MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md`](MARKET-MATERIALIZATION-AUDIT-20261021.zh-CN.md)。
+
 > **2026-10-21 分时代需求预留**：`settlementEvolution.districtDemand`
 > 已接入生产路径。旧城、更新带、新区和外围先按需求份额消费，首轮未被
 > 本阶段地块使用的预算才进入全局回填；建筑数量仍是地块容量的结果。

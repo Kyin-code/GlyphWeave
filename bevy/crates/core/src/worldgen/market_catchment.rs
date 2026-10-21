@@ -743,10 +743,12 @@ impl PartialOrd for TimeEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::height_payload::encode_millimetres;
     use crate::worldgen::route_evolution::{Anchor, Route, RoutePoint};
     use crate::worldgen::settlement_evolution::{
         Building, Capacity, Demand, Plan as SettlementPlan,
     };
+    use crate::worldgen::SceneSpec;
 
     fn route_plan() -> RoutePlan {
         let polyline = (0..=30)
@@ -882,11 +884,10 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
-        assert!(
-            plan.accessibility
-                .iter()
-                .all(|point| point.nearest_market_id.is_some())
-        );
+        assert!(plan
+            .accessibility
+            .iter()
+            .all(|point| point.nearest_market_id.is_some()));
         assert!(plan.markets.iter().all(|market| market.tier == "market"));
         assert_eq!(
             plan.markets
@@ -944,11 +945,10 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert!(tiers.contains("street-market"));
         assert!(tiers.contains("neighbourhood"));
-        assert!(
-            plan.markets
-                .iter()
-                .all(|market| market.load <= market.capacity + 1e-6)
-        );
+        assert!(plan
+            .markets
+            .iter()
+            .all(|market| market.load <= market.capacity + 1e-6));
     }
 
     #[test]
@@ -967,5 +967,44 @@ mod tests {
             }
         });
         assert!(validate_style(&style).is_err());
+    }
+
+    #[test]
+    fn markets_preserve_planned_geometry_and_route_entrances() {
+        let scene = SceneSpec {
+            scene_id: "markets".into(),
+            width_m: 512,
+            depth_m: 512,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let payload =
+            encode_millimetres(512, 512, (0..512).flat_map(|_| (0..512).map(|_| 0.0))).unwrap();
+        let mut terrain = BakedTerrain::new(&scene).unwrap();
+        terrain.insert_chunk(0, 0, 512, 512, &payload).unwrap();
+        let routes = route_plan();
+        let style = serde_json::json!({
+            "marketCatchment": {
+                "version": 1,
+                "beta": 0.08,
+                "maxTravelMinutes": 15,
+                "walkSpeedMps": 1.3,
+                "marketCapacity": 160,
+                "marketQuality": 1,
+                "coverageTarget": 0.85,
+                "maxMarkets": 2,
+                "candidateSpacingM": 100
+            }
+        });
+        let planned = plan(&routes, &settlement(), &style).unwrap().unwrap();
+        let entities = materialize(&planned, &routes, &terrain);
+        assert_eq!(entities.len(), planned.markets.len());
+        assert!(entities.iter().all(|entity| {
+            entity.kind == "market"
+                && entity.anchors.len() == 1
+                && entity.width_m > 0.0
+                && entity.depth_m > 0.0
+        }));
     }
 }
