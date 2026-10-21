@@ -1,7 +1,7 @@
 {
   "format": "glyphweave.urban-pressure-patterns",
   "version": 1,
-  "generatedAt": "2026-10-20",
+  "generatedAt": "2026-10-21",
   "priorsPath": "G:\\difyllmwiki\\GlyphWeave\\assets\\data\\urban-case-priors-48.json",
   "implementationSource": "G:\\difyllmwiki\\GlyphWeave\\bevy\\crates\\core\\src\\worldgen\\land_pressure.rs",
   "method": "descriptive-grouping-of-heuristic-priors",

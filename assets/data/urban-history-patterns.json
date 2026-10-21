@@ -1,7 +1,7 @@
 {
   "format": "glyphweave.urban-history-patterns",
   "version": 1,
-  "generatedAt": "2026-10-20",
+  "generatedAt": "2026-10-21",
   "input": "G:\\difyllmwiki\\GlyphWeave\\assets\\data\\urban-case-priors-48.json",
   "method": "keyword-assisted-classification-over-prior-history",
   "warning": "These counts summarize existing prior text. They are not yet a replacement for case-specific historical source verification.",
