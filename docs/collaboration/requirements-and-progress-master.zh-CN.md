@@ -70,6 +70,12 @@
 > 城市密度/材质仍为 visual `warn`。详见
 > `docs/collaboration/rk-x/ORIENTED-ROAD-CARVE-20261021.zh-CN.md`。
 
+> **2026-10-21 新城/旧城实体继承**：聚落建筑物化时已把
+> `districtStage` 写入最终 `districtId` 与 `constructionCohort`。香港 r3d
+> 的 34 栋实体为 old-core 10、renewal 15、new-growth 9，periphery 0；
+> scale/quality pass。详见
+> `docs/collaboration/rk-x/DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

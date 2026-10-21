@@ -1059,6 +1059,8 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                 grounding: super::GroundingSpec {
                     bottom_offset_m: bottom_offset,
                     bounded_cut_mm: building.max_pad_cut_mm.filter(|cut| *cut > 0),
+                    district_id: Some(format!("district.{}", building.district_stage)),
+                    construction_cohort: Some(building.district_stage.clone()),
                     frontage_road_point,
                     stair_connection,
                     ..super::GroundingSpec::default()
@@ -1529,6 +1531,19 @@ mod tests {
                 .sum::<usize>(),
             planned.buildings.len()
         );
+        let entities = materialize(&planned, &terrain);
+        assert_eq!(entities.len(), planned.buildings.len());
+        for (entity, building) in entities.iter().zip(&planned.buildings) {
+            let expected_district = format!("district.{}", building.district_stage);
+            assert_eq!(
+                entity.grounding.district_id.as_deref(),
+                Some(expected_district.as_str())
+            );
+            assert_eq!(
+                entity.grounding.construction_cohort.as_deref(),
+                Some(building.district_stage.as_str())
+            );
+        }
     }
 
     #[test]

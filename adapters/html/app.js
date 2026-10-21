@@ -999,6 +999,29 @@ async function drawNear(buildToken) {
     return object
   }
   const addEntityToGroup = (entity, built) => {
+    const cohort = entity.grounding?.constructionCohort
+    const cohortKinds = new Set(['storefront', 'residential_block', 'residential_tower', 'urban_building', 'office_tower', 'market'])
+    if (built && cohort && cohortKinds.has(entity.kind) && !built.userData.constructionCohortBand) {
+      const cohortColors = {
+        'old-core': '#8f5b46',
+        renewal: '#a98a58',
+        'new-growth': '#6f8791',
+        periphery: '#7e8a69',
+      }
+      const plinth = new THREE.Mesh(
+        new THREE.BoxGeometry((entity.widthM ?? 12) + .6, .55, (entity.depthM ?? 12) + .6),
+        new THREE.MeshStandardMaterial({
+          color: cohortColors[cohort] ?? '#80786b',
+          roughness: .92,
+          metalness: .02,
+        }),
+      )
+      plinth.position.y = .275
+      plinth.userData.constructionCohortBand = true
+      built.add(plinth)
+      built.userData.constructionCohortBand = true
+    }
+    if (built?.userData) built.userData.constructionCohort = cohort ?? null
     addRendered(entity, built)
   }
   const heightFields = []

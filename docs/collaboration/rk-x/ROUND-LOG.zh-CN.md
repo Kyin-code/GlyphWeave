@@ -579,3 +579,13 @@ HTML street 预设原先用全城建筑质心，焦点落入聚落间草坡。�
 住宅的局部权重选择商业热点，再沿最近真实道路的轴向取景；运行画面已能看到
 道路、临街建筑和高层。城市密度、连续街墙、立面与地面材质仍判 visual `warn`。
 见 `STREET-CORRIDOR-CAMERA-20261021.zh-CN.md`。
+
+## Round 71 · 2026-10-21 · 新旧城进入最终实体
+
+聚落物化现在把 `districtStage` 写入最终实体
+`grounding.districtId` 与 `grounding.constructionCohort`。香港 r3d 的
+34 个合法建筑分布为 old-core 10、renewal 15、new-growth 9，外围为 0。
+
+HTML 增加时代基座色，但明确只作提示，分期证据来自最终实体字段和计划。
+实体、入口与市场数量不变，scale/quality 继续 pass。完整记录见
+`DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md`。

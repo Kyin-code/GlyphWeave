@@ -25,6 +25,11 @@
 > 沿真实道路轴线，密度与材质仍 visual `warn`。见
 > [`ORIENTED-ROAD-CARVE-20261021.zh-CN.md`](ORIENTED-ROAD-CARVE-20261021.zh-CN.md)。
 
+> **2026-10-21 新旧城实体继承**：最终建筑现携带
+> `districtId/constructionCohort`。香港 r3d 为 old-core 10、renewal 15、
+> new-growth 9、periphery 0；不再只能在计划侧识别时代。见
+> [`DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md`](DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md)。
+
 > **2026-10-21 市场占地去重叠**：市场候选现在按离路 12m 后的真实 footprint
 > 检查 2m 净距，不再只按路线节点去重。`market.4` 从与 `market.1` 重叠的
 > 节点改选到 `(378,506)`；1km 控制最终 4 个市场，AccessGraph 20 连通/0
