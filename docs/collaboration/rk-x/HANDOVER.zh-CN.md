@@ -10,6 +10,14 @@
 > 均 pass；最终 workspace 为 1,140 passed / 0 failed / 37 ignored。见
 > [`HARD-OCCUPANCY-GROUNDING-REGRESSION-20261022.zh-CN.md`](HARD-OCCUPANCY-GROUNDING-REGRESSION-20261022.zh-CN.md)。
 
+> **2026-10-22 生鲜市场辐射证据闭合**：提交 `b3b5502` 已推送。市场计划
+> 现在同时发布 `market-radiation.json` 与 `market-deficit.json`，按真实
+> 路网输出 5/10/15/30 分钟覆盖、逐需求市场分配、竞争压力、市场负载、
+> 利用率和具名缺口；quality-report 独立校验分配守恒。香港 r28 为
+> 5/10/15/30 分钟覆盖 `0.582/0.821/0.998/0.998`，总覆盖 `0.997971`，
+> 唯一 8.624 需求缺口因容量耗尽被保留。见
+> [`MARKET-RADIATION-20261022.zh-CN.md`](MARKET-RADIATION-20261022.zh-CN.md)。
+
 > **2026-10-21 切面焦点驱动布局**：`urbanSlice` 现已产出可审计的
 > `focusBias`，并实际改变推断时代预算、中心角色、道路拓宽、公园和宏观工程
 > 预算。填海/造岛/特区/山地/中央规划可声明无绝对土方上限的规划授权，但仍须

@@ -847,6 +847,36 @@ http://127.0.0.1:8131/preview/index.html?view=explore
 
 采用版本：`c965dc6 fix(worldgen): enforce road-first exact occupancy`。
 
+### 5.14 2026-10-22 生鲜市场辐射与缺口闭合
+
+市场计划从单一覆盖比例扩展为三份可互相校验的权威产物：
+
+- `market-catchment-plan.json`：市场、需求点、最近市场、负载和总覆盖；
+- `market-radiation.json`：5/10/15/30 分钟覆盖、逐需求分配、竞争压力、
+  市场利用率、分配需求和容量/需求比；
+- `market-deficit.json`：逐需求缺口、最近市场和
+  `no_market_within_travel_limit` / `eligible_market_capacity_exhausted`
+  原因。
+
+`quality-report` 现在重新读取三份文件并验证需求/服务/缺口守恒、市场分配
+守恒、容量上限、时间带顺序和缺口记录数量；伪造总覆盖率失败关闭。
+
+香港 r28 实烘焙：
+
+```text
+bevy/work/rk-x/v3-hard-audit-hk-r28-20261022
+```
+
+- 5 个分层市场；
+- 总需求 4,250.320，服务 4,241.696，覆盖率 0.997971；
+- 5/10/15/30 分钟覆盖 `0.582 / 0.821 / 0.998 / 0.998`；
+- 唯一缺口 8.624，原因为容量耗尽，具名保留；
+- `scale-audit pass`、`quality-report pass`；
+- 两次烘焙 128 个可比较生成文件一致。
+
+采用版本：`b3b5502 feat(worldgen): publish market radiation evidence`。
+详见 [`rk-x/MARKET-RADIATION-20261022.zh-CN.md`](rk-x/MARKET-RADIATION-20261022.zh-CN.md)。
+
 ---
 
 ## 6. 当前卡点与待决策项（更新于 2026-10-19）
