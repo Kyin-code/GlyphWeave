@@ -371,6 +371,28 @@
         "minHeightM": 8,
         "maxHeightM": 120
       },
+      "industrial": {
+        "type": "industrial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone",
+          "shore"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "minWidthM": 40,
+        "maxWidthM": 260,
+        "minDepthM": 40,
+        "maxDepthM": 200,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
       "stairs": {
         "type": "stair",
         "placement": "surface-grounded",

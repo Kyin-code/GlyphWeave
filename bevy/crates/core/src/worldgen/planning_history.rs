@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
-use super::{BakedTerrain, EntityInstance, SceneSpec, urban_slice};
+use super::{urban_slice, BakedTerrain, EntityInstance, SceneSpec};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -285,7 +285,8 @@ pub fn plan(
     let factors = slice
         .as_ref()
         .map_or_else(Vec::new, |plan| plan.special_factors.clone());
-    let centres = derive_centres(route, &graph, &factors, &settlement_scale);
+    let focus_bias = slice.as_ref().map(|plan| &plan.focus_bias);
+    let centres = derive_centres(route, &graph, &factors, &settlement_scale, focus_bias);
     let scale_distance = match settlement_scale.as_str() {
         "metropolis" | "megacity" => 1800.0,
         "city" => 1100.0,
@@ -332,25 +333,36 @@ pub fn plan(
     }
 
     actions.extend(centre_actions(&centres, &settlement_scale, route));
-    actions.extend(road_actions(route, &settlement_scale));
+    actions.extend(road_actions(route, &settlement_scale, focus_bias));
     let park_target = (f64::from(
         settlement
             .delivered
             .households
             .saturating_add(settlement.delivered.jobs / 2),
     ) * 3.0
-        * program.park_area_m2_per_person)
-        .min(250_000.0);
+        * program.park_area_m2_per_person
+        * focus_bias.map_or(1.0, |bias| f64::from(bias.park_bias)))
+    .min(250_000.0);
     if park_target > 1.0 {
-        let anchor = centres.get(1).or_else(|| centres.first()).map_or_else(
-            || {
-                route
-                    .anchors
-                    .first()
-                    .map_or([0, 0], |anchor| [anchor.x, anchor.z])
-            },
-            |centre| [centre.world_x, centre.world_z],
-        );
+        let focus_anchor = focus_bias
+            .filter(|bias| bias.park_bias > 1.05)
+            .and_then(|_| {
+                centres
+                    .iter()
+                    .find(|centre| matches!(centre.role.as_str(), "tourism" | "port"))
+            });
+        let anchor = focus_anchor
+            .or_else(|| centres.get(1))
+            .or_else(|| centres.first())
+            .map_or_else(
+                || {
+                    route
+                        .anchors
+                        .first()
+                        .map_or([0, 0], |anchor| [anchor.x, anchor.z])
+                },
+                |centre| [centre.world_x, centre.world_z],
+            );
         actions.push(Action {
             id: "park.target".into(),
             stage: "modern-new".into(),
@@ -897,6 +909,7 @@ fn derive_centres(
     graph: &Graph,
     factors: &[String],
     settlement_scale: &str,
+    focus_bias: Option<&urban_slice::FocusBias>,
 ) -> Vec<Centre> {
     let mut anchors = route
         .anchors
@@ -911,17 +924,32 @@ fn derive_centres(
     anchors.sort_by_key(|(anchor, _, degree, point)| {
         (Reverse(*degree), point[1], point[0], anchor.id.clone())
     });
-    let roles = if factors.iter().any(|factor| factor == "political-capital") {
-        vec!["political", "historic", "mixed"]
-    } else if factors.iter().any(|factor| factor == "financial-center") {
-        vec!["financial", "mixed", "historic"]
-    } else if factors.iter().any(|factor| factor == "port-industrial") {
-        vec!["port", "mixed", "historic"]
-    } else if factors.iter().any(|factor| factor == "tourism") {
-        vec!["tourism", "historic", "mixed"]
-    } else {
-        vec!["mixed"]
-    };
+    let mut roles = focus_bias
+        .map(|bias| {
+            bias.centre_roles
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        })
+        .filter(|roles| !roles.is_empty())
+        .unwrap_or_else(|| {
+            if factors.iter().any(|factor| factor == "political-capital") {
+                vec!["political", "historic", "mixed"]
+            } else if factors.iter().any(|factor| factor == "financial-center") {
+                vec!["financial", "mixed", "historic"]
+            } else if factors.iter().any(|factor| factor == "port-industrial") {
+                vec!["port", "mixed", "historic"]
+            } else if factors.iter().any(|factor| factor == "tourism") {
+                vec!["tourism", "historic", "mixed"]
+            } else {
+                vec!["mixed"]
+            }
+        });
+    roles.truncate(match settlement_scale {
+        "metropolis" | "megacity" => 3,
+        "city" => 2,
+        _ => 1,
+    });
     let scale = if matches!(settlement_scale, "metropolis" | "megacity") {
         1.25
     } else {
@@ -1009,14 +1037,21 @@ fn centre_actions(centres: &[Centre], settlement_scale: &str, route: &RoutePlan)
         .collect()
 }
 
-fn road_actions(route: &RoutePlan, scale: &str) -> Vec<Action> {
-    let target_width = if matches!(scale, "metropolis" | "megacity") {
+fn road_actions(
+    route: &RoutePlan,
+    scale: &str,
+    focus_bias: Option<&urban_slice::FocusBias>,
+) -> Vec<Action> {
+    let base_width = if matches!(scale, "metropolis" | "megacity") {
         24
     } else if scale == "city" {
         16
     } else {
         12
     };
+    let target_width = (f64::from(base_width)
+        * focus_bias.map_or(1.0, |bias| f64::from(bias.road_widening_bias)))
+    .round() as i32;
     route
         .routes
         .iter()
@@ -1235,6 +1270,36 @@ mod tests {
                 .find(|action| action.kind == "widen-and-rebuild-street")
                 .is_some_and(|action| action.area_m2 > 5_000.0)
         );
+    }
+
+    #[test]
+    fn focus_feature_changes_centre_priority_and_road_target() {
+        let waterfront = plan(
+            &route_plan(false),
+            &settlement(),
+            &style("metropolis", &["financial-center", "coastal-reclamation"]),
+        )
+        .unwrap()
+        .unwrap();
+        let mut historic_style = style("metropolis", &["historic-core"]);
+        historic_style["urbanSlice"]["focusFeature"] = serde_json::json!("historic-market-lanes");
+        historic_style["urbanSlice"]["requiredAnchors"] = serde_json::json!([
+            {"id": "market", "kind": "market", "role": "historic-focus"}
+        ]);
+        let historic = plan(&route_plan(false), &settlement(), &historic_style)
+            .unwrap()
+            .unwrap();
+        assert_eq!(waterfront.centres[0].role, "financial");
+        assert_eq!(historic.centres[0].role, "historic");
+        let width = |plan: &Plan| {
+            let action = plan
+                .actions
+                .iter()
+                .find(|action| action.kind == "widen-and-rebuild-street")
+                .unwrap();
+            action.area_m2 / action.length_m
+        };
+        assert!(width(&waterfront) > width(&historic));
     }
 
     #[test]

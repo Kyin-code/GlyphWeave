@@ -45,6 +45,10 @@ pub struct MacroAuthority {
     pub focus_feature: String,
     pub special_factors: Vec<String>,
     pub allows_local_fill_above_m: f64,
+    pub authority_scope: String,
+    pub no_absolute_earthwork_cap: bool,
+    pub engineering_audit_required: bool,
+    pub signals: Vec<String>,
     pub rationale: String,
 }
 
@@ -71,17 +75,20 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
     };
     let network_centrality = land_pressure::route_centrality(routes);
     let pressure = land_pressure::plan(style, Some(network_centrality))?;
-    let engineering_scale = f64::from(
+    let pressure_engineering_scale = f64::from(
         pressure
             .as_ref()
             .map_or(slice.engineering_scale, |plan| plan.engineering_scale),
     );
+    let engineering_scale = (pressure_engineering_scale
+        * (0.75 + 0.25 * f64::from(slice.focus_bias.engineering_bias)))
+    .clamp(0.45, 2.4);
     let land_pressure_index = f64::from(
         pressure
             .as_ref()
             .map_or(slice.land_pressure_index, |plan| plan.land_pressure_index),
     );
-    let macro_authority = macro_authority(style);
+    let macro_authority = macro_authority(&slice);
     let mut operations = Vec::new();
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         if route.fill_volume_m3 > 0.0 {
@@ -173,33 +180,41 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
     }))
 }
 
-fn macro_authority(style: &Value) -> Option<MacroAuthority> {
-    let slice = style.get("urbanSlice")?;
-    if slice.get("mode").and_then(Value::as_str) != Some("feature-cut") {
+fn macro_authority(slice: &urban_slice::Plan) -> Option<MacroAuthority> {
+    if slice.mode != "feature-cut" {
         return None;
     }
-    let focus_feature = slice
-        .get("focusFeature")
-        .and_then(Value::as_str)
-        .unwrap_or("feature-cut")
-        .to_string();
-    let special_factors = slice
-        .get("specialFactors")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let authority_scope = if slice
+        .special_factors
+        .iter()
+        .any(|factor| factor == "special-economic-zone")
+    {
+        "special-area-planning-led"
+    } else if slice
+        .special_factors
+        .iter()
+        .any(|factor| factor == "coastal-reclamation" || factor == "island")
+    {
+        "reclamation-planning-led"
+    } else if slice
+        .special_factors
+        .iter()
+        .any(|factor| factor == "mountainous")
+    {
+        "hillside-planning-led"
+    } else {
+        "feature-cut-planning-led"
+    };
     Some(MacroAuthority {
         mode: "feature-cut".into(),
-        focus_feature,
-        special_factors,
+        focus_feature: slice.focus_feature.clone().unwrap_or("feature-cut".into()),
+        special_factors: slice.special_factors.clone(),
         allows_local_fill_above_m: 120.0,
-        rationale: "feature cuts may fund larger earthworks through the macro ledger while ordinary lots and roads keep the local contract".into(),
+        authority_scope: authority_scope.into(),
+        no_absolute_earthwork_cap: true,
+        engineering_audit_required: true,
+        signals: slice.focus_bias.signals.clone(),
+        rationale: "feature and planning-led cuts may fund larger earthworks through the macro ledger without an absolute earthwork cap; ordinary lots, roads, shorelines and protected land keep their local contracts and every operation remains audited".into(),
     })
 }
 
@@ -350,5 +365,28 @@ mod tests {
                 .any(|operation| operation.status == "approved-macro-authority")
         );
         assert_eq!(feature.local_contracts.max_fill_m, 6.0);
+    }
+
+    #[test]
+    fn planning_led_reclamation_authority_is_explicit_and_audited() {
+        let mut value = style("metropolis");
+        value["urbanSlice"]["focusFeature"] =
+            serde_json::json!("island-reclamation-and-financial-core");
+        value["urbanSlice"]["specialFactors"] =
+            serde_json::json!(["coastal-reclamation", "island", "financial-center"]);
+        let plan = plan(&route_plan(), &value).unwrap().unwrap();
+        let authority = plan.macro_authority.unwrap();
+        assert_eq!(authority.authority_scope, "reclamation-planning-led");
+        assert!(authority.no_absolute_earthwork_cap);
+        assert!(authority.engineering_audit_required);
+        assert!(authority
+            .signals
+            .iter()
+            .any(|signal| signal.contains("coastal-reclamation")));
+        assert!(authority
+            .rationale
+            .contains("without an absolute earthwork cap"));
+        assert_eq!(plan.local_contracts.max_fill_m, 6.0);
+        assert_eq!(plan.local_contracts.max_road_grade, 0.08);
     }
 }

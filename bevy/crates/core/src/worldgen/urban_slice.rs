@@ -62,6 +62,32 @@ pub struct EdgeIntent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DistrictMultipliers {
+    pub old_core: f32,
+    pub renewal: f32,
+    pub new_growth: f32,
+    pub periphery: f32,
+}
+
+/// Deterministic planning bias derived from the authored feature anchors,
+/// special factors and the free-form focus label. It changes inferred demand
+/// allocation, centre roles and explicit planning actions; it never relaxes
+/// local terrain, access, water or protection contracts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusBias {
+    pub model: String,
+    pub inferred: bool,
+    pub centre_roles: Vec<String>,
+    pub district_multipliers: DistrictMultipliers,
+    pub park_bias: f32,
+    pub road_widening_bias: f32,
+    pub engineering_bias: f32,
+    pub signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub format: String,
     pub version: u32,
@@ -79,6 +105,7 @@ pub struct Plan {
     pub required_anchors: Vec<FeatureAnchor>,
     pub context_anchors: Vec<FeatureAnchor>,
     pub edge_intents: Vec<EdgeIntent>,
+    pub focus_bias: FocusBias,
     pub scale_factor: f32,
     pub land_pressure_index: f32,
     pub engineering_scale: f32,
@@ -108,6 +135,7 @@ pub fn compile(style: &Value) -> Result<Option<Plan>, String> {
     let Some(program) = from_style(style)? else {
         return Ok(None);
     };
+    let focus_bias = compile_focus_bias(&program);
     let scale_factor = match program.settlement_scale.as_str() {
         "village" => 0.20,
         "town" => 0.35,
@@ -188,12 +216,247 @@ pub fn compile(style: &Value) -> Result<Option<Plan>, String> {
         required_anchors: program.required_anchors,
         context_anchors: program.context_anchors,
         edge_intents: program.edge_intents,
+        focus_bias,
         scale_factor,
         land_pressure_index,
         engineering_scale,
         allow_whole_settlement,
         notes,
     }))
+}
+
+fn compile_focus_bias(program: &Program) -> FocusBias {
+    let mut old_core = 1.0_f32;
+    let mut renewal = 1.0_f32;
+    let mut new_growth = 1.0_f32;
+    let mut periphery = 1.0_f32;
+    let mut park = 1.0_f32;
+    let mut road = 1.0_f32;
+    let mut engineering = 1.0_f32;
+    let mut roles = Vec::<String>::new();
+    let mut signals = Vec::<String>::new();
+
+    for factor in &program.special_factors {
+        signals.push(format!("special-factor:{factor}"));
+        match factor.as_str() {
+            "financial-center" => {
+                push_unique_role(&mut roles, "financial");
+                renewal *= 1.08;
+                new_growth *= 1.18;
+                road *= 1.16;
+                engineering *= 1.08;
+            }
+            "political-capital" => {
+                push_unique_role(&mut roles, "political");
+                old_core *= 1.08;
+                new_growth *= 1.10;
+                road *= 1.10;
+            }
+            "port-industrial" => {
+                push_unique_role(&mut roles, "port");
+                renewal *= 1.10;
+                new_growth *= 1.14;
+                road *= 1.12;
+                engineering *= 1.06;
+            }
+            "tourism" => {
+                push_unique_role(&mut roles, "tourism");
+                periphery *= 1.22;
+                park *= 1.28;
+                road *= 0.92;
+                engineering *= 0.94;
+            }
+            "historic-core" => {
+                push_unique_role(&mut roles, "historic");
+                old_core *= 1.28;
+                renewal *= 1.06;
+                road *= 0.90;
+                park *= 1.08;
+            }
+            "mountainous" => {
+                periphery *= 1.10;
+                engineering *= 1.20;
+                park *= 1.08;
+            }
+            "coastal-reclamation" => {
+                new_growth *= 1.16;
+                road *= 1.10;
+                engineering *= 1.22;
+            }
+            "island" => {
+                new_growth *= 1.10;
+                periphery *= 1.14;
+                engineering *= 1.24;
+            }
+            "special-economic-zone" => {
+                new_growth *= 1.14;
+                renewal *= 1.06;
+                engineering *= 1.10;
+            }
+            _ => {}
+        }
+    }
+
+    for anchor in program
+        .required_anchors
+        .iter()
+        .chain(program.context_anchors.iter())
+    {
+        signals.push(format!("anchor:{}:{}", anchor.kind, anchor.role));
+        match anchor.kind.as_str() {
+            "old-core" | "market" | "religious" => {
+                push_unique_role(&mut roles, "historic");
+                old_core *= 1.18;
+                renewal *= 1.05;
+            }
+            "civic" => {
+                push_unique_role(&mut roles, "political");
+                new_growth *= 1.05;
+            }
+            "employment" => {
+                push_unique_role(
+                    &mut roles,
+                    if program
+                        .special_factors
+                        .iter()
+                        .any(|factor| factor == "financial-center")
+                    {
+                        "financial"
+                    } else {
+                        "mixed"
+                    },
+                );
+                renewal *= 1.08;
+                new_growth *= 1.10;
+            }
+            "transit" => {
+                push_unique_role(&mut roles, "mixed");
+                renewal *= 1.06;
+            }
+            "waterfront" | "port" => {
+                push_unique_role(
+                    &mut roles,
+                    if program
+                        .special_factors
+                        .iter()
+                        .any(|factor| factor == "financial-center")
+                    {
+                        "financial"
+                    } else if program
+                        .special_factors
+                        .iter()
+                        .any(|factor| factor == "port-industrial")
+                    {
+                        "port"
+                    } else {
+                        "tourism"
+                    },
+                );
+                new_growth *= 1.14;
+                road *= 1.08;
+                engineering *= 1.08;
+            }
+            "park" | "watershed" | "mountain" | "coast" => {
+                push_unique_role(&mut roles, "tourism");
+                periphery *= 1.12;
+                park *= 1.16;
+                engineering *= 1.04;
+            }
+            "landmark" => {
+                push_unique_role(&mut roles, "mixed");
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(focus) = program.focus_feature.as_deref() {
+        let focus = focus.to_ascii_lowercase();
+        if ["old", "historic", "market", "lilong", "machiya"]
+            .iter()
+            .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:historic-core".into());
+            push_unique_role(&mut roles, "historic");
+            old_core *= 1.12;
+            road *= 0.94;
+        }
+        if ["renewal", "industrial", "dockland", "redevelop"]
+            .iter()
+            .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:renewal".into());
+            renewal *= 1.12;
+        }
+        if [
+            "waterfront",
+            "bay",
+            "harbour",
+            "harbor",
+            "coast",
+            "reclaim",
+            "river",
+            "lake",
+        ]
+        .iter()
+        .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:waterfront-growth".into());
+            new_growth *= 1.10;
+            road *= 1.05;
+        }
+        if ["new town", "new-town", "cbd", "tower"]
+            .iter()
+            .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:new-growth".into());
+            new_growth *= 1.10;
+        }
+        if ["mountain", "hillside", "ridge", "terrace"]
+            .iter()
+            .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:terrain-engineering".into());
+            engineering *= 1.12;
+            park *= 1.04;
+        }
+        if ["park", "wetland", "delta", "valley"]
+            .iter()
+            .any(|word| focus.contains(word))
+        {
+            signals.push("focus-keyword:protected-periphery".into());
+            periphery *= 1.10;
+            park *= 1.12;
+        }
+    }
+
+    if roles.is_empty() {
+        push_unique_role(&mut roles, "mixed");
+    }
+    push_unique_role(&mut roles, "mixed");
+    push_unique_role(&mut roles, "historic");
+    roles.truncate(3);
+
+    FocusBias {
+        model: "urban-slice-anchor-factor-keyword-v1".into(),
+        inferred: true,
+        centre_roles: roles,
+        district_multipliers: DistrictMultipliers {
+            old_core: old_core.clamp(0.65, 1.70),
+            renewal: renewal.clamp(0.65, 1.70),
+            new_growth: new_growth.clamp(0.65, 1.70),
+            periphery: periphery.clamp(0.65, 1.70),
+        },
+        park_bias: park.clamp(0.70, 1.60),
+        road_widening_bias: road.clamp(0.70, 1.45),
+        engineering_bias: engineering.clamp(0.75, 1.60),
+        signals,
+    }
+}
+
+fn push_unique_role(roles: &mut Vec<String>, role: &str) {
+    if !roles.iter().any(|value| value == role) {
+        roles.push(role.into());
+    }
 }
 
 fn validate(program: &Program) -> Result<(), String> {
@@ -458,5 +721,42 @@ mod tests {
             {"id": "same", "kind": "park", "role": "two"}
         ]);
         assert!(compile(&value).is_err());
+    }
+
+    #[test]
+    fn feature_focus_drives_distinct_planning_bias() {
+        let waterfront = compile(&style()).unwrap().unwrap();
+        let mut historic = style();
+        historic["urbanSlice"]["focusFeature"] = json!("historic-market-lanes-and-hillside");
+        historic["urbanSlice"]["specialFactors"] =
+            json!(["historic-core", "mountainous", "special-economic-zone"]);
+        historic["urbanSlice"]["requiredAnchors"] = json!([
+            {"id": "old-market", "kind": "market", "role": "historic-focus"},
+            {"id": "hillside", "kind": "mountain", "role": "terrace-constraint"}
+        ]);
+        let historic = compile(&historic).unwrap().unwrap();
+
+        assert_eq!(waterfront.focus_bias.centre_roles[0], "financial");
+        assert_eq!(historic.focus_bias.centre_roles[0], "historic");
+        assert!(
+            waterfront.focus_bias.district_multipliers.new_growth
+                > historic.focus_bias.district_multipliers.new_growth
+        );
+        assert!(
+            historic.focus_bias.district_multipliers.old_core
+                > waterfront.focus_bias.district_multipliers.old_core
+        );
+        assert!(waterfront.focus_bias.road_widening_bias > historic.focus_bias.road_widening_bias);
+        assert!(historic.focus_bias.engineering_bias > waterfront.focus_bias.engineering_bias);
+        assert!(waterfront
+            .focus_bias
+            .signals
+            .iter()
+            .any(|signal| signal.contains("waterfront-growth")));
+        assert!(historic
+            .focus_bias
+            .signals
+            .iter()
+            .any(|signal| signal.contains("terrain-engineering")));
     }
 }

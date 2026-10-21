@@ -15,7 +15,7 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 use super::community_typology;
 use super::epoch_evolution;
 use super::route_evolution::Plan as RoutePlan;
-use super::{EntityInstance, SceneSpec, WaterGeometry};
+use super::{urban_slice, EntityInstance, SceneSpec, WaterGeometry};
 use crate::settlement::building_archetypes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -393,6 +393,17 @@ pub fn plan(
     if !program.enabled {
         return Ok(None);
     }
+    let focus_bias = if program
+        .district_demand
+        .as_ref()
+        .is_some_and(|districts| districts.inferred)
+    {
+        urban_slice::compile(style)
+            .map_err(TerrainError)?
+            .map(|slice| slice.focus_bias)
+    } else {
+        None
+    };
     terrain.require_complete()?;
     let typology = community_typology::resolve(style).map_err(TerrainError)?;
     let base_lot_width_m = (program.lot_width_m
@@ -606,8 +617,9 @@ pub fn plan(
     let mut selected_old_core_front: Option<(String, String)> = None;
     let mut district_allocation = Vec::new();
     if let Some(districts) = &program.district_demand {
-        let planned_by_stage = allocate_district_demands(&target_demand, &districts.shares);
-        for entry in &districts.shares {
+        let shares = effective_district_shares(&districts.shares, focus_bias.as_ref());
+        let planned_by_stage = allocate_district_demands(&target_demand, &shares);
+        for entry in &shares {
             let planned = planned_by_stage
                 .get(&entry.stage)
                 .cloned()
@@ -621,7 +633,7 @@ pub fn plan(
                 .entry(candidate.district_stage.clone())
                 .or_default() += 1;
         }
-        for entry in &districts.shares {
+        for entry in &shares {
             let mut stage_candidates: Vec<usize> = candidates
                 .iter()
                 .enumerate()
@@ -777,7 +789,7 @@ pub fn plan(
                 );
             }
         }
-        for entry in &districts.shares {
+        for entry in &shares {
             district_allocation.push(DistrictAllocation {
                 stage: entry.stage.clone(),
                 share: entry.share,
@@ -897,6 +909,48 @@ fn allocate_district_demands(
         );
     }
     allocated
+}
+
+fn effective_district_shares(
+    shares: &[DistrictDemandShare],
+    focus_bias: Option<&urban_slice::FocusBias>,
+) -> Vec<DistrictDemandShare> {
+    let Some(focus_bias) = focus_bias else {
+        return shares.to_vec();
+    };
+    let multipliers = &focus_bias.district_multipliers;
+    let weighted = shares
+        .iter()
+        .map(|entry| {
+            let multiplier = match entry.stage.as_str() {
+                "old-core" => multipliers.old_core,
+                "renewal" => multipliers.renewal,
+                "new-growth" => multipliers.new_growth,
+                "periphery" => multipliers.periphery,
+                _ => 1.0,
+            };
+            (entry, f64::from(entry.share) * f64::from(multiplier))
+        })
+        .collect::<Vec<_>>();
+    let total: f64 = weighted.iter().map(|(_, weight)| *weight).sum();
+    if !total.is_finite() || total <= f64::EPSILON {
+        return shares.to_vec();
+    }
+    let mut normalized = Vec::with_capacity(shares.len());
+    let mut assigned = 0.0_f64;
+    for (index, (entry, weight)) in weighted.iter().enumerate() {
+        let share = if index + 1 == weighted.len() {
+            (1.0 - assigned).max(0.0)
+        } else {
+            (weight / total).clamp(0.0, 1.0)
+        };
+        assigned += share;
+        normalized.push(DistrictDemandShare {
+            stage: entry.stage.clone(),
+            share,
+        });
+    }
+    normalized
 }
 
 fn try_build_candidate(
@@ -1925,6 +1979,73 @@ mod tests {
             ]
         });
         assert!(validate_style(&value).is_err());
+    }
+
+    #[test]
+    fn feature_focus_reweights_only_inferred_district_budgets() {
+        let shares = vec![
+            DistrictDemandShare {
+                stage: "old-core".into(),
+                share: 0.24,
+            },
+            DistrictDemandShare {
+                stage: "renewal".into(),
+                share: 0.34,
+            },
+            DistrictDemandShare {
+                stage: "new-growth".into(),
+                share: 0.32,
+            },
+            DistrictDemandShare {
+                stage: "periphery".into(),
+                share: 0.10,
+            },
+        ];
+        let mut waterfront = style(10, 0, 0.0);
+        waterfront["urbanSlice"] = serde_json::json!({
+            "version": 1,
+            "settlementScale": "metropolis",
+            "mode": "feature-cut",
+            "focusFeature": "reclaimed-financial-waterfront",
+            "cropReason": "focus allocation test",
+            "contextRadiusM": 2200,
+            "offMapContinuity": ["roads", "coast"],
+            "specialFactors": ["financial-center", "coastal-reclamation"]
+        });
+        let waterfront_bias = urban_slice::compile(&waterfront)
+            .unwrap()
+            .unwrap()
+            .focus_bias;
+
+        let mut historic = style(10, 0, 0.0);
+        historic["urbanSlice"] = serde_json::json!({
+            "version": 1,
+            "settlementScale": "metropolis",
+            "mode": "feature-cut",
+            "focusFeature": "historic-market-lanes",
+            "cropReason": "focus allocation test",
+            "contextRadiusM": 2200,
+            "offMapContinuity": ["roads", "urban-fabric"],
+            "specialFactors": ["historic-core"]
+        });
+        let historic_bias = urban_slice::compile(&historic).unwrap().unwrap().focus_bias;
+
+        let waterfront_shares = effective_district_shares(&shares, Some(&waterfront_bias));
+        let historic_shares = effective_district_shares(&shares, Some(&historic_bias));
+        let share = |values: &[DistrictDemandShare], stage: &str| {
+            values
+                .iter()
+                .find(|entry| entry.stage == stage)
+                .unwrap()
+                .share
+        };
+        assert!(share(&waterfront_shares, "new-growth") > share(&historic_shares, "new-growth"));
+        assert!(share(&historic_shares, "old-core") > share(&waterfront_shares, "old-core"));
+        for values in [&waterfront_shares, &historic_shares] {
+            let total: f64 = values.iter().map(|entry| entry.share).sum();
+            assert!((total - 1.0).abs() < 1e-12);
+        }
+        assert_eq!(effective_district_shares(&shares, None), shares);
     }
 
     #[test]

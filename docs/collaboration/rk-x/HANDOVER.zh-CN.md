@@ -1,5 +1,13 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 切面焦点驱动布局**：`urbanSlice` 现已产出可审计的
+> `focusBias`，并实际改变推断时代预算、中心角色、道路拓宽、公园和宏观工程
+> 预算。填海/造岛/特区/山地/中央规划可声明无绝对土方上限的规划授权，但仍须
+> 工程预算和施工审计；局部 6m 填方、8% 纵坡、25% 步行坡、2m 削方与水岸/
+> 保护合同不变。见
+> [`FOCUS-DRIVEN-PLANNING-20261021.zh-CN.md`](FOCUS-DRIVEN-PLANNING-20261021.zh-CN.md)。
+> 香港 r2 实烘焙 2,998 实体、39 入口连通/0 断点，scale/quality 均 pass。
+
 > **2026-10-21 48 城先验正式消费**：`referenceData.caseIds[0]` 现在会在
 > morphology 编译前自动补齐 `naturalGeography`、`urbanSlice`、
 > `communityProfile`、案例历史元数据和启发式时代预算；作者手写字段优先，
