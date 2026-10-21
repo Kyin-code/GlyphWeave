@@ -762,7 +762,12 @@ fn road_supply_header(
 
 impl<'a> SupplyContext<'a> {
     pub(super) fn state(&self, plan: &RoadNetworkPlan) -> PlacementState<'a> {
-        let mut existing = plan.entities();
+        // Production builds its engineering state from `profile_roads`, which
+        // stable-sorts wider roads before local roads. Replaying an unsorted
+        // `plan.entities()` changes which existing support a candidate reaches
+        // first and can therefore rename a rejection without changing the
+        // candidate geometry. Keep the diagnosis on the exact production order.
+        let mut existing = frontage::profile_roads(plan);
         existing.extend(plan.site_entities());
         PlacementState::new(self.terrain, self.mask, self.water, existing, self.policy)
     }
@@ -827,6 +832,12 @@ impl<'a> SupplyContext<'a> {
                 // checked against. A replay that committed the parcel without it would silently stop
                 // applying the bench-overlap gate, refuse the same candidates under a different name
                 // and report a search the bake never performed.
+                //
+                // Sampling the parcel is part of the committed record, not reporting
+                // metadata: production writes `naturalMinM/naturalMaxM` before the
+                // entity is committed, and those grounding fields are read by later
+                // engineering checks.
+                state.sample_natural(&mut site, parcel)?;
                 site.bounded_cut_mm = state.cut_cap_for(&site);
                 state.commit(&site);
                 budget.accept(&site.id);
@@ -981,6 +992,12 @@ pub(super) fn diagnose(
     // candidates against ground the bake never offered.
     let diagnosed: BTreeSet<&str> = requests.iter().map(|r| r.id.as_str()).collect();
     let mut joint_plan = plan.clone();
+    // The production pipeline runs `frontage::append` before publishing the
+    // plan-wide road-cut allowance. A replay from the final plan must therefore
+    // clear that post-frontage field: carrying it backwards gives the roads a
+    // cutting authority the original search did not have and can rename or
+    // replace a candidate without changing its geometry.
+    joint_plan.road_cut_mm = None;
     joint_plan.roadside_sites.retain(|site| {
         !site
             .program
@@ -2920,6 +2937,7 @@ mod tests {
             .roadside_sites
             .retain(|site| !placed.contains(&site.id));
         stripped.frontage = None;
+        stripped.road_cut_mm = None;
         // The bounded-cut policy is part of the search, not a diagnostic setting: a lot the authored
         // style may bench is accepted by the bake and refused by a replay that assumed no cut. The
         // policy is therefore read from the SAME style the world was baked from, exactly as `append`
@@ -2979,8 +2997,8 @@ mod tests {
         // the regression cannot pass by both sides drifting together.
         //
         // Round 31 re-pinned them: the fixture is the round's own 1 km probe, and its urban edge now
-        // decides how much of the authored demand can land. The 120-home request keeps 3 of its lots
-        // and the 24-shop request 19, because only 4 % of that scene is zoned urban and the 64 m band
+        // decides how much of the authored demand can land. The 120-home request keeps 4 of its lots
+        // and the 24-shop request 16, because only 4 % of that scene is zoned urban and the 64 m band
         // around it reaches a limited length of street: 314 of the home attempts and 352 of the shop
         // attempts are refused BY NAME as `conversion_outside_the_urban_fringe` in the published
         // report, and both requests stop with no feasible frontage left on the city's edge.
@@ -2992,18 +3010,18 @@ mod tests {
         let homes = by_id["urban-homes"];
         assert_eq!(
             (homes.joint_accepted, homes.joint_attempted),
-            (3, 380),
+            (4, 380),
             "homes: planned / attempted"
         );
         assert_eq!(homes.stop_reason, "no_feasible_frontage");
         let shops = by_id["urban-shops"];
         assert_eq!(
             (shops.joint_accepted, shops.joint_attempted),
-            (19, 422),
+            (16, 422),
             "shops: planned / attempted"
         );
         assert_eq!(shops.stop_reason, "no_feasible_frontage");
-        assert_eq!(diagnosis.joint_accepted, 3 + 19);
+        assert_eq!(diagnosis.joint_accepted, 4 + 16);
         assert_eq!(diagnosis.joint_station_attempts, 380 + 422);
         assert_eq!(diagnosis.stop_reason, "no_feasible_frontage");
     }
@@ -3082,6 +3100,7 @@ mod tests {
             .roadside_sites
             .retain(|site| !placed.contains(&site.id));
         stripped.frontage = None;
+        stripped.road_cut_mm = None;
         let mut arms: Vec<serde_json::Value> = vec![];
         let mut arm_state: Vec<(super::super::bounded_cut::CutPolicy, frontage::Report)> = vec![];
         for (label, policy) in [
@@ -3278,6 +3297,7 @@ mod tests {
             .roadside_sites
             .retain(|site| !placed.contains(&site.id));
         stripped.frontage = None;
+        stripped.road_cut_mm = None;
         let mut produced = stripped.clone();
         frontage::append(
             &mut produced,

@@ -89,6 +89,15 @@
 > 拒绝原因分类差异已具名。详见
 > `docs/collaboration/rk-x/ENGINEERING-LEDGER-UNIFICATION-20261021.zh-CN.md`。
 
+> **2026-10-21 沿街跨阶段重放修复**：frontage 在正式生成中先于
+> `plan.roadCutMm` 发布执行。只读诊断与离线重放现会恢复这一前置快照，
+> 补齐候选提交的 `naturalMinM/naturalMaxM` 采样，并统一按
+> `profile_roads` 顺序构造既有工程集。唯一 Core 回归已关闭，未合并拒绝原因
+> 或放宽门限。1km 控制为 89 实体、4 户/16 店，AccessGraph 31/0，
+> scale-audit 与 road-network-audit 通过；quality 仍因旧探针缺地标和完整
+> 土地实现为 warn。证据见
+> `docs/collaboration/rk-x/FRONTAGE-STAGE-REPLAY-20261021.zh-CN.md`。
+
 - **要"项目到底要做什么"** → 读第 4 章（需求域表，19 个域，逐条带来源与状态）。
 - **要"现在做到哪了"** → 读第 5 章（进度）与第 6 章（当前卡点）。
 - **要"下一步该改哪里"** → 读第 7 章（缺口与优先级）、第 8 章（需要人拍板的决策）。

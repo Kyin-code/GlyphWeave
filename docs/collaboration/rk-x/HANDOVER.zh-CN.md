@@ -1,5 +1,12 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 沿街跨阶段重放修复**：`frontage::append` 在正式链中先于
+> `plan.roadCutMm` 发布。诊断、支撑审计和 bounded-cut 重放现在先恢复该前置
+> 快照，并补齐已接受地块的自然范围采样与 `profile_roads` 顺序。唯一 Core
+> 回归已关闭；定向 1km 为 89 实体、4 户/16 店、AccessGraph 31/0，
+> scale-audit 与 road-network-audit 通过。详见
+> [`FRONTAGE-STAGE-REPLAY-20261021.zh-CN.md`](FRONTAGE-STAGE-REPLAY-20261021.zh-CN.md)。
+
 > **2026-10-21 HTML 街景修复**：街景相机修正
 > `streetHotspot.road` 包装对象读错导致的 NaN、`routeFocus` 覆盖街景点、
 > approach 被误选为主街以及 OrbitControls 拉回旧状态。店铺改为真实
