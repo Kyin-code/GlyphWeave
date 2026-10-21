@@ -1659,7 +1659,7 @@ async function drawNear(buildToken) {
       || ((inActiveChunk(entity) || gradedInActiveChunk(entity)) && (
         inFocusChunk(entity) || gradedInActiveChunk(entity)
         || inStreetFrame(entity)
-        || ['storefront', 'pedestrian', 'residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
+        || ['storefront', 'stairs', 'pedestrian', 'residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
         || (['tree', 'bush', 'rock'].includes(entity.kind) && shouldRenderVegetation(entity, 7) && vegetationFitsTerrain(entity))
       ))
     )
@@ -1695,6 +1695,43 @@ async function drawNear(buildToken) {
     if (entity.kind === 'storefront') {
       if (isStreetView && !inStreetFrame(entity)) continue
       addRendered(entity, makeStorefront(entity, THREE))
+      continue
+    }
+    if (entity.kind === 'stairs') {
+      const stairs = entity.grounding?.stairConnection
+      if (!stairs) continue
+      const group = new THREE.Group()
+      const steps = Math.max(2, stairs.stepCount || 2)
+      const dx = stairs.to[0] - stairs.from[0]
+      const dz = stairs.to[1] - stairs.from[1]
+      const run = Math.hypot(dx, dz) || 2
+      const rise = Math.max(.12, (stairs.highMm - stairs.lowMm) / 1000)
+      const alongX = Math.abs(dx) >= Math.abs(dz)
+      const stepRun = run / steps
+      const stepRise = rise / steps
+      const lowPoint = stairs.fromMm <= stairs.toMm ? stairs.from : stairs.to
+      const alongSignX = Math.sign(dx) * (lowPoint === stairs.from ? 1 : -1)
+      const alongSignZ = Math.sign(dz) * (lowPoint === stairs.from ? 1 : -1)
+      const material = new THREE.MeshStandardMaterial({ color: '#9a9184', roughness: .96 })
+      for (let index = 0; index < steps; index++) {
+        const step = new THREE.Mesh(
+          new THREE.BoxGeometry(
+            alongX ? stepRun + .04 : stairs.widthM,
+            stepRise * (index + 1),
+            alongX ? stairs.widthM : stepRun + .04,
+          ),
+          material,
+        )
+        const outward = stepRun * (index + .5)
+        step.position.set(
+          lowPoint[0] + (alongX ? alongSignX * outward : 0),
+          stepRise * (index + 1) * .5,
+          lowPoint[1] + (alongX ? 0 : alongSignZ * outward),
+        )
+        group.add(step)
+      }
+      group.position.y = Math.min(stairs.lowMm, stairs.highMm) / 1000
+      addRendered(entity, group)
       continue
     }
     if (entity.kind === 'food_stall') {

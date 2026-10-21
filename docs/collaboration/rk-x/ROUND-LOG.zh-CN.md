@@ -503,3 +503,26 @@ r2a 控制：
 - scale/quality/visual feedback 均 pass，AccessGraph 35 连通/0 断点。
 
 完整记录见 `POST-ACCESS-MARKET-RECONCILIATION-20261021.zh-CN.md`。
+
+## Round 67 · 2026-10-21 · 门前静态楼梯与真实 AccessGraph 连接
+
+对 0.30–2.40m 的门前局部高差新增静态直梯实体和
+`GroundingSpec.stairConnection`。建筑记录门端/地面端、两端毫米标高、
+踏步数和宽度；AccessGraph 要求被引用的 `stairs` 实体真实存在，从楼梯地面端
+执行原有道路搜索，连通状态写为 `walkable_route_with_stairs`。超过 2.40m
+仍拒绝，不使用放宽台阶阈值。
+
+r2b 控制：
+
+- 23 个静态楼梯实体全部进入语义契约；
+- 最终聚落建筑 28→31；
+- AccessGraph 35→38 连通，断点仍为 0；
+- 15 个普通地面入口路线，23 个楼梯入口路线；
+- 严格入口拒绝 7→4；
+- 剩余 4 个为 2 个路线预算失败、1 个 clearance blocked、1 个高差工程失败；
+- 入口后市场重算需求为最终 31 栋，覆盖约 100%；
+- scale/quality/visual feedback 均 pass。
+
+新增回归测试 `linked_stairs_connect_a_stepped_threshold`，确认楼梯不是
+AccessGraph 里的假跳过，而是显式路点。完整记录见
+`STAIRS-THRESHOLD-CONNECTIONS-20261021.zh-CN.md`。

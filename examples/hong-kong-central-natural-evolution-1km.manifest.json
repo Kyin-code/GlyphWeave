@@ -371,6 +371,18 @@
         "minHeightM": 8,
         "maxHeightM": 120
       },
+      "stairs": {
+        "type": "stair",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 1.2,
+        "maxWidthM": 5,
+        "minDepthM": 1,
+        "maxDepthM": 5,
+        "minHeightM": 0.2,
+        "maxHeightM": 3
+      },
       "storefront": {
         "type": "commercial",
         "placement": "surface-grounded",

@@ -995,6 +995,7 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
             let bottom_offset = (target_ground - f64::from(world_y)) as f32;
             let mut anchors = Vec::new();
             let mut frontage_road_point = None;
+            let mut stair_connection = None;
             if let Some([road_x, road_z]) = building.frontage_road_point {
                 if let Some((anchor_x, anchor_z, direction)) = facade_anchor(
                     building.world_x,
@@ -1017,6 +1018,30 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                         direction: direction.to_owned(),
                         target: Some("road".into()),
                     });
+                    let [out_x, out_z] = outward_delta(direction);
+                    let landing = [anchor_x + out_x * 2, anchor_z + out_z * 2];
+                    if let Some(landing_m) = terrain.height(landing[0], landing[1]) {
+                        let delta_m = f64::from(landing_m) - target_ground;
+                        if (0.30..=2.40).contains(&delta_m.abs()) {
+                            let low_m = target_ground.min(f64::from(landing_m));
+                            let high_m = target_ground.max(f64::from(landing_m));
+                            stair_connection = Some(super::StairConnection {
+                                version: 1,
+                                stair_id: format!(
+                                    "generated.settlement-evolution.stairs.{}",
+                                    building.id
+                                ),
+                                from: [anchor_x, anchor_z],
+                                to: landing,
+                                from_mm: (target_ground * 1000.0).round() as i32,
+                                to_mm: (f64::from(landing_m) * 1000.0).round() as i32,
+                                low_mm: (low_m * 1000.0).round() as i32,
+                                high_mm: (high_m * 1000.0).round() as i32,
+                                step_count: ((delta_m.abs() / 0.18).ceil() as u32).max(1),
+                                width_m: 2.4,
+                            });
+                        }
+                    }
                 }
             }
             EntityInstance {
@@ -1035,11 +1060,51 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                     bottom_offset_m: bottom_offset,
                     bounded_cut_mm: building.max_pad_cut_mm.filter(|cut| *cut > 0),
                     frontage_road_point,
+                    stair_connection,
                     ..super::GroundingSpec::default()
                 },
                 anchors,
                 bounds: None,
             }
+        })
+        .collect()
+}
+
+pub fn materialize_stairs(buildings: &[EntityInstance]) -> Vec<EntityInstance> {
+    buildings
+        .iter()
+        .filter_map(|building| {
+            let stairs = building.grounding.stair_connection.as_ref()?;
+            let dx = stairs.to[0] - stairs.from[0];
+            let dz = stairs.to[1] - stairs.from[1];
+            let run_m = f64::from(dx).hypot(f64::from(dz)) as f32;
+            let (width_m, depth_m) = if dx != 0 {
+                (run_m + 0.4, stairs.width_m)
+            } else {
+                (stairs.width_m, run_m + 0.4)
+            };
+            let world_y = stairs.low_mm.div_euclid(1000);
+            let bottom_offset_m = stairs.low_mm.rem_euclid(1000) as f32 / 1000.0;
+            Some(EntityInstance {
+                entity_id: stairs.stair_id.clone(),
+                asset_id: "architecture.stairs".into(),
+                kind: "stairs".into(),
+                world_x: (stairs.from[0] + stairs.to[0]) / 2,
+                world_z: (stairs.from[1] + stairs.to[1]) / 2,
+                world_y,
+                scale: 1.0,
+                width_m,
+                depth_m,
+                height_m: (stairs.high_mm - stairs.low_mm) as f32 / 1000.0 + 0.2,
+                rotation_y_deg: 0.0,
+                grounding: super::GroundingSpec {
+                    bottom_offset_m,
+                    stair_connection: Some(stairs.clone()),
+                    ..super::GroundingSpec::default()
+                },
+                anchors: Vec::new(),
+                bounds: None,
+            })
         })
         .collect()
 }
@@ -1162,6 +1227,15 @@ fn facade_anchor(
         )
     };
     Some((anchor_x, anchor_z, direction))
+}
+
+fn outward_delta(direction: &str) -> [i32; 2] {
+    match direction {
+        "east" => [1, 0],
+        "west" => [-1, 0],
+        "south" => [0, 1],
+        _ => [0, -1],
+    }
 }
 
 fn nearby_road_surface_m(

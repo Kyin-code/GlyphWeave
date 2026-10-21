@@ -389,6 +389,19 @@ pub(super) fn access_for_entity(
             // Anchors may sit up to two metres off the facade. The actual
             // pavement must reach the wall, not stop at that routing marker.
             let facade_point = closest(e, start);
+            let stair = e.grounding.stair_connection.as_ref();
+            let stair_routing = stair.and_then(|stairs| {
+                let stair_entity = entities.iter().find(|candidate| {
+                    candidate.entity_id == stairs.stair_id && candidate.kind == "stairs"
+                })?;
+                let from = point(f64::from(stairs.from[0]), f64::from(stairs.from[1]));
+                let to = point(f64::from(stairs.to[0]), f64::from(stairs.to[1]));
+                if distance(from, facade_point) > 2.0 || distance(from, to) > 4.0 {
+                    return None;
+                }
+                let _ = stair_entity;
+                height(terrain, to).is_some().then_some(to)
+            });
             let entrance_obstacles: Vec<_> = obstacles
                 .iter()
                 .copied()
@@ -398,25 +411,43 @@ pub(super) fn access_for_entity(
             observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
             if terrain.require_complete().is_err() {
                 link.status = "incomplete_terrain".into();
-            } else if [start, facade_point].into_iter().any(|p| {
+            } else if stair.is_some() && stair_routing.is_none() {
+                link.status = "stair_connection_invalid".into();
+            } else if stair_routing.is_none() && [start, facade_point].into_iter().any(|p| {
                 height(terrain, p).is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
             }) {
                 link.status = "entrance_step_requires_engineering".into();
-            } else if !segment_clear(facade_point, start, &entrance_obstacles, terrain, water) {
+            } else if stair_routing.is_none()
+                && !segment_clear(facade_point, start, &entrance_obstacles, terrain, water)
+            {
                 link.status = "entrance_clearance_blocked".into();
             } else if let Some((road, mut path, length)) =
-                route(start, &roads, &entrance_obstacles, terrain, water)
+                route(
+                    stair_routing.unwrap_or(start),
+                    &roads,
+                    &entrance_obstacles,
+                    terrain,
+                    water,
+                )
             {
-                if length + distance(facade_point, start) > MAX_LENGTH {
+                let routing_start = stair_routing.unwrap_or(start);
+                if length + distance(facade_point, routing_start) > MAX_LENGTH {
                     links.push(link);
                     continue;
                 }
                 path.insert(0, facade_point);
+                if stair_routing.is_some() {
+                    path.insert(1, routing_start);
+                }
                 link.road_id = Some(road);
                 link.path = path;
-                link.distance_m = Some(length + distance(facade_point, start));
+                link.distance_m = Some(length + distance(facade_point, routing_start));
                 link.connected = true;
-                link.status = "walkable_route".into();
+                link.status = if stair_routing.is_some() {
+                    "walkable_route_with_stairs".into()
+                } else {
+                    "walkable_route".into()
+                };
             }
         } else {
             link.status = "anchor_not_on_building_boundary".into();
@@ -2515,5 +2546,57 @@ mod tests {
                 "extraction changed the verdict for {a:?} -> {b:?}"
             );
         }
+    }
+
+    #[test]
+    fn linked_stairs_connect_a_stepped_threshold() {
+        let (mut entities, _flat, water) = fixture();
+        entities[0].grounding.stair_connection = Some(StairConnection {
+            version: 1,
+            stair_id: "stairs.house".into(),
+            from: [64, 59],
+            to: [64, 55],
+            from_mm: 0,
+            to_mm: 0,
+            low_mm: 0,
+            high_mm: 0,
+            step_count: 6,
+            width_m: 2.4,
+        });
+        entities.push(generated_intent_entity(
+            "stairs.house".into(),
+            "stairs",
+            64,
+            57,
+            0,
+            2.4,
+            4.0,
+            1.2,
+        ));
+        let scene = SceneSpec {
+            scene_id: "access".into(),
+            width_m: 128,
+            depth_m: 128,
+            origin_x: 0,
+            origin_z: 0,
+            seed_offset: 0,
+        };
+        let mut stepped_bytes = vec![];
+        for z in 0..128 {
+            for _x in 0..128 {
+                stepped_bytes
+                    .extend_from_slice(&(if z >= 57 { 4_i16 } else { 0_i16 }).to_le_bytes());
+            }
+        }
+        let mut stepped = BakedTerrain::new(&scene).unwrap();
+        stepped
+            .insert_chunk(0, 0, 128, 128, &stepped_bytes)
+            .unwrap();
+
+        let graph = build_access_graph(&entities, &stepped, water);
+
+        assert_eq!(graph.connected_entities, 1);
+        assert_eq!(graph.links[0].status, "walkable_route_with_stairs");
+        assert!(graph.links[0].path.contains(&point(64., 55.)));
     }
 }

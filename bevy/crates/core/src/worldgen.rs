@@ -270,6 +270,26 @@ pub struct GroundingSpec {
     /// a world that never asked keeps its published bytes exactly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_corridor: Option<entry_corridor::EntryCorridor>,
+    /// A static stair/linked landing that joins a building threshold to the
+    /// walkable ground outside its facade. It is a real entity reference, not a
+    /// relaxation of the terrain step audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stair_connection: Option<StairConnection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StairConnection {
+    pub version: u32,
+    pub stair_id: String,
+    pub from: [i32; 2],
+    pub to: [i32; 2],
+    pub from_mm: i32,
+    pub to_mm: i32,
+    pub low_mm: i32,
+    pub high_mm: i32,
+    pub step_count: u32,
+    pub width_m: f32,
 }
 
 fn default_grounding_tolerance_m() -> f32 {
@@ -292,6 +312,7 @@ impl Default for GroundingSpec {
             bounded_cut_mm: None,
             earthwork_blend_m: None,
             entry_corridor: None,
+            stair_connection: None,
         }
     }
 }
@@ -2847,8 +2868,11 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .filter(|entity| !existing.contains(entity.entity_id.as_str()))
                 .collect::<Vec<_>>();
             let count = materialized.len();
+            let stairs = settlement_evolution::materialize_stairs(&materialized);
+            let stair_count = stairs.len();
             drop(existing);
             entities.extend(materialized);
+            entities.extend(stairs);
             let approaches = settlement_evolution::materialize_approaches(plan, &natural_samples);
             let approach_count = approaches.len();
             entities.extend(approaches);
@@ -2857,6 +2881,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "phase": "settlement-evolution-materialization",
                 "materializedBuildings": count,
                 "materializedBuildingApproaches": approach_count,
+                "materializedEntranceStairs": stair_count,
             }));
         }
         if let (Some(plan), Some(routes)) = (&market_catchment_result, &route_evolution_plan) {
@@ -3311,6 +3336,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 if let Some(rejected_id) = entity
                     .entity_id
                     .strip_prefix("generated.settlement-evolution.approach.")
+                {
+                    return !rejected_buildings.contains(rejected_id);
+                }
+                if let Some(rejected_id) = entity
+                    .entity_id
+                    .strip_prefix("generated.settlement-evolution.stairs.")
                 {
                     return !rejected_buildings.contains(rejected_id);
                 }
