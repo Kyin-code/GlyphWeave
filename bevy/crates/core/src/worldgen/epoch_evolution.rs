@@ -425,6 +425,7 @@ mod tests {
             ],
             rejections: Vec::new(),
             community_profile: None,
+            district_allocation: Vec::new(),
         }
     }
 

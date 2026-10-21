@@ -5,6 +5,8 @@
 //! area against household, job, retail and service demand. Candidates that fail
 //! slope, water or access contracts are named in the report.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -42,6 +44,28 @@ pub struct Program {
     pub max_floors: u32,
     #[serde(default = "default_access_height_tolerance")]
     pub access_height_tolerance_m: f32,
+    /// Optional epoch-level demand reservation. The first selection pass may
+    /// spend only a stage's reserved budget; unused reservations are released
+    /// to a second, global pass. This preserves a real old-core/renewal/new-growth
+    /// cross-section without turning district share into a building count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub district_demand: Option<DistrictDemandProgram>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DistrictDemandProgram {
+    pub version: u32,
+    pub shares: Vec<DistrictDemandShare>,
+    #[serde(default = "default_true")]
+    pub allow_spill: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DistrictDemandShare {
+    pub stage: String,
+    pub share: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -53,6 +77,17 @@ pub struct Demand {
     pub service_budget: f64,
 }
 
+impl Default for Demand {
+    fn default() -> Self {
+        Self {
+            households: 0,
+            jobs: 0,
+            retail_floor_area_m2: 0.0,
+            service_budget: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Capacity {
@@ -60,6 +95,19 @@ pub struct Capacity {
     pub accepted_lots: usize,
     pub rejected_lots: usize,
     pub floor_area_m2: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DistrictAllocation {
+    pub stage: String,
+    pub share: f64,
+    pub planned: Demand,
+    pub delivered: Demand,
+    pub remaining: Demand,
+    pub eligible_lots: usize,
+    pub accepted_lots: usize,
+    pub spill_accepted_lots: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -124,6 +172,40 @@ pub struct Plan {
     pub rejections: Vec<Rejection>,
     #[serde(default)]
     pub community_profile: Option<String>,
+    #[serde(default)]
+    pub district_allocation: Vec<DistrictAllocation>,
+}
+
+#[derive(Debug, Clone)]
+struct Candidate {
+    id: String,
+    route_id: String,
+    side: String,
+    world_x: i32,
+    world_z: i32,
+    width_m: f32,
+    depth_m: f32,
+    access_distance_m: f32,
+    center_distance_m: f64,
+    pressure: f64,
+    frontage_road_point: [i32; 2],
+    district_stage: String,
+}
+
+#[derive(Debug, Clone)]
+struct SelectionRules {
+    community_profile: String,
+    household_area_m2: f64,
+    job_area_m2: f64,
+    retail_share: f64,
+    floor_area_ratio: f64,
+    max_floors: u32,
+}
+
+struct AcceptedCandidate {
+    building: Building,
+    spent: Demand,
+    floor_area_m2: f64,
 }
 
 const fn default_true() -> bool {
@@ -191,6 +273,29 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
             "settlementEvolution cannot be combined with frontageProgram.requests.count".into(),
         );
     }
+    if let Some(districts) = &program.district_demand {
+        if districts.version != 1 || districts.shares.is_empty() {
+            return Err("invalid settlementEvolution districtDemand".into());
+        }
+        let mut stages = std::collections::BTreeSet::new();
+        let mut sum = 0.0;
+        for entry in &districts.shares {
+            if !matches!(
+                entry.stage.as_str(),
+                "old-core" | "renewal" | "new-growth" | "periphery"
+            ) || !stages.insert(entry.stage.as_str())
+                || !entry.share.is_finite()
+                || !(0.0..=1.0).contains(&entry.share)
+                || entry.share <= 0.0
+            {
+                return Err("invalid settlementEvolution districtDemand shares".into());
+            }
+            sum += entry.share;
+        }
+        if (sum - 1.0).abs() > 1e-6 {
+            return Err("settlementEvolution districtDemand shares must sum to 1".into());
+        }
+    }
     Ok(())
 }
 
@@ -219,10 +324,10 @@ pub fn plan(
     }
     terrain.require_complete()?;
     let typology = community_typology::resolve(style).map_err(TerrainError)?;
-    let lot_width_m = (program.lot_width_m
+    let base_lot_width_m = (program.lot_width_m
         * typology.as_ref().map_or(1.0, |value| value.lot_width_scale))
     .clamp(8.0, 80.0);
-    let lot_depth_m = (program.lot_depth_m
+    let base_lot_depth_m = (program.lot_depth_m
         * typology.as_ref().map_or(1.0, |value| value.lot_depth_scale))
     .clamp(8.0, 80.0);
     let floor_area_ratio =
@@ -237,6 +342,12 @@ pub fn plan(
     let job_area_m2 = typology.as_ref().map_or(38.0, |value| value.job_area_m2);
     let retail_share = typology.as_ref().map_or(0.12, |value| value.retail_share);
     let center = route_center(routes);
+    let target_demand = Demand {
+        households: program.households_target,
+        jobs: program.jobs_target,
+        retail_floor_area_m2: program.retail_floor_area_m2,
+        service_budget: program.service_budget,
+    };
     let mut demand = Demand {
         households: program.households_target,
         jobs: program.jobs_target,
@@ -255,6 +366,7 @@ pub fn plan(
     let mut candidate_lots = 0;
     let mut total_floor_area = 0.0;
     let mut accepted_lot_centers = Vec::<(i32, i32)>::new();
+    let mut candidates = Vec::<Candidate>::new();
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         for (segment_index, segment) in route.polyline.windows(2).enumerate() {
             let dx = f64::from(segment[1].x - segment[0].x);
@@ -279,16 +391,16 @@ pub fn plan(
                     );
                     let access = route.road_width_m as f64 * 0.5 + f64::from(program.setback_m);
                     let mut center_x =
-                        road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
+                        road_x + normal_x * side * (access + f64::from(base_lot_depth_m) * 0.5);
                     let mut center_z =
-                        road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
+                        road_z + normal_z * side * (access + f64::from(base_lot_depth_m) * 0.5);
                     let mut x = center_x.round() as i32;
                     let mut z = center_z.round() as i32;
                     let mut center_distance =
                         (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
                     let district_stage = district_stage(style, center_distance);
                     let (lot_width_m, lot_depth_m) =
-                        staged_lot_size(district_stage, lot_width_m, lot_depth_m);
+                        staged_lot_size(district_stage, base_lot_width_m, base_lot_depth_m);
                     center_x = road_x + normal_x * side * (access + f64::from(lot_depth_m) * 0.5);
                     center_z = road_z + normal_z * side * (access + f64::from(lot_depth_m) * 0.5);
                     x = center_x.round() as i32;
@@ -341,105 +453,153 @@ pub fn plan(
                         });
                         continue;
                     }
-                    let pressure = (1.0 - center_distance / 650.0).clamp(0.15, 1.0);
-                    let wants_retail = demand.retail_floor_area_m2 > 0.0 && pressure > 0.28;
-                    let wants_jobs = demand.jobs > 0 && (pressure > 0.55 || demand.households == 0);
-                    let selection = building_archetypes::SelectionInput {
-                        community_profile: typology
-                            .as_ref()
-                            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
-                        district_stage: district_stage.into(),
-                        center_pressure: pressure,
-                        lot_width_m,
-                        lot_depth_m,
-                        needs_homes: demand.households > 0,
-                        needs_jobs: wants_jobs,
-                        needs_retail: wants_retail,
-                    };
-                    let archetype = building_archetypes::choose(&selection);
-                    let mut form = building_archetypes::form(&candidate_id, &selection, &archetype);
-                    form.floors = form.floors.min(max_floors);
-                    let floor_area = f64::from(form.footprint_m2)
-                        * f64::from(form.floors)
-                        * f64::from(floor_area_ratio);
-                    let household_capacity = (floor_area / household_area_m2).floor() as u32;
-                    let job_capacity = (floor_area / job_area_m2).floor() as u32;
-                    let retail_capacity = floor_area * retail_share;
-                    let service_capacity = floor_area / 700.0;
-                    let homes = household_capacity.min(demand.households);
-                    let jobs = job_capacity.min(demand.jobs);
-                    let retail = retail_capacity.min(demand.retail_floor_area_m2);
-                    let services = service_capacity.min(demand.service_budget);
-                    if homes == 0 && jobs == 0 && retail <= 0.0 && services <= 0.0 {
-                        rejections.push(Rejection {
-                            candidate_id,
-                            route_id: route.id.clone(),
-                            world_x: x,
-                            world_z: z,
-                            reason: "no_remaining_demand".into(),
-                        });
-                        continue;
-                    }
-                    let height = 4.0 + form.floors as f32 * 3.2;
-                    let building = Building {
-                        id: candidate_id.clone(),
-                        kind: form.kind.clone(),
+                    candidates.push(Candidate {
+                        id: candidate_id,
                         route_id: route.id.clone(),
-                        side: if side < 0.0 {
-                            "left".into()
-                        } else {
-                            "right".into()
-                        },
+                        side: if side < 0.0 { "left" } else { "right" }.into(),
                         world_x: x,
                         world_z: z,
-                        width_m: form.width_m,
-                        depth_m: form.depth_m,
-                        height_m: height,
-                        floors: form.floors,
-                        floor_area_m2: floor_area,
-                        households: homes,
-                        jobs,
-                        retail_floor_area_m2: retail,
-                        service_budget: services,
+                        width_m: lot_width_m,
+                        depth_m: lot_depth_m,
                         access_distance_m: access as f32,
                         center_distance_m: center_distance,
-                        community_profile: typology
-                            .as_ref()
-                            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
-                        income_band: typology.as_ref().map_or_else(
-                            || "mixed".into(),
-                            |value| {
-                                community_typology::income_band(&value.profile, center_distance)
-                                    .into()
-                            },
-                        ),
-                        archetype_id: form.archetype_id,
-                        recommended_count: form.recommended_count,
-                        lot_area_m2: f64::from(lot_width_m) * f64::from(lot_depth_m),
-                        coverage_ratio: f64::from(form.coverage_ratio),
-                        frontage_road_point: Some([road_x.round() as i32, road_z.round() as i32]),
+                        pressure: (1.0 - center_distance / 650.0).clamp(0.15, 1.0),
+                        frontage_road_point: [road_x.round() as i32, road_z.round() as i32],
                         district_stage: district_stage.into(),
-                    };
-                    demand.households -= homes;
-                    demand.jobs -= jobs;
-                    demand.retail_floor_area_m2 = (demand.retail_floor_area_m2 - retail).max(0.0);
-                    demand.service_budget = (demand.service_budget - services).max(0.0);
-                    delivered.households += homes;
-                    delivered.jobs += jobs;
-                    delivered.retail_floor_area_m2 += retail;
-                    delivered.service_budget += services;
-                    total_floor_area += floor_area;
-                    accepted_lots += 1;
+                    });
                     accepted_lot_centers.push((x, z));
-                    buildings.push(building);
-                    if demand_is_empty(&demand) {
-                        break;
-                    }
-                }
-                if demand_is_empty(&demand) {
-                    break;
                 }
             }
+        }
+    }
+    let rules = SelectionRules {
+        community_profile: typology
+            .as_ref()
+            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
+        household_area_m2,
+        job_area_m2,
+        retail_share,
+        floor_area_ratio: f64::from(floor_area_ratio),
+        max_floors,
+    };
+    let mut accepted = vec![false; candidates.len()];
+    let mut stage_planned = BTreeMap::<String, Demand>::new();
+    let mut stage_delivered = BTreeMap::<String, Demand>::new();
+    let mut stage_remaining = BTreeMap::<String, Demand>::new();
+    let mut stage_eligible = BTreeMap::<String, usize>::new();
+    let mut stage_accepted = BTreeMap::<String, usize>::new();
+    let mut stage_spill = BTreeMap::<String, usize>::new();
+    let mut district_allocation = Vec::new();
+    if let Some(districts) = &program.district_demand {
+        let planned_by_stage = allocate_district_demands(&target_demand, &districts.shares);
+        for entry in &districts.shares {
+            let planned = planned_by_stage
+                .get(&entry.stage)
+                .cloned()
+                .unwrap_or_default();
+            stage_planned.insert(entry.stage.clone(), planned.clone());
+            stage_delivered.insert(entry.stage.clone(), Demand::default());
+            stage_remaining.insert(entry.stage.clone(), planned);
+        }
+        for candidate in &candidates {
+            *stage_eligible
+                .entry(candidate.district_stage.clone())
+                .or_default() += 1;
+        }
+        for (index, candidate) in candidates.iter().enumerate() {
+            let limit = stage_remaining
+                .get(&candidate.district_stage)
+                .cloned()
+                .unwrap_or_default();
+            if demand_is_empty(&limit) {
+                continue;
+            }
+            let Some(accepted_candidate) = try_build_candidate(candidate, &limit, &rules) else {
+                continue;
+            };
+            commit_candidate(
+                index,
+                accepted_candidate,
+                candidate,
+                &mut demand,
+                &mut delivered,
+                &mut buildings,
+                &mut accepted,
+                &mut total_floor_area,
+                &mut accepted_lots,
+                &mut stage_remaining,
+                &mut stage_delivered,
+                &mut stage_accepted,
+                false,
+                &mut stage_spill,
+            );
+        }
+        if districts.allow_spill && !demand_is_empty(&demand) {
+            for (index, candidate) in candidates.iter().enumerate() {
+                if accepted[index] {
+                    continue;
+                }
+                let Some(accepted_candidate) = try_build_candidate(candidate, &demand, &rules)
+                else {
+                    continue;
+                };
+                commit_candidate(
+                    index,
+                    accepted_candidate,
+                    candidate,
+                    &mut demand,
+                    &mut delivered,
+                    &mut buildings,
+                    &mut accepted,
+                    &mut total_floor_area,
+                    &mut accepted_lots,
+                    &mut stage_remaining,
+                    &mut stage_delivered,
+                    &mut stage_accepted,
+                    true,
+                    &mut stage_spill,
+                );
+            }
+        }
+        for entry in &districts.shares {
+            district_allocation.push(DistrictAllocation {
+                stage: entry.stage.clone(),
+                share: entry.share,
+                planned: stage_planned.get(&entry.stage).cloned().unwrap_or_default(),
+                delivered: stage_delivered
+                    .get(&entry.stage)
+                    .cloned()
+                    .unwrap_or_default(),
+                remaining: stage_remaining
+                    .get(&entry.stage)
+                    .cloned()
+                    .unwrap_or_default(),
+                eligible_lots: *stage_eligible.get(&entry.stage).unwrap_or(&0),
+                accepted_lots: *stage_accepted.get(&entry.stage).unwrap_or(&0),
+                spill_accepted_lots: *stage_spill.get(&entry.stage).unwrap_or(&0),
+            });
+        }
+    } else {
+        for (index, candidate) in candidates.iter().enumerate() {
+            let Some(accepted_candidate) = try_build_candidate(candidate, &demand, &rules) else {
+                continue;
+            };
+            commit_candidate(
+                index,
+                accepted_candidate,
+                candidate,
+                &mut demand,
+                &mut delivered,
+                &mut buildings,
+                &mut accepted,
+                &mut total_floor_area,
+                &mut accepted_lots,
+                &mut stage_remaining,
+                &mut stage_delivered,
+                &mut stage_accepted,
+                false,
+                &mut stage_spill,
+            );
             if demand_is_empty(&demand) {
                 break;
             }
@@ -455,12 +615,7 @@ pub fn plan(
         } else {
             "incomplete".into()
         },
-        demand: Demand {
-            households: program.households_target,
-            jobs: program.jobs_target,
-            retail_floor_area_m2: program.retail_floor_area_m2,
-            service_budget: program.service_budget,
-        },
+        demand: target_demand,
         delivered,
         unmet_demand,
         capacity: Capacity {
@@ -472,7 +627,185 @@ pub fn plan(
         buildings,
         rejections,
         community_profile: typology.as_ref().map(|value| value.profile.clone()),
+        district_allocation,
     }))
+}
+
+fn allocate_district_demands(
+    target: &Demand,
+    shares: &[DistrictDemandShare],
+) -> BTreeMap<String, Demand> {
+    let mut allocated = BTreeMap::new();
+    let mut households = 0_u32;
+    let mut jobs = 0_u32;
+    let mut retail = 0.0_f64;
+    let mut services = 0.0_f64;
+    for (index, entry) in shares.iter().enumerate() {
+        let last = index + 1 == shares.len();
+        let stage_households = if last {
+            target.households.saturating_sub(households)
+        } else {
+            (f64::from(target.households) * entry.share).round() as u32
+        }
+        .min(target.households.saturating_sub(households));
+        let stage_jobs = if last {
+            target.jobs.saturating_sub(jobs)
+        } else {
+            (f64::from(target.jobs) * entry.share).round() as u32
+        }
+        .min(target.jobs.saturating_sub(jobs));
+        let stage_retail = if last {
+            (target.retail_floor_area_m2 - retail).max(0.0)
+        } else {
+            target.retail_floor_area_m2 * entry.share
+        };
+        let stage_services = if last {
+            (target.service_budget - services).max(0.0)
+        } else {
+            target.service_budget * entry.share
+        };
+        households += stage_households;
+        jobs += stage_jobs;
+        retail += stage_retail;
+        services += stage_services;
+        allocated.insert(
+            entry.stage.clone(),
+            Demand {
+                households: stage_households,
+                jobs: stage_jobs,
+                retail_floor_area_m2: stage_retail,
+                service_budget: stage_services,
+            },
+        );
+    }
+    allocated
+}
+
+fn try_build_candidate(
+    candidate: &Candidate,
+    limit: &Demand,
+    rules: &SelectionRules,
+) -> Option<AcceptedCandidate> {
+    let wants_retail = limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.28;
+    let wants_jobs = limit.jobs > 0 && (candidate.pressure > 0.55 || limit.households == 0);
+    let selection = building_archetypes::SelectionInput {
+        community_profile: rules.community_profile.clone(),
+        district_stage: candidate.district_stage.clone(),
+        center_pressure: candidate.pressure,
+        lot_width_m: candidate.width_m,
+        lot_depth_m: candidate.depth_m,
+        needs_homes: limit.households > 0,
+        needs_jobs: wants_jobs,
+        needs_retail: wants_retail,
+    };
+    let archetype = building_archetypes::choose(&selection);
+    let mut form = building_archetypes::form(&candidate.id, &selection, &archetype);
+    form.floors = form.floors.min(rules.max_floors);
+    let floor_area = f64::from(form.footprint_m2) * f64::from(form.floors) * rules.floor_area_ratio;
+    let household_capacity = (floor_area / rules.household_area_m2).floor() as u32;
+    let job_capacity = (floor_area / rules.job_area_m2).floor() as u32;
+    let retail_capacity = floor_area * rules.retail_share;
+    let service_capacity = floor_area / 700.0;
+    let spent = Demand {
+        households: household_capacity.min(limit.households),
+        jobs: job_capacity.min(limit.jobs),
+        retail_floor_area_m2: retail_capacity.min(limit.retail_floor_area_m2),
+        service_budget: service_capacity.min(limit.service_budget),
+    };
+    if demand_is_empty(&spent) {
+        return None;
+    }
+    let height = 4.0 + form.floors as f32 * 3.2;
+    let building = Building {
+        id: candidate.id.clone(),
+        kind: form.kind.clone(),
+        route_id: candidate.route_id.clone(),
+        side: candidate.side.clone(),
+        world_x: candidate.world_x,
+        world_z: candidate.world_z,
+        width_m: form.width_m,
+        depth_m: form.depth_m,
+        height_m: height,
+        floors: form.floors,
+        floor_area_m2: floor_area,
+        households: spent.households,
+        jobs: spent.jobs,
+        retail_floor_area_m2: spent.retail_floor_area_m2,
+        service_budget: spent.service_budget,
+        access_distance_m: candidate.access_distance_m,
+        center_distance_m: candidate.center_distance_m,
+        community_profile: rules.community_profile.clone(),
+        income_band: community_typology::income_band(
+            &rules.community_profile,
+            candidate.center_distance_m,
+        )
+        .into(),
+        archetype_id: form.archetype_id,
+        recommended_count: form.recommended_count,
+        lot_area_m2: f64::from(candidate.width_m) * f64::from(candidate.depth_m),
+        coverage_ratio: f64::from(form.coverage_ratio),
+        frontage_road_point: Some(candidate.frontage_road_point),
+        district_stage: candidate.district_stage.clone(),
+    };
+    Some(AcceptedCandidate {
+        building,
+        spent,
+        floor_area_m2: floor_area,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_candidate(
+    index: usize,
+    accepted_candidate: AcceptedCandidate,
+    candidate: &Candidate,
+    demand: &mut Demand,
+    delivered: &mut Demand,
+    buildings: &mut Vec<Building>,
+    accepted: &mut [bool],
+    total_floor_area: &mut f64,
+    accepted_lots: &mut usize,
+    stage_remaining: &mut BTreeMap<String, Demand>,
+    stage_delivered: &mut BTreeMap<String, Demand>,
+    stage_accepted: &mut BTreeMap<String, usize>,
+    spill: bool,
+    stage_spill: &mut BTreeMap<String, usize>,
+) {
+    subtract_demand(demand, &accepted_candidate.spent);
+    if let Some(limit) = stage_remaining.get_mut(&candidate.district_stage) {
+        subtract_demand(limit, &accepted_candidate.spent);
+    }
+    let stage_total = stage_delivered
+        .entry(candidate.district_stage.clone())
+        .or_default();
+    stage_total.households += accepted_candidate.spent.households;
+    stage_total.jobs += accepted_candidate.spent.jobs;
+    stage_total.retail_floor_area_m2 += accepted_candidate.spent.retail_floor_area_m2;
+    stage_total.service_budget += accepted_candidate.spent.service_budget;
+    delivered.households += accepted_candidate.spent.households;
+    delivered.jobs += accepted_candidate.spent.jobs;
+    delivered.retail_floor_area_m2 += accepted_candidate.spent.retail_floor_area_m2;
+    delivered.service_budget += accepted_candidate.spent.service_budget;
+    *total_floor_area += accepted_candidate.floor_area_m2;
+    *accepted_lots += 1;
+    accepted[index] = true;
+    buildings.push(accepted_candidate.building);
+    *stage_accepted
+        .entry(candidate.district_stage.clone())
+        .or_default() += 1;
+    if spill {
+        *stage_spill
+            .entry(candidate.district_stage.clone())
+            .or_default() += 1;
+    }
+}
+
+fn subtract_demand(remaining: &mut Demand, spent: &Demand) {
+    remaining.households = remaining.households.saturating_sub(spent.households);
+    remaining.jobs = remaining.jobs.saturating_sub(spent.jobs);
+    remaining.retail_floor_area_m2 =
+        (remaining.retail_floor_area_m2 - spent.retail_floor_area_m2).max(0.0);
+    remaining.service_budget = (remaining.service_budget - spent.service_budget).max(0.0);
 }
 
 fn route_center(plan: &RoutePlan) -> (f64, f64) {
@@ -598,7 +931,11 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                         world_x: (f64::from(building.world_x) + nx * reach).round() as i32,
                         world_z: (f64::from(building.world_z) + nz * reach).round() as i32,
                         direction: if dx.abs() > dz.abs() {
-                            if dx > 0.0 { "east" } else { "west" }
+                            if dx > 0.0 {
+                                "east"
+                            } else {
+                                "west"
+                            }
                         } else if dz > 0.0 {
                             "south"
                         } else {
@@ -712,7 +1049,7 @@ mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
     use crate::worldgen::route_evolution::{Anchor, Plan as RoutePlan, Route, RoutePoint};
-    use crate::worldgen::{WaterKind, water_geometry};
+    use crate::worldgen::{water_geometry, WaterKind};
 
     fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry) {
         let scene = SceneSpec {
@@ -818,11 +1155,10 @@ mod tests {
             .unwrap();
         assert_eq!(low.status, "pass", "{:?}", low.unmet_demand);
         assert!(high.buildings.len() > low.buildings.len());
-        assert!(
-            high.buildings
-                .iter()
-                .any(|building| building.kind == "office_tower")
-        );
+        assert!(high
+            .buildings
+            .iter()
+            .any(|building| building.kind == "office_tower"));
         let entities = materialize(&low, &terrain);
         assert_eq!(entities.len(), low.buildings.len());
         assert!(entities.iter().all(|entity| {
@@ -855,6 +1191,70 @@ mod tests {
     }
 
     #[test]
+    fn district_budgets_reserve_epochs_and_spill_only_unused_demand() {
+        let (scene, terrain, water) = fixture();
+        let routes = route_plan();
+        let mut value = style(300, 80, 600.0);
+        value["epochProgram"] = serde_json::json!({
+            "oldCoreRadiusM": 50,
+            "expansionRadiusM": 100,
+            "modernRadiusM": 160
+        });
+        value["settlementEvolution"]["districtDemand"] = serde_json::json!({
+            "version": 1,
+            "allowSpill": true,
+            "shares": [
+                {"stage": "old-core", "share": 0.15},
+                {"stage": "renewal", "share": 0.35},
+                {"stage": "new-growth", "share": 0.40},
+                {"stage": "periphery", "share": 0.10}
+            ]
+        });
+        let planned = plan(&scene, &terrain, water, &routes, &value)
+            .unwrap()
+            .unwrap();
+        assert_eq!(planned.status, "pass", "{:?}", planned.unmet_demand);
+        assert_eq!(planned.district_allocation.len(), 4);
+        assert_eq!(
+            planned
+                .district_allocation
+                .iter()
+                .map(|entry| entry.planned.households)
+                .sum::<u32>(),
+            planned.demand.households
+        );
+        let occupied = planned
+            .buildings
+            .iter()
+            .map(|building| building.district_stage.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(occupied.contains("old-core"));
+        assert!(occupied.contains("renewal"));
+        assert!(occupied.contains("new-growth"));
+        assert_eq!(
+            planned
+                .district_allocation
+                .iter()
+                .map(|entry| entry.accepted_lots)
+                .sum::<usize>(),
+            planned.buildings.len()
+        );
+    }
+
+    #[test]
+    fn district_budget_shares_must_be_unique_and_complete() {
+        let mut value = style(10, 0, 0.0);
+        value["settlementEvolution"]["districtDemand"] = serde_json::json!({
+            "version": 1,
+            "shares": [
+                {"stage": "old-core", "share": 0.6},
+                {"stage": "renewal", "share": 0.2}
+            ]
+        });
+        assert!(validate_style(&value).is_err());
+    }
+
+    #[test]
     fn regional_typologies_change_capacity_outcomes() {
         let (scene, terrain, water) = fixture();
         let routes = route_plan();
@@ -871,10 +1271,9 @@ mod tests {
         assert_eq!(china.community_profile.as_deref(), Some("china-gated"));
         assert_eq!(us.community_profile.as_deref(), Some("us-suburban"));
         assert_ne!(china.buildings.len(), us.buildings.len());
-        assert!(
-            us.buildings
-                .iter()
-                .all(|building| building.income_band == "homeowner")
-        );
+        assert!(us
+            .buildings
+            .iter()
+            .all(|building| building.income_band == "homeowner"));
     }
 }

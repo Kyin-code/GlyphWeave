@@ -1,5 +1,13 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 分时代需求预留**：`settlementEvolution.districtDemand`
+> 已接入生产路径。旧城、更新带、新区和外围先按需求份额消费，首轮未被
+> 本阶段地块使用的预算才进入全局回填；建筑数量仍是地块容量的结果。
+> 1km 控制已实际产生旧城窄街宅、更新带公寓/街面和新区中层，
+> 住宅/岗位/商业/服务需求闭合，`scale-audit pass`、`quality-report pass`。
+> 证据见
+> [`DISTRICT-DEMAND-ALLOCATION-20261021.zh-CN.md`](DISTRICT-DEMAND-ALLOCATION-20261021.zh-CN.md)。
+
 > **2026-10-21 V3 审核通过并进入实现**：项目负责人已确认自然基线、取消普通
 > 建筑固定完成数、地形驱动建筑尺寸、新旧城 epoch、网络中心、分级市场、
 > 48 城特征复刻和宏观工程弱门限。已落地自然基线冻结/最终差分、自然节点

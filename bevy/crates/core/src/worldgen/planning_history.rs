@@ -1163,6 +1163,7 @@ mod tests {
             ],
             rejections: Vec::new(),
             community_profile: Some("china-gated".into()),
+            district_allocation: Vec::new(),
         }
     }
 
