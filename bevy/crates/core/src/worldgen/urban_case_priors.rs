@@ -148,20 +148,57 @@ pub fn validate(registry: &Registry) -> Result<(), String> {
 }
 
 pub fn natural_geography_sketch(case: &CasePrior) -> Value {
+    let setting = core_natural_setting(&case.natural_geography.setting);
     json!({
         "version": 1,
         "mode": "derived",
-        "setting": &case.natural_geography.setting,
+        "setting": setting,
         "regionalReliefM": case.natural_geography.regional_relief_m,
         "climateBand": &case.natural_geography.climate_band,
         "derivationSeed": stable_seed(&case.id),
         "hints": {
             "caseId": &case.id,
+            "caseSetting": &case.natural_geography.setting,
+            "normalizedFromCasePrior": setting != case.natural_geography.setting,
             "geomorphicProcesses": &case.natural_geography.geomorphic_processes,
             "hydrography": &case.natural_geography.hydrography,
             "hazards": &case.natural_geography.hazards
         }
     })
+}
+
+fn core_natural_setting(case_setting: &str) -> &'static str {
+    let value = case_setting.to_ascii_lowercase();
+    if value.contains("delta") {
+        "river-delta"
+    } else if value.contains("tidal") {
+        "tidal-flat"
+    } else if value.contains("ria") {
+        "ria-bay"
+    } else if value.contains("volcan") {
+        "volcanic-island"
+    } else if value.contains("island") {
+        "island"
+    } else if value.contains("plateau") {
+        "plateau-basin"
+    } else if value.contains("rift") || value.contains("valley") {
+        "rift-valley"
+    } else if value.contains("fold")
+        || value.contains("mountain")
+        || value.contains("mass-wasting")
+    {
+        "coastal-mountain"
+    } else if value.contains("bay") || value.contains("coast") || value.contains("harbour") {
+        "coastal-bay"
+    } else if value.contains("steppe")
+        || value.contains("plain")
+        || value.contains("desert")
+        || value.contains("basin")
+    {
+        "inland-steppe"
+    } else {
+        "inland-basin"
+    }
 }
 
 pub fn urban_slice(case: &CasePrior) -> Value {
@@ -183,6 +220,54 @@ pub fn urban_slice(case: &CasePrior) -> Value {
 
 pub fn pressure_prior(case: &CasePrior) -> Value {
     serde_json::to_value(&case.land_pressure_prior).unwrap_or(Value::Null)
+}
+
+/// Resolve a referenced 48-case prior into the style fields the generator
+/// consumes. Authored fields always win; this fills only absent values.
+pub fn compose_style(style: &Value) -> Result<Value, String> {
+    let Some(case_ids) = style
+        .get("referenceData")
+        .and_then(|reference| reference.get("caseIds"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(style.clone());
+    };
+    let Some(case_id) = case_ids.first().and_then(Value::as_str) else {
+        return Err("referenceData.caseIds must contain at least one string".into());
+    };
+    let prior = case(case_id)?
+        .ok_or_else(|| format!("referenceData.caseIds references unknown case {case_id}"))?;
+    let mut composed = style.clone();
+    let object = composed
+        .as_object_mut()
+        .ok_or_else(|| "style must be an object".to_string())?;
+    object
+        .entry("naturalGeography")
+        .or_insert_with(|| natural_geography_sketch(&prior));
+    object
+        .entry("urbanSlice")
+        .or_insert_with(|| urban_slice(&prior));
+    object.entry("communityProfile").or_insert_with(|| {
+        json!({
+            "version": 1,
+            "profile": &prior.community_profile,
+            "inferred": true,
+            "inferenceReason": format!("community profile from urban case {}", prior.id)
+        })
+    });
+    object.insert(
+        "urbanCasePrior".into(),
+        json!({
+            "id": &prior.id,
+            "region": &prior.region,
+            "coreCut": &prior.core_cut,
+            "focusFeature": &prior.focus_feature,
+            "history": &prior.history,
+            "contextCaseIds": case_ids,
+            "evidenceConfidence": &prior.evidence.confidence,
+        }),
+    );
+    Ok(composed)
 }
 
 fn stable_seed(text: &str) -> u64 {
@@ -255,5 +340,31 @@ mod tests {
     #[test]
     fn unknown_case_is_absent_not_silently_defaulted() {
         assert!(case("not-a-city").unwrap().is_none());
+    }
+
+    #[test]
+    fn referenced_case_composes_absent_style_fields_and_keeps_authored_ones() {
+        let style = json!({
+            "referenceData": {"caseIds": ["cn-chongqing"]},
+            "urbanSlice": {"version": 1, "settlementScale": "custom-authored"}
+        });
+        let composed = compose_style(&style).unwrap();
+        assert_eq!(composed["naturalGeography"]["setting"], "coastal-mountain");
+        assert_eq!(
+            composed["naturalGeography"]["hints"]["caseSetting"],
+            "fold-mountain-river-confluence"
+        );
+        assert_eq!(composed["urbanSlice"]["settlementScale"], "custom-authored");
+        assert_eq!(
+            composed["communityProfile"]["profile"],
+            "china-gated"
+        );
+        assert_eq!(composed["urbanCasePrior"]["history"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn referenced_unknown_case_fails_closed() {
+        let style = json!({"referenceData": {"caseIds": ["missing-case"]}});
+        assert!(compose_style(&style).unwrap_err().contains("unknown case"));
     }
 }

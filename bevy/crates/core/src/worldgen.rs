@@ -2537,13 +2537,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     // Compile the single effective program set for this bake. Roads, frontage,
     // services, agriculture and residual land all consume this one value; no
     // module fills its own default.
+    let composed_style = urban_case_priors::compose_style(&manifest.style)
+        .map_err(WorldgenError::InvalidRules)?;
     let compiled_style =
-        crate::settlement::morphology_compile::compile(&manifest.style, &manifest.scenes)
+        crate::settlement::morphology_compile::compile(&composed_style, &manifest.scenes)
             .map_err(WorldgenError::InvalidRules)?;
     let effective_style = compiled_style
         .as_ref()
         .map(|compiled| compiled.style.clone())
-        .unwrap_or_else(|| manifest.style.clone());
+        .unwrap_or_else(|| composed_style.clone());
     let precise = height_encoding_from_style(&manifest.style)? == HeightEncoding::Millimetre;
     let rules_mode = manifest
         .style
@@ -2578,14 +2580,15 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     }
     fs::create_dir_all(output)?;
     let geography_plan =
-        natural_geography::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+        natural_geography::compile(&effective_style).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &geography_plan {
         fs::write(
             output.join("natural-geography-plan.json"),
             serde_json::to_vec_pretty(plan)?,
         )?;
     }
-    let slice_plan = urban_slice::compile(&manifest.style).map_err(WorldgenError::InvalidRules)?;
+    let slice_plan =
+        urban_slice::compile(&effective_style).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &slice_plan {
         fs::write(
             output.join("urban-slice-plan.json"),
@@ -2700,7 +2703,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let natural_baseline = natural_baseline::freeze(
             scene,
             &natural_samples,
-            manifest.style.get("naturalGeography"),
+            effective_style.get("naturalGeography"),
         )?;
         fs::write(
             scene_dir.join("natural-baseline.json"),

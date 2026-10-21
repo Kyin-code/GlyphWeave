@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 48 城先验正式消费**：`referenceData.caseIds[0]` 现在会在
+> morphology 编译前自动补齐 `naturalGeography`、`urbanSlice`、
+> `communityProfile` 和案例历史元数据；作者手写字段优先，未知案例失败关闭。
+> 详见
+> [`URBAN-CASE-PRIOR-COMPOSITION-20261021.zh-CN.md`](URBAN-CASE-PRIOR-COMPOSITION-20261021.zh-CN.md)。
+
 > **2026-10-21 新旧城连续街墙与时代继承**：旧城改用窄街取样间距，时代预算
 > 按同一街侧连续消费，单栋孤点不冒充街墙；最终实体继承 epoch 的
 > `preserve/modify/replace` 与父对象。香港 1km r7 为 33 栋最终建筑，
