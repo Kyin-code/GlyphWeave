@@ -285,6 +285,25 @@ pub fn plan(
                 if selected.iter().any(|(node, _)| *node == candidate) {
                     continue;
                 }
+                let Some(candidate_footprint) = market_footprint(
+                    routes,
+                    graph.nodes[candidate].x,
+                    graph.nodes[candidate].z,
+                    tier,
+                ) else {
+                    continue;
+                };
+                if selected.iter().any(|(node, selected_tier)| {
+                    market_footprint(
+                        routes,
+                        graph.nodes[*node].x,
+                        graph.nodes[*node].z,
+                        &tiers[*selected_tier],
+                    )
+                    .is_some_and(|other| footprints_overlap(candidate_footprint, other, 2.0))
+                }) {
+                    continue;
+                }
                 let times = graph.times_from(candidate, program.walk_speed_mps);
                 let reachable: f64 = demand_points
                     .iter()
@@ -360,21 +379,9 @@ pub fn plan(
             capacity: tier.capacity,
             quality: tier.quality,
             max_travel_minutes: tier.max_travel_minutes,
-            width_m: match tier.id.as_str() {
-                "street-market" => 36.0,
-                "district" => 72.0,
-                _ => 48.0,
-            },
-            depth_m: match tier.id.as_str() {
-                "street-market" => 24.0,
-                "district" => 54.0,
-                _ => 32.0,
-            },
-            height_m: match tier.id.as_str() {
-                "street-market" => 7.0,
-                "district" => 15.0,
-                _ => 10.0,
-            },
+            width_m: market_size(tier).0,
+            depth_m: market_size(tier).1,
+            height_m: market_size(tier).2,
             load: 0.0,
         });
         all_times.push(times);
@@ -562,6 +569,45 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
             })
         })
         .collect()
+}
+
+fn market_size(tier: &Tier) -> (f32, f32, f32) {
+    match tier.id.as_str() {
+        "street-market" => (36.0, 24.0, 7.0),
+        "district" => (72.0, 54.0, 15.0),
+        _ => (48.0, 32.0, 10.0),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Footprint {
+    min_x: f64,
+    max_x: f64,
+    min_z: f64,
+    max_z: f64,
+}
+
+fn market_footprint(routes: &RoutePlan, x: i32, z: i32, tier: &Tier) -> Option<Footprint> {
+    let station = nearest_station(routes, x, z)?;
+    let (width, depth, _) = market_size(tier);
+    let center_x = station.x + station.normal_x * (f64::from(depth) * 0.5 + 12.0);
+    let center_z = station.z + station.normal_z * (f64::from(depth) * 0.5 + 12.0);
+    let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
+    let half_x = f64::from(width) * 0.5 * cos.abs() + f64::from(depth) * 0.5 * sin.abs();
+    let half_z = f64::from(width) * 0.5 * sin.abs() + f64::from(depth) * 0.5 * cos.abs();
+    Some(Footprint {
+        min_x: center_x - half_x,
+        max_x: center_x + half_x,
+        min_z: center_z - half_z,
+        max_z: center_z + half_z,
+    })
+}
+
+fn footprints_overlap(a: Footprint, b: Footprint, margin_m: f64) -> bool {
+    a.min_x <= b.max_x + margin_m
+        && a.max_x + margin_m >= b.min_x
+        && a.min_z <= b.max_z + margin_m
+        && a.max_z + margin_m >= b.min_z
 }
 
 struct Station {
@@ -949,6 +995,25 @@ mod tests {
             .markets
             .iter()
             .all(|market| market.load <= market.capacity + 1e-6));
+        for (index, market) in plan.markets.iter().enumerate() {
+            for other in plan.markets.iter().skip(index + 1) {
+                let left = market_footprint(
+                    &route_plan(),
+                    market.world_x,
+                    market.world_z,
+                    &tiers_for_test(&market.tier),
+                )
+                .unwrap();
+                let right = market_footprint(
+                    &route_plan(),
+                    other.world_x,
+                    other.world_z,
+                    &tiers_for_test(&other.tier),
+                )
+                .unwrap();
+                assert!(!footprints_overlap(left, right, 2.0));
+            }
+        }
     }
 
     #[test]
@@ -1006,5 +1071,23 @@ mod tests {
                 && entity.width_m > 0.0
                 && entity.depth_m > 0.0
         }));
+    }
+
+    fn tiers_for_test(id: &str) -> Tier {
+        Tier {
+            id: id.into(),
+            kind: match id {
+                "street-market" => "community-market-hall",
+                "district" => "large-supermarket",
+                _ => "neighbourhood-supermarket",
+            }
+            .into(),
+            capacity: 100.0,
+            quality: 1.0,
+            max_travel_minutes: 15.0,
+            max_count: 1,
+            candidate_spacing_m: 80.0,
+            preference: 1.0,
+        }
     }
 }

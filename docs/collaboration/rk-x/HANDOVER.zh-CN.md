@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 市场占地去重叠**：市场候选现在按离路 12m 后的真实 footprint
+> 检查 2m 净距，不再只按路线节点去重。`market.4` 从与 `market.1` 重叠的
+> 节点改选到 `(378,506)`；1km 控制最终 4 个市场，AccessGraph 20 连通/0
+> 断点，scale/quality/visual 均 pass。见
+> [`MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`](MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md)。
+
 > **2026-10-21 坡地入口台地**：修复 `world_y` 整数米与毫米 Heightfield
 > 之间的半米量化误差；聚落建筑 pad 改用道路设计标高，控制切面声明
 > `maxPadCutM=12`，短引道不再额外抬高 0.5m。1km 最终普通建筑 12→16，

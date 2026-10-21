@@ -429,3 +429,13 @@ pass。证据见 `PREVIEW-STREET-CAMERA-FIX-20261021.zh-CN.md`。
 AccessGraph 20 个连通/0 断点，scale/quality/visual feedback 均 pass。
 剩余 8 个规划建筑有真实坡地入口高差，具名等待 stairs/switchback/landing
 工程，不能靠继续放宽 0.3m 台阶合同解决。
+
+## Round 63 · 2026-10-21 · 市场候选真实占地去重叠
+
+市场计划原先只按路线节点去重，离路后的建筑仍可能重叠；`market.1` 与
+`market.4` 曾仅相隔约 7m，40m 以上 footprint 大面积相交。选择器现在计算
+最终旋转 footprint，并要求 2m 净距。`market.4` 改选到 `(378,506)`。
+
+r12 控制最终 4 个市场，AccessGraph 20 连通/0 断点，scale、quality 与
+visual feedback 全部 pass；唯一失败市场为 `market.0`，仍具名记录边界锚点
+问题。证据见 `MARKET-FOOTPRINT-OCCUPANCY-20261021.zh-CN.md`。
