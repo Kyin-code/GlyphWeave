@@ -83,6 +83,20 @@
 - 未通过严格入口合同的建筑仍具名保留在 materialization report；
 - 计划引道、建筑和访问图共享同一最终地形。
 
+### 2.6 特征切面的宏观工程授权
+
+普通地块与道路继续保留 6m 填方、8% 纵坡、25% 步行坡和 2m 地块削方
+弱门限。`routeEvolution.maxFillM > 6` 只有声明
+`urbanSlice.mode = "feature-cut"` 时才允许。
+
+`engineering-scale-plan.json` 新增 `macroAuthority`：
+
+- 记录切面模式、主体特征、特殊因子、允许上限和理由；
+- 普通道路仍标为 `approved-within-local-fill-contract`；
+- 特征切面超过 6m 的工程标为 `approved-macro-authority`；
+- 未授权世界仍以 `rejected-local-fill-contract` 失败；
+- 局部合同对象不被改写，宏观工程只能通过独立账本扩大规模。
+
 ## 3. 1km 实烘焙候选
 
 Manifest：

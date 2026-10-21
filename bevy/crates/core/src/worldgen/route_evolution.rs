@@ -187,11 +187,16 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         || program.road_width_m % 2 != 0
         || !(0.01..=MAX_GRADE).contains(&program.max_grade)
         || !(0.03..=0.6).contains(&program.max_terrain_slope)
-        || !(0.5..=6.0).contains(&program.max_fill_m)
+        || !(0.5..=120.0).contains(&program.max_fill_m)
         || !(40.0..=2_000.0).contains(&program.max_bridge_span_m)
         || !(0.0..=8.0).contains(&program.turn_penalty)
     {
         return Err("invalid routeEvolution limits".into());
+    }
+    if program.max_fill_m > 6.0 && !macro_engineering_authorized(style) {
+        return Err(
+            "routeEvolution.fill above 6m requires an urbanSlice feature-cut authority".into(),
+        );
     }
     if program.anchors.len() < 2 && !program.anchors.is_empty() {
         return Err(
@@ -221,6 +226,14 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn macro_engineering_authorized(style: &Value) -> bool {
+    style
+        .get("urbanSlice")
+        .and_then(|slice| slice.get("mode"))
+        .and_then(Value::as_str)
+        == Some("feature-cut")
 }
 
 fn from_style(style: &Value) -> Result<Option<Program>, String> {
@@ -1520,5 +1533,20 @@ mod tests {
         let plan = plan(&scene, &terrain, water, &style).unwrap().unwrap();
         require_pass(&plan).unwrap();
         assert!(plan.routes[0].bridge_spans.is_empty());
+    }
+
+    #[test]
+    fn fill_above_six_metres_requires_feature_cut_authority() {
+        let mut style = style(true);
+        style["routeEvolution"]["maxFillM"] = serde_json::json!(20);
+        assert!(validate_style(&style).is_err());
+
+        style["urbanSlice"] = serde_json::json!({
+            "version": 1,
+            "mode": "feature-cut",
+            "settlementScale": "metropolis",
+            "focusFeature": "central-ridge-cut"
+        });
+        validate_style(&style).unwrap();
     }
 }

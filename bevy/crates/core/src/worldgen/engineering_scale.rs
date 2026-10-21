@@ -40,6 +40,16 @@ pub struct LocalContracts {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct MacroAuthority {
+    pub mode: String,
+    pub focus_feature: String,
+    pub special_factors: Vec<String>,
+    pub allows_local_fill_above_m: f64,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub format: String,
     pub version: u32,
@@ -49,6 +59,8 @@ pub struct Plan {
     pub land_pressure_index: f64,
     pub engineering_scale: f64,
     pub local_contracts: LocalContracts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macro_authority: Option<MacroAuthority>,
     pub operations: Vec<Operation>,
     pub failures: Vec<String>,
 }
@@ -69,6 +81,7 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
             .as_ref()
             .map_or(slice.land_pressure_index, |plan| plan.land_pressure_index),
     );
+    let macro_authority = macro_authority(style);
     let mut operations = Vec::new();
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         if route.fill_volume_m3 > 0.0 {
@@ -85,10 +98,16 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
                 maximum_clearance_m: route.maximum_terrain_fill_m,
                 required_structure_volume_m3: required,
                 budget_m3: budget,
-                status: if route.maximum_terrain_fill_m <= 6.0 + 1e-6 && required <= budget + 1e-6 {
-                    "approved-within-local-fill-contract".into()
+                status: if required > budget + 1e-6 {
+                    "rejected-budget".into()
+                } else if route.maximum_terrain_fill_m > 6.0 + 1e-6 {
+                    if macro_authority.is_some() {
+                        "approved-macro-authority".into()
+                    } else {
+                        "rejected-local-fill-contract".into()
+                    }
                 } else {
-                    "rejected-local-fill-contract".into()
+                    "approved-within-local-fill-contract".into()
                 },
             });
         }
@@ -148,9 +167,40 @@ pub fn plan(routes: &RoutePlan, style: &Value) -> Result<Option<Plan>, String> {
             shoreline_clearance_m: 4.0,
             max_local_pad_cut_m: 2.0,
         },
+        macro_authority,
         operations,
         failures,
     }))
+}
+
+fn macro_authority(style: &Value) -> Option<MacroAuthority> {
+    let slice = style.get("urbanSlice")?;
+    if slice.get("mode").and_then(Value::as_str) != Some("feature-cut") {
+        return None;
+    }
+    let focus_feature = slice
+        .get("focusFeature")
+        .and_then(Value::as_str)
+        .unwrap_or("feature-cut")
+        .to_string();
+    let special_factors = slice
+        .get("specialFactors")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Some(MacroAuthority {
+        mode: "feature-cut".into(),
+        focus_feature,
+        special_factors,
+        allows_local_fill_above_m: 120.0,
+        rationale: "feature cuts may fund larger earthworks through the macro ledger while ordinary lots and roads keep the local contract".into(),
+    })
 }
 
 pub fn require_pass(plan: &Plan) -> Result<(), String> {
@@ -193,6 +243,7 @@ mod tests {
                     role: String::new(),
                 },
             ],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "a".into(),
@@ -263,12 +314,41 @@ mod tests {
         let town = plan(&route_plan(), &style("town")).unwrap().unwrap();
         let metropolis = plan(&route_plan(), &style("metropolis")).unwrap().unwrap();
         assert!(metropolis.engineering_scale > town.engineering_scale);
-        assert!(metropolis
-            .operations
-            .iter()
-            .all(|operation| operation.status == "approved"
-                || operation.status.starts_with("approved")));
+        assert!(
+            metropolis
+                .operations
+                .iter()
+                .all(|operation| operation.status == "approved"
+                    || operation.status.starts_with("approved"))
+        );
         assert_eq!(metropolis.local_contracts.max_fill_m, 6.0);
         assert_eq!(metropolis.local_contracts.max_road_grade, 0.08);
+    }
+
+    #[test]
+    fn feature_cut_can_use_macro_earthwork_beyond_the_local_fill_bound() {
+        let mut route = route_plan();
+        route.routes[0].maximum_terrain_fill_m = 24.0;
+        route.routes[0].fill_volume_m3 = 96_000.0;
+
+        let town = plan(&route, &style("town")).unwrap().unwrap();
+        assert_eq!(town.status, "fail");
+        assert!(
+            town.operations
+                .iter()
+                .any(|operation| operation.status == "rejected-local-fill-contract")
+        );
+        assert!(town.macro_authority.is_none());
+
+        let feature = plan(&route, &style("metropolis")).unwrap().unwrap();
+        assert_eq!(feature.status, "pass");
+        assert!(feature.macro_authority.is_some());
+        assert!(
+            feature
+                .operations
+                .iter()
+                .any(|operation| operation.status == "approved-macro-authority")
+        );
+        assert_eq!(feature.local_contracts.max_fill_m, 6.0);
     }
 }
