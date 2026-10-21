@@ -91,7 +91,7 @@ Manifest：
 
 输出：
 
-`bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final2/`
+`bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final4/`
 
 世界参数：
 
@@ -164,7 +164,8 @@ cargo test -p glyphweave-core --lib worldgen::access::tests
 ## 6. 仍未完成
 
 1. 25 个计划建筑中仍有 11 个未通过最终入口合同，主要原因是
-   `entrance_step_requires_engineering`、锚点边界误差和一条不可达路线；
+   10 个 `entrance_step_requires_engineering` 和 1 条不可达路线；
+   入口锚点边界误差已经修复；
    所有失败已具名进入报告，但最终核心区建筑数量仍偏低。
 2. 市场计划 5 个，最终保留 4 个；需要继续让市场占地和入口像普通建筑一样
    进入同一条严格入口链。

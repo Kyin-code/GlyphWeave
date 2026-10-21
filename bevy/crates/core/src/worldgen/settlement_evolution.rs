@@ -546,12 +546,16 @@ pub fn materialize(plan: &Plan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
                     let dx = f64::from(road_x - building.world_x);
                     let dz = f64::from(road_z - building.world_z);
                     let length = dx.hypot(dz).max(1.0);
-                    let reach_x = dx / length * f64::from(building.width_m) * 0.5;
-                    let reach_z = dz / length * f64::from(building.depth_m) * 0.5;
+                    let nx = dx / length;
+                    let nz = dz / length;
+                    let reach = (f64::from(building.width_m) * 0.5 / nx.abs().max(1e-9))
+                        .min(f64::from(building.depth_m) * 0.5 / nz.abs().max(1e-9))
+                        - 0.5;
+                    let reach = reach.max(0.0);
                     vec![super::SpatialAnchor {
                         id: "front".into(),
-                        world_x: (f64::from(building.world_x) + reach_x).round() as i32,
-                        world_z: (f64::from(building.world_z) + reach_z).round() as i32,
+                        world_x: (f64::from(building.world_x) + nx * reach).round() as i32,
+                        world_z: (f64::from(building.world_z) + nz * reach).round() as i32,
                         direction: if dx.abs() > dz.abs() {
                             if dx > 0.0 { "east" } else { "west" }
                         } else if dz > 0.0 {
@@ -634,14 +638,14 @@ pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<Entity
 }
 
 fn building_support_height_m(building: &Building, terrain: &BakedTerrain) -> f32 {
-    let hw = building.width_m * 0.5;
-    let hd = building.depth_m * 0.5;
     let mut highest = f32::NEG_INFINITY;
-    for dz in [-hd, 0.0, hd] {
-        for dx in [-hw, 0.0, hw] {
-            let x = f64::from(building.world_x) + f64::from(dx);
-            let z = f64::from(building.world_z) + f64::from(dz);
-            if let Some(height) = terrain.height(x.round() as i32, z.round() as i32) {
+    let half_width = (building.width_m * 0.5).ceil() as i32;
+    let half_depth = (building.depth_m * 0.5).ceil() as i32;
+    for dz in -half_depth..=half_depth {
+        for dx in -half_width..=half_width {
+            let x = building.world_x + dx;
+            let z = building.world_z + dz;
+            if let Some(height) = terrain.height(x, z) {
                 highest = highest.max(height);
             }
         }

@@ -3326,6 +3326,11 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     Some(serde_json::json!({
                         "entityId": entity_id,
                         "kind": building.kind,
+                        "worldX": building.world_x,
+                        "worldZ": building.world_z,
+                        "widthM": building.width_m,
+                        "depthM": building.depth_m,
+                        "frontageRoadPoint": building.frontage_road_point,
                         "households": building.households,
                         "jobs": building.jobs,
                         "retailFloorAreaM2": building.retail_floor_area_m2,
