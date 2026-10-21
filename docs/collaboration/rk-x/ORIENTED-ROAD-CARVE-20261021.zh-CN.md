@@ -103,9 +103,8 @@ bevy/work/rk-x/hk-central-oriented-road-1km-r3c
 
 ## 6. 全量回归基线
 
-最新一次全量 Core 回归在修正审查辅助断言前为 `871 passed / 8 failed /
-34 ignored`。随后两个 `auto_roads` 辅助断言已单独复跑通过。工程账本统一后，
-其中 5 个旧失败已经关闭：
+最新完整 Core 实跑为 `879 passed / 1 failed / 34 ignored`。工程账本统一后，
+原先 6 个旧失败中的 5 个已经关闭：
 
 - `a_forged_ledger_is_refused_by_name_and_protected_and_water_cells_never_cut`
 - `a_graded_road_cut_clears_the_overfill_above_it_and_the_ledger_books_the_depth`

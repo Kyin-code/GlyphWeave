@@ -71,7 +71,8 @@ quality-report   warn
 
 ## 3. 剩余问题
 
-全量 Core 之前有 6 个失败，本轮修复了其中 5 个。剩余：
+全量 Core 最近一次完整实跑为 `879 passed / 1 failed / 34 ignored`。
+之前 6 个失败中本轮修复了 5 个。剩余：
 
 ```text
 diagnosis_of_a_published_world_reproduces_its_frontage_report
