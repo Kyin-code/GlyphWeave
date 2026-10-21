@@ -1,5 +1,13 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-21 HTML 街景修复**：街景相机修正
+> `streetHotspot.road` 包装对象读错导致的 NaN、`routeFocus` 覆盖街景点、
+> approach 被误选为主街以及 OrbitControls 拉回旧状态。店铺改为真实
+> frontage 朝向并补齐四面上层窗带；办公塔进入分段塔楼渲染。r4 控制
+> 3,011 实体、41 连通/0 断点，scale pass；运行截图非空，但视觉反馈仍为
+> `warn`（前景留白、材质偏简、战略图偏 3D 沙盘）。见
+> [`HTML-STREET-CAMERA-FACADE-20261021.zh-CN.md`](HTML-STREET-CAMERA-FACADE-20261021.zh-CN.md)。
+
 > **2026-10-21 48 城完整性审计**：新增 `pnpm check:urban-cases`。48/48
 > 均具备自然地理字段、三阶段历史、城市四层结构、土地压力、来源入口和
 > OSM 测量窗口。审计同时明确 `heuristicGeographyCases=48`：自然地理仍是

@@ -37,6 +37,13 @@
 > `docs/collaboration/rk-x/DISTRICT-DEMAND-ALLOCATION-20261021.zh-CN.md`。
 > 入口台阶/坡道工程、市场完整入口和街区级拆合仍是开放项。
 
+> **2026-10-21 HTML 街景运行态修复**：修正街景 road wrapper 导致的相机
+> NaN、routeFocus 覆盖街景点、approach 误选、店铺朝向后被通用 yaw
+> 覆盖和办公塔 fallback。香港 r4 控制 3,011 实体、41 连通/0 断点，
+> scale pass；战略/街景/天际线均非空，但 `visual-feedback=warn`：
+> 前景留白、立面材质偏简、战略图仍偏 3D 沙盘。证据见
+> `docs/collaboration/rk-x/HTML-STREET-CAMERA-FACADE-20261021.zh-CN.md`。
+
 > **2026-10-21 市场落地审计**：`market-materialization-report.json` 已把
 > 计划市场、最终保留数、失败市场 ID、位置、容量和 AccessGraph 状态固化。
 > 首版控制保留 3 个；后续占地去重叠与毫米标高修复后保留 4 个。市场专用

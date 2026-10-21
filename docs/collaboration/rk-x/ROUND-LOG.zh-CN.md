@@ -589,3 +589,22 @@ HTML street 预设原先用全城建筑质心，焦点落入聚落间草坡。�
 HTML 增加时代基座色，但明确只作提示，分期证据来自最终实体字段和计划。
 实体、入口与市场数量不变，scale/quality 继续 pass。完整记录见
 `DISTRICT-ENTITY-PROVENANCE-20261021.zh-CN.md`。
+
+## Round 72 · 2026-10-21 · HTML 街景相机与立面可见性
+
+运行态复现并修复：
+
+- `streetHotspot.road` 是 `{ road, distance }` 包装对象，旧代码直接读取
+  其 `rotationYDeg/worldX`，导致相机位置 NaN；
+- `routeFocus` 在条件链中排在 street 前，街景点被路网中心覆盖；
+- 最近道路会选中 approach 短支路；
+- 店铺真实 frontage 朝向被通用 `rotationYDeg` 覆盖；
+- CGA 店铺上层窗带 count=0；
+- office tower 没有进入专用塔楼渲染。
+
+新街景沿 digit-sorted 真实道路链选择内部候选，使用烘焙高度场校正相机；
+店铺四面补齐窗带；办公塔使用分段塔楼语法。r4 控制 3,011 实体、41
+连通/0 断点、26 楼梯、6 市场，scale pass。战略图、街景、天际线均非空，
+但 visual feedback 诚实记录为 `warn`：前景仍留白、立面材质偏简、
+战略图仍像 3D 沙盘。证据见
+`HTML-STREET-CAMERA-FACADE-20261021.zh-CN.md`。

@@ -1011,6 +1011,9 @@ export function makeStorefront(entity, THREE) {
     const dz = front[1] - entity.worldZ
     if (Number.isFinite(dx) && Number.isFinite(dz) && Math.hypot(dx, dz) > .01) {
       shop.rotation.y = Math.atan2(dx, dz)
+      // The frontage point resolves the real street-facing axis. The generic
+      // cache wrapper must not overwrite it with the lot's bounding-box yaw.
+      shop.userData.authoredWorldAxes = true
     }
   }
   return shop
@@ -1060,7 +1063,7 @@ export function cgaMat(name, THREE) {
 export function cgaSize(token, entity, axis) {
   if (typeof token === 'number') return token
   if (typeof token === 'string') {
-    const m = token.match(/^~([\d.]+)([whd])$/)
+    const m = token.match(/^~(-?[\d.]+)([whd])$/)
     if (m) {
       const base = m[2] === 'w' ? entity.widthM : m[2] === 'd' ? entity.depthM : entity.heightM
       return base * parseFloat(m[1])
@@ -1155,11 +1158,18 @@ export const CGA_RESORT = [
 export const CGA_STOREFRONT = [
   { kind: 'box', w: '~1w', d: '~1d', h: '~1h', y: '~0.5h', mat: 'wall' },
   // Upper-floor window bands (repeat every 3m above the 3.2m shopfront).
-  { kind: 'repeatY', start: 4.6, step: 3, count: 0, part: { kind: 'box', w: '~0.78w', d: .12, h: .9, z: '~0.5d', mat: 'glass' } },
+  { kind: 'repeatY', start: 4.6, step: 3, part: { kind: 'box', w: '~0.78w', d: .12, h: .9, z: '~0.5d', mat: 'glass' } },
+  // Rear and side elevations must not collapse to blank boxes when the street
+  // camera looks across a corner lot.
+  { kind: 'repeatY', start: 4.6, step: 3, part: { kind: 'box', w: '~0.78w', d: .12, h: .9, z: '~-0.5d', mat: 'glass' } },
+  { kind: 'repeatY', start: 4.6, step: 3, part: { kind: 'box', w: .12, d: '~0.72d', h: .9, x: '~0.5w', mat: 'glass' } },
+  { kind: 'repeatY', start: 4.6, step: 3, part: { kind: 'box', w: .12, d: '~0.72d', h: .9, x: '~-0.5w', mat: 'glass' } },
   // Shopfront header bar separating glazing from upper facade.
   { kind: 'box', w: '~0.98w', d: '~0.96d', h: .5, y: 2.95, mat: 'trim' },
   // Ground-floor display window.
   { kind: 'box', w: '~0.72w', d: .12, h: 1.9, y: 1.35, z: '~0.5d', mat: 'glass' },
+  { kind: 'box', w: .12, d: '~0.56d', h: 1.65, y: 1.3, x: '~0.5w', mat: 'glass' },
+  { kind: 'box', w: .12, d: '~0.56d', h: 1.65, y: 1.3, x: '~-0.5w', mat: 'glass' },
   // Awning just under the header (door height, not mid-tower).
   { kind: 'box', w: '~0.84w', d: .8, h: .5, y: 2.6, z: '~0.5d', mat: 'trim' },
   // Door.

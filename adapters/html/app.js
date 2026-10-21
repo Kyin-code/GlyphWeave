@@ -723,7 +723,9 @@ async function drawNear(buildToken) {
   const centreDist = e => Math.hypot(e.worldX - (scene.originX + scene.widthM / 2), e.worldZ - (scene.originZ + scene.depthM / 2))
   const streetFabricKinds = new Set(['residential_home', 'residential_block', 'residential_tower', 'storefront', 'market', 'urban_building', 'office_tower', 'community_plaza'])
   const streetFabric = (scene.entities ?? []).filter(entity => streetFabricKinds.has(entity.kind))
-  const streetRoads = (scene.entities ?? []).filter(entity => entity.kind === 'road')
+  const allStreetRoads = (scene.entities ?? []).filter(entity => entity.kind === 'road' && !entity.entityId.includes('.approach.'))
+  const longStreetRoads = allStreetRoads.filter(entity => (entity.widthM || 0) >= 16)
+  const streetRoads = longStreetRoads.length ? longStreetRoads : allStreetRoads
   const streetFabricCentre = streetFabric.length ? {
     x: streetFabric.reduce((sum, entity) => sum + entity.worldX, 0) / streetFabric.length,
     z: streetFabric.reduce((sum, entity) => sum + entity.worldZ, 0) / streetFabric.length,
@@ -739,10 +741,28 @@ async function drawNear(buildToken) {
           : entity.kind === 'residential_home' || entity.kind === 'residential_tower' ? 2
             : 1.5
   const nearestStreetRoad = candidate => streetRoads.reduce((best, road) => {
-    const d = Math.hypot(road.worldX - candidate.worldX, road.worldZ - candidate.worldZ)
+    const front = candidate.grounding?.frontageRoadPoint
+    const px = front?.[0] ?? candidate.worldX
+    const pz = front?.[1] ?? candidate.worldZ
+    const d = Math.hypot(road.worldX - px, road.worldZ - pz)
     return !best || d < best.distance ? { road, distance: d } : best
   }, null)
-  const streetHotspot = streetFabric.map(candidate => {
+  const routeChainFor = (road, point) => {
+    const prefix = road?.entityId?.match(/^(.*)\.(\d+)$/)?.[1] ?? ''
+    const chain = prefix
+      ? allStreetRoads.filter(entity => entity.entityId.startsWith(prefix + '.')).sort((a, b) => {
+        const ai = Number(a.entityId.slice(prefix.length + 1))
+        const bi = Number(b.entityId.slice(prefix.length + 1))
+        return ai - bi
+      })
+      : []
+    const index = chain.reduce((best, entity, entityIndex) => {
+      const distance = Math.hypot(entity.worldX - point.x, entity.worldZ - point.z)
+      return !best || distance < best.distance ? { index: entityIndex, distance } : best
+    }, null)?.index ?? -1
+    return { chain, index }
+  }
+  const rankedStreetHotspots = streetFabric.map(candidate => {
     let score = streetWeight(candidate)
     for (const other of streetFabric) {
       if (other === candidate) continue
@@ -753,19 +773,41 @@ async function drawNear(buildToken) {
     if (road && road.distance <= 46) score += 8 * (1 - road.distance / 52)
     score -= centreDist(candidate) * .0008
     return { entity: candidate, road, score }
-  }).sort((a, b) => b.score - a.score || a.entity.entityId.localeCompare(b.entity.entityId))[0] ?? null
+  }).sort((a, b) => b.score - a.score || a.entity.entityId.localeCompare(b.entity.entityId))
+  const streetHotspot = rankedStreetHotspots.find(candidate => {
+    const front = candidate.entity.grounding?.frontageRoadPoint
+    const route = routeChainFor(candidate.road?.road, {
+      x: front?.[0] ?? candidate.entity.worldX,
+      z: front?.[1] ?? candidate.entity.worldZ,
+    })
+    return route.chain.length >= 12 && route.index >= 5 && route.index < route.chain.length - 3
+  }) ?? rankedStreetHotspots[0] ?? null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
-  const streetX = (streetHotspot?.entity.worldX ?? streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68)) - scene.originX
-  const streetZ = (streetHotspot?.entity.worldZ ?? streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5) - scene.originZ
-  const streetYaw = ((streetHotspot?.road?.rotationYDeg ?? 0) * Math.PI) / 180
-  const streetForward = { x: Math.cos(streetYaw), z: Math.sin(streetYaw) }
-  const streetTargetX = streetX + streetForward.x * 58
-  const streetTargetZ = streetZ + streetForward.z * 58
-  const focusX = focusOverride ? focusOverride.x : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : isStreetView ? streetX : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : isStreetView ? streetZ : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isSkyline || isExplore ? 0 : isStreet ? (streetFabricCentre?.y ?? 0) : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const requestedStreetPoint = {
+    x: streetHotspot?.entity.grounding?.frontageRoadPoint?.[0] ?? streetHotspot?.entity.worldX ?? streetFabricCentre?.x ?? streetAnchor?.worldX ?? (harbour ? harbour.worldX + harbour.widthM / 2 + 150 : scene.widthM * .68),
+    z: streetHotspot?.entity.grounding?.frontageRoadPoint?.[1] ?? streetHotspot?.entity.worldZ ?? streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5,
+  }
+  const streetRoad = streetHotspot?.road?.road ?? null
+  const selectedStreetRoute = routeChainFor(streetRoad, requestedStreetPoint)
+  const streetChain = selectedStreetRoute.chain
+  const nearestChainIndex = selectedStreetRoute.index
+  const streetCameraNode = nearestChainIndex >= 0 ? streetChain[nearestChainIndex] : streetRoad
+  const streetTargetNode = nearestChainIndex >= 0 ? streetChain[Math.min(streetChain.length - 1, nearestChainIndex + 6)] : streetRoad
+  const streetX = (streetCameraNode?.worldX ?? requestedStreetPoint.x) - scene.originX
+  const streetZ = (streetCameraNode?.worldZ ?? requestedStreetPoint.z) - scene.originZ
+  const targetDx = (streetTargetNode?.worldX ?? requestedStreetPoint.x + 46) - (streetCameraNode?.worldX ?? requestedStreetPoint.x)
+  const targetDz = (streetTargetNode?.worldZ ?? requestedStreetPoint.z) - (streetCameraNode?.worldZ ?? requestedStreetPoint.z)
+  const targetLength = Math.hypot(targetDx, targetDz)
+  const streetForward = targetLength > .01
+    ? { x: targetDx / targetLength, z: targetDz / targetLength }
+    : { x: Math.cos(((streetRoad?.rotationYDeg ?? 0) * Math.PI) / 180), z: Math.sin(((streetRoad?.rotationYDeg ?? 0) * Math.PI) / 180) }
+  const streetTargetX = (streetTargetNode?.worldX ?? requestedStreetPoint.x + streetForward.x * 46) - scene.originX
+  const streetTargetZ = (streetTargetNode?.worldZ ?? requestedStreetPoint.z + streetForward.z * 46) - scene.originZ
+  const focusX = focusOverride ? focusOverride.x : isStreet ? streetX : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : isStreet ? streetZ : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isStreet ? (streetCameraNode?.worldY ?? streetFabricCentre?.y ?? 0) : isSkyline || isExplore ? 0 : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
   const isNaturalExplore = isExplore && Boolean(naturalFeature || routeFocus)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
@@ -797,11 +839,11 @@ async function drawNear(buildToken) {
   // of aiming at a building centroid across an empty parcel.
   if (isStreet) {
     nearCamera.position.set(
-      focusX - streetForward.x * 108 - streetForward.z * 12,
-      focusY + 34,
-      focusZ - streetForward.z * 108 + streetForward.x * 12,
+      focusX - streetForward.x * 22,
+      focusY + 2.2,
+      focusZ - streetForward.z * 22,
     )
-    nearCamera.lookAt(streetTargetX, focusY + 8, streetTargetZ)
+    nearCamera.lookAt(streetTargetX, focusY + 2.6, streetTargetZ)
   }
   if (nearScene) {
     // Persistent scene: remove the old chunk root so we can rebuild it, but
@@ -835,16 +877,16 @@ async function drawNear(buildToken) {
       // already-bright ground palette several stops over white. The resulting
       // clip looked like irregular holes in the terrain. Keep urban scenes
       // cool and legible, but leave headroom for the baked vertex colours.
-      nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, .35))
-      const sun = new THREE.DirectionalLight(0xffe6b0, .72)
+      nearScene.add(new THREE.HemisphereLight(0xdce8df, 0x202820, .58))
+      const sun = new THREE.DirectionalLight(0xffe6b0, 1.05)
       sun.position.set(-500, 900, 420)
       sun.castShadow = false
       nearScene.add(sun)
-      nearScene.add(new THREE.AmbientLight(0xffffff, .12))
+      nearScene.add(new THREE.AmbientLight(0xffffff, .28))
     }
   }
   nearControls = new OrbitControls(nearCamera, webglCanvas)
-  nearControls.target.set(isStreet ? streetTargetX : focusX, isNaturalExplore ? focusY + 2 : isExplore ? focusY + 26 : isStreet ? focusY + 8 : focusTargetY, isStreet ? streetTargetZ : focusTargetZ)
+  nearControls.target.set(isStreet ? streetTargetX : focusX, isNaturalExplore ? focusY + 2 : isExplore ? focusY + 26 : isStreet ? focusY + 3.6 : focusTargetY, isStreet ? streetTargetZ : focusTargetZ)
   nearControls.enableDamping = true
   nearControls.enablePan = true
   nearControls.enableRotate = true
@@ -853,7 +895,7 @@ async function drawNear(buildToken) {
   nearControls.mouseButtons.RIGHT = isExplore ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
   nearControls.minDistance = 10
   nearControls.maxDistance = 2400
-  nearControls.maxPolarAngle = isExplore ? Math.PI * .8 : Math.PI * .48
+  nearControls.maxPolarAngle = isExplore ? Math.PI * .8 : isStreet ? Math.PI * .58 : Math.PI * .48
   // The constructor looked at its initial (0,0,0) target. Static previews
   // have no animation loop to apply our new target: sync once BEFORE the
   // change listener, never recursively inside renderNearFrame.
@@ -1139,6 +1181,20 @@ async function drawNear(buildToken) {
     const x = Math.max(0, Math.min(field.width - 1, Math.floor(worldX - field.chunk.worldX)))
     const z = Math.max(0, Math.min(field.depth - 1, Math.floor(worldZ - field.chunk.worldZ)))
     return field.heightView.readMetres(z * field.width + x)
+  }
+  if (isStreet && streetCameraNode) {
+    const cameraWorldX = streetCameraNode.worldX
+    const cameraWorldZ = streetCameraNode.worldZ
+    const targetWorldX = streetTargetNode?.worldX ?? cameraWorldX + streetForward.x * 46
+    const targetWorldZ = streetTargetNode?.worldZ ?? cameraWorldZ + streetForward.z * 46
+    const cameraGroundY = heightAt(cameraWorldX, cameraWorldZ)
+    const targetGroundY = heightAt(targetWorldX, targetWorldZ)
+    nearCamera.position.set(focusX + 74, cameraGroundY + 58, focusZ + 96)
+    nearCamera.lookAt(streetTargetX, targetGroundY + 6, streetTargetZ)
+    nearControls.target.set(streetTargetX, targetGroundY + 6, streetTargetZ)
+    nearControls.update()
+    nearCamera.position.set(focusX + 74, cameraGroundY + 58, focusZ + 96)
+    nearCamera.lookAt(streetTargetX, targetGroundY + 6, streetTargetZ)
   }
   for (const route of scene.routeEvolutionPlan?.routes ?? []) {
     if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
@@ -1748,6 +1804,8 @@ async function drawNear(buildToken) {
         if(entity.kind==='residential_home')return makePlannedResidentialHome(entity,THREE)
         if(entity.kind==='residential_block'||entity.kind==='residential_tower')return makeResidentialBlock(entity,THREE,heightAt)
         if(entity.kind==='storefront')return makeStorefront(entity,THREE)
+        if(entity.kind==='office_tower')return makeHongKongTower(entity,THREE)
+        if(entity.kind==='urban_building')return makeCoastalFeature({...entity,type:'shopping_mall'},THREE)
         return makePlannedServiceBuilding(entity,THREE)
       }))
       continue
@@ -1830,7 +1888,7 @@ async function drawNear(buildToken) {
       addEntityToGroup(entity, built)
       continue
     }
-    if (['tree', 'bush', 'rock', 'building', 'urban_building'].includes(entity.kind)) continue
+    if (['tree', 'bush', 'rock', 'building'].includes(entity.kind)) continue
     if (entity.kind === 'building_tower') {
       addEntityToGroup(entity, buildEntityCached(entity, () => makeHongKongTower(entity, THREE)))
       continue
@@ -1839,6 +1897,18 @@ async function drawNear(buildToken) {
       addEntityToGroup(entity, buildEntityCached(entity, () => {
         const built = makeResortLodge(entity, THREE, heightAt)
         applySlopeFoundation(built, entity, heightAt, THREE)
+        return built
+      }))
+      continue
+    }
+    if (entity.kind === 'office_tower' || entity.kind === 'urban_building') {
+      addEntityToGroup(entity, buildEntityCached(entity, () => {
+        // Office towers use the segmented tower grammar so they do not read as
+        // unbroken extruded blocks. Mixed-use blocks retain a podium grammar.
+        const built = entity.kind === 'office_tower'
+          ? makeHongKongTower(entity, THREE)
+          : makeCoastalFeature({ ...entity, type: 'shopping_mall' }, THREE)
+        built.position.set(entity.worldX, entity.worldY, entity.worldZ)
         return built
       }))
       continue
