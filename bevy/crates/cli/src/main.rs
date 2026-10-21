@@ -693,9 +693,16 @@ fn audit_effective_programs(root: &Path, manifest: &WorldManifest) -> CliResult<
     let published: Option<serde_json::Value> = fs::read(root.join("effective-programs.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    // Generation compiles the case-composed style, not the raw manifest style.
+    // Re-running the audit on the raw style made every world with an inferred
+    // or referenced community case disagree with its own published programs.
+    let composed_style = glyphweave_core::worldgen::urban_case_priors::compose_style(
+        &manifest.style,
+    )
+    .map_err(|error| format!("effective-program audit style composition failed: {error}"))?;
     let compiled = glyphweave_core::settlement::morphology_compile::audit_published(
         published.as_ref().unwrap_or(&serde_json::Value::Null),
-        &manifest.style,
+        &composed_style,
         &manifest.scenes,
     )?;
     Ok(compiled
@@ -1389,6 +1396,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     let mut scene_reports = Vec::new();
     let mut access_surface_failed = false;
     let mut conversion_failed = false;
+    let mut final_entity_failed = false;
     // Round 19 published reconciliation removals (`skips[]`); this report does
     // not trust them, it recomputes them from the plan ids the bake published.
     let mut engineering_placement_failed = false;
@@ -1493,6 +1501,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                     scenes.iter().find(|entry| {
                         entry.get("sceneId").and_then(serde_json::Value::as_str)
                             == Some(scene.scene_id.as_str())
+                            && entry.get("inputItems").is_some()
                     })
                 });
             if let Some(entry) = entry {
@@ -1703,6 +1712,36 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             )?)
         {
             return Err("final height encoding differs from manifest".into());
+        }
+        let audit_landmarks = manifest
+            .landmarks
+            .iter()
+            .filter(|item| item.scene_id == spec.scene_id)
+            .cloned()
+            .map(|mut landmark| {
+                landmark.normalize_spatial_semantics();
+                landmark
+            })
+            .collect::<Vec<_>>();
+        let audit_water = glyphweave_core::worldgen::water_geometry(
+            glyphweave_core::worldgen::water_kind(&manifest.style),
+            &audit_landmarks,
+            spec,
+            &manifest.style,
+        );
+        let final_entity_audit = glyphweave_core::worldgen::final_scene_audit::audit(
+            &scene.entities,
+            &terrain,
+            spec,
+            audit_water,
+        );
+        if final_entity_audit.status != "pass" {
+            final_entity_failed = true;
+            warnings.push(format!(
+                "{}: final entity geometry audit failed ({} failures)",
+                scene.scene_id,
+                final_entity_audit.failures.len()
+            ));
         }
         let mut natural_terrain = BakedTerrain::new(spec)?;
         for chunk in &scene.chunks {
@@ -2241,6 +2280,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             "entityKinds": kinds,
             "landUseArea": area_reports.last(),
             "engineeringPlacement": engineering_placement_audit,
+            "finalEntityAudit": final_entity_audit,
         });
         // Only worlds that actually planned a corridor carry the key, so a world
         // without the switch keeps the exact report shape it always had.
@@ -2261,7 +2301,7 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
     }
     let report = serde_json::json!({
         "format": "glyphweave.quality-report", "version": 2,
-        "status": if scale_failed || access_surface_failed || conversion_failed || engineering_placement_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
+        "status": if scale_failed || access_surface_failed || conversion_failed || engineering_placement_failed || final_entity_failed { "fail" } else if warnings.is_empty() { "pass" } else { "warn" },
         "worldRevision": world.revision, "sceneCount": world.scenes.len(),
         "chunks": chunks, "entities": entities, "landmarks": landmarks,
         "engineeringPlacementSkips": engineering_placement_skips,

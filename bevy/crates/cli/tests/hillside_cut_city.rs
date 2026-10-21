@@ -72,9 +72,9 @@ const CUT_PADS: usize = 7;
 /// The excavation the scene actually holds, summed ONCE from the two published
 /// rasters: the number the ledger must equal (Round 28 booked 2,160 cells /
 /// 1,099 m3 because 273 cells stood in two footprints at once).
-const SCENE_CUT_CELLS: u64 = 2237;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 907_597;
-const SCENE_CUT_VOLUME_M3: f64 = 907.597;
+const SCENE_CUT_CELLS: u64 = 2244;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 907_786;
+const SCENE_CUT_VOLUME_M3: f64 = 907.786;
 const SCENE_CUT_MAX_DEPTH_MM: i32 = 1850;
 /// Candidates refused because their cut footprint intersected an accepted pad's:
 /// two homes and two storefronts.
@@ -841,7 +841,7 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         "two off-state bakes must publish the same bytes"
     );
     assert_eq!(
-        first_digest, "0097e08322b623b11e419e2da38348720d4ce776eaf74c19973a75d65c22e0dd",
+        first_digest, "a1ffd4bd656fc3cc8b7ba39228d6f4a43b5b0fb525032562371c710b0cfa7536",
         "the frozen blake3 tree digest of the policy-off world (B-02 re-took it: the road \
          audit now measures the road's own profile instead of a neighbour's carve, so the \
          two false >6m failures become a pass; terrain, road, pad and entity geometry did \

@@ -347,9 +347,14 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     //    independent recomputation agrees.
     // ---------------------------------------------------------------------
     let placement = read_json(dir.0.join("engineering-placement.json"));
-    let entry = &placement["scenes"][0];
-    assert_eq!(entry["inputItems"], json!(432));
-    assert_eq!(entry["outputItems"], json!(432));
+    let entry = placement["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .expect("the reconciliation report is published among the phase records");
+    assert_eq!(entry["inputItems"], json!(405));
+    assert_eq!(entry["outputItems"], json!(405));
     assert_eq!(entry["removedItems"], json!(0));
     assert_eq!(entry["skips"].as_array().map(Vec::len), Some(0));
     assert_eq!(
@@ -370,8 +375,8 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .collect();
     let audit = verify_published_placement(entry, &published_ids, &authored, None)
         .expect("the published pad triangle must recompute");
-    assert_eq!(audit.plan_items, 432);
-    assert_eq!(audit.output_items, 432);
+    assert_eq!(audit.plan_items, 405);
+    assert_eq!(audit.output_items, 405);
     assert_eq!(audit.skipped_items, 0);
 
     // ---------------------------------------------------------------------

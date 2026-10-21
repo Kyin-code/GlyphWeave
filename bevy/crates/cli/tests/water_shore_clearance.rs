@@ -75,8 +75,8 @@ const WATERFRONT_GATE_FAILURES: [&str; 3] = [
     "\"scene-0\" landcover remains unrealized",
 ];
 /// `rules-audit` counts with the river ruled, and without it (the positive control).
-const WATERFRONT_CHECKED_WITH_RIVER: u64 = 425;
-const WATERFRONT_CHECKED_WITHOUT_RIVER: u64 = 424;
+const WATERFRONT_CHECKED_WITH_RIVER: u64 = 398;
+const WATERFRONT_CHECKED_WITHOUT_RIVER: u64 = 397;
 
 /// The kinds the published `scale-audit` refuses when their footprint enters the
 /// shore band (`crates/cli/src/main.rs`), replicated so the test can recompute the

@@ -24,7 +24,7 @@ use std::{fs, path::PathBuf};
 /// constant, so the samples its `scale-audit` would refuse are never produced). No
 /// opt-in byte moved: the same entities, plans and rasters are otherwise identical.
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "a9630499b3e5d6c5ecc32c6037de69d04cc0e89daad7a79307ac64f625c205b4";
+    "ba2f3e38ab3a1c949d7ab973d01f88e3046a85d133edb7b4fe13cb0fd7fe43e9";
 
 /// The same freeze for a WATERLESS world: the round-21 waterfront pad rule, the
 /// shoreline public passage band and their audits are all gated on
@@ -32,7 +32,7 @@ const FROZEN_WATERFRONT_DIGEST: &str =
 /// every byte it published before them. Measured on `c9db3e6` (the commit before
 /// the pad rule) and again on the round-21 tree: identical.
 const FROZEN_WATERLESS_DIGEST: &str =
-    "49faeab9f532144fd5c75c115622f86506038a5c05c65657619a9511e241f91d";
+    "017ecfad93fdb9be78a8367f834a5c775c43f9e2dbf5dcf6770e8e42645c124b";
 
 struct TestDir(PathBuf);
 impl TestDir {

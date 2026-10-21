@@ -288,7 +288,12 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
     //    to remove is a planning defect, not a skip.
     // ---------------------------------------------------------------------
     let placement = read_json(dir.0.join("engineering-placement.json"));
-    let entry = &placement["scenes"][0];
+    let entry = placement["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .expect("the reconciliation report is published among the phase records");
     assert_eq!(entry["sceneId"], json!("scene-0"));
     assert_eq!(entry["inputItems"], json!(SAMPLE_PLAN_ITEMS));
     assert_eq!(entry["outputItems"], json!(SAMPLE_OUTPUT_ITEMS));
@@ -795,8 +800,8 @@ const SAMPLE_ROAD_ENTITIES: usize = 60;
 const SAMPLE_BRIDGES: usize = 7;
 const SAMPLE_BRIDGE_SPAN_M: u32 = 39;
 const SAMPLE_BRIDGE_WET_CELLS: u32 = 585;
-const SAMPLE_PLAN_ITEMS: u64 = 427;
-const SAMPLE_OUTPUT_ITEMS: u64 = 427;
+const SAMPLE_PLAN_ITEMS: u64 = 401;
+const SAMPLE_OUTPUT_ITEMS: u64 = 401;
 const SAMPLE_REMOVED_ITEMS: u64 = 0;
 /// 22 retained dwellings + 4 services, plus the shoreline row's 3 quay shops: every planned site.
 const SAMPLE_PLANNED_PADS: u64 = 29;

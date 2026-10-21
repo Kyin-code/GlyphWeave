@@ -59,8 +59,8 @@ const THE_LODGE: &str = "generated.resort-lodge.";
 const PLANNED_PADS: usize = 19;
 /// The excavation the scene holds, summed once from its two published rasters.
 const SCENE_CUT_PADS: usize = 6;
-const SCENE_CUT_CELLS: u64 = 1_748;
-const SCENE_CUT_DEPTH_SUM_MM: i64 = 773_880;
+const SCENE_CUT_CELLS: u64 = 1_760;
+const SCENE_CUT_DEPTH_SUM_MM: i64 = 774_904;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -293,7 +293,12 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     // 6. The triangle: every planned pad is a published entity, every refused id is
     //    nowhere, and the reconcile report can be recomputed from the published ids.
     let engineering = read_json(dir.0.join("engineering-placement.json"));
-    let entry = &engineering["scenes"][0];
+    let entry = engineering["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .expect("the reconciliation report is published among the phase records");
     let published_ids: BTreeSet<String> = scene
         .entities
         .iter()

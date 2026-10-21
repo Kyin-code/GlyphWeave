@@ -169,7 +169,10 @@ pub fn natural_geography_sketch(case: &CasePrior) -> Value {
 
 fn core_natural_setting(case_setting: &str) -> &'static str {
     let value = case_setting.to_ascii_lowercase();
-    if value.contains("delta") {
+    if value.contains("delta")
+        || (value.contains("alluvial")
+            && (value.contains("river") || value.contains("lake") || value.contains("flood")))
+    {
         "river-delta"
     } else if value.contains("tidal") {
         "tidal-flat"

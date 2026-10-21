@@ -14,7 +14,9 @@ use crate::baked_terrain::BakedTerrain;
 
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
-use super::{EntityInstance, SpatialAnchor};
+use super::{
+    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SpatialAnchor,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -237,6 +239,9 @@ pub fn plan(
     if !program.enabled {
         return Ok(None);
     }
+    let road_width_m = f64::from(
+        urban_slice::planned_road_width_m(style)?.unwrap_or(routes.road_width_m as f32),
+    );
     let graph = Graph::from_routes(routes);
     if graph.nodes.is_empty() {
         return Err("marketCatchment requires at least one route node".into());
@@ -299,6 +304,7 @@ pub fn plan(
                     graph.nodes[candidate].z,
                     tier,
                     settlement,
+                    road_width_m,
                 ) else {
                     continue;
                 };
@@ -309,6 +315,7 @@ pub fn plan(
                         graph.nodes[*node].z,
                         &tiers[*selected_tier],
                         settlement,
+                        road_width_m,
                     )
                     .is_some_and(|other| {
                         footprints_overlap(candidate_site.footprint, other.footprint, 2.0)
@@ -388,6 +395,7 @@ pub fn plan(
             graph.nodes[node].z,
             tier,
             settlement,
+            road_width_m,
         )
         .expect("a selected market site remains feasible");
         markets.push(Market {
@@ -624,23 +632,11 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
         .iter()
         .filter_map(|market| {
             let station = nearest_station(routes, market.world_x, market.world_z)?;
-            let depth = f64::from(market.depth_m);
-            let delta_x = f64::from(market.world_x) - station.x;
-            let delta_z = f64::from(market.world_z) - station.z;
-            let side = if delta_x * station.normal_x + delta_z * station.normal_z >= 0.0 {
-                1.0
-            } else {
-                -1.0
-            };
-            let mut center_x = station.x + station.normal_x * side * (depth * 0.5 + 12.0);
-            let mut center_z = station.z + station.normal_z * side * (depth * 0.5 + 12.0);
-            if terrain
-                .height(center_x.round() as i32, center_z.round() as i32)
-                .is_none()
-            {
-                center_x = station.x - station.normal_x * side * (depth * 0.5 + 12.0);
-                center_z = station.z - station.normal_z * side * (depth * 0.5 + 12.0);
-            }
+            // The plan already resolved a road-width-aware, collision-free site.
+            // Re-deriving the old 12 m offset here silently moved the market
+            // back onto the widened road after planning.
+            let center_x = f64::from(market.world_x);
+            let center_z = f64::from(market.world_z);
             let dx = station.x - center_x;
             let dz = station.z - center_z;
             let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
@@ -697,7 +693,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
 
 fn market_size(tier: &Tier) -> (f32, f32, f32) {
     match tier.id.as_str() {
-        "street-market" => (36.0, 24.0, 7.0),
+        "street-market" => (24.0, 16.0, 6.0),
         "district" => (72.0, 54.0, 15.0),
         _ => (48.0, 32.0, 10.0),
     }
@@ -724,6 +720,7 @@ fn market_site(
     z: i32,
     tier: &Tier,
     settlement: &SettlementPlan,
+    road_width_m: f64,
 ) -> Option<MarketSite> {
     let station = nearest_station(routes, x, z)?;
     let (width, depth, _) = market_size(tier);
@@ -731,26 +728,56 @@ fn market_site(
     let half_x = f64::from(width) * 0.5 * cos.abs() + f64::from(depth) * 0.5 * sin.abs();
     let half_z = f64::from(width) * 0.5 * sin.abs() + f64::from(depth) * 0.5 * cos.abs();
     for side in [1.0, -1.0] {
-        let center_x = station.x + station.normal_x * side * (f64::from(depth) * 0.5 + 12.0);
-        let center_z = station.z + station.normal_z * side * (f64::from(depth) * 0.5 + 12.0);
+        let road_clearance = road_width_m * 0.5 + 3.0 + 2.0;
+        let center_x =
+            station.x + station.normal_x * side * (road_clearance + f64::from(depth) * 0.5);
+        let center_z =
+            station.z + station.normal_z * side * (road_clearance + f64::from(depth) * 0.5);
         let footprint = Footprint {
             min_x: center_x - half_x,
             max_x: center_x + half_x,
             min_z: center_z - half_z,
             max_z: center_z + half_z,
         };
+        let oriented = OrientedFootprint {
+            center_x,
+            center_z,
+            width_m: f64::from(width),
+            depth_m: f64::from(depth),
+            rotation_y_deg: f64::from(station.rotation_y_deg),
+        };
         let collides_with_planned_building = settlement.buildings.iter().any(|building| {
-            let half_width = f64::from(building.width_m) * 0.5;
-            let half_depth = f64::from(building.depth_m) * 0.5;
-            let building_footprint = Footprint {
-                min_x: f64::from(building.world_x) - half_width,
-                max_x: f64::from(building.world_x) + half_width,
-                min_z: f64::from(building.world_z) - half_depth,
-                max_z: f64::from(building.world_z) + half_depth,
+            let building_footprint = OrientedFootprint {
+                center_x: f64::from(building.world_x),
+                center_z: f64::from(building.world_z),
+                width_m: f64::from(building.width_m),
+                depth_m: f64::from(building.depth_m),
+                rotation_y_deg: f64::from(building.rotation_y_deg),
             };
-            footprints_overlap(footprint, building_footprint, 2.0)
+            oriented_footprints_overlap(&oriented, &building_footprint, 2.0)
         });
-        if !collides_with_planned_building {
+        let collides_with_road = routes
+            .routes
+            .iter()
+            .filter(|route| route.status == "pass")
+            .flat_map(|route| route.polyline.windows(2))
+            .any(|pair| {
+                let dx = f64::from(pair[1].x - pair[0].x);
+                let dz = f64::from(pair[1].z - pair[0].z);
+                let length = dx.hypot(dz);
+                if length <= f64::EPSILON {
+                    return false;
+                }
+                let road = OrientedFootprint {
+                    center_x: (f64::from(pair[0].x) + f64::from(pair[1].x)) * 0.5,
+                    center_z: (f64::from(pair[0].z) + f64::from(pair[1].z)) * 0.5,
+                    width_m: length,
+                    depth_m: road_width_m + 6.0,
+                    rotation_y_deg: dz.atan2(dx).to_degrees(),
+                };
+                oriented_footprints_overlap(&oriented, &road, 0.5)
+            });
+        if !collides_with_planned_building && !collides_with_road {
             return Some(MarketSite {
                 center_x,
                 center_z,
@@ -1163,6 +1190,7 @@ mod tests {
                     market.world_z,
                     &tiers_for_test(&market.tier),
                     &settlement,
+                    8.0,
                 )
                 .unwrap()
                 .footprint;
@@ -1172,6 +1200,7 @@ mod tests {
                     other.world_z,
                     &tiers_for_test(&other.tier),
                     &settlement,
+                    8.0,
                 )
                 .unwrap()
                 .footprint;
@@ -1184,7 +1213,7 @@ mod tests {
     fn market_site_yields_to_a_planned_building_on_the_near_side() {
         let settlement = settlement();
         let tier = tiers_for_test("street-market");
-        let site = market_site(&route_plan(), 100, 256, &tier, &settlement).unwrap();
+        let site = market_site(&route_plan(), 100, 256, &tier, &settlement, 8.0).unwrap();
 
         assert!(site.center_z < 256.0);
         for building in &settlement.buildings {

@@ -266,7 +266,7 @@ pub fn check_hard(
                     let compatible_landscape_layers =
                         landscape_container(desc.kind) && landscape_container(p.kind);
                     fp.overlaps(p.cx, p.cz, p.half_w, p.half_d)
-                        && !(transport(desc.kind) || transport(p.kind))
+                        && !(transport(desc.kind) && transport(p.kind))
                         && !landform_detail
                         && !contained_natural_detail
                         && !compatible_landscape_layers
@@ -716,7 +716,7 @@ phase = "functional"
                 id: None,
                 kind: ItemKind::Road,
                 cx: 50.0,
-                cz: 44.0,
+                cz: 42.5,
                 half_w: 4.0,
                 half_d: 4.0,
                 tags: vec![],
@@ -726,7 +726,7 @@ phase = "functional"
                 id: None,
                 kind: ItemKind::Tree,
                 cx: 50.0,
-                cz: 44.0,
+                cz: 45.5,
                 half_w: 1.0,
                 half_d: 1.0,
                 tags: vec![],
@@ -734,7 +734,10 @@ phase = "functional"
         ];
         let fp = Footprint::from_descriptor(&desc, 50.0, 50.0);
         let r = check_hard(&desc, &fp, &c, &hard, &placed).unwrap_err();
-        assert!(matches!(r, RejectReason::BlockedEntrance { .. }));
+        assert!(
+            matches!(r, RejectReason::BlockedEntrance { .. }),
+            "the front tree must name the blocked entrance, got {r:?}"
+        );
     }
 
     #[test]
@@ -899,7 +902,7 @@ phase = "vegetation"
             id: None,
             kind: ItemKind::Road,
             cx: 50.0,
-            cz: 44.0,
+            cz: 42.5,
             half_w: 4.0,
             half_d: 4.0,
             tags: vec![],

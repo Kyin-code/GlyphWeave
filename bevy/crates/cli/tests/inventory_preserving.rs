@@ -28,6 +28,15 @@ fn manifest() -> WorldManifest {
     manifest.scenes[0].width_m = 512;
     manifest.scenes[0].depth_m = 512;
     manifest.style["naturalOnly"] = json!(true);
+    manifest.style["naturalGeography"] = json!({
+        "version": 1,
+        "mode": "derived",
+        "setting": "inland-basin",
+        "regionalReliefM": 180,
+        "climateBand": "humid-subtropical",
+        "derivationSeed": 7,
+        "hints": { "karst": false, "glacial": false }
+    });
     let landmark: LandmarkSpec = serde_json::from_value(json!({
         "entityId":"generated.inventory-rock",
         "name":"inventory rock",

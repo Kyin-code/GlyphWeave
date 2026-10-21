@@ -700,7 +700,7 @@ async function drawNear(buildToken) {
   const orthoHeight = isSkyline ? wholeWorldHeight : isWaterfront ? 520 : isHarbourOverview ? Math.max(Math.min(820, Math.max(scene.widthM, scene.depthM) * .36), wholeWorldHeight * .82) : isStreet ? 220 : 120
   const orthoWidth = orthoHeight * viewportWidth / Math.max(1, viewportHeight)
   nearCamera = isExplore || isStreet
-    ? new THREE.PerspectiveCamera(isStreet ? 54 : 68, viewportWidth / viewportHeight, .1, 12000)
+    ? new THREE.PerspectiveCamera(isStreet ? 62 : 68, viewportWidth / viewportHeight, .1, 12000)
     : new THREE.OrthographicCamera(-orthoWidth / 2, orthoWidth / 2, orthoHeight / 2, -orthoHeight / 2, -orthoHeight, 12000)
   const localCoordinate = entity => ({ x: entity.worldX - scene.originX, z: entity.worldZ - scene.originZ })
   const focusEntity = (scene.entities ?? []).find(entity => {
@@ -793,8 +793,12 @@ async function drawNear(buildToken) {
   const selectedStreetRoute = routeChainFor(streetRoad, requestedStreetPoint)
   const streetChain = selectedStreetRoute.chain
   const nearestChainIndex = selectedStreetRoute.index
-  const streetCameraNode = nearestChainIndex >= 0 ? streetChain[nearestChainIndex] : streetRoad
-  const streetTargetNode = nearestChainIndex >= 0 ? streetChain[Math.min(streetChain.length - 1, nearestChainIndex + 6)] : streetRoad
+  const streetCameraNode = nearestChainIndex >= 0
+    ? streetChain[Math.max(0, nearestChainIndex - 8)]
+    : streetRoad
+  const streetTargetNode = nearestChainIndex >= 0
+    ? streetChain[Math.min(streetChain.length - 1, nearestChainIndex + 12)]
+    : streetRoad
   const streetX = (streetCameraNode?.worldX ?? requestedStreetPoint.x) - scene.originX
   const streetZ = (streetCameraNode?.worldZ ?? requestedStreetPoint.z) - scene.originZ
   const targetDx = (streetTargetNode?.worldX ?? requestedStreetPoint.x + 46) - (streetCameraNode?.worldX ?? requestedStreetPoint.x)
@@ -834,16 +838,16 @@ async function drawNear(buildToken) {
     nearCamera.position.set(focusX - Math.max(420, orthoHeight * .72), focusY + Math.max(260, orthoHeight * .62), focusZ + Math.max(300, orthoHeight * .48))
     nearCamera.lookAt(focusX, focusY + 4, focusZ)
   }
-  // Street view is a road-axis shot. Looking along the selected frontage road
-  // puts pavement, storefronts and street furniture in the same frame instead
-  // of aiming at a building centroid across an empty parcel.
+  // Street view is a raised cross-section, not a first-person wall close-up.
+  // A longer setback and downward look keep the carriageway, both frontages,
+  // planting and public realm in the same frame while the road stays readable.
   if (isStreet) {
     nearCamera.position.set(
-      focusX - streetForward.x * 22,
-      focusY + 2.2,
-      focusZ - streetForward.z * 22,
+      focusX,
+      focusY + 20,
+      focusZ,
     )
-    nearCamera.lookAt(streetTargetX, focusY + 2.6, streetTargetZ)
+    nearCamera.lookAt(streetTargetX, focusY + 4.5, streetTargetZ)
   }
   if (nearScene) {
     // Persistent scene: remove the old chunk root so we can rebuild it, but
@@ -956,11 +960,11 @@ async function drawNear(buildToken) {
   nearGroupRoot.clear()
   nearGroupRoot.add(group)
   const focusChunk = scene.chunks.find(chunk => focusX >= chunk.worldX - scene.originX && focusX < chunk.worldX - scene.originX + chunk.validWidthM && focusZ >= chunk.worldZ - scene.originZ && focusZ < chunk.worldZ - scene.originZ + chunk.validDepthM)
-  // Static 2.5D renders the authoritative focus chunk only. A 3x3 ring
-  // multiplies 1m terrain geometry, PBR maps, vegetation instances and entity
-  // groups before the first frame, which can make Chromium lose WebGL context.
-  // Opt into ring streaming explicitly with ?ring=1.
-  const streamRing = query.get('ring') === '1'
+  // Street view must always load its adjacent chunks: a focus-only window cuts
+  // the ground and road exactly where the camera sees them, making valid
+  // buildings look suspended over void. Other static views can still opt into
+  // the full ring explicitly with ?ring=1.
+  const streamRing = query.get('ring') === '1' || nearPreset === 'street'
   const activeChunks = focusChunk
         ? (streamRing || isSkyline || isHarbourOverview || isWaterfront
         ? scene.chunks.filter(chunk => Math.abs(chunk.chunkX - focusChunk.chunkX) <= 1 && Math.abs(chunk.chunkZ - focusChunk.chunkZ) <= 1)
@@ -993,7 +997,7 @@ async function drawNear(buildToken) {
     group.add(chunkGroup)
   }
   const inFocusChunk = entity => focusChunk && entity.worldX >= focusChunk.worldX && entity.worldX < focusChunk.worldX + focusChunk.validWidthM && entity.worldZ >= focusChunk.worldZ && entity.worldZ < focusChunk.worldZ + focusChunk.validDepthM
-  const inStreetFrame = entity => isStreetView && Math.hypot(entity.worldX - focusX, entity.worldZ - focusZ) < (isStreet ? 220 : 360)
+  const inStreetFrame = entity => isStreetView && Math.hypot(entity.worldX - focusX, entity.worldZ - focusZ) < (isStreet ? 340 : 360)
   // LOD: focus chunk renders full detail; the 3x3 ring around it renders
   // coarse detail (fewer vegetation, simpler proxies) so chunk navigation
   // stays fast while the viewport is dominated by the focused chunk.
@@ -1189,31 +1193,46 @@ async function drawNear(buildToken) {
     const targetWorldZ = streetTargetNode?.worldZ ?? cameraWorldZ + streetForward.z * 46
     const cameraGroundY = heightAt(cameraWorldX, cameraWorldZ)
     const targetGroundY = heightAt(targetWorldX, targetWorldZ)
-    nearCamera.position.set(focusX + 74, cameraGroundY + 58, focusZ + 96)
+    // Keep the camera on the selected chain node. The previous diagonal
+    // offset put a row of lots between the camera and its road target, which
+    // made the cross-section read as buildings beside a stray road.
+    nearCamera.position.set(focusX, cameraGroundY + 20, focusZ)
     nearCamera.lookAt(streetTargetX, targetGroundY + 6, streetTargetZ)
     nearControls.target.set(streetTargetX, targetGroundY + 6, streetTargetZ)
     nearControls.update()
-    nearCamera.position.set(focusX + 74, cameraGroundY + 58, focusZ + 96)
+    nearCamera.position.set(focusX, cameraGroundY + 20, focusZ)
     nearCamera.lookAt(streetTargetX, targetGroundY + 6, streetTargetZ)
   }
   for (const route of scene.routeEvolutionPlan?.routes ?? []) {
     if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
     const halfWidth = Math.max(2, route.roadWidthM * .5)
-    const bedGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth, heightAt, THREE, .86, scene.originX, scene.originZ)
-    if (!bedGeometry) continue
-    const bed = new THREE.Mesh(bedGeometry, new THREE.MeshStandardMaterial({
-      color: '#54483b',
-      roughness: .96,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-    }))
-    bed.name = 'route-evolution:' + route.id
-    nearGroupRoot.add(bed)
-    const centerGeometry = makePolylineRibbonGeometry(route.polyline, .32, heightAt, THREE, 1.08, scene.originX, scene.originZ)
+    const pavementMaterial = new THREE.MeshStandardMaterial({
+      color: '#a39a8a', roughness: .96,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    })
+    const pavementGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth + 1.6, heightAt, THREE, .9, scene.originX, scene.originZ)
+    if (pavementGeometry) {
+      const pavement = new THREE.Mesh(pavementGeometry, pavementMaterial)
+      pavement.name = 'route-pavement:' + route.id
+      pavement.renderOrder = 3
+      nearGroupRoot.add(pavement)
+    }
+    const carriagewayMaterial = new THREE.MeshStandardMaterial({
+      color: '#3f4748', roughness: .95,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    })
+    const carriagewayGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth, heightAt, THREE, .96, scene.originX, scene.originZ)
+    if (carriagewayGeometry) {
+      const carriageway = new THREE.Mesh(carriagewayGeometry, carriagewayMaterial)
+      carriageway.name = 'route-evolution:' + route.id
+      carriageway.renderOrder = 4
+      nearGroupRoot.add(carriageway)
+    }
+    const centerGeometry = makePolylineRibbonGeometry(route.polyline, .2, heightAt, THREE, 1.12, scene.originX, scene.originZ)
     if (centerGeometry) {
       const center = new THREE.Mesh(centerGeometry, new THREE.MeshStandardMaterial({ color: '#d8c58e', roughness: .8 }))
       center.name = 'route-centerline:' + route.id
+      center.renderOrder = 5
       nearGroupRoot.add(center)
     }
     for (const span of route.bridgeSpans ?? []) {
@@ -1767,6 +1786,8 @@ async function drawNear(buildToken) {
   // dedicated wetland renderer and an explicit asset contract.
   const legacyGrassFallbackKinds = new Set(['grass_clump', 'reed'])
   const landmarkEntityIds = new Set((scene.landmarks ?? []).map(landmark => landmark.entityId).filter(Boolean))
+  const routePlanOwnsRoadSurface = (scene.routeEvolutionPlan?.routes ?? []).some(route => route.status === 'pass' && route.polyline?.length >= 2)
+  const routeEvolutionSegment = entity => entity.kind === 'road' && entity.entityId.startsWith('generated.route-evolution.')
   // All camera presets share the same water exclusion. Skyline is only a
   // visibility/LOD choice; it must never bypass the spatial safety contract.
   const gradedInActiveChunk = entity => {
@@ -1774,7 +1795,10 @@ async function drawNear(buildToken) {
     return p && verticesOverlapChunks([[Math.min(p.start[0],p.end[0])-4,0,Math.min(p.start[1],p.end[1])-4],[Math.max(p.start[0],p.end[0])+4,0,Math.max(p.start[1],p.end[1])+4]],activeChunks)
   }
   const focusEntityCandidates = (scene.entities ?? []).filter(entity =>
-    !legacyGrassFallbackKinds.has(entity.kind) && !footprintIntersectsWater(entity) && (
+    !legacyGrassFallbackKinds.has(entity.kind)
+      && !footprintIntersectsWater(entity)
+      && !(routePlanOwnsRoadSurface && routeEvolutionSegment(entity))
+      && (
       entity.kind === 'bridge'
       || ((inActiveChunk(entity) || gradedInActiveChunk(entity)) && (
         inFocusChunk(entity) || gradedInActiveChunk(entity)
@@ -2295,6 +2319,7 @@ async function drawNear(buildToken) {
   window.glyphweaveFeedback.visualChecks.nearSceneRendered = true
   previewState = {...previewState, status: 'ready', completedGeneration: buildToken, error: null}
   setNearLoading(false)
+  updateNearCoordinateInfo()
   renderNearFrame = () => {
     if (!nearRenderer || !nearCamera || !nearScene) return
     // Do not call OrbitControls.update() here: update() dispatches `change`,

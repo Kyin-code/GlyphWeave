@@ -90,12 +90,12 @@ const LEGACY_PAD_RING_M: f64 = 114.0;
 const PAD_MM: i32 = 6_000;
 /// The excavation the derived scene holds, summed once from its two rasters.
 const DERIVED_CUT_PADS: usize = 6;
-const DERIVED_CUT_CELLS: u64 = 1_505;
-const DERIVED_CUT_DEPTH_SUM_MM: i64 = 857_037;
+const DERIVED_CUT_CELLS: u64 = 1_517;
+const DERIVED_CUT_DEPTH_SUM_MM: i64 = 858_061;
 /// The excavation the fixed-envelope scene holds.
 const OFF_CUT_PADS: usize = 6;
-const OFF_CUT_CELLS: u64 = 1_124;
-const OFF_CUT_DEPTH_SUM_MM: i64 = 616_382;
+const OFF_CUT_CELLS: u64 = 1_136;
+const OFF_CUT_DEPTH_SUM_MM: i64 = 617_406;
 /// The pads the grown plan keeps: every one of them.
 const PLANNED_PADS: usize = 19;
 /// The published bytes of the two fixtures THIS ROUND MUST NOT MOVE, as one blake3
@@ -135,9 +135,9 @@ const PLANNED_PADS: usize = 19;
 /// ledger-less world, which publishes neither the array nor the count and is frozen
 /// to its own constant measured from the HEAD binary.
 const FROZEN_HILLSIDE_DIGEST: &str =
-    "023a0ed8e827ca8d6c332a834abbd9387f65cefaeedcd35e4a77ec4c2ac596ec";
+    "ccb74a6418de6845faaf9f919c3f909b8ac85e0e91204c84317da7bcbe8f080e";
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "df04cbc7cd4ce68dff56bbf391cfd90df096eb6dd4a064f1fe11452bd4d1a6dd";
+    "1f31f2a8ff9e745d38b3447ce9f8ed11c12a53f2231ffb671ae751b319fbab77";
 /// The ring every planned pad of the grown hillside town derives, by kind:
 /// `(width_m, depth_m, height_m, ring_m, count)`. A pad's ring reads its OWN
 /// published width and height - never its depth, never its elevation.

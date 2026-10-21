@@ -46,9 +46,9 @@ const SCENE_SIZE_M: u32 = 512;
 /// inside its own 4 m shore clearance (generation now reads the published constant). The row's
 /// gate is unchanged - the same scene, plan and rasters are otherwise byte-identical.
 const FROZEN_WATERFRONT_DIGEST: &str =
-    "a9630499b3e5d6c5ecc32c6037de69d04cc0e89daad7a79307ac64f625c205b4";
+    "ba2f3e38ab3a1c949d7ab973d01f88e3046a85d133edb7b4fe13cb0fd7fe43e9";
 const FROZEN_WATERLESS_DIGEST: &str =
-    "49faeab9f532144fd5c75c115622f86506038a5c05c65657619a9511e241f91d";
+    "017ecfad93fdb9be78a8367f834a5c775c43f9e2dbf5dcf6770e8e42645c124b";
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -597,7 +597,13 @@ fn the_rural_conversion_switch_decides_whether_the_row_converts() {
         .map(|landmark| landmark["entityId"].as_str().unwrap().to_owned())
         .collect();
     let registry = ObjectRegistry::load_dir(&rules()).unwrap();
-    verify_published_placement(&placement["scenes"][0], &published, &authored, Some(&registry))
+    let entry = placement["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .expect("the reconciliation report is published among the phase records");
+    verify_published_placement(entry, &published, &authored, Some(&registry))
         .expect("the published skips recompute with the row in the plan");
 }
 

@@ -50,6 +50,18 @@ fn manifest(seed: u64) -> WorldManifest {
     m.style["generationProfile"] = serde_json::json!("strict");
     m
 }
+
+fn natural_geography(seed: u64) -> Value {
+    serde_json::json!({
+        "version": 1,
+        "mode": "derived",
+        "setting": "coastal-mountain",
+        "regionalReliefM": 900,
+        "climateBand": "humid-subtropical",
+        "derivationSeed": seed,
+        "hints": { "karst": false, "glacial": false }
+    })
+}
 #[test]
 fn fresh_bakes_match_cli_audit_across_seeds_and_detect_corruption() {
     let mut pavement_fixture_count = 0;
@@ -336,6 +348,7 @@ fn natural_audit_rebuilds_from_full_raster_and_rejects_forged_success() {
     // This fixture exercises raster provenance, not city placement. No rules
     // threshold is changed; the production city fixtures remain above.
     m.style["naturalOnly"] = serde_json::json!(true);
+    m.style["naturalGeography"] = natural_geography(42);
     m.style["generationProfile"] = serde_json::json!("prototype");
     m.style["rulesMode"] = serde_json::json!("legacy");
     bake_world(&m, &dir.0).unwrap();
@@ -426,6 +439,7 @@ fn natural_raster_is_independent_of_generated_human_entities() {
     m.style["generationProfile"] = serde_json::json!("prototype");
     m.style["rulesMode"] = serde_json::json!("legacy");
     m.style["naturalOnly"] = serde_json::json!(true);
+    m.style["naturalGeography"] = natural_geography(42);
     bake_world(&m, &natural_dir.0).unwrap();
     m.style["naturalOnly"] = serde_json::json!(false);
     bake_world(&m, &developed_dir.0).unwrap();
@@ -1166,6 +1180,7 @@ fn precise_natural_height_is_identical_across_chunk_and_scene_boundaries() {
     m.style["generationProfile"] = serde_json::json!("prototype");
     m.style["rulesMode"] = serde_json::json!("legacy");
     m.style["naturalOnly"] = serde_json::json!(true);
+    m.style["naturalGeography"] = natural_geography(42);
     m.scenes[0].origin_x = -400;
     m.scenes[0].origin_z = -90;
     m.scenes[0].width_m = 513;
@@ -2346,7 +2361,7 @@ fn graded_extensions_are_applied_and_independently_checked_not_just_designs() {
     let water=water_geometry(water_kind(&m.style),&m.landmarks,s,&m.style);let program=services::from_style(&m.style).unwrap();
     let verify=|t:&BakedTerrain|road_network::verify_with_style(plan,s,&natural,t,water,&scene.entities,Some(&scene.land_use_zones),program.as_ref(),&m.style).unwrap();
     assert_eq!(verify(&terrain).status,"pass");
-    for x in 217..=231 {for z in 92..=164 {assert!((f64::from(terrain.height(x,z).unwrap())-profile.height_at(f64::from(x),f64::from(z)).unwrap()).abs()<0.00005);}}
+    for x in 217..=231 {for z in 92..=164 {let terrain_height=f64::from(terrain.height(x,z).unwrap());let profile_height=profile.height_at(f64::from(x),f64::from(z)).unwrap();assert!((terrain_height-profile_height).abs()<0.00005,"road profile mismatch at {x},{z}: terrain={terrain_height}, profile={profile_height}");}}
     // Corrupt only the outer shoulder by one millimetre. Generic 0.26m legacy
     // road tolerance must not hide corruption in the new precise contract.
     let mut bad=fb.clone();let offset=16+4*(128*512+231);let value=i32::from_le_bytes(bad[offset..offset+4].try_into().unwrap())+1;bad[offset..offset+4].copy_from_slice(&value.to_le_bytes());

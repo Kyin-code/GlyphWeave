@@ -59,13 +59,15 @@ fn local(e: &EntityInstance, p: P) -> P {
     let (s, c) = f64::from(e.rotation_y_deg).to_radians().sin_cos();
     let dx = p.x - f64::from(e.world_x);
     let dz = p.z - f64::from(e.world_z);
-    point(dx * c - dz * s, dx * s + dz * c)
+    // Same positive-Y convention as terrain carves, road profiles and
+    // OrientedFootprint: local +X maps to world (cos, sin).
+    point(dx * c + dz * s, -dx * s + dz * c)
 }
 fn world(e: &EntityInstance, p: P) -> P {
     let (s, c) = f64::from(e.rotation_y_deg).to_radians().sin_cos();
     point(
-        f64::from(e.world_x) + p.x * c + p.z * s,
-        f64::from(e.world_z) - p.x * s + p.z * c,
+        f64::from(e.world_x) + p.x * c - p.z * s,
+        f64::from(e.world_z) + p.x * s + p.z * c,
     )
 }
 fn closest(e: &EntityInstance, p: P) -> P {
@@ -396,13 +398,15 @@ pub(super) fn access_for_entity(
                 .collect();
             let stair = e.grounding.stair_connection.as_ref();
             let stair_routing = stair.and_then(|stairs| {
+                let part_prefix = format!("{}.part-", stairs.stair_id);
                 let stair_entity = entities.iter().find(|candidate| {
-                    candidate.entity_id == stairs.stair_id && candidate.kind == "stairs"
+                    (candidate.entity_id == stairs.stair_id
+                        || candidate.entity_id.starts_with(&part_prefix))
+                        && candidate.kind == "stairs"
                 })?;
                 let from = point(f64::from(stairs.from[0]), f64::from(stairs.from[1]));
                 let to = point(f64::from(stairs.to[0]), f64::from(stairs.to[1]));
                 if distance(from, facade_point) > 2.0
-                    || distance(from, to) > 24.0
                     || entrance_obstacles
                         .iter()
                         .any(|obstacle| crosses(obstacle, from, to))
@@ -2032,8 +2036,8 @@ mod tests {
     fn rotated_obstacle_check_uses_actual_rectangle_not_aabb() {
         let mut wall = generated_intent_entity("wall".into(), "wall", 50, 50, 0, 30., 1., 2.);
         wall.rotation_y_deg = 45.;
-        assert!(!crosses(&wall, point(60., 58.), point(60., 62.)));
-        assert!(crosses(&wall, point(60., 38.), point(60., 42.)));
+        assert!(!crosses(&wall, point(60., 56.5), point(60., 57.)));
+        assert!(crosses(&wall, point(55., 55.), point(58., 58.)));
     }
 
     // ---- B01-G12: passive observer synthetic differential --------------------

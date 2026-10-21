@@ -425,8 +425,21 @@ pub fn place_all(
     ctx: &PlacementContext<'_>,
     seed: u64,
 ) -> PlacementOutcome {
+    place_all_with_preplaced(registry, requests, ctx, &[], seed)
+}
+
+/// Batch placement with already-authored transport kept in the occupancy set.
+/// Roads must be visible to every later phase, otherwise a rule-clean building
+/// can still be placed through a road that was never one of its requests.
+pub fn place_all_with_preplaced(
+    registry: &ObjectRegistry,
+    requests: &[PlacementRequest],
+    ctx: &PlacementContext<'_>,
+    preplaced: &[PlacedKind],
+    seed: u64,
+) -> PlacementOutcome {
     let mut outcome = PlacementOutcome::default();
-    let mut placed = PlacementIndex::new();
+    let mut placed = PlacementIndex::from_entries(preplaced.to_vec());
 
     // Stable order: phase 鈫?priority 鈫?descriptor id 鈫?request index.
     let mut order: Vec<(u8, u32, &str, usize)> = requests

@@ -51,6 +51,34 @@ pub fn choose(input: &SelectionInput) -> Archetype {
     // Near the strongest network centre, employment can dominate the lot.
     // Away from it, mixed residential demand keeps the block residential and
     // lets the floor-area programme supply its ground-floor retail share.
+    if input.needs_jobs && input.center_pressure > 0.78 {
+        return archetype(
+            "office-tower-podium",
+            "office_tower",
+            18.,
+            42.,
+            18.,
+            42.,
+            10,
+            42,
+            0.56,
+            1,
+        );
+    }
+    if input.needs_homes && input.needs_jobs {
+        return archetype(
+            "mixed-use-midrise",
+            "residential_block",
+            18.,
+            44.,
+            16.,
+            30.,
+            5,
+            14,
+            0.62,
+            1,
+        );
+    }
     if input.needs_jobs && input.center_pressure > 0.55 {
         return archetype(
             "office-tower-podium",

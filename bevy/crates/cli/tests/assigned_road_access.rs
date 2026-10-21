@@ -25,15 +25,16 @@ const REFUSED: &str = "generated.frontage.scene-0.gorge-shops.generated.road-aut
 const REFUSED_PARCEL: &str =
     "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive.parcel";
 /// The committed hillside town after the refusal: 22 lots, 15 homes, 6 shops.
-const HILLSIDE_ENTITIES: usize = 436;
+const HILLSIDE_ENTITIES: usize = 422;
 const HILLSIDE_PADS: usize = 22;
 const HILLSIDE_HOMES: usize = 15;
 const HILLSIDE_SHOPS: usize = 6;
 /// The service world was already consistent: not one byte may move. The tree
-/// digest also covers copied preview adapters and third-party notices, so the
-/// 2026-10-20 C-L1/2.5D updates move this constant without moving scene data.
+/// digest also covers copied preview adapters, the mandatory final entity audit,
+/// and third-party notices, so contract additions move this constant without
+/// moving the authoritative terrain or scene data.
 const FROZEN_PLAINS_DIGEST: &str =
-    "973b2ce9823cf46c04bdfd063a786296ce3848a7d8e3bb0b8bb5f9ccfe026296";
+    "6362427cf24ccfbc37f681e5c50877e780daea38af94d67a8b3be1db0dfacde3";
 
 struct TestDir(PathBuf);
 impl TestDir {

@@ -195,9 +195,23 @@ export function makeHongKongTower(spec, THREE) {
     if (isBank) band.rotation.y = Math.PI / 4
     tower.add(band)
     if (i % 2 === 0) {
-      const window = new THREE.Mesh(new THREE.BoxGeometry(width * taper * .72, .9, .08), light)
-      window.position.set(0, segment.position.y, depth * taper / 2 + .08)
-      tower.add(window)
+      // Office towers are seen from more than one street axis. Carry the lit
+      // floor band around all four elevations so a corner or rear view never
+      // collapses into a large blank wall.
+      for (const side of [-1, 1]) {
+        const window = new THREE.Mesh(
+          new THREE.BoxGeometry(width * taper * .72, .9, .08),
+          light,
+        )
+        window.position.set(0, segment.position.y, side * (depth * taper / 2 + .08))
+        tower.add(window)
+        const sideWindow = new THREE.Mesh(
+          new THREE.BoxGeometry(.08, .9, depth * taper * .72),
+          light,
+        )
+        sideWindow.position.set(side * (width * taper / 2 + .08), segment.position.y, 0)
+        tower.add(sideWindow)
+      }
     }
   }
   if (isCentralPlaza) {

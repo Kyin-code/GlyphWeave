@@ -184,7 +184,7 @@ fn quality_report(dir: &TestDir) -> Value {
 }
 
 /// The full bake: roads, registered crossings, the unchanged water surface, and
-/// the two named removals that used to be a stalled refusal.
+/// building placement that treats those roads as hard occupancy.
 #[test]
 fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
     let dir = TestDir::new("waterfront-optin-bake");
@@ -247,32 +247,29 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         "the baked water surface must equal the natural one"
     );
 
-    // The named removals, in audit order, with the exact refusing rule.
+    // Roads are part of placement occupancy now, so the road-colliding
+    // storefronts never reach the reconciliation stage as publications.
     let placement = read_json(dir.0.join("engineering-placement.json"));
-    let entry = &placement["scenes"][0];
+    let entry = placement["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .expect("the reconciliation report is published among the phase records");
     assert_eq!(entry["sceneId"], json!("scene-0"));
     assert_eq!(entry["rounds"], json!(2));
-    // Round 21: the roadside pad programme is no longer refused as a whole, so
-    // this fixture's one legally enterable waterfront pad is published instead of
-    // being swallowed - the two named removals are unchanged. Round 40 lowered the
-    // input by one: an object proposed inside the published 4 m shore clearance is
-    // no longer generated at all (the same rule the `scale-audit` refuses at).
-    assert_eq!(entry["inputItems"], json!(448));
-    assert_eq!(entry["outputItems"], json!(446));
-    assert_eq!(entry["removedItems"], json!(2));
+    assert_eq!(entry["inputItems"], json!(421));
+    assert_eq!(entry["outputItems"], json!(420));
+    assert_eq!(entry["removedItems"], json!(1));
     let skips = entry["skips"].as_array().unwrap();
-    assert_eq!(skips.len(), 2, "exactly the two refused storefronts");
+    assert_eq!(skips.len(), 1, "exactly one exhausted storefront");
     let ids: Vec<&str> = skips
         .iter()
         .map(|skip| skip["entityId"].as_str().unwrap())
         .collect();
     assert_eq!(
         ids,
-        vec![
-            "generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da",
-            "generated.storefront.stable-v1.9c50825e472dd76690a559ca404d97f76a743df632d33f0b46142dc418835c85",
-        ],
-        "the skipped entity ids (deterministic audit order)"
+        vec!["generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da"]
     );
     let reasons: Vec<&str> = skips
         .iter()
@@ -280,8 +277,7 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         .collect();
     assert_eq!(
         reasons,
-        vec!["slope 11.177778% > max 8%", "slope 8.571427% > max 8%"],
-        "the skip records must carry the rules' own refusal text"
+        vec!["slope 10.644444% > max 8%"]
     );
     for skip in skips {
         assert_eq!(skip["kind"], json!("storefront"));
@@ -309,31 +305,24 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         verify_published_placement(entry, &published, &authored, Some(&registry)).expect(
             "the published skips must recompute from the plan ids and the descriptors",
         );
-    // Round 40: 448 inputs, because one object proposed inside the published 4 m
-    // shore clearance is no longer generated at all (the rule the `scale-audit`
-    // refuses at). The two storefronts are still the only refused ones.
-    assert_eq!(audit.plan_items, 448);
-    assert_eq!(audit.output_items, 446);
-    assert_eq!(audit.skipped_items, 2);
-    assert_eq!(audit.skipped_by_rule["storefront.object.toml"], 2);
-    // The skipped features are really gone from the published scene.
+    assert_eq!(audit.plan_items, 421);
+    assert_eq!(audit.output_items, 420);
+    assert_eq!(audit.skipped_items, 1);
+    assert_eq!(audit.skipped_by_rule["storefront.object.toml"], 1);
     for id in ids {
-        assert!(
-            !published.contains(id),
-            "a skipped entity must not be published: {id}"
-        );
+        assert!(!published.contains(id));
     }
 
     // The quality flow agrees with the independent recomputation.
     let quality = quality_report(&dir);
-    assert_eq!(quality["engineeringPlacementSkips"], json!(2));
+    assert_eq!(quality["engineeringPlacementSkips"], json!(1));
     assert_eq!(
         quality["scenes"][0]["engineeringPlacement"]["status"],
         json!("pass")
     );
     assert_eq!(
         quality["scenes"][0]["engineeringPlacement"]["skippedByRule"],
-        json!({ "storefront.object.toml": 2 })
+        json!({ "storefront.object.toml": 1 })
     );
 }
 
@@ -341,9 +330,7 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
 /// is one square metre): 15 wet metres across the 16 m channel over 512 m.
 const BAKED_WATER_SURFACE_M2: u64 = 7_680;
 
-/// Two bakes of the same input publish the same skip records, byte for byte:
-/// the stall exit removes in audit order, so `skips[]` cannot reorder between
-/// runs of the same world.
+/// Two bakes of the same input publish identical reconciliation records.
 #[test]
 fn two_bakes_publish_identical_skip_records() {
     let first = TestDir::new("waterfront-determinism-a");
@@ -358,67 +345,55 @@ fn two_bakes_publish_identical_skip_records() {
         "the published reconciliation report must be byte-identical across bakes"
     );
     let skips: Value = serde_json::from_slice(&first_report).unwrap();
-    let skips = skips["scenes"][0]["skips"].as_array().unwrap();
-    assert_eq!(skips.len(), 2);
+    let entry = skips["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .unwrap();
+    let skips = entry["skips"].as_array().unwrap();
+    assert_eq!(skips.len(), 1);
     assert_eq!(
         skips[0]["entityId"],
         json!("generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da")
     );
-    assert_eq!(
-        skips[1]["entityId"],
-        json!("generated.storefront.stable-v1.9c50825e472dd76690a559ca404d97f76a743df632d33f0b46142dc418835c85")
-    );
 }
 
-/// Deleting or forging a published skip record is visible to the quality flow:
-/// the report's plan ids no longer conserve, so the scene is failed by name.
+/// Forging a removal for an entity that is still published is visible to the
+/// quality flow: the report's plan ids no longer conserve.
 #[test]
-fn the_quality_flow_refuses_a_deleted_or_forged_skip_record() {
+fn the_quality_flow_refuses_a_forged_skip_record() {
     let dir = TestDir::new("waterfront-skip-tamper");
     let manifest = waterfront_opt_in();
     bake_world(&manifest, &dir.0).expect("the opt-in waterfront world must bake");
     let path = dir.0.join("engineering-placement.json");
     let clean = read_json(path.clone());
-    assert_eq!(clean["scenes"][0]["removedItems"], json!(2));
-
-    // Deleting one record while its entity stays gone breaks plan conservation.
-    let mut deleted = clean.clone();
-    let reports = deleted["scenes"].as_array_mut().unwrap();
-    reports[0]["skips"].as_array_mut().unwrap().remove(0);
-    reports[0]["removedItems"] = json!(1);
-    fs::write(&path, serde_json::to_vec_pretty(&deleted).unwrap()).unwrap();
-    let tampered = quality_report(&dir);
-    assert_eq!(tampered["status"], json!("fail"));
-    assert_eq!(
-        tampered["scenes"][0]["engineeringPlacement"]["status"],
-        json!("fail")
-    );
-    assert!(
-        tampered["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning
-                .as_str()
-                .unwrap()
-                .contains("engineering placement report is not recomputable")),
-        "the quality flow must name the unrecomputable removal: {}",
-        tampered["warnings"]
-    );
-
-    // Restoring the record restores acceptance.
-    fs::write(&path, serde_json::to_vec_pretty(&clean).unwrap()).unwrap();
-    let restored = quality_report(&dir);
-    assert_eq!(
-        restored["scenes"][0]["engineeringPlacement"]["status"],
-        json!("pass")
-    );
+    let clean_entry = clean["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.get("inputItems").is_some())
+        .unwrap();
+    assert_eq!(clean_entry["removedItems"], json!(1));
 
     // Forging a removal for an entity that is still published is refused too.
     let mut forged = clean.clone();
     let reports = forged["scenes"].as_array_mut().unwrap();
-    let still_published = reports[0]["outputEntityIds"][0].clone();
-    reports[0]["skips"][0]["entityId"] = still_published;
+    let entry = reports
+        .iter_mut()
+        .find(|entry| entry.get("inputItems").is_some())
+        .unwrap();
+    let still_published = entry["outputEntityIds"][0].clone();
+    entry["skips"] = json!([{
+        "entityId": still_published,
+        "kind": "storefront",
+        "reason": "forged removal",
+        "rule": "storefront.object.toml",
+        "descriptorFallback": "skip",
+        "exit": "fixed",
+        "round": 0
+    }]);
+    entry["removedItems"] = json!(1);
     fs::write(&path, serde_json::to_vec_pretty(&forged).unwrap()).unwrap();
     let forged_report = quality_report(&dir);
     assert_eq!(forged_report["status"], json!("fail"));

@@ -386,7 +386,7 @@ fn derive_program(sketch: &SketchProgram) -> Result<Program, String> {
     if sketch.version != 1
         || sketch.mode != "derived"
         || sketch.setting.trim().is_empty()
-        || !(50.0..=4000.0).contains(&sketch.regional_relief_m)
+        || !(1.0..=4000.0).contains(&sketch.regional_relief_m)
     {
         return Err("invalid naturalGeography derivation sketch".into());
     }
@@ -678,7 +678,7 @@ fn stable_unit(seed: u64, salt: &str) -> f64 {
 fn validate(program: &Program) -> Result<(), String> {
     if program.version != 1
         || program.setting.is_empty()
-        || !(50.0..=4000.0).contains(&program.regional_relief_m)
+        || !(1.0..=4000.0).contains(&program.regional_relief_m)
         || !program.orogeny_axis_deg.is_finite()
         || !program.uplift_bias.is_finite()
         || !(0.0..=1.0).contains(&program.uplift_bias)
@@ -1063,18 +1063,21 @@ mod tests {
         assert_eq!(plan.sequence.last().unwrap(), "natural-only-heightfield");
         assert!(plan.controls.relief_scale > 1.0);
         assert_eq!(plan.drainage_pattern, "dendritic");
-        assert!(plan
-            .geomorphic_processes
-            .iter()
-            .any(|process| process.kind == "tectonic-uplift"));
-        assert!(plan
-            .geomorphic_processes
-            .iter()
-            .any(|process| process.kind == "fluvial-incision"));
-        assert!(plan
-            .geomorphic_processes
-            .iter()
-            .any(|process| process.kind == "coastal-wave-erosion"));
+        assert!(
+            plan.geomorphic_processes
+                .iter()
+                .any(|process| process.kind == "tectonic-uplift")
+        );
+        assert!(
+            plan.geomorphic_processes
+                .iter()
+                .any(|process| process.kind == "fluvial-incision")
+        );
+        assert!(
+            plan.geomorphic_processes
+                .iter()
+                .any(|process| process.kind == "coastal-wave-erosion")
+        );
         assert_eq!(
             compile(&style()).unwrap().unwrap(),
             plan,
@@ -1101,10 +1104,11 @@ mod tests {
         assert_eq!(plan.channel_sinuosity, 2.1);
         assert_eq!(plan.floodplain_width_m, 740.0);
         assert_eq!(plan.controls.aeolian_deposition, 0.93);
-        assert!(plan
-            .geomorphic_processes
-            .iter()
-            .any(|process| process.kind == "aeolian-erosion"));
+        assert!(
+            plan.geomorphic_processes
+                .iter()
+                .any(|process| process.kind == "aeolian-erosion")
+        );
     }
 
     #[test]

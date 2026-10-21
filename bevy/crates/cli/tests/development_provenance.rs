@@ -24,7 +24,7 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const PLAINS: &str = include_str!("../../../../examples/service-program-plains.manifest.json");
 
 /// The committed hillside town's own numbers, measured from the published world.
-const HILLSIDE_ENTITIES: usize = 436;
+const HILLSIDE_ENTITIES: usize = 422;
 const HILLSIDE_URBAN_BUILDINGS: usize = 2;
 const HILLSIDE_PLANNED: usize = 22;
 const HILLSIDE_REALIZED: usize = 22;
@@ -354,7 +354,7 @@ fn a_world_without_a_ledger_publishes_no_provenance_and_stays_frozen() {
         !scene_dir(&dir).join("development-plan.json").exists(),
         "the fixture must have no development ledger"
     );
-    // The world is not empty of rule structures: seven ordinary buildings stand
+    // The world is not empty of rule structures: eight ordinary buildings stand
     // in it, and they are the reason the field would have been published.
     let buildings = scene["entities"]
         .as_array()
@@ -362,7 +362,7 @@ fn a_world_without_a_ledger_publishes_no_provenance_and_stays_frozen() {
         .iter()
         .filter(|entity| entity["kind"] == "building")
         .count();
-    assert_eq!(buildings, 7);
+    assert_eq!(buildings, 8);
     assert_eq!(
         world_digest(&published_files(&dir.0)),
         FROZEN_NO_LEDGER_DIGEST,
@@ -371,7 +371,7 @@ fn a_world_without_a_ledger_publishes_no_provenance_and_stays_frozen() {
 }
 
 const FROZEN_NO_LEDGER_DIGEST: &str =
-    "aa4383c4ddcf3e6fcf2eafdf28d21a410b2c972577cdacc700ab651dcf337ab6";
+    "cfc7545f15c2568694aebdc498e0fb20bab52b587f8cdf3e30cb23b21d05a06c";
 
 /// 5. Two bakes of the provenance-bearing world publish identical bytes.
 #[test]

@@ -899,6 +899,7 @@ pub fn recompute_from_plan(
             cut_volume_m3: sum as f64 / 1000.,
         });
     }
+    pads.sort_by(|left, right| left.pad_id.cmp(&right.pad_id));
     Ok(pads)
 }
 
@@ -987,6 +988,7 @@ pub fn measure_cut_entities(
             cut_volume_m3: sum as f64 / 1000.,
         });
     }
+    pads.sort_by(|left, right| left.pad_id.cmp(&right.pad_id));
     Ok(pads)
 }
 

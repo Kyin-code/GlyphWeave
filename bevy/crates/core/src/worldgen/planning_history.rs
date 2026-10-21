@@ -13,7 +13,10 @@ use serde_json::Value;
 
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
-use super::{urban_slice, BakedTerrain, EntityInstance, SceneSpec};
+use super::{
+    oriented_footprints_overlap, urban_slice, BakedTerrain, EntityInstance, OrientedFootprint,
+    SceneSpec,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -630,7 +633,13 @@ pub fn materialize_public_space(
                 {
                     continue;
                 }
-                let candidate = [x, z, side_m, side_m];
+                let candidate = OrientedFootprint {
+                    center_x: f64::from(x),
+                    center_z: f64::from(z),
+                    width_m: f64::from(side_m),
+                    depth_m: f64::from(side_m),
+                    rotation_y_deg: 0.0,
+                };
                 let free = occupied
                     .iter()
                     .chain(entities.iter())
@@ -647,14 +656,10 @@ pub fn materialize_public_space(
                         )
                     })
                     .all(|entity| {
-                        !footprints_overlap(
-                            candidate,
-                            [
-                                entity.world_x,
-                                entity.world_z,
-                                entity.width_m.round() as i32,
-                                entity.depth_m.round() as i32,
-                            ],
+                        !oriented_footprints_overlap(
+                            &candidate,
+                            &OrientedFootprint::from_entity(entity),
+                            0.5,
                         )
                     });
                 if free {
@@ -736,7 +741,13 @@ pub fn materialize_centres(
                 {
                     continue;
                 }
-                let candidate = [x, z, width, depth];
+                let candidate = OrientedFootprint {
+                    center_x: f64::from(x),
+                    center_z: f64::from(z),
+                    width_m: f64::from(width),
+                    depth_m: f64::from(depth),
+                    rotation_y_deg: 0.0,
+                };
                 let free = occupied
                     .iter()
                     .chain(entities.iter())
@@ -759,14 +770,10 @@ pub fn materialize_centres(
                         )
                     })
                     .all(|entity| {
-                        !footprints_overlap(
-                            candidate,
-                            [
-                                entity.world_x,
-                                entity.world_z,
-                                entity.width_m.round() as i32,
-                                entity.depth_m.round() as i32,
-                            ],
+                        !oriented_footprints_overlap(
+                            &candidate,
+                            &OrientedFootprint::from_entity(entity),
+                            0.5,
                         )
                     });
                 if !free {
@@ -808,15 +815,15 @@ pub fn materialize_centres(
             });
             continue;
         };
-        let world_y = occupied
+        let nearest_road = occupied
             .iter()
             .filter(|entity| entity.kind == "road")
             .min_by_key(|entity| {
                 let dx = i64::from(entity.world_x - x);
                 let dz = i64::from(entity.world_z - z);
                 dx * dx + dz * dz
-            })
-            .map_or_else(
+            });
+        let world_y = nearest_road.map_or_else(
                 || {
                     terrain
                         .height(x, z)
@@ -825,6 +832,29 @@ pub fn materialize_centres(
                 },
                 |road| road.world_y,
             );
+        let anchors = nearest_road
+            .map(|road| {
+                let (anchor_x, anchor_z, direction) =
+                    if (road.world_x - x).abs() >= (road.world_z - z).abs() {
+                        if road.world_x >= x {
+                            (x + width / 2, z, "east")
+                        } else {
+                            (x - width / 2, z, "west")
+                        }
+                    } else if road.world_z >= z {
+                        (x, z + depth / 2, "south")
+                    } else {
+                        (x, z - depth / 2, "north")
+                    };
+                vec![super::SpatialAnchor {
+                    id: "front".into(),
+                    world_x: anchor_x,
+                    world_z: anchor_z,
+                    direction: direction.into(),
+                    target: Some("road".into()),
+                }]
+            })
+            .unwrap_or_default();
         entities.push(EntityInstance {
             entity_id: format!("generated.planning-history.centre.{}", action.id),
             asset_id: asset_id.into(),
@@ -838,7 +868,7 @@ pub fn materialize_centres(
             height_m: height as f32,
             rotation_y_deg: 0.0,
             grounding: super::GroundingSpec::default(),
-            anchors: Vec::new(),
+            anchors,
             bounds: None,
         });
     }
@@ -890,18 +920,6 @@ fn near_stream_chunk_boundary(entity: &EntityInstance, margin_m: i32) -> bool {
         rem < margin_m || rem > STREAM_CHUNK_M - margin_m
     };
     near(entity.world_x) || near(entity.world_z)
-}
-
-fn footprints_overlap(left: [i32; 4], right: [i32; 4]) -> bool {
-    let lx0 = f64::from(left[0]) - f64::from(left[2]) * 0.5;
-    let lz0 = f64::from(left[1]) - f64::from(left[3]) * 0.5;
-    let lx1 = lx0 + f64::from(left[2]);
-    let lz1 = lz0 + f64::from(left[3]);
-    let rx0 = f64::from(right[0]) - f64::from(right[2]) * 0.5;
-    let rz0 = f64::from(right[1]) - f64::from(right[3]) * 0.5;
-    let rx1 = rx0 + f64::from(right[2]);
-    let rz1 = rz0 + f64::from(right[3]);
-    lx0 < rx1 && lx1 > rx0 && lz0 < rz1 && lz1 > rz0
 }
 
 fn derive_centres(
@@ -1042,16 +1060,10 @@ fn road_actions(
     scale: &str,
     focus_bias: Option<&urban_slice::FocusBias>,
 ) -> Vec<Action> {
-    let base_width = if matches!(scale, "metropolis" | "megacity") {
-        24
-    } else if scale == "city" {
-        16
-    } else {
-        12
-    };
-    let target_width = (f64::from(base_width)
-        * focus_bias.map_or(1.0, |bias| f64::from(bias.road_widening_bias)))
-    .round() as i32;
+    let target_width = urban_slice::road_target_width_m(
+        scale,
+        focus_bias.map_or(1.0, |bias| bias.road_widening_bias),
+    ) as i32;
     route
         .routes
         .iter()

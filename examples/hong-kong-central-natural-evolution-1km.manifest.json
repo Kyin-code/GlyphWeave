@@ -156,10 +156,10 @@
     "settlementEvolution": {
       "version": 1,
       "enabled": true,
-      "householdsTarget": 900,
-      "jobsTarget": 2600,
-      "retailFloorAreaM2": 20000,
-      "serviceBudget": 36,
+      "householdsTarget": 1400,
+      "jobsTarget": 4200,
+      "retailFloorAreaM2": 30000,
+      "serviceBudget": 48,
       "lotWidthM": 18,
       "lotDepthM": 20,
       "roadStepM": 22,
@@ -214,17 +214,17 @@
         {
           "id": "street-market",
           "kind": "community-market-hall",
-          "capacity": 220,
+        "capacity": 700,
           "quality": 1.15,
           "maxTravelMinutes": 7,
-          "maxCount": 4,
+        "maxCount": 6,
           "candidateSpacingM": 70,
           "preference": 1.25
         },
         {
           "id": "neighbourhood",
           "kind": "neighbourhood-supermarket",
-          "capacity": 520,
+        "capacity": 1500,
           "quality": 1.0,
           "maxTravelMinutes": 12,
           "maxCount": 3,
@@ -234,7 +234,7 @@
         {
           "id": "district",
           "kind": "large-supermarket",
-          "capacity": 1400,
+        "capacity": 3000,
           "quality": 0.9,
           "maxTravelMinutes": 20,
           "maxCount": 2,
@@ -370,6 +370,27 @@
         "maxDepthM": 80,
         "minHeightM": 8,
         "maxHeightM": 120
+      },
+      "residential_home": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": [
+          "grass",
+          "forest",
+          "soil",
+          "stone"
+        ],
+        "forbiddenSurfaces": [
+          "water",
+          "deep_water",
+          "underground"
+        ],
+        "minWidthM": 4,
+        "maxWidthM": 24,
+        "minDepthM": 6,
+        "maxDepthM": 24,
+        "minHeightM": 8,
+        "maxHeightM": 40
       },
       "industrial": {
         "type": "industrial",

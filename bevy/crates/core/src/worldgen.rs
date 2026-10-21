@@ -61,6 +61,7 @@ pub mod conversion_budget;
 pub mod conversion_fringe;
 pub mod engineering_connections;
 pub mod engineering_scale;
+pub mod final_scene_audit;
 #[cfg(test)]
 mod entrance_recheck_tests;
 pub mod epoch_evolution;
@@ -2796,11 +2797,17 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     market_catchment::plan(route_plan, &settlement_plan, &effective_style)
                         .map_err(WorldgenError::InvalidRules)?
                 {
-                    market_catchment_result = Some(market_plan.clone());
                     fs::write(
                         scene_dir.join("market-catchment-plan.json"),
                         serde_json::to_vec_pretty(&market_plan)?,
                     )?;
+                    if market_plan.status != "pass" {
+                        return Err(WorldgenError::InvalidRules(format!(
+                            "market catchment plan is incomplete: {}",
+                            market_plan.failures.join("; ")
+                        )));
+                    }
+                    market_catchment_result = Some(market_plan);
                 }
             }
         }
@@ -3421,14 +3428,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 else {
                     continue;
                 };
-                if let Some(stair) = settlement_evolution::attach_frontage_stair(
+                if let Some(stairs) = settlement_evolution::attach_frontage_stairs(
                     &mut entities[index],
                     &baked_samples,
                     frontage,
                 )
                 {
-                    promoted_frontage_stairs.push(stair.entity_id.clone());
-                    entities.push(stair);
+                    promoted_frontage_stairs.extend(
+                        stairs
+                            .iter()
+                            .map(|stair| stair.entity_id.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    entities.extend(stairs);
                 }
             }
             if !promoted_frontage_stairs.is_empty() {
@@ -4121,6 +4133,29 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             )?;
             natural_only::require_pass(&audit).map_err(WorldgenError::InvalidRules)?;
             natural_only_reports.push(audit);
+        }
+        let final_entity_audit =
+            final_scene_audit::audit(&index.entities, &baked_samples, scene, water);
+        fs::write(
+            scene_dir.join("final-entity-audit.json"),
+            serde_json::to_vec_pretty(&final_entity_audit)?,
+        )?;
+        if final_entity_audit.status != "pass" {
+            let first = final_entity_audit
+                .failures
+                .first()
+                .map(|failure| {
+                    format!(
+                        "{} {}: {}",
+                        failure.entity_id, failure.kind, failure.reason
+                    )
+                })
+                .unwrap_or_else(|| "unnamed failure".into());
+            return Err(WorldgenError::InvalidRules(format!(
+                "{} final entity audit failed ({} failures); first: {first}",
+                scene.scene_id,
+                final_entity_audit.failures.len()
+            )));
         }
         trace.stage(&scene.scene_id, "scene-serialization");
         fs::write(
@@ -6221,9 +6256,20 @@ pub(crate) fn oriented_local_coordinates(
     x: f64,
     z: f64,
 ) -> (f64, f64) {
-    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
     let dx = x - center_x;
     let dz = z - center_z;
+    let cardinal = rotation_y_deg.round().rem_euclid(360.0) as i32;
+    if (rotation_y_deg - rotation_y_deg.round()).abs() < 1e-6
+        && matches!(cardinal, 0 | 90 | 180 | 270)
+    {
+        return match cardinal {
+            90 => (dz, -dx),
+            180 => (-dx, -dz),
+            270 => (-dz, dx),
+            _ => (dx, dz),
+        };
+    }
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
     (dx * cos + dz * sin, -dx * sin + dz * cos)
 }
 
@@ -6343,7 +6389,22 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
                     .min(blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0))),
                 None => blend.max(3.0 * (f64::from(entity.ground_height_m()) + 32.0).max(0.0)),
             },
-            priority: if is_road { 10 } else { 1 },
+            // Main streets own their pavement above every other fill. A
+            // settlement approach is still engineered transport (above pads)
+            // but must lose to the street it joins; otherwise its longer fill
+            // envelope can raise a main road by several metres.
+            priority: if is_road {
+                if entity
+                    .entity_id
+                    .starts_with("generated.settlement-evolution.approach.")
+                {
+                    9
+                } else {
+                    10
+                }
+            } else {
+                1
+            },
             disturbance: if is_road { 255 } else { 160 },
             cut_cap_mm,
 
@@ -7411,7 +7472,11 @@ where
     } else if let Some(cut) = road_cut_floor {
         cut
     } else if road_owns_cell {
-        terrain
+        // A road's own flat top publishes the road's authored surface. Without
+        // this, a neighbouring building's transition fill could raise terrain
+        // above the road and the post-bake transport rebase would lift the road
+        // entity by several metres while the route plan stayed smooth.
+        full_target.max(base_terrain)
     } else if let Some(platform) = entrance_platform {
         platform
     } else if let Some(platform) = pad_platform {
@@ -8300,10 +8365,41 @@ fn apply_rules_mode(
             plan_terrain_carves(&entities)
         })
         .unwrap_or_default();
+    let road_obstacles: Vec<crate::rules::PlacedKind> = road_plan
+        .map(|plan| {
+            plan.entities()
+                .into_iter()
+                .filter(|entity| carves_as_road(entity.kind.as_str()))
+                .map(|entity| {
+                    let (half_w, half_d) = spatial_half_extents(
+                        entity.width_m,
+                        entity.depth_m,
+                        entity.rotation_y_deg,
+                    );
+                    crate::rules::PlacedKind {
+                        clearance: 0.0,
+                        id: Some(entity.entity_id),
+                        kind: crate::rules::ItemKind::Road,
+                        cx: entity.world_x as f32,
+                        cz: entity.world_z as f32,
+                        half_w: half_w as f32,
+                        half_d: half_d as f32,
+                        tags: Vec::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let designed_height = |x, z| terrain_context.height(x, z, &road_carves);
     let place = |requests: &[crate::rules::PlacementRequest]| {
         with_height_placement_context(seed, scene, water, &designed_height, |ctx| {
-            crate::rules::place_all(&registry, requests, ctx, seed)
+            crate::rules::place_all_with_preplaced(
+                &registry,
+                requests,
+                ctx,
+                &road_obstacles,
+                seed,
+            )
         })
     };
     let mut outcome = place(&requests);
@@ -9119,12 +9215,107 @@ fn generated_intent_entity(
 }
 
 pub(crate) fn spatial_half_extents(width_m: f32, depth_m: f32, rotation_y_deg: f32) -> (f64, f64) {
-    let quarter_turn = (rotation_y_deg.round() as i32).rem_euclid(180) == 90;
-    if quarter_turn {
-        (f64::from(depth_m) * 0.5, f64::from(width_m) * 0.5)
-    } else {
-        (f64::from(width_m) * 0.5, f64::from(depth_m) * 0.5)
+    let quarter_turn = rotation_y_deg.round().rem_euclid(360.0) as i32;
+    if (rotation_y_deg - rotation_y_deg.round()).abs() < 1e-6
+        && matches!(quarter_turn, 0 | 90 | 180 | 270)
+    {
+        return match quarter_turn {
+            90 | 270 => (f64::from(depth_m) * 0.5, f64::from(width_m) * 0.5),
+            _ => (f64::from(width_m) * 0.5, f64::from(depth_m) * 0.5),
+        };
     }
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
+    (
+        cos.abs() * f64::from(width_m) * 0.5 + sin.abs() * f64::from(depth_m) * 0.5,
+        sin.abs() * f64::from(width_m) * 0.5 + cos.abs() * f64::from(depth_m) * 0.5,
+    )
+}
+
+/// An oriented rectangle in world X/Z metres. `width_m` runs along the local
+/// X axis and `depth_m` along local Z; `rotation_y_deg` is the world rotation
+/// used by `EntityInstance`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OrientedFootprint {
+    pub center_x: f64,
+    pub center_z: f64,
+    pub width_m: f64,
+    pub depth_m: f64,
+    pub rotation_y_deg: f64,
+}
+
+impl OrientedFootprint {
+    pub(crate) fn from_entity(entity: &EntityInstance) -> Self {
+        Self {
+            center_x: f64::from(entity.world_x),
+            center_z: f64::from(entity.world_z),
+            width_m: f64::from(entity.width_m),
+            depth_m: f64::from(entity.depth_m),
+            rotation_y_deg: f64::from(entity.rotation_y_deg),
+        }
+    }
+
+    pub(crate) fn contains(&self, x: f64, z: f64) -> bool {
+        let (sin, cos) = self.rotation_y_deg.to_radians().sin_cos();
+        let dx = x - self.center_x;
+        let dz = z - self.center_z;
+        let local_x = dx * cos + dz * sin;
+        let local_z = -dx * sin + dz * cos;
+        local_x.abs() <= self.width_m * 0.5 + 1e-9
+            && local_z.abs() <= self.depth_m * 0.5 + 1e-9
+    }
+
+    pub(crate) fn aabb_half_extents(&self) -> (f64, f64) {
+        let (sin, cos) = self.rotation_y_deg.to_radians().sin_cos();
+        (
+            cos.abs() * self.width_m * 0.5 + sin.abs() * self.depth_m * 0.5,
+            sin.abs() * self.width_m * 0.5 + cos.abs() * self.depth_m * 0.5,
+        )
+    }
+
+    pub(crate) fn grid_cells(&self) -> Vec<(i32, i32)> {
+        let (half_x, half_z) = self.aabb_half_extents();
+        let x0 = (self.center_x - half_x).floor() as i32;
+        let x1 = (self.center_x + half_x).ceil() as i32;
+        let z0 = (self.center_z - half_z).floor() as i32;
+        let z1 = (self.center_z + half_z).ceil() as i32;
+        let mut cells = Vec::new();
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                if self.contains(f64::from(x), f64::from(z)) {
+                    cells.push((x, z));
+                }
+            }
+        }
+        cells
+    }
+}
+
+/// Exact separating-axis test for two oriented rectangles.
+pub(crate) fn oriented_footprints_overlap(
+    a: &OrientedFootprint,
+    b: &OrientedFootprint,
+    margin_m: f64,
+) -> bool {
+    let (a_sin, a_cos) = a.rotation_y_deg.to_radians().sin_cos();
+    let (b_sin, b_cos) = b.rotation_y_deg.to_radians().sin_cos();
+    let axes = [(a_cos, a_sin), (-a_sin, a_cos), (b_cos, b_sin), (-b_sin, b_cos)];
+    let dx = b.center_x - a.center_x;
+    let dz = b.center_z - a.center_z;
+    let a_half_w = a.width_m * 0.5;
+    let a_half_d = a.depth_m * 0.5;
+    let b_half_w = b.width_m * 0.5;
+    let b_half_d = b.depth_m * 0.5;
+    for (axis_x, axis_z) in axes {
+        let distance = (dx * axis_x + dz * axis_z).abs();
+        let a_radius = (axis_x * a_cos + axis_z * a_sin).abs() * a_half_w
+            + (-axis_x * a_sin + axis_z * a_cos).abs() * a_half_d;
+        let b_radius = (axis_x * b_cos + axis_z * b_sin).abs() * b_half_w
+            + (-axis_x * b_sin + axis_z * b_cos).abs() * b_half_d;
+        if distance >= a_radius + b_radius + margin_m {
+            return false;
+        }
+    }
+    true
 }
 
 fn is_building_kind(kind: &str) -> bool {
@@ -12321,6 +12512,36 @@ mod tests {
     }
 
     #[test]
+    fn diagonal_geometry_uses_true_oriented_extents_and_sat_overlap() {
+        let (diagonal_w, diagonal_d) = spatial_half_extents(20.0, 10.0, 45.0);
+        assert!((diagonal_w - 10.606_602).abs() < 0.001);
+        assert!((diagonal_d - 10.606_602).abs() < 0.001);
+        let left = OrientedFootprint {
+            center_x: 50.0,
+            center_z: 50.0,
+            width_m: 20.0,
+            depth_m: 10.0,
+            rotation_y_deg: 45.0,
+        };
+        let overlapping = OrientedFootprint {
+            center_x: 56.0,
+            center_z: 50.0,
+            width_m: 20.0,
+            depth_m: 10.0,
+            rotation_y_deg: 45.0,
+        };
+        let clear = OrientedFootprint {
+            center_x: 70.0,
+            center_z: 50.0,
+            width_m: 20.0,
+            depth_m: 10.0,
+            rotation_y_deg: 45.0,
+        };
+        assert!(oriented_footprints_overlap(&left, &overlapping, 0.0));
+        assert!(!oriented_footprints_overlap(&left, &clear, 0.0));
+    }
+
+    #[test]
     fn rotated_building_uses_world_footprint_for_grounding_and_pad() {
         let water = legacy_water_geometry(WaterKind::None, 1_000, 1_000, 0.0);
         let mut entity = EntityInstance {
@@ -12339,19 +12560,14 @@ mod tests {
             depth_m: 20.0,
             height_m: 12.0,
         };
-        let mut expected = f64::NEG_INFINITY;
-        for dz in -40..=40 {
-            for dx in -10..=10 {
-                expected = expected.max(
-                    f64::from(terrain_height_with_geometry(
-                        20260903,
-                        entity.world_x + dx,
-                        entity.world_z + dz,
-                        water,
-                    )) / 4.0,
-                );
-            }
-        }
+        let footprint = OrientedFootprint::from_entity(&entity);
+        let expected = footprint
+            .grid_cells()
+            .into_iter()
+            .map(|(x, z)| {
+                f64::from(terrain_height_with_geometry(20260903, x, z, water)) / 4.0
+            })
+            .fold(f64::NEG_INFINITY, f64::max);
         rebase_buildings_to_surface(20260903, water, std::slice::from_mut(&mut entity));
         assert_eq!(entity.world_y, expected.ceil() as i32);
         let carves = plan_terrain_carves(&[entity.clone()]);
@@ -12360,7 +12576,8 @@ mod tests {
             entity.world_y as i16 * 4,
             "rotated building pad did not extend along world Z"
         );
-        assert_eq!((carves[0].half_w, carves[0].half_d), (11., 41.));
+        assert!((carves[0].half_w - 11.0).abs() < 1e-9);
+        assert!((carves[0].half_d - 41.0).abs() < 1e-9);
         assert_eq!(
             terrain_disturbance_at(439, 400, &carves),
             0,
@@ -12421,6 +12638,16 @@ mod tests {
                 "rotation {rotation}: transverse neighbour must stay outside"
             );
         }
+    }
+
+    #[test]
+    fn cardinal_corridor_owns_its_exact_flat_top_boundary() {
+        let carve = oriented_test_carve(90.0);
+        assert!(
+            carve_outside_m(&carve, 398.0, 400.0) <= 0.0,
+            "a 90-degree corridor must own the inclusive transverse boundary"
+        );
+        assert!(carve_outside_m(&carve, 397.999, 400.0) > 0.0);
     }
 
     #[test]

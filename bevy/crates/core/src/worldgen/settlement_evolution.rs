@@ -15,7 +15,10 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 use super::community_typology;
 use super::epoch_evolution;
 use super::route_evolution::Plan as RoutePlan;
-use super::{urban_slice, EntityInstance, SceneSpec, WaterGeometry};
+use super::{
+    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SceneSpec,
+    WaterGeometry,
+};
 use crate::settlement::building_archetypes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -193,6 +196,8 @@ pub struct Building {
     pub frontage_level_m: Option<f64>,
     #[serde(default)]
     pub max_pad_cut_mm: Option<i32>,
+    #[serde(default)]
+    pub rotation_y_deg: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -242,6 +247,7 @@ struct Candidate {
     district_stage: String,
     road_design_m: f64,
     required_cut_mm: i32,
+    rotation_y_deg: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -447,9 +453,22 @@ pub fn plan(
     let mut accepted_lots = 0;
     let mut candidate_lots = 0;
     let mut total_floor_area = 0.0;
-    let mut accepted_lot_centers = Vec::<(i32, i32)>::new();
+    let mut candidate_lot_footprints = Vec::<OrientedFootprint>::new();
     let mut candidates = Vec::<Candidate>::new();
     let materialized_roads = super::route_evolution::materialize(routes);
+    let planned_road_width_m = urban_slice::planned_road_width_m(style)
+        .map_err(TerrainError)?
+        .unwrap_or(routes.road_width_m as f32);
+    let mut road_reservations = materialized_roads.clone();
+    for road in &mut road_reservations {
+        if road.kind == "road" {
+            // The published road owns its pavement plus the graded transport
+            // shoulder. Buildings must clear the shoulder as well as the visible
+            // carriageway or the road's support resolution can raise terrain
+            // through the neighbouring building pad.
+            road.depth_m = road.depth_m.max(planned_road_width_m) + 6.0;
+        }
+    }
     // Old-core frontage is sampled at the narrow-lot cadence, not the coarse
     // district lot pitch. Demand still decides how many buildings land; this
     // only removes the artificial 10-20m holes between otherwise legal row
@@ -469,6 +488,7 @@ pub fn plan(
             }
             let normal_x = -dz / length;
             let normal_z = dx / length;
+            let rotation_y_deg = dz.atan2(dx).to_degrees() as f32;
             let step = f64::from(frontage_step_m);
             let samples = (length / step).floor().max(1.0) as usize;
             for sample in 0..samples {
@@ -481,7 +501,11 @@ pub fn plan(
                         "{}.lot.{}.{}.{}",
                         route.id, segment_index, sample, side_index
                     );
-                    let access = route.road_width_m as f64 * 0.5 + f64::from(program.setback_m);
+                    let access = f64::from(route.road_width_m)
+                        .max(f64::from(planned_road_width_m))
+                        * 0.5
+                        + 3.0
+                        + f64::from(program.setback_m);
                     let mut center_x =
                         road_x + normal_x * side * (access + f64::from(base_lot_depth_m) * 0.5);
                     let mut center_z =
@@ -525,6 +549,7 @@ pub fn plan(
                         z,
                         lot_width_m,
                         lot_depth_m,
+                        rotation_y_deg,
                     ));
                     let lot_ground_m = terrain.height(x, z).unwrap_or(f32::INFINITY);
                     if (road_design_m - f64::from(lot_ground_m)).abs()
@@ -540,12 +565,34 @@ pub fn plan(
                         continue;
                     }
                     let natural_ceiling_m =
-                        lot_ground_ceiling_m(terrain, x, z, lot_width_m, lot_depth_m)
-                            .unwrap_or(f32::INFINITY);
+                        lot_ground_ceiling_m(
+                            terrain,
+                            x,
+                            z,
+                            lot_width_m,
+                            lot_depth_m,
+                            rotation_y_deg,
+                        )
+                        .unwrap_or(f32::INFINITY);
                     let entrance_ceiling_m =
-                        facade_anchor(x, z, lot_width_m, lot_depth_m, road_x, road_z)
+                        facade_anchor(
+                            x,
+                            z,
+                            lot_width_m,
+                            lot_depth_m,
+                            rotation_y_deg,
+                            road_x,
+                            road_z,
+                        )
                             .and_then(|(anchor_x, anchor_z, _)| {
-                                lot_ground_ceiling_m(terrain, anchor_x, anchor_z, 4.0, 4.0)
+                                lot_ground_ceiling_m(
+                                    terrain,
+                                    anchor_x,
+                                    anchor_z,
+                                    4.0,
+                                    4.0,
+                                    0.0,
+                                )
                             })
                             .unwrap_or(f32::NEG_INFINITY);
                     let required_cut_m = (f64::from(natural_ceiling_m.max(entrance_ceiling_m))
@@ -561,10 +608,17 @@ pub fn plan(
                         });
                         continue;
                     }
-                    if accepted_lot_centers.iter().any(|(lot_x, lot_z)| {
-                        (f64::from(*lot_x) - f64::from(x)).hypot(f64::from(*lot_z) - f64::from(z))
-                            < f64::from(lot_width_m.min(lot_depth_m)) * 0.9
-                    }) {
+                    let lot_footprint = OrientedFootprint {
+                        center_x: f64::from(x),
+                        center_z: f64::from(z),
+                        width_m: f64::from(lot_width_m),
+                        depth_m: f64::from(lot_depth_m),
+                        rotation_y_deg: f64::from(rotation_y_deg),
+                    };
+                    if candidate_lot_footprints
+                        .iter()
+                        .any(|other| oriented_footprints_overlap(other, &lot_footprint, 0.5))
+                    {
                         rejections.push(Rejection {
                             candidate_id,
                             route_id: route.id.clone(),
@@ -590,8 +644,9 @@ pub fn plan(
                         district_stage: district_stage.into(),
                         road_design_m: foundation_m,
                         required_cut_mm: (required_cut_m * 1000.0 + 64.0).ceil() as i32,
+                        rotation_y_deg,
                     });
-                    accepted_lot_centers.push((x, z));
+                    candidate_lot_footprints.push(lot_footprint);
                 }
             }
             route_position_m += length;
@@ -721,7 +776,8 @@ pub fn plan(
                 if demand_is_empty(&limit) {
                     break;
                 }
-                let Some(accepted_candidate) = try_build_candidate(candidate, &limit, &rules)
+                let Some(accepted_candidate) =
+                    try_build_candidate(candidate, &limit, &rules, &road_reservations, &buildings)
                 else {
                     continue;
                 };
@@ -767,8 +823,13 @@ pub fn plan(
                 {
                     continue;
                 }
-                let Some(accepted_candidate) = try_build_candidate(candidate, &demand, &rules)
-                else {
+                let Some(accepted_candidate) = try_build_candidate(
+                    candidate,
+                    &demand,
+                    &rules,
+                    &road_reservations,
+                    &buildings,
+                ) else {
                     continue;
                 };
                 commit_candidate(
@@ -809,7 +870,13 @@ pub fn plan(
         }
     } else {
         for (index, candidate) in candidates.iter().enumerate() {
-            let Some(accepted_candidate) = try_build_candidate(candidate, &demand, &rules) else {
+            let Some(accepted_candidate) = try_build_candidate(
+                candidate,
+                &demand,
+                &rules,
+                &road_reservations,
+                &buildings,
+            ) else {
                 continue;
             };
             commit_candidate(
@@ -957,6 +1024,8 @@ fn try_build_candidate(
     candidate: &Candidate,
     limit: &Demand,
     rules: &SelectionRules,
+    roads: &[EntityInstance],
+    buildings: &[Building],
 ) -> Option<AcceptedCandidate> {
     let wants_retail = limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.28;
     let wants_jobs = limit.jobs > 0 && (candidate.pressure > 0.55 || limit.households == 0);
@@ -978,9 +1047,22 @@ fn try_build_candidate(
     let job_capacity = (floor_area / rules.job_area_m2).floor() as u32;
     let retail_capacity = floor_area * rules.retail_share;
     let service_capacity = floor_area / 700.0;
+    let (household_grain, job_grain) = match candidate.district_stage.as_str() {
+        "old-core" => (40, 160),
+        "renewal" => (90, 320),
+        "new-growth" => (140, 420),
+        _ => (80, 240),
+    };
     let spent = Demand {
-        households: household_capacity.min(limit.households),
-        jobs: job_capacity.min(limit.jobs),
+        // One lot may provide a plausible mixed programme, but it may not
+        // consume an entire district's demand. The grain cap is a per-epoch
+        // planning coefficient, not a target building count: empty or
+        // inaccessible lots still produce no building, and total counts remain
+        // an output of demand, capacity and legal parcels.
+        households: household_capacity
+            .min(limit.households)
+            .min(household_grain),
+        jobs: job_capacity.min(limit.jobs).min(job_grain),
         retail_floor_area_m2: retail_capacity.min(limit.retail_floor_area_m2),
         service_budget: service_capacity.min(limit.service_budget),
     };
@@ -1020,8 +1102,47 @@ fn try_build_candidate(
         frontage_position_m: candidate.frontage_position_m,
         district_stage: candidate.district_stage.clone(),
         frontage_level_m: Some(candidate.road_design_m),
-        max_pad_cut_mm: Some(candidate.required_cut_mm),
+        // A generated building always owns a declared platform, even when its
+        // required cut rounds to zero. Without an active platform a neighbour's
+        // higher fill ring can raise terrain through an otherwise grounded
+        // building base.
+        max_pad_cut_mm: Some(candidate.required_cut_mm.max(1)),
+        rotation_y_deg: candidate.rotation_y_deg,
     };
+    let footprint = OrientedFootprint {
+        center_x: f64::from(building.world_x),
+        center_z: f64::from(building.world_z),
+        width_m: f64::from(building.width_m),
+        depth_m: f64::from(building.depth_m),
+        rotation_y_deg: f64::from(building.rotation_y_deg),
+    };
+    let conflicts_with_road = roads.iter().any(|road| {
+        road.kind == "road"
+            && !road
+                .entity_id
+                .starts_with("generated.settlement-evolution.approach.")
+            && oriented_footprints_overlap(
+                &footprint,
+                &OrientedFootprint::from_entity(road),
+                0.5,
+            )
+    });
+    let conflicts_with_building = buildings.iter().any(|other| {
+        oriented_footprints_overlap(
+            &footprint,
+            &OrientedFootprint {
+                center_x: f64::from(other.world_x),
+                center_z: f64::from(other.world_z),
+                width_m: f64::from(other.width_m),
+                depth_m: f64::from(other.depth_m),
+                rotation_y_deg: f64::from(other.rotation_y_deg),
+            },
+            0.25,
+        )
+    });
+    if conflicts_with_road || conflicts_with_building {
+        return None;
+    }
     Some(AcceptedCandidate {
         building,
         spent,
@@ -1304,14 +1425,18 @@ fn lot_ground_ceiling_m(
     z: i32,
     width: f32,
     depth: f32,
+    rotation_y_deg: f32,
 ) -> Option<f32> {
-    let half_width = (width * 0.5).ceil() as i32;
-    let half_depth = (depth * 0.5).ceil() as i32;
     let mut ceiling = f32::NEG_INFINITY;
-    for dz in -half_depth..=half_depth {
-        for dx in -half_width..=half_width {
-            ceiling = ceiling.max(terrain.height(x + dx, z + dz)?);
-        }
+    let footprint = OrientedFootprint {
+        center_x: f64::from(x),
+        center_z: f64::from(z),
+        width_m: f64::from(width),
+        depth_m: f64::from(depth),
+        rotation_y_deg: f64::from(rotation_y_deg),
+    };
+    for (sample_x, sample_z) in footprint.grid_cells() {
+        ceiling = ceiling.max(terrain.height(sample_x, sample_z)?);
     }
     ceiling.is_finite().then_some(ceiling)
 }
@@ -1329,9 +1454,65 @@ pub fn materialize(
                 .collect::<BTreeMap<_, _>>()
         })
         .unwrap_or_default();
-    plan.buildings
+    let mut target_grounds = plan
+        .buildings
         .iter()
         .map(|building| {
+            let terrain_support = f64::from(building_support_height_m(building, terrain));
+            building
+                .frontage_level_m
+                .map_or(terrain_support, |frontage| frontage.max(terrain_support))
+        })
+        .collect::<Vec<_>>();
+    // Building support carves are axis-aligned envelopes around the (possibly
+    // rotated) footprint. Where two envelopes overlap, the higher declared pad
+    // must level the whole connected tier; otherwise its fill ring raises
+    // terrain through the lower neighbour's base even though the two building
+    // OBBs are legally separated.
+    let pads = plan
+        .buildings
+        .iter()
+        .map(|building| {
+            let (half_w, half_d) = super::spatial_half_extents(
+                building.width_m,
+                building.depth_m,
+                building.rotation_y_deg,
+            );
+            (
+                f64::from(building.world_x),
+                f64::from(building.world_z),
+                half_w + 2.0,
+                half_d + 2.0,
+            )
+        })
+        .collect::<Vec<_>>();
+    loop {
+        let mut changed = false;
+        for left in 0..pads.len() {
+            for right in left + 1..pads.len() {
+                let a = pads[left];
+                let b = pads[right];
+                if (a.0 - b.0).abs() >= a.2 + b.2 || (a.1 - b.1).abs() >= a.3 + b.3 {
+                    continue;
+                }
+                let level = target_grounds[left].max(target_grounds[right]);
+                if (target_grounds[left] - level).abs() > 1e-9
+                    || (target_grounds[right] - level).abs() > 1e-9
+                {
+                    target_grounds[left] = level;
+                    target_grounds[right] = level;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    plan.buildings
+        .iter()
+        .enumerate()
+        .map(|(building_index, building)| {
             let epoch_assignment = epoch_by_building.get(building.id.as_str()).copied();
             // A settlement building may sit on a terrace cut to the street, but
             // the natural high side of its own footprint is still an authoritative
@@ -1340,10 +1521,7 @@ pub fn materialize(
             // the two authored surfaces so the foundation meets both the street
             // and the uphill terrain; the strict access audit still decides
             // whether the resulting relationship is walkable.
-            let terrain_support = f64::from(building_support_height_m(building, terrain));
-            let target_ground = building
-                .frontage_level_m
-                .map_or(terrain_support, |frontage| frontage.max(terrain_support));
+            let target_ground = target_grounds[building_index];
             let world_y = target_ground.floor() as i32;
             let bottom_offset = (target_ground - f64::from(world_y)) as f32;
             let mut anchors = Vec::new();
@@ -1355,6 +1533,7 @@ pub fn materialize(
                     building.world_z,
                     building.width_m,
                     building.depth_m,
+                    building.rotation_y_deg,
                     f64::from(road_x),
                     f64::from(road_z),
                 ) {
@@ -1408,7 +1587,7 @@ pub fn materialize(
                 width_m: building.width_m,
                 depth_m: building.depth_m,
                 height_m: building.height_m,
-                rotation_y_deg: 0.0,
+                rotation_y_deg: building.rotation_y_deg,
                 grounding: super::GroundingSpec {
                     bottom_offset_m: bottom_offset,
                     bounded_cut_mm: building.max_pad_cut_mm.filter(|cut| *cut > 0),
@@ -1431,18 +1610,16 @@ pub fn materialize(
 pub fn materialize_stairs(buildings: &[EntityInstance]) -> Vec<EntityInstance> {
     buildings
         .iter()
-        .filter_map(|building| {
-            let stairs = building.grounding.stair_connection.as_ref()?;
-            Some(stair_entity(stairs))
-        })
+        .filter_map(|building| building.grounding.stair_connection.as_ref())
+        .flat_map(stair_entities)
         .collect()
 }
 
-pub fn attach_frontage_stair(
+pub fn attach_frontage_stairs(
     building: &mut EntityInstance,
     terrain: &BakedTerrain,
     to: [i32; 2],
-) -> Option<EntityInstance> {
+) -> Option<Vec<EntityInstance>> {
     let anchor = building.anchors.first()?;
     if let Some(existing) = &building.grounding.stair_connection {
         if existing.to == to {
@@ -1476,7 +1653,7 @@ pub fn attach_frontage_stair(
         width_m: 2.4,
     };
     building.grounding.stair_connection = Some(stairs.clone());
-    Some(stair_entity(&stairs))
+    Some(stair_entities(&stairs))
 }
 
 fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
@@ -1505,6 +1682,52 @@ fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
         anchors: Vec::new(),
         bounds: None,
     }
+}
+
+fn stair_entities(stairs: &super::StairConnection) -> Vec<EntityInstance> {
+    let dx = stairs.to[0] - stairs.from[0];
+    let dz = stairs.to[1] - stairs.from[1];
+    let run_m = f64::from(dx).hypot(f64::from(dz));
+    if run_m + 0.4 <= 24.0 {
+        return vec![stair_entity(stairs)];
+    }
+    let segment_run_m = 22.0;
+    let segment_count = (run_m / segment_run_m).ceil().max(2.0) as usize;
+    let mut segments = Vec::with_capacity(segment_count);
+    for index in 0..segment_count {
+        let start_t = index as f64 / segment_count as f64;
+        let end_t = (index + 1) as f64 / segment_count as f64;
+        let from = [
+            (f64::from(stairs.from[0]) + f64::from(dx) * start_t).round() as i32,
+            (f64::from(stairs.from[1]) + f64::from(dz) * start_t).round() as i32,
+        ];
+        let to = [
+            (f64::from(stairs.from[0]) + f64::from(dx) * end_t).round() as i32,
+            (f64::from(stairs.from[1]) + f64::from(dz) * end_t).round() as i32,
+        ];
+        let from_mm = (f64::from(stairs.from_mm)
+            + f64::from(stairs.to_mm - stairs.from_mm) * start_t)
+            .round() as i32;
+        let to_mm = (f64::from(stairs.from_mm)
+            + f64::from(stairs.to_mm - stairs.from_mm) * end_t)
+            .round() as i32;
+        let low_mm = from_mm.min(to_mm);
+        let high_mm = from_mm.max(to_mm);
+        let segment = super::StairConnection {
+            version: stairs.version,
+            stair_id: format!("{}.part-{index}", stairs.stair_id),
+            from,
+            to,
+            from_mm,
+            to_mm,
+            low_mm,
+            high_mm,
+            step_count: stairs.step_count.div_ceil(segment_count as u32).max(1),
+            width_m: stairs.width_m,
+        };
+        segments.push(stair_entity(&segment));
+    }
+    segments
 }
 
 /// Short, explicit ground-level approaches from each planned building facade to
@@ -1537,6 +1760,13 @@ pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<Entity
             let target_ground = building
                 .frontage_level_m
                 .map_or(terrain_support, |frontage| frontage.max(terrain_support));
+            if let Some(road_level) = building.frontage_level_m {
+                if (target_ground - road_level).abs() > 2.4 {
+                    // This threshold needs stairs, not a long flat road that
+                    // imports the uphill pad elevation into the street.
+                    return None;
+                }
+            }
             let world_y = target_ground.floor() as i32;
             let bottom_offset = (target_ground - f64::from(world_y)) as f32;
             Some(EntityInstance {
@@ -1564,15 +1794,16 @@ pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<Entity
 
 fn building_support_height_m(building: &Building, terrain: &BakedTerrain) -> f32 {
     let mut highest = f32::NEG_INFINITY;
-    let half_width = (building.width_m * 0.5).ceil() as i32;
-    let half_depth = (building.depth_m * 0.5).ceil() as i32;
-    for dz in -half_depth..=half_depth {
-        for dx in -half_width..=half_width {
-            let x = building.world_x + dx;
-            let z = building.world_z + dz;
-            if let Some(height) = terrain.height(x, z) {
-                highest = highest.max(height);
-            }
+    let footprint = OrientedFootprint {
+        center_x: f64::from(building.world_x),
+        center_z: f64::from(building.world_z),
+        width_m: f64::from(building.width_m),
+        depth_m: f64::from(building.depth_m),
+        rotation_y_deg: f64::from(building.rotation_y_deg),
+    };
+    for (x, z) in footprint.grid_cells() {
+        if let Some(height) = terrain.height(x, z) {
+            highest = highest.max(height);
         }
     }
     highest
@@ -1583,6 +1814,7 @@ fn facade_anchor(
     world_z: i32,
     width_m: f32,
     depth_m: f32,
+    rotation_y_deg: f32,
     road_x: f64,
     road_z: f64,
 ) -> Option<(i32, i32, &'static str)> {
@@ -1592,37 +1824,28 @@ fn facade_anchor(
     if length <= 1e-9 {
         return None;
     }
-    // The access anchor is a door on a cardinal facade, not the intersection of
-    // the road ray with the rectangle's diagonal corner. A diagonal corner can
-    // land inside a different road crossing the block, making the building's
-    // threshold inherit that road's surface. Pick the midpoint of the facade that
-    // faces the assigned road and let the approach corridor span the setback.
-    let (anchor_x, anchor_z, direction) = if dx.abs() > dz.abs() {
-        if dx > 0.0 {
-            (
-                (f64::from(world_x) + f64::from(width_m) * 0.5 - 0.5).round() as i32,
-                world_z,
-                "east",
-            )
-        } else {
-            (
-                (f64::from(world_x) - f64::from(width_m) * 0.5 + 0.5).round() as i32,
-                world_z,
-                "west",
-            )
-        }
-    } else if dz > 0.0 {
-        (
-            world_x,
-            (f64::from(world_z) + f64::from(depth_m) * 0.5 - 0.5).round() as i32,
-            "south",
-        )
+    let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
+    let local_x = dx * cos + dz * sin;
+    let local_z = -dx * sin + dz * cos;
+    let (out_x, out_z, half) = if local_z.abs() >= local_x.abs() {
+        let sign = local_z.signum();
+        (-sin * sign, cos * sign, f64::from(depth_m) * 0.5)
     } else {
-        (
-            world_x,
-            (f64::from(world_z) - f64::from(depth_m) * 0.5 + 0.5).round() as i32,
-            "north",
-        )
+        let sign = local_x.signum();
+        (cos * sign, sin * sign, f64::from(width_m) * 0.5)
+    };
+    let anchor_x = (f64::from(world_x) + out_x * (half - 0.5)).round() as i32;
+    let anchor_z = (f64::from(world_z) + out_z * (half - 0.5)).round() as i32;
+    let direction = if out_x.abs() >= out_z.abs() {
+        if out_x >= 0.0 {
+            "east"
+        } else {
+            "west"
+        }
+    } else if out_z >= 0.0 {
+        "south"
+    } else {
+        "north"
     };
     Some((anchor_x, anchor_z, direction))
 }
@@ -1642,17 +1865,26 @@ fn nearby_road_surface_m(
     world_z: i32,
     width_m: f32,
     depth_m: f32,
+    rotation_y_deg: f32,
 ) -> f64 {
-    let radius = f64::from(width_m.max(depth_m)) * 0.5 + 2.0;
+    let footprint = OrientedFootprint {
+        center_x: f64::from(world_x),
+        center_z: f64::from(world_z),
+        width_m: f64::from(width_m),
+        depth_m: f64::from(depth_m),
+        rotation_y_deg: f64::from(rotation_y_deg),
+    };
     let mut highest = f64::NEG_INFINITY;
     for road in roads {
-        let (half_width, half_depth) =
-            super::spatial_half_extents(road.width_m, road.depth_m, road.rotation_y_deg);
-        let reach_x = half_width + 4.0;
-        let reach_z = half_depth + 1.5;
-        if f64::from(world_x - road.world_x).abs() <= reach_x + radius
-            && f64::from(world_z - road.world_z).abs() <= reach_z + radius
-        {
+        let blend = f64::from(road.grounding.earthwork_blend_m.unwrap_or(0.0)).max(0.0);
+        let influence = OrientedFootprint {
+            center_x: f64::from(road.world_x),
+            center_z: f64::from(road.world_z),
+            width_m: f64::from(road.width_m) + blend * 2.0,
+            depth_m: f64::from(road.depth_m) + blend * 2.0,
+            rotation_y_deg: f64::from(road.rotation_y_deg),
+        };
+        if oriented_footprints_overlap(&footprint, &influence, 0.5) {
             highest = highest.max(f64::from(road.ground_height_m()));
         }
     }
@@ -1752,6 +1984,61 @@ mod tests {
         }
     }
 
+    fn diagonal_route_plan() -> RoutePlan {
+        let polyline = (0..20)
+            .map(|index| RoutePoint {
+                x: 40 + index * 16,
+                z: 40 + index * 16,
+                natural_height_m: 10.0,
+                design_height_m: 10.0,
+                water: false,
+            })
+            .collect();
+        RoutePlan {
+            format: "glyphweave.route-evolution-plan".into(),
+            version: 1,
+            status: "pass".into(),
+            grid_step_m: 16,
+            road_width_m: 8,
+            max_grade: 0.08,
+            max_terrain_slope: 0.55,
+            max_fill_m: 6.0,
+            anchors: vec![
+                Anchor {
+                    id: "a".into(),
+                    x: 40,
+                    z: 40,
+                    role: "test".into(),
+                },
+                Anchor {
+                    id: "b".into(),
+                    x: 344,
+                    z: 344,
+                    role: "test".into(),
+                },
+            ],
+            candidate_nodes: Vec::new(),
+            routes: vec![Route {
+                id: "diagonal".into(),
+                from: "a".into(),
+                to: "b".into(),
+                status: "pass".into(),
+                road_width_m: 8,
+                polyline,
+                length_m: 430.12,
+                direct_length_m: 430.12,
+                curve_deviation_m: 0.0,
+                maximum_grade: 0.0,
+                maximum_fill_m: 0.0,
+                maximum_terrain_fill_m: 0.0,
+                fill_volume_m3: 0.0,
+                bridge_spans: Vec::new(),
+                failure: None,
+            }],
+            failures: Vec::new(),
+        }
+    }
+
     fn style(households: u32, jobs: u32, retail: f64) -> Value {
         serde_json::json!({
             "settlementEvolution": {
@@ -1783,10 +2070,19 @@ mod tests {
             .unwrap();
         assert_eq!(low.status, "pass", "{:?}", low.unmet_demand);
         assert!(high.buildings.len() > low.buildings.len());
+        assert!(
+            high.buildings
+                .iter()
+                .map(|building| building.kind.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                > 1
+        );
+        assert_eq!(high.status, "pass", "{:?}", high.unmet_demand);
         assert!(high
             .buildings
             .iter()
-            .any(|building| building.kind == "office_tower"));
+            .all(|building| building.recommended_count > 0));
         let entities = materialize(&low, &terrain, None);
         assert_eq!(entities.len(), low.buildings.len());
         assert!(entities.iter().all(|entity| {
@@ -2069,5 +2365,41 @@ mod tests {
             .buildings
             .iter()
             .all(|building| building.income_band == "homeowner"));
+    }
+
+    #[test]
+    fn diagonal_frontage_buildings_keep_oriented_separation_from_each_other_and_roads() {
+        let (scene, terrain, water) = fixture();
+        let routes = diagonal_route_plan();
+        let planned = plan(&scene, &terrain, water, &routes, &style(80, 20, 300.0))
+            .unwrap()
+            .unwrap();
+        assert!(!planned.buildings.is_empty());
+        let footprints = planned
+            .buildings
+            .iter()
+            .map(|building| OrientedFootprint {
+                center_x: f64::from(building.world_x),
+                center_z: f64::from(building.world_z),
+                width_m: f64::from(building.width_m),
+                depth_m: f64::from(building.depth_m),
+                rotation_y_deg: f64::from(building.rotation_y_deg),
+            })
+            .collect::<Vec<_>>();
+        for (index, left) in footprints.iter().enumerate() {
+            for right in footprints.iter().skip(index + 1) {
+                assert!(!oriented_footprints_overlap(left, right, 0.05));
+            }
+        }
+        let roads = super::super::route_evolution::materialize(&routes);
+        for building in &footprints {
+            for road in &roads {
+                assert!(!oriented_footprints_overlap(
+                    building,
+                    &OrientedFootprint::from_entity(road),
+                    0.25
+                ));
+            }
+        }
     }
 }
