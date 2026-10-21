@@ -91,7 +91,7 @@ Manifest：
 
 输出：
 
-`bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final4/`
+`bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final7/`
 
 世界参数：
 
@@ -115,8 +115,8 @@ Manifest：
 | 接受地块 | 25 |
 | 建筑计划 | 25 |
 | 最终市场实体 | 4 |
-| 最终建筑/市场合计 | 18 |
-| 成功入口 | 18 / 18 |
+| 最终建筑/市场合计 | 19 |
+| 成功入口 | 19 / 19 |
 | 孤立引道 | 0；未实现建筑的引道随建筑拒绝一并撤销 |
 | 住宅交付 | 1200 / 1200 |
 | 岗位交付 | 700 / 700 |
@@ -163,8 +163,8 @@ cargo test -p glyphweave-core --lib worldgen::access::tests
 
 ## 6. 仍未完成
 
-1. 25 个计划建筑中仍有 11 个未通过最终入口合同，主要原因是
-   10 个 `entrance_step_requires_engineering` 和 1 条不可达路线；
+1. 25 个计划建筑中仍有 10 个未通过最终入口合同，主要原因是
+   9 个 `entrance_step_requires_engineering` 和 1 条不可达路线；
    入口锚点边界误差已经修复；
    所有失败已具名进入报告，但最终核心区建筑数量仍偏低。
 2. 市场计划 5 个，最终保留 4 个；需要继续让市场占地和入口像普通建筑一样

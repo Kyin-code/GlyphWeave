@@ -3235,22 +3235,23 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     .flat_map(|p| p.buildings.iter().map(|b| b.entity.entity_id.clone())),
             )
             .collect();
-        let rejected_access = access::rejectable_candidates(&access_graph, &protected_access_ids);
-        let rejected_access_statuses = access_graph
-            .links
-            .iter()
-            .filter(|link| rejected_access.contains(&link.entity_id) && !link.connected)
-            .fold(
-                BTreeMap::<String, Vec<String>>::new(),
-                |mut statuses, link| {
-                    statuses
-                        .entry(link.entity_id.clone())
-                        .or_default()
-                        .push(link.status.clone());
-                    statuses
-                },
-            );
-        if !rejected_access.is_empty() {
+        let mut rejected_access_statuses = BTreeMap::<String, Vec<String>>::new();
+        for round in 1..=4 {
+            let rejected_access =
+                access::rejectable_candidates(&access_graph, &protected_access_ids);
+            if rejected_access.is_empty() {
+                break;
+            }
+            for link in access_graph
+                .links
+                .iter()
+                .filter(|link| rejected_access.contains(&link.entity_id) && !link.connected)
+            {
+                rejected_access_statuses
+                    .entry(link.entity_id.clone())
+                    .or_default()
+                    .push(link.status.clone());
+            }
             let rejected_buildings = rejected_access
                 .iter()
                 .filter_map(|id| id.strip_prefix("generated.settlement-evolution."))
@@ -3272,6 +3273,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             engineering_reports.push(serde_json::json!({
                 "sceneId": scene.scene_id,
                 "phase": "access-candidate-rejection",
+                "round": round,
                 "rejectedGeneratedBuildings": rejected_access,
                 "reason": "no generated facade produced a verified route within the strict access contract"
             }));

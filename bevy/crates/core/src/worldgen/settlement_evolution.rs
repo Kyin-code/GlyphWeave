@@ -622,8 +622,8 @@ pub fn materialize_approaches(plan: &Plan, terrain: &BakedTerrain) -> Vec<Entity
                 world_z: center_z.round() as i32,
                 world_y,
                 scale: 1.0,
-                width_m: approach_length as f32,
-                depth_m: 6.0,
+                width_m: (approach_length + 4.0) as f32,
+                depth_m: 12.0,
                 height_m: 0.2,
                 rotation_y_deg: dz.atan2(dx).to_degrees() as f32,
                 grounding: super::GroundingSpec {

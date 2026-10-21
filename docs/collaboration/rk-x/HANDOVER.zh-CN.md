@@ -5,7 +5,7 @@
 > 48 城特征复刻和宏观工程弱门限。已落地自然基线冻结/最终差分、自然节点
 > 多路网、建筑原型、分级市场实体和入口自身碰撞修复。当前 1km 候选为
 > `examples/natural-evolution-core-city-1km.manifest.json`，实烘焙输出
-> `bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final4/`；详细证据与剩余
+> `bevy/work/rk-x/v3-w1w5-natural-evolution-1km-final7/`；详细证据与剩余
 > 入口缺口见
 > [`NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md`](NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md)。
 
