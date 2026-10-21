@@ -389,6 +389,11 @@ pub(super) fn access_for_entity(
             // Anchors may sit up to two metres off the facade. The actual
             // pavement must reach the wall, not stop at that routing marker.
             let facade_point = closest(e, start);
+            let entrance_obstacles: Vec<_> = obstacles
+                .iter()
+                .copied()
+                .filter(|o| o.entity_id != e.entity_id)
+                .collect();
             let stair = e.grounding.stair_connection.as_ref();
             let stair_routing = stair.and_then(|stairs| {
                 let stair_entity = entities.iter().find(|candidate| {
@@ -396,17 +401,18 @@ pub(super) fn access_for_entity(
                 })?;
                 let from = point(f64::from(stairs.from[0]), f64::from(stairs.from[1]));
                 let to = point(f64::from(stairs.to[0]), f64::from(stairs.to[1]));
-                if distance(from, facade_point) > 2.0 || distance(from, to) > 4.0 {
+                if distance(from, facade_point) > 2.0
+                    || distance(from, to) > 24.0
+                    || entrance_obstacles
+                        .iter()
+                        .any(|obstacle| crosses(obstacle, from, to))
+                    || water.intersects_corridor(from.x, from.z, to.x, to.z, HALF_WIDTH)
+                {
                     return None;
                 }
                 let _ = stair_entity;
                 height(terrain, to).is_some().then_some(to)
             });
-            let entrance_obstacles: Vec<_> = obstacles
-                .iter()
-                .copied()
-                .filter(|o| o.entity_id != e.entity_id)
-                .collect();
             #[cfg(test)]
             observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
             if terrain.require_complete().is_err() {

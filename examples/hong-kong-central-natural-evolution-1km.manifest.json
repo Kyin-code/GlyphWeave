@@ -377,11 +377,11 @@
         "allowedSurfaces": ["grass", "forest", "soil", "stone"],
         "forbiddenSurfaces": ["water", "deep_water", "underground"],
         "minWidthM": 1.2,
-        "maxWidthM": 5,
+        "maxWidthM": 24,
         "minDepthM": 1,
-        "maxDepthM": 5,
+        "maxDepthM": 24,
         "minHeightM": 0.2,
-        "maxHeightM": 3
+        "maxHeightM": 8.5
       },
       "storefront": {
         "type": "commercial",

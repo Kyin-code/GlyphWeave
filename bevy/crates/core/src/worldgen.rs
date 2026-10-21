@@ -3325,6 +3325,48 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     }
                 }
             }
+            let mut promoted_frontage_stairs = Vec::new();
+            for rejected_id in &rejected_access {
+                if !rejected_id.starts_with("generated.settlement-evolution.")
+                    || rejected_id.contains(".approach.")
+                    || rejected_id.contains(".stairs.")
+                {
+                    continue;
+                }
+                let old_stair_id = entities
+                    .iter()
+                    .find(|entity| entity.entity_id == *rejected_id)
+                    .and_then(|entity| entity.grounding.stair_connection.as_ref())
+                    .map(|stairs| stairs.stair_id.clone());
+                if let Some(old_stair_id) = old_stair_id {
+                    entities.retain(|entity| entity.entity_id != old_stair_id);
+                }
+                let Some(index) = entities.iter().position(|entity| entity.entity_id == *rejected_id)
+                else {
+                    continue;
+                };
+                if let Some(stair) =
+                    settlement_evolution::attach_frontage_stair(&mut entities[index], &baked_samples)
+                {
+                    promoted_frontage_stairs.push(stair.entity_id.clone());
+                    entities.push(stair);
+                }
+            }
+            if !promoted_frontage_stairs.is_empty() {
+                access_graph = access::place_generated_entrances(
+                    &mut entities,
+                    &landmarks,
+                    &baked_samples,
+                    water,
+                );
+                engineering_reports.push(serde_json::json!({
+                    "sceneId": scene.scene_id,
+                    "phase": "frontage-stair-promotion",
+                    "round": round,
+                    "promotedStairs": promoted_frontage_stairs,
+                }));
+                continue;
+            }
             let rejected_buildings = rejected_access
                 .iter()
                 .filter_map(|id| id.strip_prefix("generated.settlement-evolution."))

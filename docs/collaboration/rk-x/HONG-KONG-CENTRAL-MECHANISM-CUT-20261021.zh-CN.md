@@ -2,7 +2,7 @@
 
 日期：2026-10-21  
 控制 Manifest：`examples/hong-kong-central-natural-evolution-1km.manifest.json`  
-最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2b/`
+最终控制世界：`bevy/work/rk-x/hk-central-natural-evolution-1km-r2e/`
 
 ## 1. 定位与边界
 
@@ -75,7 +75,7 @@
 - `?view=skyline` 按视口宽高比扩大取景，保证整个 1km 世界和东侧水面都在画面内；
 - 战略图、街景和全景不再出现裁掉的三角 chunk 边界。
 
-## 4. r2b 最终控制数据
+## 4. r2e 最终控制数据
 
 | 项 | 结果 |
 |---|---:|
@@ -84,38 +84,36 @@
 | 需求住宅 / 岗位 / 商业 / 服务 | 900 / 2,600 / 20,000m² / 36 |
 | 需求闭合 | 全部闭合 |
 | 规划建筑 | 35 |
-| 最终普通建筑 | 31 |
-| 门前静态楼梯 | 23 |
+| 最终普通建筑 | 34 |
+| 门前静态楼梯 | 26 |
 | 最终市场 | 6 |
 | 最终办公塔 / 店面 / 住宅街区 | 7 / 24 / 1（含规划中心塔） |
 | 城镇关系 | 2 districts / 35 buildings / 35 parcels |
-| AccessGraph | 38 connected / 0 disconnected |
-| 市场计划覆盖（最终 31 栋建筑口径） | ≈100% |
+| AccessGraph | 41 connected / 0 disconnected |
+| 市场计划覆盖（最终 34 栋建筑口径） | ≈100% |
 | `scale-audit` | pass |
 | `quality-report` | pass |
 | `visual-feedback` | pass |
 | 最大跨 chunk 高度差 | 0.847m |
 | 最大边界 quarter 摘要差 | 3.388（仅粗摘要，不是米制验收口径） |
 
-最终连通数 38 = 31 栋聚落建筑 + 6 个市场 + 1 个规划中心。23 个入口通过
+最终连通数 41 = 34 栋聚落建筑 + 6 个市场 + 1 个规划中心。26 个入口通过
 静态楼梯连接，AccessGraph 状态为 `walkable_route_with_stairs`。
 
 ## 5. 被严格拒绝的规划
 
-35 个计划建筑中 31 个物化，4 个被入口合同拒绝：
+35 个计划建筑中 34 个物化，1 个被入口合同拒绝：
 
 | 原因 | 数量 | 处理 |
 |---|---:|---|
-| `no_walkable_route_within_budget` | 2 | 4–7m 坡差需要 switchback/分段平台 |
-| `entrance_step_requires_engineering` | 1 | 超过单跑直梯适用范围 |
-| `entrance_clearance_blocked` | 1 | 保留具名拒绝，未用隐藏实体制造连通 |
+| `stair_connection_invalid` | 1 | 长直梯路径仍被实体/水体/廊道合同拒绝 |
 
 被拒建筑没有进入最终 AccessGraph。它们的 ID、位置、预期需求、入口锚点和
 拒绝原因保存在 `settlement-materialization-report.json`。
 
 ## 6. 视觉证据
 
-运行态检查使用 r2b：
+运行态检查使用 r2e：
 
 - **战略图**：可辨认西侧山地绿区、旧核与更新带的多组街区、连续弯曲道路、
   东侧长条海港；
@@ -131,10 +129,10 @@
 
 1. **斜向道路 carve**：45°/135° 普通道路仍按 X 向长条近似，见
    `KNOWN-ISSUE-ROTATED-ROAD-CARVE-20261021.zh-CN.md`。
-2. **真实楼梯**：0.3–2.4m 的局部高差已由 23 个静态直梯连接；剩余 4 个
-   需要 switchback 楼梯、分段平台、挡墙和排水。见
+2. **真实楼梯**：局部高差由 23 个短梯连接，另有 3 个被提升为长直梯；剩余 1 个
+   需要 switchback 路径、分段平台、挡墙和排水。见
    `STAIRS-THRESHOLD-CONNECTIONS-20261021.zh-CN.md`。
-3. **市场最终需求复核**：已在本轮关闭。入口拒绝后以最终 31 栋建筑重算市场
+3. **市场最终需求复核**：已在本轮关闭。入口拒绝后以最终 34 栋建筑重算市场
    需求与负载，原计划保留为 `market-catchment-plan-pre-access.json`；见
    `POST-ACCESS-MARKET-RECONCILIATION-20261021.zh-CN.md`。
 4. **街区拆合**：旧城连续街墙、更新带父/子拆合、新区站城/TOD 仍是下一阶段。

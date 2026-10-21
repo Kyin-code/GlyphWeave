@@ -1075,38 +1075,83 @@ pub fn materialize_stairs(buildings: &[EntityInstance]) -> Vec<EntityInstance> {
         .iter()
         .filter_map(|building| {
             let stairs = building.grounding.stair_connection.as_ref()?;
-            let dx = stairs.to[0] - stairs.from[0];
-            let dz = stairs.to[1] - stairs.from[1];
-            let run_m = f64::from(dx).hypot(f64::from(dz)) as f32;
-            let (width_m, depth_m) = if dx != 0 {
-                (run_m + 0.4, stairs.width_m)
-            } else {
-                (stairs.width_m, run_m + 0.4)
-            };
-            let world_y = stairs.low_mm.div_euclid(1000);
-            let bottom_offset_m = stairs.low_mm.rem_euclid(1000) as f32 / 1000.0;
-            Some(EntityInstance {
-                entity_id: stairs.stair_id.clone(),
-                asset_id: "architecture.stairs".into(),
-                kind: "stairs".into(),
-                world_x: (stairs.from[0] + stairs.to[0]) / 2,
-                world_z: (stairs.from[1] + stairs.to[1]) / 2,
-                world_y,
-                scale: 1.0,
-                width_m,
-                depth_m,
-                height_m: (stairs.high_mm - stairs.low_mm) as f32 / 1000.0 + 0.2,
-                rotation_y_deg: 0.0,
-                grounding: super::GroundingSpec {
-                    bottom_offset_m,
-                    stair_connection: Some(stairs.clone()),
-                    ..super::GroundingSpec::default()
-                },
-                anchors: Vec::new(),
-                bounds: None,
-            })
+            Some(stair_entity(stairs))
         })
         .collect()
+}
+
+pub fn attach_frontage_stair(
+    building: &mut EntityInstance,
+    terrain: &BakedTerrain,
+) -> Option<EntityInstance> {
+    let anchor = building.anchors.first()?;
+    let to = building.grounding.frontage_road_point?;
+    if let Some(existing) = &building.grounding.stair_connection {
+        if existing.to == to {
+            return None;
+        }
+    }
+    let start_height_m = f64::from(building.ground_height_m());
+    let end_height_m = f64::from(terrain.height(to[0], to[1])?);
+    let delta_m = (end_height_m - start_height_m).abs();
+    if !(0.10..=8.0).contains(&delta_m) {
+        return None;
+    }
+    let low_m = start_height_m.min(end_height_m);
+    let high_m = start_height_m.max(end_height_m);
+    let building_suffix = building
+        .entity_id
+        .strip_prefix("generated.settlement-evolution.")
+        .unwrap_or(building.entity_id.as_str());
+    let stairs = super::StairConnection {
+        version: 1,
+        stair_id: format!(
+            "generated.settlement-evolution.stairs.{building_suffix}.long"
+        ),
+        from: [anchor.world_x, anchor.world_z],
+        to,
+        from_mm: (start_height_m * 1000.0).round() as i32,
+        to_mm: (end_height_m * 1000.0).round() as i32,
+        low_mm: (low_m * 1000.0).round() as i32,
+        high_mm: (high_m * 1000.0).round() as i32,
+        step_count: ((delta_m / 0.18).ceil() as u32).max(1),
+        width_m: 2.4,
+    };
+    building.grounding.stair_connection = Some(stairs.clone());
+    Some(stair_entity(&stairs))
+}
+
+fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
+    let dx = stairs.to[0] - stairs.from[0];
+    let dz = stairs.to[1] - stairs.from[1];
+    let run_m = f64::from(dx).hypot(f64::from(dz)) as f32;
+    let (width_m, depth_m) = if dx != 0 {
+        (run_m + 0.4, stairs.width_m)
+    } else {
+        (stairs.width_m, run_m + 0.4)
+    };
+    let world_y = stairs.low_mm.div_euclid(1000);
+    let bottom_offset_m = stairs.low_mm.rem_euclid(1000) as f32 / 1000.0;
+    EntityInstance {
+        entity_id: stairs.stair_id.clone(),
+        asset_id: "architecture.stairs".into(),
+        kind: "stairs".into(),
+        world_x: (stairs.from[0] + stairs.to[0]) / 2,
+        world_z: (stairs.from[1] + stairs.to[1]) / 2,
+        world_y,
+        scale: 1.0,
+        width_m,
+        depth_m,
+        height_m: (stairs.high_mm - stairs.low_mm) as f32 / 1000.0 + 0.2,
+        rotation_y_deg: 0.0,
+        grounding: super::GroundingSpec {
+            bottom_offset_m,
+            stair_connection: Some(stairs.clone()),
+            ..super::GroundingSpec::default()
+        },
+        anchors: Vec::new(),
+        bounds: None,
+    }
 }
 
 /// Short, explicit ground-level approaches from each planned building facade to
