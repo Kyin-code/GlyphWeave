@@ -4,8 +4,8 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
-> **2026-10-23 r153 更新**：最新合法候选为
-> `bevy/work/rk-x/v3-final-r153-20261023/`。世界修订
+> **2026-10-23 r155 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r155-20261023/`。世界修订
 > `6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`，
 > 4,371 实体、335 建筑、309 楼梯、1,475 道路段、393 树、建筑 footprint
 > 34,811.2m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
@@ -23,6 +23,9 @@
 > 交叉口新增封闭盖面覆盖多段路面交汇缝；强制中心视角确认大面积黑色
 > 矩形主要是建筑投影阴影而非路面破洞，阴影对比度和非圆形路口模板
 > 仍待处理。
+> 进一步核对发现 4m 建筑/市场 approach 被误画成 14m 车行道，并带黄线和
+> 路缘；现已统一渲染为浅色步行铺装，AccessGraph 面层也从近黑色改为
+> 人行道材质。中心视角仍有其他深色道路拼块，需继续与 approach 区分。
 
 ## 1. 复核口径
 
@@ -128,9 +131,18 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 交叉口盖面当前仍是圆形近似；下一轮需从相交路段生成并集多边形或
   道路级别专用模板。
 
-## 3. r153 实测
+### 2.9 Approach 步行化（r155）
 
-输出：`bevy/work/rk-x/v3-final-r153-20261023/`
+- `*.approach.*` 实体仍是 Rust 发布的道路连接，但 HTML 不再使用 14m
+  车行道基底、中心线和 ±6.2m 路缘，而按实体 4m 宽度绘制浅色步行铺装。
+- `accessSurfaces` 是门面到铺装的行人路径，颜色由近黑 `#4a4941` 改为
+  中性铺装 `#9b9384`，避免被误认为空洞或机动车道。
+- 这一步只改变适配器表现；Rust 的 access graph、approach 碰撞和竣工审计
+  不变。
+
+## 3. r155 实测
+
+输出：`bevy/work/rk-x/v3-final-r155-20261023/`
 
 - 世界修订：`6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`
 - 实体：4,371
@@ -210,8 +222,8 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r153-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r153-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r155-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r155-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast
