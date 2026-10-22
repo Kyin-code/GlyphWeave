@@ -1203,7 +1203,11 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
             if length < 0.5 {
                 continue;
             }
-            let rotation_y_deg = f64::from(dz).atan2(f64::from(dx)).to_degrees() as f32;
+            // Entity Y rotation follows the same Three-style frame consumed by
+            // Rust OBBs: local +X is (cos(yaw), -sin(yaw)) in world X/Z.
+            // Using atan2(dz, dx) mirrored every diagonal segment across X and
+            // put its collision box on the opposite diagonal of the pavement.
+            let rotation_y_deg = f64::from(-dz).atan2(f64::from(dx)).to_degrees() as f32;
             let design_height_m = (pair[0].design_height_m + pair[1].design_height_m) * 0.5;
             let structure_deck = route_segment_is_structure(route, &pair[0], &pair[1]);
             entities.push(EntityInstance {
@@ -1221,6 +1225,7 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
                 grounding: super::GroundingSpec {
                     structure_deck,
                     roadbed_offset_m: if structure_deck { 0.0 } else { 0.5 },
+                    road_design: Some(super::RoadDesign::from_width(route.road_width_m as f32)),
                     ..super::GroundingSpec::default()
                 },
                 anchors: Vec::new(),

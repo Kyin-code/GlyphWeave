@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::baked_terrain::BakedTerrain;
 
 use super::{
-    is_building_kind, oriented_footprints_overlap, EntityInstance, OrientedFootprint, SceneSpec,
-    WaterGeometry,
+    EntityInstance, OrientedFootprint, SceneSpec, WaterGeometry, is_building_kind,
+    oriented_footprints_overlap,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -35,9 +35,11 @@ pub struct Report {
     pub scene_id: String,
     pub checked_buildings: usize,
     pub checked_roads: usize,
+    pub checked_details: usize,
     pub checked_footprints: usize,
     pub building_building_collisions: usize,
     pub building_road_collisions: usize,
+    pub building_detail_collisions: usize,
     pub unsupported_footprints: usize,
     pub submerged_buildings: usize,
     pub floating_buildings: usize,
@@ -55,9 +57,11 @@ pub fn audit(
     let mut failures = Vec::new();
     let mut checked_buildings = 0;
     let mut checked_roads = 0;
+    let mut checked_details = 0;
     let mut checked_footprints = 0;
     let mut building_building_collisions = 0;
     let mut building_road_collisions = 0;
+    let mut building_detail_collisions = 0;
     let mut unsupported_footprints = 0;
     let mut submerged_buildings = 0;
     let mut floating_buildings = 0;
@@ -72,6 +76,16 @@ pub fn audit(
     let roads = entities
         .iter()
         .filter(|entity| is_main_road(entity))
+        .map(|entity| (entity, OrientedFootprint::from_entity(entity)))
+        .collect::<Vec<_>>();
+    let details = entities
+        .iter()
+        .filter(|entity| {
+            matches!(
+                entity.kind.as_str(),
+                "tree" | "bush" | "grass_clump" | "rock" | "fallen_log"
+            )
+        })
         .map(|entity| (entity, OrientedFootprint::from_entity(entity)))
         .collect::<Vec<_>>();
 
@@ -206,6 +220,21 @@ pub fn audit(
             }
         }
     }
+    for (detail, detail_footprint) in &details {
+        checked_details += 1;
+        if let Some((building, _)) = buildings
+            .iter()
+            .find(|(_, footprint)| oriented_footprints_overlap(detail_footprint, footprint, 0.05))
+        {
+            building_detail_collisions += 1;
+            failures.push(Failure {
+                entity_id: detail.entity_id.clone(),
+                kind: detail.kind.clone(),
+                reason: format!("detail footprint is inside building {}", building.entity_id),
+                conflict_with: Some(building.entity_id.clone()),
+            });
+        }
+    }
 
     Report {
         format: "glyphweave.final-scene-audit".into(),
@@ -214,9 +243,11 @@ pub fn audit(
         scene_id: scene.scene_id.clone(),
         checked_buildings,
         checked_roads,
+        checked_details,
         checked_footprints,
         building_building_collisions,
         building_road_collisions,
+        building_detail_collisions,
         unsupported_footprints,
         submerged_buildings,
         floating_buildings,
@@ -239,12 +270,15 @@ fn is_main_road(entity: &EntityInstance) -> bool {
         && !entity
             .entity_id
             .starts_with("generated.settlement-evolution.approach.")
+        && !entity
+            .entity_id
+            .starts_with("generated.market-catchment.approach.")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worldgen::{legacy_water_geometry, WaterKind};
+    use crate::worldgen::{WaterKind, legacy_water_geometry};
 
     fn flat_terrain(scene: &SceneSpec) -> BakedTerrain {
         let bytes = crate::height_payload::encode_millimetres(
@@ -284,6 +318,25 @@ mod tests {
             depth_m: 12.0,
             height_m: 8.0,
             rotation_y_deg,
+            grounding: Default::default(),
+            anchors: Vec::new(),
+            bounds: None,
+        }
+    }
+
+    fn tree(id: &str, x: i32, z: i32) -> EntityInstance {
+        EntityInstance {
+            entity_id: id.into(),
+            asset_id: "prop.tree".into(),
+            kind: "tree".into(),
+            world_x: x,
+            world_z: z,
+            world_y: 10,
+            scale: 1.0,
+            width_m: 4.0,
+            depth_m: 4.0,
+            height_m: 7.0,
+            rotation_y_deg: 30.0,
             grounding: Default::default(),
             anchors: Vec::new(),
             bounds: None,
@@ -338,5 +391,23 @@ mod tests {
         );
         assert_eq!(report.status, "fail");
         assert_eq!(report.submerged_buildings, 1);
+    }
+
+    #[test]
+    fn visible_vegetation_inside_a_building_is_a_hard_failure() {
+        let scene = scene();
+        let terrain = flat_terrain(&scene);
+        let report = audit(
+            &[building("house", 64, 64, 30.0), tree("tree-inside", 64, 64)],
+            &terrain,
+            &scene,
+            legacy_water_geometry(WaterKind::None, 128, 128, 0.0),
+        );
+        assert_eq!(report.status, "fail");
+        assert_eq!(report.building_detail_collisions, 1);
+        assert!(report.failures.iter().any(|failure| {
+            failure.conflict_with.as_deref() == Some("house")
+                && failure.reason.contains("inside building")
+        }));
     }
 }

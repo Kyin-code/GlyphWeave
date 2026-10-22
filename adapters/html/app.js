@@ -5,7 +5,7 @@ import { createEcologyRenderer } from './render/ecology.js'
 import { loadLandUseLedger } from './core/world.js'
 import { decodeHeightPayload } from './core/height.js'
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makePolylineRibbonGeometry, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makePolylineRibbonGeometry, offsetPolylinePoints, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
 import { createWorldWind } from './render/wind.js'
 import { createPostFX } from './render/postfx.js'
@@ -42,6 +42,7 @@ const chunkDataCache = new Map()
 const entityMeshCache = new Map()
 const entityGroupCache = new Map()
 let nearGroupRoot = null
+let nearCollisionVolumes = []
 let ecologyRenderer = null
 let activeChunkKeys = new Set()
 let nearBuildToken = 0
@@ -609,6 +610,7 @@ function drawStrategic() {
 }
 
 async function drawNear(buildToken) {
+  nearCollisionVolumes = []
   const hiddenRenderLayers = new Set((new URLSearchParams(location.search).get('hide') ?? '').split(',').filter(Boolean))
   const THREE = await import('three')
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
@@ -770,7 +772,24 @@ async function drawNear(buildToken) {
       if (d <= 90) score += streetWeight(other) * (1 - d / 110)
     }
     const road = nearestStreetRoad(candidate)
-    if (road && road.distance <= 46) score += 8 * (1 - road.distance / 52)
+    if (road && road.distance <= 46) {
+      score += 8 * (1 - road.distance / 52)
+      // The default street view should read as a modern city street, not a
+      // random service lane. Prefer a graded collector/arterial when the
+      // adjacent building fabric is otherwise comparable.
+      score += Math.min(32, road.road?.depthM ?? 0) * .35
+    }
+    if (road?.road) {
+      const roadPrefix = road.road.entityId.match(/^(.*)\.(\d+)$/)?.[1] ?? road.road.entityId
+      const crossingPressure = allStreetRoads.filter(other => {
+        const otherPrefix = other.entityId.match(/^(.*)\.(\d+)$/)?.[1] ?? other.entityId
+        return otherPrefix !== roadPrefix
+          && Math.hypot(other.worldX - road.road.worldX, other.worldZ - road.road.worldZ) < 30
+      }).length
+      // Prefer a mid-block view. A visually dense hotspot sitting inside a
+      // twelve-way junction communicates noise, not street hierarchy.
+      score -= crossingPressure * 5
+    }
     score -= centreDist(candidate) * .0008
     return { entity: candidate, road, score }
   }).sort((a, b) => b.score - a.score || a.entity.entityId.localeCompare(b.entity.entityId))
@@ -809,10 +828,10 @@ async function drawNear(buildToken) {
     : { x: Math.cos(((streetRoad?.rotationYDeg ?? 0) * Math.PI) / 180), z: Math.sin(((streetRoad?.rotationYDeg ?? 0) * Math.PI) / 180) }
   const streetTargetX = (streetTargetNode?.worldX ?? requestedStreetPoint.x + streetForward.x * 46) - scene.originX
   const streetTargetZ = (streetTargetNode?.worldZ ?? requestedStreetPoint.z + streetForward.z * 46) - scene.originZ
-  const focusX = focusOverride ? focusOverride.x : isStreet ? streetX : routeFocus ? routeFocus.x - scene.originX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
-  const focusZ = focusOverride ? focusOverride.z : isStreet ? streetZ : routeFocus ? routeFocus.z - scene.originZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
-  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isStreet ? (streetCameraNode?.worldY ?? streetFabricCentre?.y ?? 0) : isSkyline || isExplore ? 0 : isHarbourOverview ? 4 : routeFocus ? routeFocus.designHeightM : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
-  const isNaturalExplore = isExplore && Boolean(naturalFeature || routeFocus)
+  const focusX = focusOverride ? focusOverride.x : isStreetView ? streetX : naturalFeature ? naturalFeature.worldX - scene.originX : isSkyline ? scene.widthM * .5 : isWaterfront && harbour ? harbour.worldX - harbour.widthM * .5 - 60 - scene.originX : isHarbourOverview && harbourBridge ? harbourBridge.worldX - scene.originX : isHarbourOverview ? scene.widthM * .5 : focusLandmark ? focusLandmark.worldX - scene.originX : (focusEntity ? focusEntity.worldX - scene.originX + (nearPreset === 'bridgehead' ? bridgeLength / 2 - 70 : 0) : scene.widthM * .5)
+  const focusZ = focusOverride ? focusOverride.z : isStreetView ? streetZ : naturalFeature ? naturalFeature.worldZ - scene.originZ : isSkyline ? scene.depthM * .5 : (isWaterfront || isHarbourOverview) && harbourBridge ? harbourBridge.worldZ - scene.originZ : isWaterfront && harbour ? harbour.worldZ - scene.originZ : isHarbourOverview ? scene.depthM * .48 : focusLandmark ? focusLandmark.worldZ - scene.originZ : (focusEntity ? focusEntity.worldZ - scene.originZ : scene.depthM * .5)
+  const focusY = Number.isFinite(focusOverride?.y) ? focusOverride.y : isStreetView ? (streetCameraNode?.worldY ?? streetFabricCentre?.y ?? 0) : isSkyline ? 0 : isHarbourOverview ? 4 : naturalFeature ? naturalFeature.worldY : focusLandmark ? focusLandmark.worldY : focusEntity ? focusEntity.worldY : 0
+  const isNaturalExplore = isExplore && Boolean(naturalFeature)
   const isBridgeFocus = nearPreset === 'bridgehead' && focusEntity?.kind === 'bridge'
   const isLandmarkFocus = Boolean(focusLandmark) && !isSkyline && !isStreetView
   const focusTargetY = isBridgeFocus ? focusY + 10 : isLandmarkFocus ? focusY + (focusLandmark.heightM || 100) * .45 : isHarbourOverview ? 10 : focusY + 6
@@ -1068,6 +1087,19 @@ async function drawNear(buildToken) {
       built.userData.constructionCohortBand = true
     }
     if (built?.userData) built.userData.constructionCohort = cohort ?? null
+    if (['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building', 'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center', 'industrial'].includes(entity.kind)) {
+      nearCollisionVolumes.push({
+        kind: 'building',
+        entityId: entity.entityId,
+        x: entity.worldX,
+        z: entity.worldZ,
+        width: entity.widthM,
+        depth: entity.depthM,
+        yaw: THREE.MathUtils.degToRad(Number(entity.rotationYDeg) || 0),
+        height: entity.heightM,
+        baseY: entity.worldY,
+      })
+    }
     addRendered(entity, built)
   }
   const heightFields = []
@@ -1203,14 +1235,31 @@ async function drawNear(buildToken) {
     nearCamera.position.set(focusX, cameraGroundY + 20, focusZ)
     nearCamera.lookAt(streetTargetX, targetGroundY + 6, streetTargetZ)
   }
+  const routeDesignById = new Map()
+  for (const entity of scene.entities ?? []) {
+    if (entity.kind !== 'road' || !entity.entityId.startsWith('generated.route-evolution.')) continue
+    const route = (scene.routeEvolutionPlan?.routes ?? []).find(candidate =>
+      entity.entityId.startsWith(`generated.route-evolution.${candidate.id}.`))
+    if (route && entity.grounding?.roadDesign) routeDesignById.set(route.id, entity.grounding.roadDesign)
+  }
   for (const route of scene.routeEvolutionPlan?.routes ?? []) {
     if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
+    const design = routeDesignById.get(route.id) ?? {
+      roadClass: route.roadWidthM >= 30 ? 'expressway' : route.roadWidthM >= 22 ? 'arterial' : route.roadWidthM >= 16 ? 'collector' : route.roadWidthM >= 10 ? 'local' : 'lane',
+      laneCount: Math.max(1, Math.round(route.roadWidthM / 3.2)),
+      laneWidthM: 3.2,
+      medianWidthM: route.roadWidthM >= 30 ? 3 : route.roadWidthM >= 22 ? 1.6 : 0,
+      sidewalkWidthM: route.roadWidthM >= 22 ? 3 : route.roadWidthM >= 10 ? 2 : .8,
+      speedLimitKmh: route.roadWidthM >= 30 ? 80 : route.roadWidthM >= 22 ? 60 : route.roadWidthM >= 16 ? 40 : 30,
+      collisionHeightM: .35,
+    }
     const halfWidth = Math.max(2, route.roadWidthM * .5)
+    const sidewalkWidth = Math.max(.8, Number(design.sidewalkWidthM) || 1.6)
     const pavementMaterial = new THREE.MeshStandardMaterial({
       color: '#a39a8a', roughness: .96,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     })
-    const pavementGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth + 1.6, heightAt, THREE, .9, scene.originX, scene.originZ)
+    const pavementGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth + sidewalkWidth, heightAt, THREE, .9, scene.originX, scene.originZ)
     if (pavementGeometry) {
       const pavement = new THREE.Mesh(pavementGeometry, pavementMaterial)
       pavement.name = 'route-pavement:' + route.id
@@ -1228,12 +1277,65 @@ async function drawNear(buildToken) {
       carriageway.renderOrder = 4
       nearGroupRoot.add(carriageway)
     }
-    const centerGeometry = makePolylineRibbonGeometry(route.polyline, .2, heightAt, THREE, 1.12, scene.originX, scene.originZ)
-    if (centerGeometry) {
-      const center = new THREE.Mesh(centerGeometry, new THREE.MeshStandardMaterial({ color: '#d8c58e', roughness: .8 }))
-      center.name = 'route-centerline:' + route.id
-      center.renderOrder = 5
-      nearGroupRoot.add(center)
+    const medianWidth = Math.max(0, Number(design.medianWidthM) || 0)
+    if (medianWidth > .2) {
+      const medianGeometry = makePolylineRibbonGeometry(route.polyline, medianWidth * .5, heightAt, THREE, 1.03, scene.originX, scene.originZ)
+      if (medianGeometry) {
+        const median = new THREE.Mesh(medianGeometry, new THREE.MeshStandardMaterial({ color: '#7f8870', roughness: .98 }))
+        median.name = 'route-median:' + route.id
+        median.renderOrder = 5
+        nearGroupRoot.add(median)
+      }
+    }
+    const laneCount = Math.max(1, Number(design.laneCount) || 2)
+    const markingMaterial = new THREE.MeshStandardMaterial({ color: '#e4d9ad', roughness: .72 })
+    for (let lane = 1; lane < laneCount; lane++) {
+      const laneOffset = -halfWidth + lane * (halfWidth * 2 / laneCount)
+      if (Math.abs(laneOffset) <= medianWidth * .5) continue
+      const linePoints = offsetPolylinePoints(route.polyline, laneOffset)
+      const lineGeometry = makePolylineRibbonGeometry(linePoints, Math.max(.07, design.laneWidthM * .025), heightAt, THREE, 1.12, scene.originX, scene.originZ)
+      if (!lineGeometry) continue
+      const line = new THREE.Mesh(lineGeometry, markingMaterial)
+      line.name = `route-lane:${route.id}:${lane}`
+      line.renderOrder = 6
+      nearGroupRoot.add(line)
+    }
+    if (medianWidth <= .2 && laneCount <= 2) {
+      const centerGeometry = makePolylineRibbonGeometry(route.polyline, .2, heightAt, THREE, 1.12, scene.originX, scene.originZ)
+      if (centerGeometry) {
+        const center = new THREE.Mesh(centerGeometry, markingMaterial)
+        center.name = 'route-centerline:' + route.id
+        center.renderOrder = 6
+        nearGroupRoot.add(center)
+      }
+    }
+    // The carriageway is a solid volume, not a paint decal. It follows the
+    // same sampled design profile and is exposed to first-person collision.
+    for (let index = 1; index < route.polyline.length; index++) {
+      const from = route.polyline[index - 1]
+      const to = route.polyline[index]
+      const length = Math.hypot(to.x - from.x, to.z - from.z)
+      if (length < .5) continue
+      const yaw = Math.atan2(to.z - from.z, to.x - from.x)
+      const volume = new THREE.Mesh(
+        new THREE.BoxGeometry(length + Math.min(.8, length * .1), design.collisionHeightM, route.roadWidthM),
+        new THREE.MeshStandardMaterial({ color: '#443f37', roughness: 1 }),
+      )
+      volume.position.set(
+        (from.x + to.x) * .5 - scene.originX,
+        Math.max((from.designHeightM ?? heightAt(from.x, from.z)), (to.designHeightM ?? heightAt(to.x, to.z))) + .72,
+        (from.z + to.z) * .5 - scene.originZ,
+      )
+      volume.rotation.y = -yaw
+      volume.name = `route-roadbed:${route.id}:${index}`
+      // Collision remains independent from the visual ribbon, but the
+      // segmented debug box must not leak through intersections as a black
+      // polygon. It is intentionally invisible while still present in the
+      // collision index below.
+      volume.visible = false
+      volume.userData.collisionVolume = { type: 'road', roadClass: design.roadClass, laneCount, widthM: route.roadWidthM, heightM: design.collisionHeightM }
+      nearCollisionVolumes.push({ kind: 'road', routeId: route.id, x: (from.x + to.x) * .5, z: (from.z + to.z) * .5, length, width: route.roadWidthM, yaw })
+      nearGroupRoot.add(volume)
     }
     for (const span of route.bridgeSpans ?? []) {
       let sincePier = 0
@@ -2299,6 +2401,12 @@ async function drawNear(buildToken) {
     object.receiveShadow = !isVegetation
     object.castShadow = !isVegetation
   })
+  window.glyphweaveFeedback.collisionVolumes = {
+    roads: nearCollisionVolumes.filter(volume => volume.kind === 'road').length,
+    buildings: nearCollisionVolumes.filter(volume => volume.kind === 'building').length,
+    firstPersonBlocking: nearCollisionVolumes.filter(volume => volume.kind === 'building').length,
+    roadClasses: [...new Set((scene.routeEvolutionPlan?.routes ?? []).map(route => routeDesignById.get(route.id)?.roadClass).filter(Boolean))],
+  }
   // Cinematic post-processing (DoF opt-in for street/explore, bloom + film
   // grade always on). Fall back to a plain render if the composer fails.
   let nearFx = null
@@ -2376,8 +2484,24 @@ async function drawNear(buildToken) {
       if (exploreKeys.has('KeyA')) move.sub(right)
       if (move.lengthSq()) {
         move.normalize().multiplyScalar(speed)
-        nearCamera.position.add(move)
-        nearControls.target.add(move)
+        const candidateX = nearCamera.position.x + move.x
+        const candidateZ = nearCamera.position.z + move.z
+        const blocked = nearCollisionVolumes.some(volume => {
+          if (volume.kind !== 'building') return false
+          const dx = candidateX - (volume.x - scene.originX)
+          const dz = candidateZ - (volume.z - scene.originZ)
+          const cos = Math.cos(volume.yaw)
+          const sin = Math.sin(volume.yaw)
+          const localX = dx * cos + dz * sin
+          const localZ = -dx * sin + dz * cos
+          return Math.abs(localX) < volume.width * .5 + .6
+            && Math.abs(localZ) < volume.depth * .5 + .6
+            && nearCamera.position.y < volume.baseY + volume.height + 1
+        })
+        if (!blocked) {
+          nearCamera.position.add(move)
+          nearControls.target.add(move)
+        }
       }
     }
     if (isExplore) {

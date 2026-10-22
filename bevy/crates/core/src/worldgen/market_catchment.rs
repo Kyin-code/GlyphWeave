@@ -15,7 +15,7 @@ use crate::baked_terrain::BakedTerrain;
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
 use super::{
-    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SpatialAnchor,
+    EntityInstance, OrientedFootprint, SpatialAnchor, oriented_footprints_overlap, urban_slice,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -369,9 +369,8 @@ pub fn plan_with_artifacts(
     if !program.enabled {
         return Ok(None);
     }
-    let road_width_m = f64::from(
-        urban_slice::planned_road_width_m(style)?.unwrap_or(routes.road_width_m as f32),
-    );
+    let road_width_m =
+        f64::from(urban_slice::planned_road_width_m(style)?.unwrap_or(routes.road_width_m as f32));
     let graph = Graph::from_routes(routes);
     if graph.nodes.is_empty() {
         return Err("marketCatchment requires at least one route node".into());
@@ -604,10 +603,7 @@ fn build_artifacts(
         .collect::<Vec<_>>();
 
     for (demand_index, point) in plan.demand_points.iter().enumerate() {
-        let point_allocations = allocations
-            .get(demand_index)
-            .cloned()
-            .unwrap_or_default();
+        let point_allocations = allocations.get(demand_index).cloned().unwrap_or_default();
         let served_demand = point_allocations
             .iter()
             .map(|allocation| allocation.demand)
@@ -733,8 +729,7 @@ fn build_artifacts(
                             .iter()
                             .flatten()
                             .filter(|allocation| {
-                                allocation.market_id == market.id
-                                    && allocation.minutes <= *minutes
+                                allocation.market_id == market.id && allocation.minutes <= *minutes
                             })
                             .map(|allocation| allocation.demand)
                             .sum(),
@@ -853,7 +848,11 @@ pub fn audit_artifacts(artifacts: &Artifacts) -> Result<(), String> {
         return Err("market radiation demand totals do not conserve".into());
     }
     for field in &artifacts.radiation.demand_fields {
-        let allocated: f64 = field.allocations.iter().map(|allocation| allocation.demand).sum();
+        let allocated: f64 = field
+            .allocations
+            .iter()
+            .map(|allocation| allocation.demand)
+            .sum();
         if !close(allocated, field.served_demand)
             || !close(field.served_demand + field.deficit, field.demand)
         {
@@ -874,8 +873,7 @@ pub fn audit_artifacts(artifacts: &Artifacts) -> Result<(), String> {
         }
     }
     for market in &artifacts.radiation.markets {
-        if market.load > market.capacity + 1e-6
-            || !(0.0..=1.0 + 1e-9).contains(&market.utilization)
+        if market.load > market.capacity + 1e-6 || !(0.0..=1.0 + 1e-9).contains(&market.utilization)
         {
             return Err(format!("market load is invalid for {}", market.market_id));
         }
@@ -1058,11 +1056,17 @@ pub fn reconcile_after_access(
     style: &Value,
     realized_building_ids: &BTreeSet<String>,
 ) -> Result<Option<Plan>, String> {
+    let realized_market_ids = plan
+        .markets
+        .iter()
+        .map(|market| market.id.clone())
+        .collect::<BTreeSet<_>>();
     Ok(reconcile_after_access_with_artifacts(
         plan,
         routes,
         style,
         realized_building_ids,
+        &realized_market_ids,
         "",
     )?
     .map(|artifacts| artifacts.plan))
@@ -1073,6 +1077,7 @@ pub fn reconcile_after_access_with_artifacts(
     routes: &RoutePlan,
     style: &Value,
     realized_building_ids: &BTreeSet<String>,
+    realized_market_ids: &BTreeSet<String>,
     scene_id: &str,
 ) -> Result<Option<Artifacts>, String> {
     let Some(program) = from_style(style)? else {
@@ -1096,7 +1101,12 @@ pub fn reconcile_after_access_with_artifacts(
                 .0
         })
         .collect::<Vec<_>>();
-    let mut markets = plan.markets.clone();
+    let mut markets = plan
+        .markets
+        .iter()
+        .filter(|market| realized_market_ids.contains(&market.id))
+        .cloned()
+        .collect::<Vec<_>>();
     let all_times = markets
         .iter()
         .map(|market| {
@@ -1106,7 +1116,13 @@ pub fn reconcile_after_access_with_artifacts(
             graph.times_from(node, program.walk_speed_mps)
         })
         .collect::<Vec<_>>();
-    let assessment = assess_markets(&program, &markets, &demand_points, &demand_nodes, &all_times);
+    let assessment = assess_markets(
+        &program,
+        &markets,
+        &demand_points,
+        &demand_nodes,
+        &all_times,
+    );
     for (market, load) in markets.iter_mut().zip(assessment.market_loads) {
         market.load = load;
     }
@@ -1140,72 +1156,138 @@ pub fn reconcile_after_access_with_artifacts(
 }
 
 pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> Vec<EntityInstance> {
-    plan.markets
-        .iter()
-        .filter_map(|market| {
-            let station = nearest_station(routes, market.world_x, market.world_z)?;
-            // The plan already resolved a road-width-aware, collision-free site.
-            // Re-deriving the old 12 m offset here silently moved the market
-            // back onto the widened road after planning.
-            let center_x = f64::from(market.world_x);
-            let center_z = f64::from(market.world_z);
-            let dx = station.x - center_x;
-            let dz = station.z - center_z;
-            let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
-            let local_x = dx * cos - dz * sin;
-            let local_z = dx * sin + dz * cos;
-            let tx = if local_x.abs() > 1e-9 {
-                f64::from(market.width_m) * 0.5 / local_x.abs()
-            } else {
-                f64::INFINITY
-            };
-            let tz = if local_z.abs() > 1e-9 {
-                f64::from(market.depth_m) * 0.5 / local_z.abs()
-            } else {
-                f64::INFINITY
-            };
-            let edge_t = tx.min(tz).min(1.0);
-            let anchor_x = center_x + dx * edge_t;
-            let anchor_z = center_z + dz * edge_t;
-            let direction = if dx.abs() > dz.abs() {
-                if dx > 0.0 { "east" } else { "west" }
-            } else if dz > 0.0 {
-                "south"
-            } else {
-                "north"
-            };
-            let world_y = terrain
-                .height(center_x.round() as i32, center_z.round() as i32)?
-                .ceil() as i32;
-            Some(EntityInstance {
-                entity_id: format!("generated.market-catchment.{}", market.id),
-                asset_id: format!("building.market.{}", market.tier),
-                kind: "market".into(),
-                world_x: center_x.round() as i32,
-                world_z: center_z.round() as i32,
-                world_y,
+    let mut entities = Vec::new();
+    for market in &plan.markets {
+        let Some(station) = nearest_station(routes, market.world_x, market.world_z) else {
+            continue;
+        };
+        // The plan already resolved a road-width-aware, collision-free site.
+        // Re-deriving the old 12 m offset here silently moved the market
+        // back onto the widened road after planning.
+        let center_x = f64::from(market.world_x);
+        let center_z = f64::from(market.world_z);
+        let dx = station.x - center_x;
+        let dz = station.z - center_z;
+        let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
+        // Inverse of the entity rotation used by AccessGraph and OBB tests:
+        // world = (localX*cos - localZ*sin, localX*sin + localZ*cos).
+        let local_x = dx * cos + dz * sin;
+        let local_z = -dx * sin + dz * cos;
+        let tx = if local_x.abs() > 1e-9 {
+            f64::from(market.width_m) * 0.5 / local_x.abs()
+        } else {
+            f64::INFINITY
+        };
+        let tz = if local_z.abs() > 1e-9 {
+            f64::from(market.depth_m) * 0.5 / local_z.abs()
+        } else {
+            f64::INFINITY
+        };
+        let edge_t = tx.min(tz).min(1.0);
+        let anchor_x = center_x + dx * edge_t;
+        let anchor_z = center_z + dz * edge_t;
+        let direction = if dx.abs() > dz.abs() {
+            if dx > 0.0 { "east" } else { "west" }
+        } else if dz > 0.0 {
+            "south"
+        } else {
+            "north"
+        };
+        let Some(ground_height_m) = terrain
+            .height(center_x.round() as i32, center_z.round() as i32)
+            .map(f64::from)
+        else {
+            continue;
+        };
+        let world_y = ground_height_m.floor() as i32;
+        let bottom_offset_m = (ground_height_m - f64::from(world_y)) as f32;
+        let mut building = EntityInstance {
+            entity_id: format!("generated.market-catchment.{}", market.id),
+            asset_id: format!("building.market.{}", market.tier),
+            kind: "market".into(),
+            world_x: center_x.round() as i32,
+            world_z: center_z.round() as i32,
+            world_y,
+            scale: 1.0,
+            width_m: market.width_m,
+            depth_m: market.depth_m,
+            height_m: market.height_m,
+            rotation_y_deg: station.rotation_y_deg,
+            grounding: super::GroundingSpec {
+                bottom_offset_m,
+                ..super::GroundingSpec::default()
+            },
+            anchors: vec![SpatialAnchor {
+                id: "front".into(),
+                world_x: anchor_x.round() as i32,
+                world_z: anchor_z.round() as i32,
+                direction: direction.into(),
+                target: Some("road".into()),
+            }],
+            bounds: None,
+        };
+        let anchor_grid = [anchor_x.round() as i32, anchor_z.round() as i32];
+        let station_grid = [station.x.round() as i32, station.z.round() as i32];
+        if let (Some(edge_height), Some(station_height)) = (
+            terrain.height(anchor_grid[0], anchor_grid[1]),
+            terrain.height(station_grid[0], station_grid[1]),
+        ) {
+            let delta_m = f64::from(station_height - edge_height).abs();
+            if (0.30..=8.0).contains(&delta_m) {
+                let low_m = edge_height.min(station_height);
+                let high_m = edge_height.max(station_height);
+                building.grounding.stair_connection = Some(super::StairConnection {
+                    version: 1,
+                    stair_id: format!("generated.market-catchment.stairs.{}", market.id),
+                    from: anchor_grid,
+                    to: station_grid,
+                    from_mm: (f64::from(edge_height) * 1000.0).round() as i32,
+                    to_mm: (f64::from(station_height) * 1000.0).round() as i32,
+                    low_mm: (f64::from(low_m) * 1000.0).round() as i32,
+                    high_mm: (f64::from(high_m) * 1000.0).round() as i32,
+                    step_count: ((delta_m / 0.18).ceil() as u32).max(1),
+                    width_m: 2.4,
+                });
+            }
+        }
+        let approach_dx = station.x - anchor_x;
+        let approach_dz = station.z - anchor_z;
+        let approach_length = approach_dx.hypot(approach_dz);
+        let approach_y = building.ground_height_m();
+        entities.push(building);
+        if approach_length >= 0.5 {
+            entities.push(EntityInstance {
+                entity_id: format!("generated.market-catchment.approach.{}", market.id),
+                asset_id: "road.generated".into(),
+                kind: "road".into(),
+                world_x: ((f64::from(anchor_x) + station.x) * 0.5).round() as i32,
+                world_z: ((f64::from(anchor_z) + station.z) * 0.5).round() as i32,
+                world_y: approach_y.floor() as i32,
                 scale: 1.0,
-                width_m: market.width_m,
-                depth_m: market.depth_m,
-                height_m: market.height_m,
-                rotation_y_deg: station.rotation_y_deg,
-                grounding: super::GroundingSpec::default(),
-                anchors: vec![SpatialAnchor {
-                    id: "front".into(),
-                    world_x: anchor_x.round() as i32,
-                    world_z: anchor_z.round() as i32,
-                    direction: direction.into(),
-                    target: Some("road".into()),
-                }],
+                width_m: (approach_length + 2.0) as f32,
+                depth_m: 4.0,
+                height_m: 0.2,
+                rotation_y_deg: (-approach_dz).atan2(approach_dx).to_degrees() as f32,
+                grounding: super::GroundingSpec {
+                    bottom_offset_m: (approach_y - approach_y.floor()) as f32,
+                    ..super::GroundingSpec::default()
+                },
+                anchors: Vec::new(),
                 bounds: None,
-            })
-        })
-        .collect()
+            });
+        }
+    }
+    let stairs = super::settlement_evolution::materialize_stairs(&entities);
+    entities.extend(stairs);
+    entities
 }
 
 fn market_size(tier: &Tier) -> (f32, f32, f32) {
     match tier.id.as_str() {
-        "street-market" => (24.0, 16.0, 6.0),
+        // A neighbourhood fresh-food hall is a row-scale building, not a
+        // suburban supermarket. A 24x16m box consumed two narrow frontages
+        // and made dense centres unable to host the required network.
+        "street-market" => (16.0, 10.0, 6.0),
         "district" => (72.0, 54.0, 15.0),
         _ => (48.0, 32.0, 10.0),
     }
@@ -1268,26 +1350,22 @@ fn market_site(
             };
             oriented_footprints_overlap(&oriented, &building_footprint, 2.0)
         });
-        let collides_with_road = routes
-            .routes
+        // Check the exact segments that will be published. The planner used
+        // raw 1m vertices while the final audit consumed simplified segment
+        // OBBs; their chord geometry differed just enough to accept a market
+        // that later intersected the baked road.
+        let collides_with_road = super::route_evolution::materialize(routes)
             .iter()
-            .filter(|route| route.status == "pass")
-            .flat_map(|route| route.polyline.windows(2))
-            .any(|pair| {
-                let dx = f64::from(pair[1].x - pair[0].x);
-                let dz = f64::from(pair[1].z - pair[0].z);
-                let length = dx.hypot(dz);
-                if length <= f64::EPSILON {
-                    return false;
-                }
-                let road = OrientedFootprint {
-                    center_x: (f64::from(pair[0].x) + f64::from(pair[1].x)) * 0.5,
-                    center_z: (f64::from(pair[0].z) + f64::from(pair[1].z)) * 0.5,
-                    width_m: length,
-                    depth_m: road_width_m + 6.0,
-                    rotation_y_deg: dz.atan2(dx).to_degrees(),
+            .filter(|road| road.kind == "road")
+            .any(|road| {
+                let influence = OrientedFootprint {
+                    center_x: f64::from(road.world_x),
+                    center_z: f64::from(road.world_z),
+                    width_m: f64::from(road.width_m),
+                    depth_m: f64::from(road.depth_m),
+                    rotation_y_deg: f64::from(road.rotation_y_deg),
                 };
-                oriented_footprints_overlap(&oriented, &road, 0.5)
+                oriented_footprints_overlap(&oriented, &influence, 0.5)
             });
         if !collides_with_planned_building && !collides_with_road {
             return Some(MarketSite {
@@ -1348,7 +1426,7 @@ fn nearest_station(routes: &RoutePlan, x: i32, z: i32) -> Option<Station> {
                     z: station_z,
                     normal_x: -dz / length,
                     normal_z: dx / length,
-                    rotation_y_deg: dz.atan2(dx).to_degrees() as f32,
+                    rotation_y_deg: (-dz).atan2(dx).to_degrees() as f32,
                 },
             ));
         }
@@ -1487,11 +1565,11 @@ impl PartialOrd for TimeEntry {
 mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
+    use crate::worldgen::SceneSpec;
     use crate::worldgen::route_evolution::{Anchor, Route, RoutePoint};
     use crate::worldgen::settlement_evolution::{
         Building, Capacity, Demand, Plan as SettlementPlan,
     };
-    use crate::worldgen::SceneSpec;
 
     fn route_plan() -> RoutePlan {
         let polyline = (0..=30)
@@ -1628,10 +1706,11 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
-        assert!(plan
-            .accessibility
-            .iter()
-            .all(|point| point.nearest_market_id.is_some()));
+        assert!(
+            plan.accessibility
+                .iter()
+                .all(|point| point.nearest_market_id.is_some())
+        );
         assert!(plan.markets.iter().all(|market| market.tier == "market"));
         assert_eq!(
             plan.markets
@@ -1686,14 +1765,20 @@ mod tests {
             let allocated: f64 = field.allocations.iter().map(|a| a.demand).sum();
             assert!((allocated - field.served_demand).abs() < 1e-9);
             assert!((field.served_demand + field.deficit - field.demand).abs() < 1e-9);
-            assert!(field
-                .bands
-                .iter()
-                .all(|band| band.capacity_per_demand >= 0.0));
+            assert!(
+                field
+                    .bands
+                    .iter()
+                    .all(|band| band.capacity_per_demand >= 0.0)
+            );
         }
         assert!(
             (artifacts.deficits.total_deficit
-                - radiation.demand_fields.iter().map(|field| field.deficit).sum::<f64>())
+                - radiation
+                    .demand_fields
+                    .iter()
+                    .map(|field| field.deficit)
+                    .sum::<f64>())
             .abs()
                 < 1e-9
         );
@@ -1752,10 +1837,11 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert!(tiers.contains("street-market"));
         assert!(tiers.contains("neighbourhood"));
-        assert!(plan
-            .markets
-            .iter()
-            .all(|market| market.load <= market.capacity + 1e-6));
+        assert!(
+            plan.markets
+                .iter()
+                .all(|market| market.load <= market.capacity + 1e-6)
+        );
         let settlement = settlement();
         for (index, market) in plan.markets.iter().enumerate() {
             for other in plan.markets.iter().skip(index + 1) {
@@ -1817,9 +1903,7 @@ mod tests {
                 "candidateSpacingM": 100
             }
         });
-        let planned = plan(&route_plan(), &settlement(), &style)
-            .unwrap()
-            .unwrap();
+        let planned = plan(&route_plan(), &settlement(), &style).unwrap().unwrap();
         let rejected = planned.demand_points[0].id.clone();
         let realized = planned
             .demand_points
@@ -1828,12 +1912,14 @@ mod tests {
             .map(|point| point.id.clone())
             .collect::<BTreeSet<_>>();
 
-        let reconciled =
-            reconcile_after_access(&planned, &route_plan(), &style, &realized)
-                .unwrap()
-                .unwrap();
+        let reconciled = reconcile_after_access(&planned, &route_plan(), &style, &realized)
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(reconciled.demand_points.len(), planned.demand_points.len() - 1);
+        assert_eq!(
+            reconciled.demand_points.len(),
+            planned.demand_points.len() - 1
+        );
         assert_eq!(
             reconciled.accessibility.len(),
             reconciled.demand_points.len()
@@ -1890,8 +1976,22 @@ mod tests {
         });
         let planned = plan(&routes, &settlement(), &style).unwrap().unwrap();
         let entities = materialize(&planned, &routes, &terrain);
-        assert_eq!(entities.len(), planned.markets.len());
-        assert!(entities.iter().all(|entity| {
+        let markets = entities
+            .iter()
+            .filter(|entity| entity.kind == "market")
+            .collect::<Vec<_>>();
+        let approaches = entities
+            .iter()
+            .filter(|entity| {
+                entity.kind == "road"
+                    && entity
+                        .entity_id
+                        .starts_with("generated.market-catchment.approach.")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(markets.len(), planned.markets.len());
+        assert_eq!(approaches.len(), planned.markets.len());
+        assert!(markets.iter().all(|entity| {
             entity.kind == "market"
                 && entity.anchors.len() == 1
                 && entity.width_m > 0.0

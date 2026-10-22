@@ -61,10 +61,10 @@ pub mod conversion_budget;
 pub mod conversion_fringe;
 pub mod engineering_connections;
 pub mod engineering_scale;
-pub mod final_scene_audit;
 #[cfg(test)]
 mod entrance_recheck_tests;
 pub mod epoch_evolution;
+pub mod final_scene_audit;
 pub mod frontage;
 mod frontage_supply;
 pub mod joint_frontage;
@@ -216,6 +216,11 @@ pub struct GroundingSpec {
     /// roads and every non-road entity leave it absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_tier: Option<road_network::RoadTierRef>,
+    /// Physical road cross-section inferred from the authored carriageway
+    /// width. It is a geometry contract for rendering and collision, not a
+    /// material choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_design: Option<RoadDesign>,
     /// Optional settlement-stage provenance carried from an expanded district
     /// frontage request. Absent for every non-district entity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -309,6 +314,52 @@ pub struct StairConnection {
     pub width_m: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RoadDesign {
+    pub version: u32,
+    pub road_class: String,
+    pub lane_count: u32,
+    pub lane_width_m: f32,
+    pub median_width_m: f32,
+    pub sidewalk_width_m: f32,
+    pub speed_limit_kmh: u32,
+    pub collision_height_m: f32,
+}
+
+impl RoadDesign {
+    pub fn from_width(width_m: f32) -> Self {
+        let width_m = width_m.max(4.0);
+        let (road_class, lane_count, lane_width_m, median_width_m, sidewalk_width_m, speed) =
+            if width_m >= 30.0 {
+                ("expressway", 6, 3.5, 3.0, 2.5, 80)
+            } else if width_m >= 22.0 {
+                ("arterial", 4, 3.4, 1.6, 3.0, 60)
+            } else if width_m >= 16.0 {
+                ("collector", 4, 3.2, 0.6, 2.5, 40)
+            } else if width_m >= 10.0 {
+                ("local", 2, 3.2, 0.0, 2.0, 30)
+            } else if width_m >= 8.0 {
+                // An 8m residential/service street still carries two opposing
+                // movements; treating it as a one-lane ribbon made every
+                // ordinary local road read as a private driveway.
+                ("local", 2, 3.2, 0.0, 0.8, 20)
+            } else {
+                ("lane", 1, 3.4, 0.0, 0.8, 20)
+            };
+        Self {
+            version: 1,
+            road_class: road_class.into(),
+            lane_count,
+            lane_width_m,
+            median_width_m,
+            sidewalk_width_m,
+            speed_limit_kmh: speed,
+            collision_height_m: 0.35,
+        }
+    }
+}
+
 fn default_grounding_tolerance_m() -> f32 {
     1.0
 }
@@ -319,6 +370,7 @@ impl Default for GroundingSpec {
             frontage_road_point: None,
             road_profile: None,
             road_tier: None,
+            road_design: None,
             district_id: None,
             construction_cohort: None,
             building_operation: None,
@@ -1867,10 +1919,9 @@ impl EntityInstance {
         // while historical generators used the entity id to distinguish the
         // north/south variant. Normalize that legacy convention once into the
         // explicit rotation field consumed by adapters and future assets.
-        if self.rotation_y_deg == 0.0
-            && (self.entity_id.contains("road-ns")
-                || self.entity_id.contains("north-south")
-                || self.entity_id.contains("sidewalk-ns"))
+        if self.asset_id == "prop.road"
+            && self.rotation_y_deg == 0.0
+            && (self.entity_id.contains("road-ns") || self.entity_id.contains("sidewalk-ns"))
         {
             self.rotation_y_deg = 90.0;
         }
@@ -2467,13 +2518,9 @@ fn bounded_cut_ledger_for(
     // same-id placeholder, so measuring only `entities` would omit them.
     let mut cut_world_entities = entities.to_vec();
     cut_world_entities.extend(plan.site_entities());
-    let pads = bounded_cut::measure_cut_entities(
-        &cut_world_entities,
-        natural,
-        final_terrain,
-        &road_tops,
-    )
-    .map_err(WorldgenError::InvalidRules)?;
+    let pads =
+        bounded_cut::measure_cut_entities(&cut_world_entities, natural, final_terrain, &road_tops)
+            .map_err(WorldgenError::InvalidRules)?;
     let mut ledger = bounded_cut::CutLedger {
         requested: Some(
             manifest
@@ -2557,8 +2604,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
     // Compile the single effective program set for this bake. Roads, frontage,
     // services, agriculture and residual land all consume this one value; no
     // module fills its own default.
-    let composed_style = urban_case_priors::compose_style(&manifest.style)
-        .map_err(WorldgenError::InvalidRules)?;
+    let composed_style =
+        urban_case_priors::compose_style(&manifest.style).map_err(WorldgenError::InvalidRules)?;
     let compiled_style =
         crate::settlement::morphology_compile::compile(&composed_style, &manifest.scenes)
             .map_err(WorldgenError::InvalidRules)?;
@@ -2607,8 +2654,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             serde_json::to_vec_pretty(plan)?,
         )?;
     }
-    let slice_plan =
-        urban_slice::compile(&effective_style).map_err(WorldgenError::InvalidRules)?;
+    let slice_plan = urban_slice::compile(&effective_style).map_err(WorldgenError::InvalidRules)?;
     if let Some(plan) = &slice_plan {
         fs::write(
             output.join("urban-slice-plan.json"),
@@ -2812,22 +2858,25 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         serde_json::to_vec_pretty(&planning_plan)?,
                     )?;
                 }
-                if let Some(artifacts) =
-                    market_catchment::plan_with_artifacts(
-                        route_plan,
-                        &settlement_plan,
-                        &effective_style,
-                        &scene.scene_id,
-                    )
-                        .map_err(WorldgenError::InvalidRules)?
+                if let Some(artifacts) = market_catchment::plan_with_artifacts(
+                    route_plan,
+                    &settlement_plan,
+                    &effective_style,
+                    &scene.scene_id,
+                )
+                .map_err(WorldgenError::InvalidRules)?
                 {
+                    // Persist the failing plan and its deficit evidence before
+                    // failing closed. Diagnostics used to be lost whenever
+                    // coverage was short, making the missing market impossible
+                    // to locate from the bake output.
+                    write_market_catchment_artifacts(&scene_dir, &artifacts)?;
                     if artifacts.plan.status != "pass" {
                         return Err(WorldgenError::InvalidRules(format!(
                             "market catchment plan is incomplete: {}",
                             artifacts.plan.failures.join("; ")
                         )));
                     }
-                    write_market_catchment_artifacts(&scene_dir, &artifacts)?;
                     market_catchment_result = Some(artifacts.plan);
                 }
             }
@@ -2970,7 +3019,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }));
         }
         if let Some(plan) = &planning_history_result {
-            let widened = planning_history::apply_road_widening(&mut entities, plan);
+            let widening = planning_history::apply_road_widening(&mut entities, plan);
             let centres =
                 planning_history::materialize_centres(plan, scene, &natural_samples, &entities);
             let centre_count = centres.entities.len();
@@ -2992,8 +3041,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "format": "glyphweave.planning-materialization-report",
                 "version": 1,
                 "sceneId": scene.scene_id,
-                "widenedRoadSegments": widened.len(),
-                "widenedRoadIds": widened,
+                "widenedRoadSegments": widening.applied.len(),
+                "widenedRoadIds": widening.applied,
+                "skippedRoadWidening": widening.skipped,
                 "materializedCentres": centre_count,
                 "materializedCentreIds": centre_ids,
                 "skippedCentres": centres.skipped,
@@ -3061,6 +3111,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         let mut entities = entities;
         for entity in &mut entities {
             entity.normalize_spatial_semantics();
+            if entity.kind == "road" && entity.grounding.road_design.is_none() {
+                entity.grounding.road_design = Some(RoadDesign::from_width(entity.depth_m));
+            }
         }
         sanitize_generated_transport_collisions(&mut entities);
         for e in &entities {
@@ -3416,7 +3469,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 if let Some(old_stair_id) = old_stair_id {
                     entities.retain(|entity| entity.entity_id != old_stair_id);
                 }
-                let Some(index) = entities.iter().position(|entity| entity.entity_id == *rejected_id)
+                let Some(index) = entities
+                    .iter()
+                    .position(|entity| entity.entity_id == *rejected_id)
                 else {
                     continue;
                 };
@@ -3436,25 +3491,19 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     .as_ref()
                     .map(|stairs| stairs.to);
                 let fallback_frontage = entities[index].grounding.frontage_road_point;
-                let frontage = match (
-                    existing_target,
-                    planned_frontage,
-                    fallback_frontage,
-                ) {
+                let frontage = match (existing_target, planned_frontage, fallback_frontage) {
                     (Some(existing), planned, Some(fallback)) if existing == fallback => planned,
                     (_, _, Some(fallback)) => Some(fallback),
                     (_, planned, None) => planned,
                 };
-                let Some(frontage) = frontage
-                else {
+                let Some(frontage) = frontage else {
                     continue;
                 };
                 if let Some(stairs) = settlement_evolution::attach_frontage_stairs(
                     &mut entities[index],
                     &baked_samples,
                     frontage,
-                )
-                {
+                ) {
                     promoted_frontage_stairs.extend(
                         stairs
                             .iter()
@@ -3591,11 +3640,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 }))?,
             )?;
         }
-        if let (
-            Some(routes),
-            Some(settlement_plan),
-            Some(market_plan),
-        ) = (
+        if let (Some(routes), Some(settlement_plan), Some(market_plan)) = (
             route_evolution_plan.as_ref(),
             settlement_evolution_result.as_ref(),
             market_catchment_result.as_ref(),
@@ -3614,6 +3659,14 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 })
                 .map(|building| building.id.clone())
                 .collect::<BTreeSet<_>>();
+            let realized_market_ids = market_plan
+                .markets
+                .iter()
+                .filter(|market| {
+                    final_ids.contains(format!("generated.market-catchment.{}", market.id).as_str())
+                })
+                .map(|market| market.id.clone())
+                .collect::<BTreeSet<_>>();
             let pre_access_path = scene_dir.join("market-catchment-plan-pre-access.json");
             if !pre_access_path.exists() {
                 fs::write(&pre_access_path, serde_json::to_vec_pretty(market_plan)?)?;
@@ -3623,17 +3676,43 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 routes,
                 &effective_style,
                 &realized_building_ids,
+                &realized_market_ids,
                 &scene.scene_id,
             )
             .map_err(WorldgenError::InvalidRules)?
             {
+                write_market_catchment_artifacts(&scene_dir, &artifacts)?;
                 if artifacts.plan.status != "pass" {
+                    let rejected_markets = market_plan
+                        .markets
+                        .iter()
+                        .filter(|market| {
+                            !final_ids.contains(
+                                format!("generated.market-catchment.{}", market.id).as_str(),
+                            )
+                        })
+                        .map(|market| {
+                            let entity_id = format!("generated.market-catchment.{}", market.id);
+                            serde_json::json!({
+                                "entityId": entity_id,
+                                "worldX": market.world_x,
+                                "worldZ": market.world_z,
+                                "accessStatuses": rejected_access_statuses
+                                    .get(&entity_id)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    fs::write(
+                        scene_dir.join("market-access-rejections.json"),
+                        serde_json::to_vec_pretty(&rejected_markets)?,
+                    )?;
                     return Err(WorldgenError::InvalidRules(format!(
                         "post-access market catchment is incomplete: {}",
                         artifacts.plan.failures.join("; ")
                     )));
                 }
-                write_market_catchment_artifacts(&scene_dir, &artifacts)?;
                 market_catchment_result = Some(artifacts.plan);
             }
         }
@@ -3646,8 +3725,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .markets
                 .iter()
                 .filter_map(|market| {
-                    let entity_id =
-                        format!("generated.market-catchment.{}", market.id);
+                    let entity_id = format!("generated.market-catchment.{}", market.id);
                     if final_ids.contains(entity_id.as_str()) {
                         return None;
                     }
@@ -3678,9 +3756,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .markets
                 .iter()
                 .filter(|market| {
-                    final_ids.contains(
-                        format!("generated.market-catchment.{}", market.id).as_str(),
-                    )
+                    final_ids.contains(format!("generated.market-catchment.{}", market.id).as_str())
                 })
                 .count();
             fs::write(
@@ -4159,6 +4235,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             natural_only::require_pass(&audit).map_err(WorldgenError::InvalidRules)?;
             natural_only_reports.push(audit);
         }
+        // Entity-stage completion can add details after the first clearance
+        // pass. Run the exact-OBB clearance once more over the final inventory,
+        // before geometry is audited or serialized.
+        sanitize_natural_detail_clearance(&mut index.entities);
         let final_entity_audit =
             final_scene_audit::audit(&index.entities, &baked_samples, scene, water);
         fs::write(
@@ -4170,10 +4250,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .failures
                 .first()
                 .map(|failure| {
-                    format!(
-                        "{} {}: {}",
-                        failure.entity_id, failure.kind, failure.reason
-                    )
+                    format!("{} {}: {}", failure.entity_id, failure.kind, failure.reason)
                 })
                 .unwrap_or_else(|| "unnamed failure".into());
             return Err(WorldgenError::InvalidRules(format!(
@@ -6307,8 +6384,7 @@ pub(crate) fn oriented_outside_m(
     x: f64,
     z: f64,
 ) -> f64 {
-    let (along, across) =
-        oriented_local_coordinates(center_x, center_z, rotation_y_deg, x, z);
+    let (along, across) = oriented_local_coordinates(center_x, center_z, rotation_y_deg, x, z);
     (along.abs() - half_w).max(across.abs() - half_d)
 }
 
@@ -8396,11 +8472,8 @@ fn apply_rules_mode(
                 .into_iter()
                 .filter(|entity| carves_as_road(entity.kind.as_str()))
                 .map(|entity| {
-                    let (half_w, half_d) = spatial_half_extents(
-                        entity.width_m,
-                        entity.depth_m,
-                        entity.rotation_y_deg,
-                    );
+                    let (half_w, half_d) =
+                        spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
                     crate::rules::PlacedKind {
                         clearance: 0.0,
                         id: Some(entity.entity_id),
@@ -8418,13 +8491,7 @@ fn apply_rules_mode(
     let designed_height = |x, z| terrain_context.height(x, z, &road_carves);
     let place = |requests: &[crate::rules::PlacementRequest]| {
         with_height_placement_context(seed, scene, water, &designed_height, |ctx| {
-            crate::rules::place_all_with_preplaced(
-                &registry,
-                requests,
-                ctx,
-                &road_obstacles,
-                seed,
-            )
+            crate::rules::place_all_with_preplaced(&registry, requests, ctx, &road_obstacles, seed)
         })
     };
     let mut outcome = place(&requests);
@@ -9136,29 +9203,15 @@ fn sanitize_generated_transport_collisions(entities: &mut Vec<EntityInstance>) {
 
 fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) -> usize {
     let before = entities.len();
-    let road_footprints: Vec<(i32, i32, f64, f64)> = entities
+    let road_footprints: Vec<OrientedFootprint> = entities
         .iter()
         .filter(|entity| matches!(entity.kind.as_str(), "road" | "sidewalk" | "boardwalk"))
-        .map(|entity| {
-            (
-                entity.world_x,
-                entity.world_z,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 6.0,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 6.0,
-            )
-        })
+        .map(OrientedFootprint::from_entity)
         .collect();
-    let building_footprints: Vec<(i32, i32, f64, f64)> = entities
+    let building_footprints: Vec<OrientedFootprint> = entities
         .iter()
         .filter(|entity| is_building_kind(&entity.kind))
-        .map(|entity| {
-            (
-                entity.world_x,
-                entity.world_z,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).0 + 0.5,
-                spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg).1 + 0.5,
-            )
-        })
+        .map(OrientedFootprint::from_entity)
         .collect();
     // A building's facade anchor is the exact point the access audit must keep
     // open. Footprint-only clearance misses a boulder or trunk just outside the
@@ -9182,11 +9235,11 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) -> usiz
         ) {
             return true;
         }
+        let detail_footprint = OrientedFootprint::from_entity(entity);
         let detail_r = f64::from(entity.width_m.max(entity.depth_m)) * 0.5;
-        let overlaps_road = road_footprints.iter().any(|(rx, rz, rhx, rhz)| {
-            f64::from((entity.world_x - rx).abs()) < detail_r + rhx
-                && f64::from((entity.world_z - rz).abs()) < detail_r + rhz
-        });
+        let overlaps_road = road_footprints
+            .iter()
+            .any(|road| oriented_footprints_overlap(&detail_footprint, road, 6.0));
         if overlaps_road {
             return false;
         }
@@ -9196,10 +9249,9 @@ fn sanitize_natural_detail_clearance(entities: &mut Vec<EntityInstance>) -> usiz
         }) {
             return false;
         }
-        !building_footprints.iter().any(|(bx, bz, bhx, bhz)| {
-            f64::from((entity.world_x - bx).abs()) < detail_r + bhx
-                && f64::from((entity.world_z - bz).abs()) < detail_r + bhz
-        })
+        !building_footprints
+            .iter()
+            .any(|building| oriented_footprints_overlap(&detail_footprint, building, 0.5))
     });
     before - entities.len()
 }
@@ -9285,8 +9337,7 @@ impl OrientedFootprint {
         let dz = z - self.center_z;
         let local_x = dx * cos + dz * sin;
         let local_z = -dx * sin + dz * cos;
-        local_x.abs() <= self.width_m * 0.5 + 1e-9
-            && local_z.abs() <= self.depth_m * 0.5 + 1e-9
+        local_x.abs() <= self.width_m * 0.5 + 1e-9 && local_z.abs() <= self.depth_m * 0.5 + 1e-9
     }
 
     pub(crate) fn aabb_half_extents(&self) -> (f64, f64) {
@@ -9323,7 +9374,12 @@ pub(crate) fn oriented_footprints_overlap(
 ) -> bool {
     let (a_sin, a_cos) = a.rotation_y_deg.to_radians().sin_cos();
     let (b_sin, b_cos) = b.rotation_y_deg.to_radians().sin_cos();
-    let axes = [(a_cos, a_sin), (-a_sin, a_cos), (b_cos, b_sin), (-b_sin, b_cos)];
+    let axes = [
+        (a_cos, a_sin),
+        (-a_sin, a_cos),
+        (b_cos, b_sin),
+        (-b_sin, b_cos),
+    ];
     let dx = b.center_x - a.center_x;
     let dz = b.center_z - a.center_z;
     let a_half_w = a.width_m * 0.5;
@@ -12168,6 +12224,18 @@ mod tests {
         road.normalize_spatial_semantics();
         assert_eq!(road.rotation_y_deg, 90.0);
 
+        let mut generated_building = road.clone();
+        generated_building.entity_id =
+            "generated.settlement-evolution.cross-town-north-south.lot.1.0.0".into();
+        generated_building.asset_id = "building.office_tower".into();
+        generated_building.kind = "office_tower".into();
+        generated_building.rotation_y_deg = 0.0;
+        generated_building.normalize_spatial_semantics();
+        assert_eq!(
+            generated_building.rotation_y_deg, 0.0,
+            "legacy road-name inference must never rotate a generated building with explicit yaw"
+        );
+
         let mut building = EntityInstance {
             rotation_y_deg: 90.0,
             grounding: GroundingSpec::default(),
@@ -12187,6 +12255,26 @@ mod tests {
         building.normalize_spatial_semantics();
         assert_eq!(building.anchors[0].direction, "west");
         assert_eq!(building.anchors[0].target.as_deref(), Some("road"));
+    }
+
+    #[test]
+    fn road_design_distinguishes_local_lane_and_expressway_sections() {
+        let local = RoadDesign::from_width(8.0);
+        assert_eq!(local.road_class, "local");
+        assert_eq!(local.lane_count, 2);
+
+        let collector = RoadDesign::from_width(16.0);
+        assert_eq!(collector.road_class, "collector");
+        assert_eq!(collector.lane_count, 4);
+
+        let arterial = RoadDesign::from_width(24.0);
+        assert_eq!(arterial.road_class, "arterial");
+        assert_eq!(arterial.median_width_m, 1.6);
+
+        let expressway = RoadDesign::from_width(32.0);
+        assert_eq!(expressway.road_class, "expressway");
+        assert_eq!(expressway.lane_count, 6);
+        assert_eq!(expressway.median_width_m, 3.0);
     }
 
     #[test]
@@ -12589,9 +12677,7 @@ mod tests {
         let expected = footprint
             .grid_cells()
             .into_iter()
-            .map(|(x, z)| {
-                f64::from(terrain_height_with_geometry(20260903, x, z, water)) / 4.0
-            })
+            .map(|(x, z)| f64::from(terrain_height_with_geometry(20260903, x, z, water)) / 4.0)
             .fold(f64::NEG_INFINITY, f64::max);
         rebase_buildings_to_surface(20260903, water, std::slice::from_mut(&mut entity));
         assert_eq!(entity.world_y, expected.ceil() as i32);

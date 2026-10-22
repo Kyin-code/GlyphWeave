@@ -124,6 +124,12 @@
         "https://www.pland.gov.hk/",
         "https://www.amo.gov.hk/en/home/index.html",
         "https://www.housingauthority.gov.hk/en/",
+        "https://nacto.org/publication/urban-street-design-guide/street-design-elements/lane-width/",
+        "https://nacto.org/publication/urban-street-design-guide/streets/neighborhood-street/",
+        "https://www.hyd.gov.hk/en/technical_references/technical_document/structures_design_manual_2013/index.html",
+        "https://hkss.cedd.gov.hk/hkss/eng/natural_terrain.aspx",
+        "https://www.hfc.org.hk/filemanager/files/urban-design-study-for-the-new-central-harbourfront/uds-nch-es-(english-version-only)_r.pdf",
+        "https://www.pland.gov.hk/file/planning_studies/comp_s/hk2030plus/document/Planning%20and%20Urban%20Design%20for%20a%20Liveable%20High-Density%20City_Eng.pdf",
         "assets/data/urban-case-priors-48.json",
         "assets/data/urban-case-evidence.json"
       ],
@@ -131,7 +137,7 @@
         "hk-central"
       ],
       "crop": "synthetic 1000m x 1000m mechanism cut, not a georeferenced reconstruction",
-      "retrievedAt": "2026-10-21",
+      "retrievedAt": "2026-10-22",
       "seedBasis": "deterministic composite of registered Hong Kong core-cut mechanisms",
       "inferenceReason": "the objective is a relational core slice, not a statistical or complete-city replica"
     },
@@ -143,30 +149,260 @@
       "version": 1,
       "enabled": true,
       "gridStepM": 16,
-      "roadWidthM": 8,
+      "roadWidthM": 24,
       "maxGrade": 0.08,
       "maxTerrainSlope": 0.6,
       "maxFillM": 12,
       "allowBridge": true,
       "maxBridgeSpanM": 420,
       "turnPenalty": 1.6,
-      "anchors": [],
-      "routes": []
+      "anchors": [
+        {
+          "id": "natural-northwest",
+          "x": 152,
+          "z": 472,
+          "role": "natural-valley-or-water-node"
+        },
+        {
+          "id": "natural-northeast",
+          "x": 664,
+          "z": 280,
+          "role": "natural-valley-or-water-node"
+        },
+        {
+          "id": "natural-southwest",
+          "x": 88,
+          "z": 600,
+          "role": "natural-valley-or-water-node"
+        },
+        {
+          "id": "natural-southeast",
+          "x": 664,
+          "z": 664,
+          "role": "natural-valley-or-water-node"
+        },
+        {
+          "id": "central-exchange",
+          "x": 500,
+          "z": 450,
+          "role": "urban-centre-hub"
+        },
+        {
+          "id": "core-west-middle",
+          "x": 360,
+          "z": 460,
+          "role": "old-town-local-hub"
+        },
+        {
+          "id": "core-east-middle",
+          "x": 640,
+          "z": 460,
+          "role": "renewal-local-hub"
+        },
+        {
+          "id": "core-west-north",
+          "x": 360,
+          "z": 340,
+          "role": "old-town-local-hub"
+        },
+        {
+          "id": "core-centre-north",
+          "x": 500,
+          "z": 340,
+          "role": "old-town-local-hub"
+        },
+        {
+          "id": "core-east-north",
+          "x": 640,
+          "z": 340,
+          "role": "renewal-local-hub"
+        },
+        {
+          "id": "core-west-south",
+          "x": 360,
+          "z": 580,
+          "role": "old-town-local-hub"
+        },
+        {
+          "id": "core-centre-south",
+          "x": 500,
+          "z": 580,
+          "role": "old-town-local-hub"
+        },
+        {
+          "id": "core-east-south",
+          "x": 640,
+          "z": 580,
+          "role": "renewal-local-hub"
+        },
+        {
+          "id": "core-inner-west-north",
+          "x": 430,
+          "z": 400,
+          "role": "old-town-lane-hub"
+        },
+        {
+          "id": "core-inner-east-north",
+          "x": 570,
+          "z": 400,
+          "role": "old-town-lane-hub"
+        },
+        {
+          "id": "core-inner-west-south",
+          "x": 430,
+          "z": 520,
+          "role": "old-town-lane-hub"
+        },
+        {
+          "id": "core-inner-east-south",
+          "x": 570,
+          "z": 520,
+          "role": "old-town-lane-hub"
+        }
+      ],
+      "routes": [
+        {
+          "id": "harbour-expressway",
+          "from": "natural-northwest",
+          "to": "natural-northeast",
+          "roadWidthM": 32
+        },
+        {
+          "id": "central-arterial",
+          "from": "natural-northeast",
+          "to": "natural-southeast",
+          "roadWidthM": 24
+        },
+        {
+          "id": "hillside-local",
+          "from": "natural-northwest",
+          "to": "natural-southwest",
+          "roadWidthM": 12
+        },
+        {
+          "id": "cross-town-north-south",
+          "from": "natural-northwest",
+          "to": "natural-southeast",
+          "roadWidthM": 20
+        },
+        {
+          "id": "cross-town-east-west",
+          "from": "natural-northeast",
+          "to": "natural-southwest",
+          "roadWidthM": 18
+        },
+        {
+          "id": "old-town-spine",
+          "from": "natural-northwest",
+          "to": "central-exchange",
+          "roadWidthM": 16
+        },
+        {
+          "id": "renewal-spine",
+          "from": "natural-northeast",
+          "to": "central-exchange",
+          "roadWidthM": 16
+        },
+        {
+          "id": "hillside-spine",
+          "from": "natural-southwest",
+          "to": "central-exchange",
+          "roadWidthM": 12
+        },
+        {
+          "id": "old-town-core-south",
+          "from": "central-exchange",
+          "to": "core-centre-south",
+          "roadWidthM": 12
+        },
+        {
+          "id": "old-town-core-west",
+          "from": "core-west-middle",
+          "to": "central-exchange",
+          "roadWidthM": 16
+        },
+        {
+          "id": "renewal-core-east",
+          "from": "central-exchange",
+          "to": "core-east-middle",
+          "roadWidthM": 16
+        },
+        {
+          "id": "old-town-west-street",
+          "from": "core-west-north",
+          "to": "core-west-south",
+          "roadWidthM": 12
+        },
+        {
+          "id": "renewal-east-street",
+          "from": "core-east-north",
+          "to": "core-east-south",
+          "roadWidthM": 12
+        },
+        {
+          "id": "old-town-north-street",
+          "from": "core-west-north",
+          "to": "core-east-north",
+          "roadWidthM": 16
+        },
+        {
+          "id": "old-town-south-street",
+          "from": "core-west-south",
+          "to": "core-east-south",
+          "roadWidthM": 12
+        },
+        {
+          "id": "old-town-core-north",
+          "from": "core-centre-north",
+          "to": "central-exchange",
+          "roadWidthM": 16
+        },
+        {
+          "id": "old-town-middle-street",
+          "from": "core-west-middle",
+          "to": "core-east-middle",
+          "roadWidthM": 16
+        },
+        {
+          "id": "old-town-inner-west",
+          "from": "core-inner-west-north",
+          "to": "core-inner-west-south",
+          "roadWidthM": 10
+        },
+        {
+          "id": "old-town-inner-east",
+          "from": "core-inner-east-north",
+          "to": "core-inner-east-south",
+          "roadWidthM": 10
+        },
+        {
+          "id": "old-town-inner-north",
+          "from": "core-inner-west-north",
+          "to": "core-inner-east-north",
+          "roadWidthM": 10
+        },
+        {
+          "id": "old-town-inner-south",
+          "from": "core-inner-west-south",
+          "to": "core-inner-east-south",
+          "roadWidthM": 10
+        }
+      ]
     },
     "settlementEvolution": {
       "version": 1,
       "enabled": true,
-      "householdsTarget": 1400,
-      "jobsTarget": 4200,
-      "retailFloorAreaM2": 30000,
-      "serviceBudget": 48,
-      "lotWidthM": 18,
-      "lotDepthM": 20,
-      "roadStepM": 22,
-      "setbackM": 7,
+      "householdsTarget": 8000,
+      "jobsTarget": 40000,
+      "retailFloorAreaM2": 250000,
+      "serviceBudget": 160,
+      "lotWidthM": 8,
+      "lotDepthM": 24,
+      "roadStepM": 9,
+      "setbackM": 2,
       "maxSlope": 0.25,
-      "floorAreaRatio": 2.8,
-      "maxFloors": 22,
+      "floorAreaRatio": 6.0,
+      "maxFloors": 40,
       "accessHeightToleranceM": 8,
       "maxPadCutM": 14,
       "districtDemand": {
@@ -175,19 +411,19 @@
         "shares": [
           {
             "stage": "old-core",
-            "share": 0.22
+            "share": 0.45
           },
           {
             "stage": "renewal",
-            "share": 0.38
+            "share": 0.33
           },
           {
             "stage": "new-growth",
-            "share": 0.3
+            "share": 0.18
           },
           {
             "stage": "periphery",
-            "share": 0.1
+            "share": 0.04
           }
         ]
       }
@@ -205,40 +441,40 @@
       "beta": 0.1,
       "maxTravelMinutes": 12,
       "walkSpeedMps": 1.25,
-      "marketCapacity": 420,
+      "marketCapacity": 2800,
       "marketQuality": 1.0,
       "coverageTarget": 0.9,
-      "maxMarkets": 9,
-      "candidateSpacingM": 90,
+      "maxMarkets": 24,
+      "candidateSpacingM": 24,
       "tiers": [
         {
           "id": "street-market",
           "kind": "community-market-hall",
-        "capacity": 700,
+        "capacity": 2800,
           "quality": 1.15,
-          "maxTravelMinutes": 7,
-        "maxCount": 6,
-          "candidateSpacingM": 70,
+          "maxTravelMinutes": 10,
+        "maxCount": 16,
+          "candidateSpacingM": 24,
           "preference": 1.25
         },
         {
           "id": "neighbourhood",
           "kind": "neighbourhood-supermarket",
-        "capacity": 1500,
+        "capacity": 3500,
           "quality": 1.0,
           "maxTravelMinutes": 12,
-          "maxCount": 3,
-          "candidateSpacingM": 140,
+          "maxCount": 8,
+          "candidateSpacingM": 60,
           "preference": 1.0
         },
         {
           "id": "district",
           "kind": "large-supermarket",
-        "capacity": 3000,
+        "capacity": 5000,
           "quality": 0.9,
           "maxTravelMinutes": 20,
-          "maxCount": 2,
-          "candidateSpacingM": 220,
+          "maxCount": 6,
+          "candidateSpacingM": 100,
           "preference": 0.8
         }
       ]
@@ -352,9 +588,9 @@
         "placement": "surface-grounded",
         "allowedSurfaces": ["grass", "forest", "soil", "stone"],
         "forbiddenSurfaces": ["water", "deep_water", "underground"],
-        "minWidthM": 12,
+        "minWidthM": 6,
         "maxWidthM": 80,
-        "minDepthM": 12,
+        "minDepthM": 6,
         "maxDepthM": 80,
         "minHeightM": 12,
         "maxHeightM": 180
@@ -364,9 +600,9 @@
         "placement": "surface-grounded",
         "allowedSurfaces": ["grass", "forest", "soil", "stone"],
         "forbiddenSurfaces": ["water", "deep_water", "underground"],
-        "minWidthM": 12,
+        "minWidthM": 6,
         "maxWidthM": 80,
-        "minDepthM": 12,
+        "minDepthM": 6,
         "maxDepthM": 80,
         "minHeightM": 8,
         "maxHeightM": 120
@@ -455,9 +691,9 @@
         "placement": "surface-grounded",
         "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
         "forbiddenSurfaces": ["water", "deep_water", "underground"],
-        "minWidthM": 20,
+        "minWidthM": 12,
         "maxWidthM": 100,
-        "minDepthM": 12,
+        "minDepthM": 8,
         "maxDepthM": 80,
         "minHeightM": 3,
         "maxHeightM": 24

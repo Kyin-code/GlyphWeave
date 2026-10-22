@@ -14,8 +14,8 @@ use serde_json::Value;
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
 use super::{
-    oriented_footprints_overlap, urban_slice, BakedTerrain, EntityInstance, OrientedFootprint,
-    SceneSpec,
+    BakedTerrain, EntityInstance, OrientedFootprint, SceneSpec, is_building_kind,
+    oriented_footprints_overlap, urban_slice,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -824,14 +824,14 @@ pub fn materialize_centres(
                 dx * dx + dz * dz
             });
         let world_y = nearest_road.map_or_else(
-                || {
-                    terrain
-                        .height(x, z)
-                        .map_or(0.0, |height| height * 4.0)
-                        .round() as i32
-                },
-                |road| road.world_y,
-            );
+            || {
+                terrain
+                    .height(x, z)
+                    .map_or(0.0, |height| height * 4.0)
+                    .round() as i32
+            },
+            |road| road.world_y,
+        );
         let anchors = nearest_road
             .map(|road| {
                 let (anchor_x, anchor_z, direction) =
@@ -886,8 +886,19 @@ fn centre_entity_spec(kind: &str) -> Option<(&'static str, i32, i32, i32, &'stat
     }
 }
 
-pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> Vec<String> {
+pub struct RoadWideningResult {
+    pub applied: Vec<String>,
+    pub skipped: Vec<SkippedAction>,
+}
+
+pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> RoadWideningResult {
     let mut changed = Vec::new();
+    let mut skipped = Vec::new();
+    let buildings = entities
+        .iter()
+        .filter(|entity| is_building_kind(entity.kind.as_str()))
+        .map(OrientedFootprint::from_entity)
+        .collect::<Vec<_>>();
     for action in planning
         .actions
         .iter()
@@ -903,6 +914,27 @@ pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> 
             .filter(|entity| entity.kind == "road" && entity.entity_id.starts_with(&prefix))
         {
             if entity.depth_m < target_width && !near_stream_chunk_boundary(entity, 48) {
+                let widened = OrientedFootprint {
+                    center_x: f64::from(entity.world_x),
+                    center_z: f64::from(entity.world_z),
+                    width_m: f64::from(entity.width_m),
+                    depth_m: f64::from(target_width),
+                    rotation_y_deg: f64::from(entity.rotation_y_deg),
+                };
+                if let Some(building) = buildings
+                    .iter()
+                    .find(|building| oriented_footprints_overlap(&widened, building, 0.25))
+                {
+                    skipped.push(SkippedAction {
+                        action_id: format!("{}:{}", action.id, entity.entity_id),
+                        kind: action.kind.clone(),
+                        reason: format!(
+                            "widening to {target_width:.1}m would intersect a building near ({:.0},{:.0})",
+                            building.center_x, building.center_z
+                        ),
+                    });
+                    continue;
+                }
                 entity.depth_m = target_width;
                 changed.push(entity.entity_id.clone());
             }
@@ -910,7 +942,10 @@ pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> 
     }
     changed.sort();
     changed.dedup();
-    changed
+    RoadWideningResult {
+        applied: changed,
+        skipped,
+    }
 }
 
 fn near_stream_chunk_boundary(entity: &EntityInstance, margin_m: i32) -> bool {
@@ -1363,7 +1398,7 @@ mod tests {
             bounds: None,
         }];
         let changed = apply_road_widening(&mut roads, &planning);
-        assert!(!changed.is_empty());
+        assert!(!changed.applied.is_empty());
         assert!(roads[0].depth_m > 8.0);
     }
 

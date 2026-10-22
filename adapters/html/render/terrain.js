@@ -191,27 +191,53 @@ export function makePolylineRibbonGeometry(points, halfWidth, heightAt, THREE, l
   if (!Array.isArray(points) || points.length < 2) return null
   const vertices = []
   const indices = []
-  for (let index = 0; index < points.length; index++) {
-    const point = points[index]
-    const before = points[Math.max(0, index - 1)]
-    const after = points[Math.min(points.length - 1, index + 1)]
-    const dx = after.x - before.x
-    const dz = after.z - before.z
-    const length = Math.hypot(dx, dz) || 1
+  const pointY = point => {
+    const designY = Number.isFinite(point.designHeightM)
+      ? point.designHeightM
+      : heightAt(point.x, point.z)
+    return Math.max(designY, heightAt(point.x, point.z)) + lift
+  }
+  const appendVertex = (x, y, z) => {
+    const index = vertices.length / 3
+    vertices.push(x - originX, y, z - originZ)
+    return index
+  }
+  for (let index = 1; index < points.length; index++) {
+    const from = points[index - 1]
+    const to = points[index]
+    const dx = to.x - from.x
+    const dz = to.z - from.z
+    const length = Math.hypot(dx, dz)
+    if (length < 1e-6) continue
     const nx = -dz / length
     const nz = dx / length
-    const designY = Number.isFinite(point.designHeightM) ? point.designHeightM : heightAt(point.x, point.z)
-    const y = Math.max(designY, heightAt(point.x, point.z)) + lift
-    for (const side of [-1, 1]) {
-      vertices.push(
-        point.x - originX + nx * halfWidth * side,
-        y,
-        point.z - originZ + nz * halfWidth * side,
-      )
+    const fromY = pointY(from)
+    const toY = pointY(to)
+    const a = appendVertex(from.x - nx * halfWidth, fromY, from.z - nz * halfWidth)
+    const b = appendVertex(from.x + nx * halfWidth, fromY, from.z + nz * halfWidth)
+    const c = appendVertex(to.x - nx * halfWidth, toY, to.z - nz * halfWidth)
+    const d = appendVertex(to.x + nx * halfWidth, toY, to.z + nz * halfWidth)
+    indices.push(a, b, c, b, d, c)
+  }
+  // Round joints fill the wedge removed by rectangle-only segments. The
+  // previous miter strip created long spikes and inverted triangles on
+  // staircase-like terrain routes, which appeared as holes in the asphalt.
+  const joinSteps = Math.max(6, Math.min(16, Math.ceil(halfWidth * 1.5)))
+  for (let index = 1; index < points.length - 1; index++) {
+    const point = points[index]
+    const y = pointY(point)
+    const center = appendVertex(point.x, y + .002, point.z)
+    const ring = []
+    for (let step = 0; step < joinSteps; step++) {
+      const angle = step / joinSteps * Math.PI * 2
+      ring.push(appendVertex(
+        point.x + Math.cos(angle) * halfWidth,
+        y + .002,
+        point.z + Math.sin(angle) * halfWidth,
+      ))
     }
-    if (index > 0) {
-      const a = (index - 1) * 2
-      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+    for (let step = 0; step < joinSteps; step++) {
+      indices.push(center, ring[step], ring[(step + 1) % joinSteps])
     }
   }
   const geometry = new THREE.BufferGeometry()
@@ -219,6 +245,32 @@ export function makePolylineRibbonGeometry(points, halfWidth, heightAt, THREE, l
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
   return geometry
+}
+
+export function offsetPolylinePoints(points, offset) {
+  if (!Array.isArray(points) || points.length < 2) return []
+  return points.map((point, index) => {
+    const before = points[Math.max(0, index - 1)]
+    const after = points[Math.min(points.length - 1, index + 1)]
+    const inDx = point.x - before.x
+    const inDz = point.z - before.z
+    const outDx = after.x - point.x
+    const outDz = after.z - point.z
+    const inLength = Math.hypot(inDx, inDz) || 1
+    const outLength = Math.hypot(outDx, outDz) || 1
+    let nx = -inDz / inLength + -outDz / outLength
+    let nz = inDx / inLength + outDx / outLength
+    const normalLength = Math.hypot(nx, nz)
+    if (normalLength < 1e-6) {
+      nx = -outDz / outLength
+      nz = outDx / outLength
+    } else {
+      nx /= normalLength
+      nz /= normalLength
+    }
+    const distance = Math.min(Math.abs(offset) * 1.25, Math.abs(offset) / Math.max(.8, Math.abs(nx * (-inDz / inLength) + nz * (inDx / inLength))))
+    return { ...point, x: point.x + nx * Math.sign(offset) * distance, z: point.z + nz * Math.sign(offset) * distance }
+  })
 }
 
 // Artistic steppe ground — painterly, Journey/Flower-style colour field.

@@ -21,7 +21,8 @@ const SAMPLE: &str = include_str!("../../../../examples/hillside-town-512.manife
 const PLAINS: &str = include_str!("../../../../examples/service-program-plains.manifest.json");
 
 /// The lot this round refused, and the request that wanted it.
-const REFUSED: &str = "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive";
+const REFUSED: &str =
+    "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive";
 const REFUSED_PARCEL: &str =
     "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive.parcel";
 /// The committed hillside town after the refusal: 22 lots, 15 homes, 6 shops.
@@ -34,7 +35,7 @@ const HILLSIDE_SHOPS: usize = 6;
 /// and third-party notices, so contract additions move this constant without
 /// moving the authoritative terrain or scene data.
 const FROZEN_PLAINS_DIGEST: &str =
-    "6362427cf24ccfbc37f681e5c50877e780daea38af94d67a8b3be1db0dfacde3";
+    "8f5275a3c46882db96948b23cc1bd9113bdcfe2e844bb38dc2280f59b19aa81f";
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -115,7 +116,10 @@ fn published_files(root: &PathBuf) -> BTreeMap<String, String> {
 /// records the output directory and nothing else in a world embeds a path.
 fn world_digest(files: &BTreeMap<String, String>) -> String {
     let mut hasher = blake3::Hasher::new();
-    for (path, digest) in files.iter().filter(|(path, _)| !path.contains("generation-report")) {
+    for (path, digest) in files
+        .iter()
+        .filter(|(path, _)| !path.contains("generation-report"))
+    {
         hasher.update(path.as_bytes());
         hasher.update(b"\0");
         hasher.update(digest.as_bytes());
@@ -281,7 +285,11 @@ fn two_bakes_of_the_access_world_are_byte_identical() {
     bake_world(&sample(), &second.0).expect("the second bake");
     let a = published_files(&first.0);
     let b = published_files(&second.0);
-    assert_eq!(a.len(), b.len(), "the two bakes publish a different file set");
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "the two bakes publish a different file set"
+    );
     let mut differing = vec![];
     for (path, digest) in &a {
         if path.contains("generation-report") {
@@ -304,7 +312,8 @@ fn the_service_world_publishes_the_frozen_bytes() {
     let files = published_files(&dir.0);
     let digest = world_digest(&files);
     assert_eq!(
-        digest, FROZEN_PLAINS_DIGEST,
+        digest,
+        FROZEN_PLAINS_DIGEST,
         "the closed-state world moved: {digest} ({} files)",
         files.len()
     );

@@ -1,5 +1,35 @@
 import { deterministicRand } from '../core/shared.js'
 
+// Rust publishes the lot yaw and a frontage anchor. The yaw is the collision
+// contract and must survive verbatim; the anchor only tells us whether the
+// authored facade is on the local +Z/-Z side. Reconstructing a new facade
+// angle from rounded points made diagonal buildings leave their OBB.
+export function orientGroupToPublishedFront(group, entity, localFrontRadians = 0) {
+  const anchor = (entity.anchors ?? []).find(item => item.target === 'road')
+    ?? (entity.anchors ?? [])[0]
+  const authoredYaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
+  if (!anchor) {
+    group.rotation.y = authoredYaw
+  } else {
+    const dx = Number(anchor.worldX) - Number(entity.worldX)
+    const dz = Number(anchor.worldZ) - Number(entity.worldZ)
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) < .25) {
+      group.rotation.y = authoredYaw
+    } else {
+      const anchorYaw = Math.atan2(dx, dz)
+      const angleDelta = radians => Math.abs(Math.atan2(
+        Math.sin(radians),
+        Math.cos(radians),
+      ))
+      const frontError = angleDelta(anchorYaw - authoredYaw - localFrontRadians)
+      const backError = angleDelta(anchorYaw - authoredYaw - localFrontRadians - Math.PI)
+      group.rotation.y = authoredYaw + (backError < frontError ? Math.PI : 0)
+    }
+  }
+  group.userData.authoredWorldAxes = true
+  return group
+}
+
 export function fitAssetToEntity(asset, entity, THREE, fallback) {
   asset.updateMatrixWorld(true)
   const sourceBounds = new THREE.Box3().setFromObject(asset)
@@ -329,24 +359,8 @@ export function makeResidentialBlock(entity, THREE) {
       }
     }
   }
-  // Street trees inside the block for a lived-in feel
-  const treeCount = 3
-  for (let t = 0; t < treeCount; t++) {
-    const tr = deterministicRand(entity.worldX, entity.worldZ, 100 + t)
-    const treeGroup = new THREE.Group()
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.22, .3, 2.1, 5), new THREE.MeshStandardMaterial({ color: '#6d5238', roughness: .95 }))
-    trunk.position.y = 1.05
-    treeGroup.add(trunk)
-    const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5 + tr * .7, 0), new THREE.MeshStandardMaterial({ color: tr > .5 ? '#4a7a3a' : '#5d8f47', roughness: .95 }))
-    crown.position.y = 2.7 + tr * .5
-    treeGroup.add(crown)
-    const tx = -entity.widthM / 2 + 10 + tr * (entity.widthM - 20)
-    const tz = -entity.depthM / 2 + 6 + ((t * 37 + Math.floor(tr * 100)) % (entity.depthM - 14))
-    treeGroup.position.set(tx, .1, tz)
-    group.add(treeGroup)
-  }
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, 0)
 }
 
 // A compact mixed-use apartment block. Height is part of the Rust building
@@ -421,20 +435,8 @@ function makeModernResidentialBlock(entity, THREE) {
   court.position.set(0, podiumH + .09, twoTowers ? -d * .23 : d * .02)
   group.add(court)
 
-  // Four parcel trees give the block a planted street edge without floating
-  // decoration outside the published parcel.
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#65503a', roughness: .98 })
-  const leafMat = new THREE.MeshStandardMaterial({ color: '#3f7040', roughness: .95 })
-  for (const [x, z] of [[-.38, -.38], [.38, -.38], [-.38, .36], [.38, .36]]) {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.18, .28, 3.2, 6), trunkMat)
-    trunk.position.set(x * w, 1.6, z * d)
-    group.add(trunk)
-    const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(Math.min(2.7, Math.min(w, d) * .13), 1), leafMat)
-    crown.position.set(x * w, 4.4, z * d)
-    group.add(crown)
-  }
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, Math.PI)
 }
 
 // Chinese-style gated compound: a cluster of high-rise towers around a shared
@@ -507,7 +509,7 @@ export function makePlannedServiceBuilding(entity, THREE) {
     window.name = 'front-window'; window.rotation.y = Math.PI; window.position.set(side * entity.widthM * .3, Math.min(2, entity.heightM * .5), -entity.depthM / 2 - .002); group.add(window)
   }
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, Math.PI)
 }
 
 export function makePlannedResidentialHome(entity, THREE) {
@@ -532,7 +534,7 @@ export function makePlannedResidentialHome(entity, THREE) {
     win.name='front-window';win.rotation.y=Math.PI;win.position.set(side*w*.3,wallH*.55,-d*.5-.002);group.add(win)
   }
   group.position.set(entity.worldX,entity.worldY,entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, Math.PI)
 }
 
 function constructionTone(entity) {
@@ -583,11 +585,11 @@ export function makeResidentialHome(entity, THREE, heightAt) {
     win.position.set(side * homeW * .26, homeH * .55, homeD / 2 + .1)
     group.add(win)
   }
-  const tree = new THREE.Mesh(new THREE.ConeGeometry(1.8, 5, 6), new THREE.MeshStandardMaterial({ color: '#3f6a3d', roughness: .95 }))
-  tree.position.set(homeW * .4, 2.5, -homeD * .5)
-  group.add(tree)
+  // Vegetation is a separately audited Rust entity. A decorative tree here
+  // would sit inside the building OBB and make the renderer fabricate a
+  // collision that worldgen never published.
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, 0)
 }
 
 // Waterfront holiday resort lodge in the Shenzhen Bay / OCT Happy Harbour
@@ -1016,21 +1018,8 @@ export function makeIndustrial(entity, THREE, heightAt) {
 
 export function makeStorefront(entity, THREE) {
   const shop = cgaBuild(entity, CGA_STYLES.storefront, THREE)
-  // CGA_STOREFRONT's display window and door face local +Z. Rust publishes the
-  // exact frontage-road point, so turn that vector into the shop's yaw instead
-  // of guessing from the scene midpoint.
-  const front = entity.grounding?.frontageRoadPoint
-  if (Array.isArray(front)) {
-    const dx = front[0] - entity.worldX
-    const dz = front[1] - entity.worldZ
-    if (Number.isFinite(dx) && Number.isFinite(dz) && Math.hypot(dx, dz) > .01) {
-      shop.rotation.y = Math.atan2(dx, dz)
-      // The frontage point resolves the real street-facing axis. The generic
-      // cache wrapper must not overwrite it with the lot's bounding-box yaw.
-      shop.userData.authoredWorldAxes = true
-    }
-  }
-  return shop
+  // CGA_STOREFRONT's display window and door face local +Z.
+  return orientGroupToPublishedFront(shop, entity, 0)
 }
 
 // ---------------------------------------------------------------------------
