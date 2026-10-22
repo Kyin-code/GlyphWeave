@@ -4,16 +4,17 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
-> **2026-10-23 r140 更新**：最新合法候选为
-> `bevy/work/rk-x/v3-final-r140-20261023/`。世界修订
+> **2026-10-23 r143 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r143-20261023/`。世界修订
 > `6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`，
-> 4,236 实体、340 建筑、1,481 道路段、392 树、建筑 footprint
-> 34,701.5m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
-> 建筑—草木、悬空、穿地、落水均为 0；12 个市场覆盖 94.27%。
-> `quality-report=warn` 的原因是 51 栋建筑仍没有一条完整可走入口，
+> 4,223 实体、335 建筑、1,475 道路段、393 树、建筑 footprint
+> 34,811.2m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
+> 建筑—草木、悬空、穿地、落水均为 0；12 个市场覆盖 96.00%。
+> `quality-report=warn` 的原因是 48 栋建筑仍没有一条完整可走入口，
 > 以及运行态视觉反馈确认路口边缘和整体 footprint 仍偏弱。
 > `interiorInfill` 现在以 16m 采样在道路围合街廓内部生成住宅填充，
-> 不参与办公、商业和道路拓宽需求；市场候选避开 Chunk 接缝，
+> 小体量与约四分之一的中大型组合住宅混合，不参与办公、商业和道路
+> 拓宽需求；市场候选避开 Chunk 接缝，
 > 避免移动的 approach / pad 制造新的边界高差。
 
 ## 1. 复核口径
@@ -78,12 +79,13 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 市场初始部署增加 2% 小型安全余量，并在最终分配时把浮点残余准确记入
   最后可服务的市场，保证计划、辐射和缺口三份报告守恒。
 
-### 2.5 街廓内部住宅填充（r140）
+### 2.5 街廓内部住宅填充（r143）
 
 - `settlementEvolution.interiorInfill` 为显式开关；旧世界和既有测试在未声明时
   保持原行为。
-- 以 16m 确定性采样在已建道路围合的 300m 核心范围内寻找空隙，地块尺寸
-  限制为 6–10m 宽、8–16m 深，避免把道路之间再次塞成大塔楼。
+- 以 16m 确定性采样在已建道路围合的 300m 核心范围内寻找空隙；约四分之三
+  为 6–10m 宽、8–16m 深的窄体量，约四分之一为 10–20m 宽、16–28m 深的
+  组合住宅，让同一策略同时表达缝隙填充和完整街廓内院。
 - 内部填充只消费住宅需求，不生成办公、商铺或服务容量，也不触发额外道路
   拓宽；其用途是补足街廓内部低层住宅，而不是二次制造中心岗位。
 - 每个候选仍检查水体 4m 岸线、坡度、最大削方、道路 OBB、实际门前通路
@@ -91,37 +93,37 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 市场候选主动避开 Chunk 接缝 48m；这是 r132/r135 实际边界失败后得到的
   约束，不能为了覆盖率把市场平台放在接缝上。
 
-## 3. r140 实测
+## 3. r143 实测
 
-输出：`bevy/work/rk-x/v3-final-r140-20261023/`
+输出：`bevy/work/rk-x/v3-final-r143-20261023/`
 
 - 世界修订：`6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`
-- 实体：4,236
-- 常规/市场建筑：340
-- 建筑 footprint：34,701.5m²（整幅 1km² 的 3.47%）
-- 用途：195 residential block、91 storefront、42 office tower、12 market
-- 道路段：1,481
-- 树 392
+- 实体：4,223
+- 常规/市场建筑：335
+- 建筑 footprint：34,811.2m²（整幅 1km² 的 3.48%）
+- 用途：190 residential block、91 storefront、42 office tower、12 market
+- 道路段：1,475
+- 树 393
 - 中心 `(500,450)` 密度：
 
 | 半径 | 建筑 | footprint |
 |---:|---:|---:|
 | 100m | 25 | 2,302.0m² |
 | 150m | 62 | 5,873.5m² |
-| 200m | 156 | 14,179.4m² |
-| 300m | 305 | 31,057.2m² |
-| 500m | 340 | 34,701.5m² |
+| 200m | 153 | 14,054.6m² |
+| 300m | 301 | 31,244.7m² |
+| 500m | 335 | 34,811.2m² |
 
-r131 的 278 栋、3.01% footprint 和 r104 的 195 栋、2.06% footprint
-均保留为历史中间结果，不再作为当前结论。
+r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
+和 r104 的 195 栋、2.06% footprint 均保留为历史中间结果。
 
 ## 4. 硬门结果
 
 - `scale-audit=pass`；跨 Chunk 最大高差 2.834m，低于 4m 门限。
 - `final-entity-audit=pass`；建筑—建筑 0、建筑—道路 0、
   建筑—草木 0、悬空 0、穿地 0、落水 0、无支撑 0。
-- 市场 12 个；10 分钟覆盖率和总覆盖率为 94.27%，计划和辐射报告守恒。
-- `quality-report=warn`：330 栋有至少一条入口连通，51 栋所有入口均断开。
+- 市场 12 个；10 分钟覆盖率和总覆盖率为 96.00%，计划和辐射报告守恒。
+- `quality-report=warn`：325 栋有至少一条入口连通，48 栋所有入口均断开。
 - 运行态 `visual-feedback.json` 为 `warn`，已记录道路连续化通过、侧立面
   已补充，同时保留 `core-footprint-too-low`、`internal-block-underused`
   和 `intersection-edge-geometry` 三项问题。
@@ -131,7 +133,7 @@ r131 的 278 栋、3.01% footprint 和 r104 的 195 栋、2.06% footprint
 1. **密度和单体体量仍不足。** 150m 内 62 栋已接近 p75 城市均匀折算值，
    但平均 footprint 约 102m²；街廓内部已开始填充，仍远小于 250–700m²
    的组合建筑。不能把 340 栋解释为“已经达到中环”。
-2. **入口仍具名失败。** 51 栋建筑的所有入口均断开，必须逐项生成楼梯、坡道、平台或改选
+2. **入口仍具名失败。** 48 栋建筑的所有入口均断开，必须逐项生成楼梯、坡道、平台或改选
    地块；不得通过放宽入口距离、坡度或 OBB 合同消除。
 3. **交叉口边缘仍复杂。** 路面本身已连续，但路口周边仍有重叠人行道、
    台地和碎片边缘；需要单独的路口模板及统一三角剖分。
@@ -172,8 +174,8 @@ r131 的 278 栋、3.01% footprint 和 r104 的 195 栋、2.06% footprint
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r140-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r140-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r143-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r143-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast
