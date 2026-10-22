@@ -2354,7 +2354,11 @@ async function drawNear(buildToken) {
       continue
     }
     const zoneKinds = ['parking_lot', 'commercial_center', 'entertainment_center', 'school', 'residential_block', 'canal', 'farmland', 'mountain_forest', 'green_space', 'temple', 'church', 'pasture', 'nature_reserve']
-    const geometry = entity.kind === 'road' || entity.kind === 'sidewalk' ? makeStripGeometry(entity, entity.kind === 'sidewalk' ? 3 : 7, 0, heightAt, THREE, .45, undefined, undefined, entity.depthM > entity.widthM)
+    const isApproach = entity.kind === 'road' && entity.entityId.includes('.approach.')
+    const stripHalfWidth = isApproach
+      ? Math.max(2, Number(entity.depthM) * .5)
+      : entity.kind === 'sidewalk' ? 3 : 7
+    const geometry = entity.kind === 'road' || entity.kind === 'sidewalk' ? makeStripGeometry(entity, stripHalfWidth, 0, heightAt, THREE, isApproach ? .24 : .45, undefined, undefined, entity.depthM > entity.widthM)
       : entity.kind === 'bridge' ? new THREE.BoxGeometry(entity.widthM || 120, entity.heightM || 8, entity.depthM || 24)
       : entity.kind === 'building_cluster' ? new THREE.BoxGeometry(120, 32, 100)
       : entity.kind === 'building_tower' ? new THREE.BoxGeometry(entity.widthM, entity.heightM, entity.depthM)
@@ -2370,7 +2374,7 @@ async function drawNear(buildToken) {
       : null
     if (!geometry) continue
       const zoneColor = { parking_lot: '#6d7070', commercial_center: '#b06d4d', entertainment_center: '#9b5c91', school: '#c29b61', residential_block: '#807b70', canal: '#477c87', farmland: '#9a8747', mountain_forest: '#456344', green_space: '#4d7c4b', temple: '#a74e3c', church: '#777f91', pasture: '#78904b', nature_reserve: '#3d6948' }[entity.kind]
-      const material = new THREE.MeshStandardMaterial({ color: zoneColor ?? (entity.kind === 'road' ? '#786b5a' : entity.kind === 'sidewalk' ? '#b0a58f' : entity.kind === 'bridge' ? '#807664' : entity.kind === 'building_cluster' ? '#6c665d' : entity.kind === 'building_tower' ? '#7d8a94' : entity.kind === 'car' ? '#b8463a' : entity.kind === 'pedestrian' ? '#3e536b' : entity.kind === 'bench' ? '#756451' : entity.kind === 'lamp' ? '#6c675b' : entity.kind === 'fallen_log' ? '#70503a' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#746d63'), roughness: .95 })
+      const material = new THREE.MeshStandardMaterial({ color: zoneColor ?? (isApproach ? '#a39b8d' : entity.kind === 'road' ? '#786b5a' : entity.kind === 'sidewalk' ? '#b0a58f' : entity.kind === 'bridge' ? '#807664' : entity.kind === 'building_cluster' ? '#6c665d' : entity.kind === 'building_tower' ? '#7d8a94' : entity.kind === 'car' ? '#b8463a' : entity.kind === 'pedestrian' ? '#3e536b' : entity.kind === 'bench' ? '#756451' : entity.kind === 'lamp' ? '#6c675b' : entity.kind === 'fallen_log' ? '#70503a' : entity.kind === 'tree' ? '#47704a' : entity.kind === 'bush' ? '#5e8a4c' : entity.kind === 'rock' ? '#76716a' : '#746d63'), roughness: .95 })
     const prop = new THREE.Mesh(geometry, material)
      const baseHeight = zoneKinds.includes(entity.kind) ? entity.heightM / 2 : entity.kind === 'road' || entity.kind === 'sidewalk' ? 0 : entity.kind === 'bridge' ? 4 : entity.kind === 'building_cluster' ? 16       : entity.kind === 'building_tower' ? entity.heightM / 2 : entity.kind === 'car' ? .9 : entity.kind === 'pedestrian' ? .9 : entity.kind === 'building' ? 12 : entity.kind === 'bench' ? .55 : entity.kind === 'lamp' ? 2.4 : entity.kind === 'fallen_log' ? .35 : entity.kind === 'tree' ? 14 : entity.kind === 'bush' ? 2 : 10
     // GroundingSpec owns the map/asset height contract. Old baked worlds omit
@@ -2385,6 +2389,13 @@ async function drawNear(buildToken) {
     if (entity.kind === 'car') prop.rotation.y = Math.PI / 2
     prop.scale.setScalar(entity.scale * (entity.kind === 'bush' ? 1.4 : 1))
     if (entity.kind === 'road' || entity.kind === 'sidewalk') {
+      if (isApproach) {
+        // Settlement and market approaches are 4m pedestrian connectors, not
+        // carriageways. Rendering them as 14m road slabs with centre lines and
+        // curbs created the large black/brown rectangles between buildings.
+        prop.receiveShadow = true
+        prop.userData.approachPavement = true
+      } else {
       // Center the visible strip on the focus so a long road stays on screen
       // instead of extending to the far scene edge.
       // Keep the strip centered on its serialized entity. Re-centering a long
@@ -2405,6 +2416,7 @@ async function drawNear(buildToken) {
           curb.position.set(0, 0, 0)
           prop.add(curb)
         }
+      }
       }
     } else if (entity.kind === 'lamp') {
       group.remove(prop)
@@ -2469,7 +2481,10 @@ async function drawNear(buildToken) {
       geometry.setIndex(surface.triangles.flat())
       geometry.computeVertexNormals()
       pavement = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-        color: 0x4a4941, roughness: 1, metalness: 0,
+        // AccessGraph surfaces are pedestrian routes from a facade to the
+        // pavement. Rendering them in the carriageway's near-black colour made
+        // every building approach read as a hole or a false road.
+        color: 0x9b9384, roughness: 1, metalness: 0,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       }))
       pavement.name = key
