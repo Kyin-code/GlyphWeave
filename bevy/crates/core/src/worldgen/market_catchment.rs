@@ -1265,13 +1265,35 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
                 bottom_offset_m,
                 ..super::GroundingSpec::default()
             },
-            anchors: vec![SpatialAnchor {
-                id: "front".into(),
-                world_x: anchor_x.round() as i32,
-                world_z: anchor_z.round() as i32,
-                direction: direction.into(),
-                target: Some("road".into()),
-            }],
+            anchors: {
+                let mut anchors = vec![SpatialAnchor {
+                    id: "front".into(),
+                    world_x: anchor_x.round() as i32,
+                    world_z: anchor_z.round() as i32,
+                    direction: direction.into(),
+                    target: Some("road".into()),
+                }];
+                let side_half = (f64::from(market.width_m) * 0.5 - 0.5).max(0.5);
+                for (id, sign) in [("side-left", -1.0_f64), ("side-right", 1.0)] {
+                    let side_x = (center_x + cos * sign * side_half).round() as i32;
+                    let side_z = (center_z - sin * sign * side_half).round() as i32;
+                    let direction = if cos.abs() >= sin.abs() {
+                        if cos * sign >= 0.0 { "east" } else { "west" }
+                    } else if -sin * sign >= 0.0 {
+                        "south"
+                    } else {
+                        "north"
+                    };
+                    anchors.push(SpatialAnchor {
+                        id: id.into(),
+                        world_x: side_x,
+                        world_z: side_z,
+                        direction: direction.into(),
+                        target: Some("road".into()),
+                    });
+                }
+                anchors
+            },
             bounds: None,
         };
         let anchor_grid = [anchor_x.round() as i32, anchor_z.round() as i32];
@@ -2082,7 +2104,11 @@ mod tests {
         assert_eq!(approaches.len(), planned.markets.len());
         assert!(markets.iter().all(|entity| {
             entity.kind == "market"
-                && entity.anchors.len() == 1
+                && entity.anchors.len() == 3
+                && entity
+                    .anchors
+                    .iter()
+                    .any(|anchor| anchor.id == "front")
                 && entity.width_m > 0.0
                 && entity.depth_m > 0.0
         }));

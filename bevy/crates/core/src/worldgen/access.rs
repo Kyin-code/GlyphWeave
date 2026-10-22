@@ -396,7 +396,11 @@ pub(super) fn access_for_entity(
                 .copied()
                 .filter(|o| o.entity_id != e.entity_id)
                 .collect();
-            let stair = e.grounding.stair_connection.as_ref();
+            // A published stair belongs to the front facade. Reusing it for a
+            // side probe makes every side entrance fail by construction.
+            let stair = (e.anchors.len() == 1 || anchor.id == "front")
+                .then_some(e.grounding.stair_connection.as_ref())
+                .flatten();
             let stair_routing = stair.and_then(|stairs| {
                 let part_prefix = format!("{}.part-", stairs.stair_id);
                 let stair_entity = entities.iter().find(|candidate| {

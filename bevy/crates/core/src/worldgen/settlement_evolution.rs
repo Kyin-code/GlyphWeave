@@ -1136,10 +1136,10 @@ fn try_build_candidate(
             // full building-size target. Smaller grains let a dense street
             // wall respond to the same household/job demand with varied
             // buildings instead of repeatedly cloning a handful of towers.
-            "old-core" => (40, 160, 3_000.0, 1.00),
-            "renewal" => (90, 320, 4_000.0, 1.20),
-            "new-growth" => (140, 420, 5_000.0, 1.40),
-            _ => (80, 240, 4_000.0, 1.20),
+            "old-core" => (28, 100, 1_600.0, 0.60),
+            "renewal" => (70, 240, 2_400.0, 0.80),
+            "new-growth" => (120, 360, 3_500.0, 1.00),
+            _ => (72, 220, 3_000.0, 0.90),
         };
     let mut rejected = "candidate_has_no_deliverable_program";
     // A planned envelope is a maximum, not a fixed asset size. In tight
@@ -1174,13 +1174,34 @@ fn try_build_candidate(
         if demand_is_empty(&spent) {
             continue;
         }
+        // Shrink from the street-facing edge, not around the lot centre. The
+        // latter left an artificial front setback while the rear edge continued
+        // to collide with a parallel road across the block.
+        let frontage_dx = f64::from(candidate.frontage_road_point[0])
+            - f64::from(candidate.world_x);
+        let frontage_dz = f64::from(candidate.frontage_road_point[1])
+            - f64::from(candidate.world_z);
+        let frontage_length = frontage_dx.hypot(frontage_dz);
+        let depth_retreat = (candidate.depth_m - depth_m).max(0.0) * 0.5;
+        let world_x = if frontage_length > 1e-6 {
+            (f64::from(candidate.world_x) + frontage_dx / frontage_length * f64::from(depth_retreat))
+                .round() as i32
+        } else {
+            candidate.world_x
+        };
+        let world_z = if frontage_length > 1e-6 {
+            (f64::from(candidate.world_z) + frontage_dz / frontage_length * f64::from(depth_retreat))
+                .round() as i32
+        } else {
+            candidate.world_z
+        };
         let building = Building {
             id: candidate.id.clone(),
             kind: form.kind.clone(),
             route_id: candidate.route_id.clone(),
             side: candidate.side.clone(),
-            world_x: candidate.world_x,
-            world_z: candidate.world_z,
+            world_x,
+            world_z,
             width_m,
             depth_m,
             height_m: 4.0 + form.floors as f32 * 3.2,
@@ -1697,6 +1718,40 @@ pub fn materialize(
                         direction: direction.to_owned(),
                         target: Some("road".into()),
                     });
+                    // Dense rows can leave the authored front door hard against
+                    // the next building even though a genuine side alley exists.
+                    // Publish both side-wall candidates; AccessGraph accepts one
+                    // only if its complete walk can reach the road. The visual
+                    // street facade and the front anchor remain authoritative.
+                    let (side_sin, side_cos) =
+                        f64::from(building.rotation_y_deg).to_radians().sin_cos();
+                    let side_half = (f64::from(building.width_m) * 0.5 - 0.5).max(0.5);
+                    for (side_id, sign) in [("side-left", -1.0_f64), ("side-right", 1.0)] {
+                        let side_x = (f64::from(building.world_x)
+                            + side_cos * sign * side_half)
+                            .round() as i32;
+                        let side_z = (f64::from(building.world_z)
+                            - side_sin * sign * side_half)
+                            .round() as i32;
+                        let side_direction = if side_cos.abs() >= side_sin.abs() {
+                            if side_cos * sign >= 0.0 {
+                                "east"
+                            } else {
+                                "west"
+                            }
+                        } else if -side_sin * sign >= 0.0 {
+                            "south"
+                        } else {
+                            "north"
+                        };
+                        anchors.push(super::SpatialAnchor {
+                            id: side_id.into(),
+                            world_x: side_x,
+                            world_z: side_z,
+                            direction: side_direction.into(),
+                            target: Some("road".into()),
+                        });
+                    }
                     let [out_x, out_z] = outward_delta(direction);
                     let landing = [anchor_x + out_x * 2, anchor_z + out_z * 2];
                     if let Some(landing_m) = terrain.height(landing[0], landing[1]) {
@@ -1773,7 +1828,11 @@ pub fn attach_frontage_stairs(
             return None;
         }
     }
-    let start_height_m = f64::from(building.ground_height_m());
+    let start_height_m = f64::from(
+        terrain
+            .height(anchor.world_x, anchor.world_z)
+            .unwrap_or_else(|| building.ground_height_m()),
+    );
     let end_height_m = f64::from(terrain.height(to[0], to[1])?);
     let delta_m = (end_height_m - start_height_m).abs();
     if !(0.10..=8.0).contains(&delta_m) {

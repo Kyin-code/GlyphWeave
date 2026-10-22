@@ -12772,8 +12772,8 @@ mod tests {
         let (sin, cos) = carve.rotation_y_deg.to_radians().sin_cos();
         let (sin, cos) = (f64::from(sin), f64::from(cos));
         (
-            carve.cx + along * cos - across * sin,
-            carve.cz + along * sin + across * cos,
+            carve.cx + along * cos + across * sin,
+            carve.cz - along * sin + across * cos,
         )
     }
 

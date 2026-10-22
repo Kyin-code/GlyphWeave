@@ -4,10 +4,10 @@ use super::{
     AccessGraph, EntityInstance, LandUseZone, SceneSpec, WaterGeometry, WorldManifest,
     conversion_budget::{self, ConversionAllocation, UrbanAllocation},
     conversion_fringe,
+    parcel_geometry::{self, ParcelInsets},
     road_network::{RoadNetworkPlan, RoadsideSite},
     services::SiteProgram,
     zoning::ZoningMask,
-    parcel_geometry::{self, ParcelInsets},
 };
 use crate::{
     baked_terrain::{BakedTerrain, TerrainError},
@@ -166,8 +166,15 @@ pub(crate) fn pad_purpose_of(
             converted_m2: None,
         };
     };
-    let (reason, converted_m2) =
-        envelope_verdict(parcel, insets, rotation_y_deg, scene, zones, purpose, conversion);
+    let (reason, converted_m2) = envelope_verdict(
+        parcel,
+        insets,
+        rotation_y_deg,
+        scene,
+        zones,
+        purpose,
+        conversion,
+    );
     PadPurpose {
         declared: Some(purpose),
         reason,
@@ -246,7 +253,10 @@ pub(crate) fn pad_refusal_detail(
     }
     let distance = site_buildable_core(site, zones)
         .and_then(|core| conversion_fringe::distance_to_urban(core, zones));
-    format!(", whose {}", conversion_fringe::outside_message(&site.id, distance))
+    format!(
+        ", whose {}",
+        conversion_fringe::outside_message(&site.id, distance)
+    )
 }
 
 /// Every rural-to-urban conversion this plan's roadside PADS earned, in plan order.
@@ -290,7 +300,8 @@ pub(crate) fn pad_conversions(
         if site.purpose.is_none() {
             continue;
         }
-        let Some(area_m2) = pad_purpose_for_site(site, scene, zones, conversion)?.converted_m2 else {
+        let Some(area_m2) = pad_purpose_for_site(site, scene, zones, conversion)?.converted_m2
+        else {
             continue;
         };
         // The area left is taken BEFORE the grant so the refusal quotes exactly what the pad asked
@@ -523,9 +534,9 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
         if r.district_id
             .as_deref()
             .is_some_and(|id| id.is_empty() || id.len() > 64)
-            || r.construction_cohort.as_deref().is_some_and(|cohort| {
-                !matches!(cohort, "established" | "renewal" | "new")
-            })
+            || r.construction_cohort
+                .as_deref()
+                .is_some_and(|cohort| !matches!(cohort, "established" | "renewal" | "new"))
         {
             return Err(err("invalid frontage district metadata"));
         }
@@ -599,12 +610,20 @@ pub fn validate_entity(e: &EntityInstance) -> Result<(), TerrainError> {
     let Some([x, z]) = e.grounding.frontage_road_point else {
         return Ok(());
     };
-    if !super::is_building_kind(e.kind.as_str()) || e.anchors.len() != 1
+    let Some(front) = e.anchors.iter().find(|anchor| anchor.id == "front") else {
+        return Err(err("invalid frontage support owner"));
+    };
+    if !super::is_building_kind(e.kind.as_str())
+        || e.anchors.iter().any(|anchor| {
+            anchor.id != "front"
+                && anchor.id != "side-left"
+                && anchor.id != "side-right"
+        })
         || e.grounding.road_profile.is_some()
     {
         return Err(err("invalid frontage support owner"));
     }
-    let a = &e.anchors[0];
+    let a = front;
     let dx = i64::from(x) - i64::from(a.world_x);
     let dz = i64::from(z) - i64::from(a.world_z);
     let length = dx.abs() + dz.abs();
@@ -644,11 +663,8 @@ fn overlap(a: [i64; 4], b: [i64; 4]) -> bool {
     a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 }
 pub(super) fn parcel_boundary(site: &RoadsideSite) -> Result<[i64; 4], TerrainError> {
-    parcel_geometry::boundary_for_entity(
-        &site.entity(),
-        site.parcel_insets.unwrap_or_default(),
-    )
-    .map_err(err)
+    parcel_geometry::boundary_for_entity(&site.entity(), site.parcel_insets.unwrap_or_default())
+        .map_err(err)
 }
 /// Production road iteration order for the local station search. Wider
 /// hierarchy roads are kept as topology/collectors; local roads get first
@@ -826,9 +842,9 @@ pub(super) fn candidate_site(
         rotation_y_deg: yaw,
         natural_min_m: f32::INFINITY,
         natural_max_m: f32::NEG_INFINITY,
-    
+
         entry_corridor: None,
-})
+    })
 }
 /// Scene envelope and purpose gate, applied before any engineering preflight.
 ///
@@ -938,7 +954,10 @@ pub(super) fn envelope_verdict(
         if conversion_fringe::within_band(conversion_fringe::distance_to_urban(core, zones)) {
             return (None, Some(area(core)));
         }
-        return (Some(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE), None);
+        return (
+            Some(conversion_fringe::CONVERSION_OUTSIDE_THE_URBAN_FRINGE),
+            None,
+        );
     }
     (Some("wrong_purpose_or_protected"), None)
 }
@@ -1375,12 +1394,12 @@ fn support_check(
             // blocked says so in the count instead of hiding inside the family.
             let (reason, note): (&'static str, &'static str) = if h > level {
                 if cap_mm <= 0 {
-                    ("natural_support_or_fill_limit", "natural_above_design_level")
-                } else if i64::from(h) - i64::from(level) > i64::from(cap_mm) {
                     (
-                        "bounded_cut_exceeds_cap",
-                        "bounded_cut_exceeds_cap",
+                        "natural_support_or_fill_limit",
+                        "natural_above_design_level",
                     )
+                } else if i64::from(h) - i64::from(level) > i64::from(cap_mm) {
+                    ("bounded_cut_exceeds_cap", "bounded_cut_exceeds_cap")
                 } else if let Some(blocked) = guards.blocks(x as i32, z as i32) {
                     (blocked, blocked)
                 } else {
@@ -1388,7 +1407,10 @@ fn support_check(
                     continue;
                 }
             } else if i64::from(level) - i64::from(h) > i64::from(max_fill_mm) {
-                ("natural_support_or_fill_limit", "fill_exceeds_roadbed_limit")
+                (
+                    "natural_support_or_fill_limit",
+                    "fill_exceeds_roadbed_limit",
+                )
             } else if f64::from(level - h) > mask.fill_capacity_at(x as i32, z as i32) * 1000. {
                 (
                     "natural_support_or_fill_limit",
@@ -1592,10 +1614,7 @@ fn cut_moved_existing_support_with(
     // cap-carrying pad's own rectangle the published surface is that pad's declared
     // top, which the earthwork platform rule writes over a neighbour's fill. A guard
     // that read the fill-first answer would not see that override at all.
-    let published = |carves: &[super::TerrainCarve],
-                     index: &super::CarveIndex,
-                     x: i32,
-                     z: i32| {
+    let published = |carves: &[super::TerrainCarve], index: &super::CarveIndex, x: i32, z: i32| {
         super::published_surface_from_raster_indexed(n, Some(mask), water, carves, index, x, z)
             .map(|h| (h * 1000.).round() as i32)
             .ok_or_else(|| err("missing frontage source sample"))
@@ -1692,7 +1711,11 @@ fn preflight(
             .iter()
             .find(|s| s.id == old.entity_id && s.support_level_mm.is_some())
         {
-            let their_claim = if old_site.bounded_cut_mm.is_some() { 0 } else { 2 };
+            let their_claim = if old_site.bounded_cut_mm.is_some() {
+                0
+            } else {
+                2
+            };
             if let (Some(mine), Some(theirs)) = (site.support_level_mm, old_site.support_level_mm)
                 && mine != theirs
                 && overlap(bounds(&e, 0), bounds(old, their_claim))
@@ -1815,11 +1838,8 @@ fn preflight(
             },
         );
         for carve in &proposed {
-            let (half_w, half_d) = super::oriented_aabb_half_extents(
-                carve.half_w,
-                carve.half_d,
-                carve.rotation_y_deg,
-            );
+            let (half_w, half_d) =
+                super::oriented_aabb_half_extents(carve.half_w, carve.half_d, carve.rotation_y_deg);
             let x0 = (carve.cx - half_w - carve.blend_m).floor() as i64;
             let z0 = (carve.cz - half_d - carve.blend_m).floor() as i64;
             let x1 = (carve.cx + half_w + carve.blend_m).ceil() as i64;
@@ -1835,13 +1855,7 @@ fn preflight(
                         *detail = Some(RejectDetail {
                             conflicting_entity: Some(old.entity_id.clone()),
                             at: Some([x as i32, z as i32]),
-                            before_mm: Some(sample(
-                                n,
-                                mask,
-                                base_carves,
-                                x as i32,
-                                z as i32,
-                            )?),
+                            before_mm: Some(sample(n, mask, base_carves, x as i32, z as i32)?),
                             after_mm: Some(sample(n, mask, &carves, x as i32, z as i32)?),
                             ..RejectDetail::of("existing_support_changed")
                         });
@@ -2170,7 +2184,9 @@ impl RequestBudget {
         self.site_ids.len() >= self.request.count as usize
     }
     pub(super) fn remaining(&self) -> u32 {
-        self.request.count.saturating_sub(self.site_ids.len() as u32)
+        self.request
+            .count
+            .saturating_sub(self.site_ids.len() as u32)
     }
     pub(super) fn budget_left(&self) -> bool {
         self.attempted < self.request.max_candidate_attempts
@@ -2523,22 +2539,13 @@ pub(super) fn candidate_order(
             let distances: Vec<i64> = turns
                 .iter()
                 .map(|turn| {
-                    candidate_urban_distance(
-                        road,
-                        &requests[turn.request],
-                        scene_id,
-                        *turn,
-                        zones,
-                    )
+                    candidate_urban_distance(road, &requests[turn.request], scene_id, *turn, zones)
                 })
                 .collect();
             let mut order: Vec<usize> = (0..turns.len()).collect();
             order.sort_by_key(|position| distances[*position]);
             nearest = distances.iter().copied().min().unwrap_or(i64::MAX);
-            turns = order
-                .into_iter()
-                .map(|position| turns[position])
-                .collect();
+            turns = order.into_iter().map(|position| turns[position]).collect();
         }
         out.push((index, turns, nearest));
     }
@@ -2575,8 +2582,12 @@ fn candidate_urban_distance(
     let Ok(parcel) = parcel_boundary(&site) else {
         return i64::MAX;
     };
-    let core = buildable_core(parcel, r.parcel_insets.unwrap_or_default(), site.rotation_y_deg)
-        .unwrap_or(parcel);
+    let core = buildable_core(
+        parcel,
+        r.parcel_insets.unwrap_or_default(),
+        site.rotation_y_deg,
+    )
+    .unwrap_or(parcel);
     conversion_fringe::distance_to_urban(core, zones).unwrap_or(i64::MAX)
 }
 /// The authored street morphology a shoreline commercial row is planned from: its street setback,
@@ -2593,7 +2604,9 @@ pub fn shorefront_row_contract(style: &serde_json::Value) -> Option<u32> {
             return Some(request.setback_m);
         }
     }
-    let profile = crate::settlement::morphology::resolve(style).ok().flatten()?;
+    let profile = crate::settlement::morphology::resolve(style)
+        .ok()
+        .flatten()?;
     let front =
         crate::settlement::morphology_compile::even_midpoint(profile.front_inset_m, "frontInsetM")
             .ok()?;
@@ -2810,7 +2823,11 @@ mod tests {
             off.rejected.get("engineered_platform_not_flat").is_none(),
             "the fill-only arm never reaches the platform gate: {off:?}"
         );
-        assert!(p.roadside_sites.iter().all(|site| site.bounded_cut_mm.is_none()));
+        assert!(
+            p.roadside_sites
+                .iter()
+                .all(|site| site.bounded_cut_mm.is_none())
+        );
 
         let (s, n, w, z, mut p, mut style) = sloped_fixture(0);
         style["frontageProgram"]["terrainPolicy"] = serde_json::json!("bounded-cut");
@@ -2891,8 +2908,16 @@ mod tests {
             }
             append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
             assert_eq!(p.roadside_sites.len(), 15);
-            assert!(p.roadside_sites.iter().all(|site| site.bounded_cut_mm.is_none()));
-            digests.push(blake3::hash(&serde_json::to_vec(&p).unwrap()).to_hex().to_string());
+            assert!(
+                p.roadside_sites
+                    .iter()
+                    .all(|site| site.bounded_cut_mm.is_none())
+            );
+            digests.push(
+                blake3::hash(&serde_json::to_vec(&p).unwrap())
+                    .to_hex()
+                    .to_string(),
+            );
         }
         assert_eq!(
             digests[0], digests[1],
@@ -2971,8 +2996,14 @@ mod tests {
         let make = |bank_mm: i32| {
             let mut n = BakedTerrain::new(&s).unwrap();
             let values = vec![f64::from(level + bank_mm) / 1000.; 512 * 512];
-            n.insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
-                .unwrap();
+            n.insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &encode_millimetres(512, 512, values).unwrap(),
+            )
+            .unwrap();
             n
         };
         let site = RoadsideSite {
@@ -2993,9 +3024,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 2.,
             natural_max_m: 2.,
-        
+
             entry_corridor: None,
-};
+        };
         let bank_fits = make(1500);
         let bank_too_deep = make(2500);
         let off = super::super::bounded_cut::CutPolicy::Disabled;
@@ -3029,7 +3060,10 @@ mod tests {
         let (reason, note) = check(&bank_fits, cap_1499);
         assert_eq!(reason, Some("bounded_cut_exceeds_cap"));
         assert_eq!(note.as_deref(), Some("bounded_cut_exceeds_cap"));
-        assert_eq!(check(&bank_too_deep, cap_2000).0, Some("bounded_cut_exceeds_cap"));
+        assert_eq!(
+            check(&bank_too_deep, cap_2000).0,
+            Some("bounded_cut_exceeds_cap")
+        );
         // The pad that fits records the cap the ledger is keyed by; a pad that
         // needs no cut records nothing at all.
         assert_eq!(cut_cap_for_site(&site, &bank_fits, cap_2000), Some(2000));
@@ -3051,8 +3085,14 @@ mod tests {
         // 0.5 m, so every pad below carries a real bounded cut.
         let values = vec![1.5_f64; 512 * 512];
         let mut n = BakedTerrain::new(&s).unwrap();
-        n.insert_chunk(0, 0, 512, 512, &encode_millimetres(512, 512, values).unwrap())
-            .unwrap();
+        n.insert_chunk(
+            0,
+            0,
+            512,
+            512,
+            &encode_millimetres(512, 512, values).unwrap(),
+        )
+        .unwrap();
         let pad = |id: &str, x: i32, cap: Option<i32>| RoadsideSite {
             program: None,
             purpose: None,
@@ -3071,9 +3111,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 1.5,
             natural_max_m: 1.5,
-        
+
             entry_corridor: None,
-};
+        };
         let policy = CutPolicy::Bounded { max_cut_mm: 2000 };
         // The accepted pad is a REAL bench: its published record carries the cap, and
         // that is what the candidate is measured against.
@@ -3087,7 +3127,10 @@ mod tests {
         let near_cut = CutFootprint::of(&near.entity(), 2000);
         let accepted_cut = CutFootprint::of(&existing[0], 2000);
         let shared = footprint_intersection(&near_cut, &accepted_cut).expect("they overlap");
-        assert_eq!(Some(shared), footprint_intersection(&accepted_cut, &near_cut));
+        assert_eq!(
+            Some(shared),
+            footprint_intersection(&accepted_cut, &near_cut)
+        );
         assert!(near_cut.contains(shared.0, shared.1) && accepted_cut.contains(shared.0, shared.1));
         // The candidate alone is legal: the conflict is the accepted footprint, not
         // the ground it is declared on.
@@ -3122,13 +3165,13 @@ mod tests {
             &mut detail,
         )
         .unwrap();
-        assert_eq!(
-            reason,
-            Some(super::super::bounded_cut::FOOTPRINT_OVERLAP)
-        );
+        assert_eq!(reason, Some(super::super::bounded_cut::FOOTPRINT_OVERLAP));
         let detail = detail.expect("a refusal carries its evidence");
         assert_eq!(detail.conflicting_site.as_deref(), Some("accepted"));
-        assert_eq!(detail.note.as_deref(), Some(super::super::bounded_cut::FOOTPRINT_OVERLAP));
+        assert_eq!(
+            detail.note.as_deref(),
+            Some(super::super::bounded_cut::FOOTPRINT_OVERLAP)
+        );
         assert_eq!(detail.at, Some([shared.0, shared.1]));
         // A pad far enough away keeps its own footprint and is accepted.
         let mut detail = None;
@@ -3232,9 +3275,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        
+
             entry_corridor: None,
-};
+        };
         let bench = |level_mm: i32| RoadsideSite {
             program: None,
             purpose: None,
@@ -3253,9 +3296,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        
+
             entry_corridor: None,
-};
+        };
         let contains = |area: [i64; 4], x: i32, z: i32| {
             area[0] <= i64::from(x)
                 && i64::from(x) <= area[2]
@@ -3266,12 +3309,18 @@ mod tests {
             let entity = old.entity();
             let base = super::super::plan_terrain_carves(std::slice::from_ref(&entity));
             let mut with = base.clone();
-            with.extend(super::super::plan_terrain_carves(std::slice::from_ref(&bench.entity())));
+            with.extend(super::super::plan_terrain_carves(std::slice::from_ref(
+                &bench.entity(),
+            )));
             (entity, base, with)
         };
 
-        let water =
-            super::super::water_geometry(super::super::WaterKind::None, &[], &s, &serde_json::json!({}));
+        let water = super::super::water_geometry(
+            super::super::WaterKind::None,
+            &[],
+            &s,
+            &serde_json::json!({}),
+        );
 
         // Negative: a graded ring through the setback of a pad that excavates.
         // That pad's published claim is its own platform (the road audit checks a
@@ -3317,9 +3366,10 @@ mod tests {
             Some(2000)
         );
         let (old, base, with) = support_of(&lot(104), &filling);
-        let (at, before, after) = cut_moved_existing_support(&old, 2, &n, &mask, water, &base, &with)
-            .unwrap()
-            .expect("a fill under the footprint is a support change");
+        let (at, before, after) =
+            cut_moved_existing_support(&old, 2, &n, &mask, water, &base, &with)
+                .unwrap()
+                .expect("a fill under the footprint is a support change");
         assert!(contains(bounds(&old, 2), at[0], at[1]), "at {at:?}");
         assert_eq!(before, 3500);
         assert!(after > before, "the fill must raise the support: {after}");
@@ -3333,7 +3383,7 @@ mod tests {
     /// natural surface.
     #[test]
     fn a_forged_cap_cannot_buy_a_deeper_cut() {
-        use super::super::bounded_cut::{CutPolicy, NotEnabled, MAX_CUT_MM};
+        use super::super::bounded_cut::{CutPolicy, MAX_CUT_MM, NotEnabled};
         let forged = CutPolicy::Bounded { max_cut_mm: 9000 };
         assert_eq!(forged.cap_mm(), MAX_CUT_MM);
         assert_eq!(
@@ -3382,9 +3432,9 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 3.5,
             natural_max_m: 3.5,
-        
+
             entry_corridor: None,
-};
+        };
         let mut detail = None;
         let prospective = cut_cap_for_site(&site, &flat, forged);
         let reason = support_check(
@@ -3400,7 +3450,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reason, Some("bounded_cut_exceeds_cap"));
-        assert_eq!(detail.and_then(|d| d.note).as_deref(), Some("bounded_cut_exceeds_cap"));
+        assert_eq!(
+            detail.and_then(|d| d.note).as_deref(),
+            Some("bounded_cut_exceeds_cap")
+        );
 
         // A forged entity record carrying 9000 still plans the clamped surface.
         let mut entity = site.entity();
@@ -3448,18 +3501,21 @@ mod tests {
         style["frontageProgram"]["requests"][0]["count"] = serde_json::json!(3);
         style["frontageProgram"]["requests"][0]["stationSpacingM"] = serde_json::json!(16);
         append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
-        assert!(p
-            .roadside_sites
-            .iter()
-            .all(|site| site.parcel_insets.is_some()));
+        assert!(
+            p.roadside_sites
+                .iter()
+                .all(|site| site.parcel_insets.is_some())
+        );
         for site in &p.roadside_sites {
             let boundary = parcel_boundary(site).unwrap();
             assert_eq!(boundary[2] - boundary[0], 20);
             assert_eq!(boundary[3] - boundary[1], 26);
         }
-        assert!(p.frontage.as_ref().unwrap().outcomes[0]
-            .rejected
-            .contains_key("occupied_or_road_support"));
+        assert!(
+            p.frontage.as_ref().unwrap().outcomes[0]
+                .rejected
+                .contains_key("occupied_or_road_support")
+        );
 
         let mut too_deep_front = fixture(0).5;
         too_deep_front["frontageProgram"]["requests"][0]["parcelInsets"] =
@@ -3488,7 +3544,11 @@ mod tests {
             db > da,
             "declaring a deeper parcel must place it further from the road: {da} vs {db}"
         );
-        assert_eq!(db - da, 5, "the shift must be exactly half the depth difference");
+        assert_eq!(
+            db - da,
+            5,
+            "the shift must be exactly half the depth difference"
+        );
         p = p2;
         assert!(!p.roadside_sites.is_empty());
     }
@@ -3581,11 +3641,18 @@ mod tests {
         style["frontageProgram"]["requests"] = serde_json::json!([homes, shops]);
         append(&mut p, &s, &n, w, Some(&z), &style).unwrap();
         let outcomes = &p.frontage.as_ref().unwrap().outcomes;
-        assert_eq!(outcomes.iter().map(|o| o.unfilled).sum::<u32>(), 0, "{outcomes:?}");
+        assert_eq!(
+            outcomes.iter().map(|o| o.unfilled).sum::<u32>(),
+            0,
+            "{outcomes:?}"
+        );
         assert_eq!(p.roadside_sites.len(), 24);
         for site in &p.roadside_sites {
             let boundary = parcel_boundary(site).unwrap();
-            assert_eq!((boundary[2] - boundary[0]) * (boundary[3] - boundary[1]), 520);
+            assert_eq!(
+                (boundary[2] - boundary[0]) * (boundary[3] - boundary[1]),
+                520
+            );
             assert!(site.parcel_insets.is_some());
         }
     }
@@ -3833,7 +3900,11 @@ mod tests {
         style2["frontageProgram"]["requests"] = serde_json::json!([home]);
         let mut probe = p.clone();
         append(&mut probe, &s, &n, w, Some(&z), &style2).unwrap();
-        assert_eq!(probe.roadside_sites.len(), 2, "the calibration must place both");
+        assert_eq!(
+            probe.roadside_sites.len(),
+            2,
+            "the calibration must place both"
+        );
         let site = &probe.roadside_sites[0];
         let parcel = parcel_boundary(site).unwrap();
         let yaw = site.rotation_y_deg.round() as i32;
@@ -4018,13 +4089,19 @@ mod tests {
         assert_eq!(report.outcomes[0].unfilled, 0, "{:?}", report.outcomes[0]);
         assert_eq!(report.outcomes[0].site_ids.len(), 4);
         assert_eq!(report.conversions.len(), 4);
-        assert_eq!(report.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 320);
+        assert_eq!(
+            report.conversions.iter().map(|c| c.area_m2).sum::<i64>(),
+            320
+        );
         for conversion in &report.conversions {
             assert_eq!(conversion.from, "rural");
             assert_eq!(conversion.to, "urban");
             assert_eq!(conversion.area_m2, 80);
             assert!(report.outcomes[0].site_ids.contains(&conversion.parcel_id));
-            assert_eq!(verify_conversion(&on, &rural, None, conversion).unwrap(), 80);
+            assert_eq!(
+                verify_conversion(&on, &rural, None, conversion).unwrap(),
+                80
+            );
         }
         // PROTECTED: nature and unassigned land are not convertible, so the switch earns nothing there.
         for kind in ["nature", "unassigned"] {
@@ -4241,7 +4318,11 @@ mod tests {
         // and swapped front against rear. This test states the expected core for the asymmetric case
         // front=4, side=2, rear=12 by hand, for every cardinal rotation, and calls the production
         // function rather than a copy of its logic.
-        let insets = ParcelInsets { front_m: 4, side_m: 2, rear_m: 12 };
+        let insets = ParcelInsets {
+            front_m: 4,
+            side_m: 2,
+            rear_m: 12,
+        };
         const SKIN: i64 = 1;
         // a parcel rectangle far from any zone, used only for its bounds
         let b: [i64; 4] = [0, 0, 40, 60]; // x0,z0,x1,z1
@@ -4288,7 +4369,11 @@ mod tests {
         assert!(buildable_core([0, 0, 10, 10], insets, 0.).is_none());
         // LEGACY REGRESSION: the symmetric [2,2,2] inset set must behave identically in all four
         // directions, because with equal insets the rotation cannot matter.
-        let sym = ParcelInsets { front_m: 2, side_m: 2, rear_m: 2 };
+        let sym = ParcelInsets {
+            front_m: 2,
+            side_m: 2,
+            rear_m: 2,
+        };
         let first = buildable_core(b, sym, 0.).unwrap();
         assert_eq!(first, [b[0] + 3, b[1] + 3, b[2] - 3, b[3] - 3]);
         for yaw in [0., 90., 180., 270.] {
@@ -4346,9 +4431,11 @@ mod tests {
             priority: 1,
             disturbance: 160,
             cut_cap_mm: None,
-        
+
+            rotation_y_deg: 0.0,
+
             ramp: None,
-};
+        };
         let mut before = e.clone();
         before.grounding.frontage_road_point = None;
         let mut old = super::super::plan_terrain_carves(&[before]);
@@ -4485,7 +4572,11 @@ mod tests {
     fn a_pad_declares_its_purpose_only_under_the_explicit_switch_and_converts_only_rural_core() {
         let s = pad_scene();
         // A 24x24 pad on a zero-inset parcel: a 22x22 = 484 m2 buildable core.
-        let insets = ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 };
+        let insets = ParcelInsets {
+            front_m: 0,
+            side_m: 0,
+            rear_m: 0,
+        };
         let parcel_at = |z: i64| {
             let z = i64::from(0) + z;
             // x 200..224, z z0..z0+24 in world metres
@@ -4493,7 +4584,12 @@ mod tests {
         };
         // OFF is the identity: the pad declares nothing, is never refused and never converts, even
         // when it stands on protected land. That is what makes the switch byte-identical.
-        for kind in ["residential_home", "school", "convenience_store", "unknown_kind"] {
+        for kind in [
+            "residential_home",
+            "school",
+            "convenience_store",
+            "unknown_kind",
+        ] {
             for north in ["urban", "rural", "nature", "unassigned"] {
                 let zones = banded_zones(&s, north);
                 assert_eq!(
@@ -4536,7 +4632,10 @@ mod tests {
             "residential_home",
             RuralConversion::RuralToUrban,
         );
-        assert_eq!((verdict.declared, verdict.reason, verdict.converted_m2), (Some("urban"), None, None));
+        assert_eq!(
+            (verdict.declared, verdict.reason, verdict.converted_m2),
+            (Some("urban"), None, None)
+        );
         // ON, a core that is MOSTLY urban lands directly: the pad reuses the frontage programme's
         // bounded-majority rule, so a core that only clips the rural edge is still urban land. No
         // conversion is claimed for it, which is what keeps the two programmes on one rule.
@@ -4675,7 +4774,14 @@ mod tests {
             "turnip_cart",
             RuralConversion::RuralToUrban,
         );
-        assert_eq!(verdict, PadPurpose { declared: None, reason: Some("pad_purpose_undeclared"), converted_m2: None });
+        assert_eq!(
+            verdict,
+            PadPurpose {
+                declared: None,
+                reason: Some("pad_purpose_undeclared"),
+                converted_m2: None
+            }
+        );
         // The scene-free form the AUDIT uses answers the same area for the same parcel.
         let site = RoadsideSite {
             program: None,
@@ -4695,11 +4801,14 @@ mod tests {
             rotation_y_deg: 0.,
             natural_min_m: 0.,
             natural_max_m: 0.,
-        
+
             entry_corridor: None,
-};
+        };
         assert_eq!(pad_conversion_area(&site, &rural), Some(484));
-        let urban_site = RoadsideSite { world_z: 112, ..site.clone() };
+        let urban_site = RoadsideSite {
+            world_z: 112,
+            ..site.clone()
+        };
         assert_eq!(pad_conversion_area(&urban_site, &rural), None);
         assert_eq!(
             pad_conversion_area(&site, &protected_column),
@@ -4758,7 +4867,10 @@ mod tests {
                 source: "test-band".into(),
             },
         ];
-        assert_eq!(super::super::conversion_budget::planned_urban_m2(&zones), 250);
+        assert_eq!(
+            super::super::conversion_budget::planned_urban_m2(&zones),
+            250
+        );
         assert_eq!(
             super::super::conversion_budget::committed_urban_m2(&base, &zones),
             0,
@@ -4771,14 +4883,21 @@ mod tests {
         let report = p.frontage.as_ref().unwrap();
         // 3 x 80 m2 = 240 m2 spent; the fourth core does not fit the last 10 m2.
         assert_eq!(report.conversions.len(), 3, "{:?}", report.outcomes[0]);
-        assert_eq!(report.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 240);
+        assert_eq!(
+            report.conversions.iter().map(|c| c.area_m2).sum::<i64>(),
+            240
+        );
         assert_eq!(report.outcomes[0].unfilled, 1);
         let refused = report.outcomes[0]
             .rejected
             .get(super::super::conversion_budget::CONVERSION_EXCEEDS_URBAN_ALLOCATION)
             .copied()
             .unwrap_or(0);
-        assert!(refused >= 1, "the overflow must be named: {:?}", report.outcomes[0]);
+        assert!(
+            refused >= 1,
+            "the overflow must be named: {:?}",
+            report.outcomes[0]
+        );
         let allocation = p
             .conversion_allocation
             .clone()
@@ -4792,7 +4911,10 @@ mod tests {
         assert_eq!(allocation.refusals.len(), refused as usize);
         for refusal in &allocation.refusals {
             assert_eq!(refusal.required_m2, 80, "the refused core is 80 m2");
-            assert_eq!(refusal.remaining_m2, 10, "240 of the 250 m2 were already spent");
+            assert_eq!(
+                refusal.remaining_m2, 10,
+                "240 of the 250 m2 were already spent"
+            );
             assert!(
                 !report.outcomes[0].site_ids.contains(&refusal.parcel_id),
                 "a refused conversion may not also be a realized lot"
@@ -4807,10 +4929,10 @@ mod tests {
         assert!(
             super::super::conversion_budget::allocation_failures(&p, &zones, 320)
                 .iter()
-                .any(|failure| failure.contains("converts 320 m2") && failure.contains("leaves only 250 m2")),
+                .any(|failure| failure.contains("converts 320 m2")
+                    && failure.contains("leaves only 250 m2")),
             "320 m2 of conversions cannot fit a 250 m2 allocation"
         );
-
     }
 
     /// A plan whose conversions exceed the urban allocation it was decided under is refused BY THE
@@ -4909,7 +5031,11 @@ mod tests {
             "{}",
             failures[0]
         );
-        assert!(failures[0].contains("leaves only 250 m2"), "{}", failures[0]);
+        assert!(
+            failures[0].contains("leaves only 250 m2"),
+            "{}",
+            failures[0]
+        );
         // The ledger's own audit entry point re-derives the same refusal from the same two inputs,
         // BEFORE it even asks whether a ledger was published.
         let audit = crate::settlement::landuse_ledger::audit_conversions(&p, &tight, w, None);
@@ -4971,7 +5097,10 @@ mod tests {
             );
             assert!(p.conversion_allocation.is_none());
             assert!(p.frontage.as_ref().unwrap().conversions.is_empty());
-            assert!(p.roadside_sites.is_empty(), "the historical gate places nothing here");
+            assert!(
+                p.roadside_sites.is_empty(),
+                "the historical gate places nothing here"
+            );
             digests.push(blake3::hash(&bytes).to_hex().to_string());
         }
         for digest in &digests[1..] {
@@ -4982,7 +5111,6 @@ mod tests {
         }
         assert_eq!(
             digests[0], "337b6c67fde3dd1c5d4f623e7391861a0242a924cf8ee4b0454f499812322d81",
-
             "the frozen blake3 of the frontage plan with the conversion switch off"
         );
     }
@@ -5090,7 +5218,11 @@ mod tests {
         let mut outside = base.clone();
         append(&mut outside, &s, &n, w, Some(&far), &explicit).unwrap();
         let report = outside.frontage.as_ref().unwrap();
-        assert!(outside.roadside_sites.is_empty(), "{:?}", report.outcomes[0]);
+        assert!(
+            outside.roadside_sites.is_empty(),
+            "{:?}",
+            report.outcomes[0]
+        );
         assert!(report.conversions.is_empty());
         assert_eq!(report.outcomes[0].unfilled, 4);
         assert_eq!(
@@ -5189,14 +5321,25 @@ mod tests {
             );
             let mut ascending = distances.clone();
             ascending.sort_unstable();
-            assert_eq!(distances, ascending, "the order must be by distance, ascending");
+            assert_eq!(
+                distances, ascending,
+                "the order must be by distance, ascending"
+            );
             // What the historical order would have tried first: station 0, side -1, x = 110. The
             // policy has to change that, or the fixture proves nothing about the order.
             let street = roads_with_profile(&base).remove(0);
             let historic: Vec<i64> = StationSchedule::new(&street, &requests)
                 .unwrap()
                 .turns()
-                .map(|turn| candidate_urban_distance(&street, &requests[turn.request], &s.scene_id, turn, &zones))
+                .map(|turn| {
+                    candidate_urban_distance(
+                        &street,
+                        &requests[turn.request],
+                        &s.scene_id,
+                        turn,
+                        &zones,
+                    )
+                })
                 .collect();
             assert_ne!(
                 historic, distances,
@@ -5279,7 +5422,11 @@ mod tests {
             );
         }
         // All four are the north row, 77 m out: 107 - 30.
-        assert_eq!(measured, vec![77, 77, 77, 77], "the forged plan measures 77 m");
+        assert_eq!(
+            measured,
+            vec![77, 77, 77, 77],
+            "the forged plan measures 77 m"
+        );
         let failures = conversion_fringe::audit_failures(&p, &far);
         assert_eq!(failures.len(), records.len(), "{failures:?}");
         for failure in &failures {
@@ -5321,7 +5468,11 @@ mod tests {
         let failures = conversion_fringe::audit_failures(&orphans, &far);
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert!(failures[0].contains("pad pad.outside"), "{}", failures[0]);
-        assert!(failures[0].contains("outside the 64 m urban fringe"), "{}", failures[0]);
+        assert!(
+            failures[0].contains("outside the 64 m urban fringe"),
+            "{}",
+            failures[0]
+        );
     }
 
     /// The profile-bearing roads of a fixture plan, in production order.

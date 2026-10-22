@@ -843,7 +843,7 @@ pub fn materialize_centres(
             },
             |road| road.world_y,
         );
-        let anchors = nearest_road
+        let mut anchors = nearest_road
             .map(|road| {
                 let (anchor_x, anchor_z, direction) =
                     if (road.world_x - x).abs() >= (road.world_z - z).abs() {
@@ -866,6 +866,23 @@ pub fn materialize_centres(
                 }]
             })
             .unwrap_or_default();
+        if !anchors.is_empty() {
+            let side_half = (width as f64 * 0.5 - 0.5).max(0.5);
+            anchors.push(super::SpatialAnchor {
+                id: "side-left".into(),
+                world_x: (f64::from(x) - side_half).round() as i32,
+                world_z: z,
+                direction: "west".into(),
+                target: Some("road".into()),
+            });
+            anchors.push(super::SpatialAnchor {
+                id: "side-right".into(),
+                world_x: (f64::from(x) + side_half).round() as i32,
+                world_z: z,
+                direction: "east".into(),
+                target: Some("road".into()),
+            });
+        }
         entities.push(EntityInstance {
             entity_id: format!("generated.planning-history.centre.{}", action.id),
             asset_id: asset_id.into(),
