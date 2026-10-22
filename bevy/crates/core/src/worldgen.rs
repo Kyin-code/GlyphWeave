@@ -3566,7 +3566,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     }
                 }
             }
-            let mut promoted_frontage_stairs = Vec::new();
+            let mut promoted_entrance_stairs = Vec::new();
             for rejected_id in &rejected_access {
                 if !(rejected_id.starts_with("generated.settlement-evolution.")
                     || rejected_id.starts_with("generated.market-catchment."))
@@ -3618,7 +3618,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     &baked_samples,
                     frontage,
                 ) {
-                    promoted_frontage_stairs.extend(
+                    promoted_entrance_stairs.extend(
                         stairs
                             .iter()
                             .map(|stair| stair.entity_id.clone())
@@ -3627,7 +3627,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     entities.extend(stairs);
                 }
             }
-            if !promoted_frontage_stairs.is_empty() {
+            if !promoted_entrance_stairs.is_empty() {
                 access_graph = access::place_generated_entrances(
                     &mut entities,
                     &landmarks,
@@ -3638,7 +3638,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     "sceneId": scene.scene_id,
                     "phase": "frontage-stair-promotion",
                     "round": round,
-                    "promotedStairs": promoted_frontage_stairs,
+                    "promotedStairs": promoted_entrance_stairs,
                 }));
                 continue;
             }
@@ -3666,7 +3666,10 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     .entity_id
                     .strip_prefix("generated.settlement-evolution.stairs.")
                 {
-                    return !rejected_buildings.contains(rejected_id);
+                    return !rejected_buildings.iter().any(|building_id| {
+                        rejected_id == *building_id
+                            || rejected_id.starts_with(&format!("{building_id}."))
+                    });
                 }
                 true
             });
@@ -3678,6 +3681,60 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 "round": round,
                 "rejectedGeneratedBuildings": rejected_access,
                 "reason": "no generated facade produced a verified route within the strict access contract"
+            }));
+        }
+        // Repair rounds can finish immediately after a successful stair
+        // promotion, leaving the newly rebuilt graph unreviewed by a rejection
+        // pass. Settle that graph now: disconnected generated buildings are not
+        // silently retained as a warning, and their orphan approaches/stairs
+        // leave with them.
+        for cleanup_round in 1..=4 {
+            let rejected =
+                access::rejectable_candidates(&access_graph, &protected_access_ids);
+            if rejected.is_empty() {
+                break;
+            }
+            let rejected_buildings = rejected
+                .iter()
+                .filter_map(|id| id.strip_prefix("generated.settlement-evolution."))
+                .collect::<BTreeSet<_>>();
+            let before = entities.len();
+            entities.retain(|entity| {
+                if entity.kind == "market" || !rejected.contains(&entity.entity_id) {
+                    if let Some(rejected_id) = entity
+                        .entity_id
+                        .strip_prefix("generated.settlement-evolution.approach.")
+                    {
+                        return !rejected_buildings.iter().any(|building_id| {
+                            rejected_id == *building_id
+                                || rejected_id.starts_with(&format!("{building_id}."))
+                        });
+                    }
+                    if let Some(rejected_id) = entity
+                        .entity_id
+                        .strip_prefix("generated.settlement-evolution.stairs.")
+                    {
+                        return !rejected_buildings.iter().any(|building_id| {
+                            rejected_id == *building_id
+                                || rejected_id.starts_with(&format!("{building_id}."))
+                        });
+                    }
+                    return true;
+                }
+                false
+            });
+            if entities.len() == before {
+                break;
+            }
+            access_graph =
+                access::place_generated_entrances(&mut entities, &landmarks, &baked_samples, water);
+            engineering_reports.push(serde_json::json!({
+                "sceneId": scene.scene_id,
+                "phase": "access-final-settlement",
+                "round": cleanup_round,
+                "rejectedGeneratedBuildings": rejected,
+                "removedEntities": before - entities.len(),
+                "reason": "final graph contained generated buildings with no verified entrance"
             }));
         }
         let access_surfaces = bake_access_surfaces(&access_graph, &baked_samples)?;
