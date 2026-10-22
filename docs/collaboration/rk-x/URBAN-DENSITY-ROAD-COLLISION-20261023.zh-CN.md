@@ -4,18 +4,20 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
-> **2026-10-23 r143 更新**：最新合法候选为
-> `bevy/work/rk-x/v3-final-r143-20261023/`。世界修订
+> **2026-10-23 r144 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r144-20261023/`。世界修订
 > `6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`，
-> 4,223 实体、335 建筑、1,475 道路段、393 树、建筑 footprint
+> 4,371 实体、335 建筑、309 楼梯、1,475 道路段、393 树、建筑 footprint
 > 34,811.2m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
 > 建筑—草木、悬空、穿地、落水均为 0；12 个市场覆盖 96.00%。
-> `quality-report=warn` 的原因是 48 栋建筑仍没有一条完整可走入口，
+> `quality-report=warn` 的原因是 23 栋建筑仍没有一条完整可走入口，
 > 以及运行态视觉反馈确认路口边缘和整体 footprint 仍偏弱。
 > `interiorInfill` 现在以 16m 采样在道路围合街廓内部生成住宅填充，
 > 小体量与约四分之一的中大型组合住宅混合，不参与办公、商业和道路
 > 拓宽需求；市场候选避开 Chunk 接缝，
 > 避免移动的 approach / pad 制造新的边界高差。
+> 每个入口面都可发布独立短梯实体，AccessGraph 会按梯子起点和门面
+> 距离选择合法楼梯，不再把非正门楼梯预先判死。
 
 ## 1. 复核口径
 
@@ -93,13 +95,23 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 市场候选主动避开 Chunk 接缝 48m；这是 r132/r135 实际边界失败后得到的
   约束，不能为了覆盖率把市场平台放在接缝上。
 
-## 3. r143 实测
+### 2.6 多门面入口楼梯（r144）
 
-输出：`bevy/work/rk-x/v3-final-r143-20261023/`
+- 同一建筑除已有的正门长梯外，会为侧门重新采样 2m 落地平台；高差在
+  0.30–2.40m 时发布独立 `stairs` 实体，避免把侧门直接判成不可达。
+- AccessGraph 从实体索引中选择起点与当前门面距离不超过 2m 的合法楼梯；
+  楼梯仍须通过障碍、岸线、地形高度和完整到路网路径检查。
+- 结果：断开建筑从 48 降到 23，连通建筑从 325 升到 350；没有放宽
+  0.30m 台阶门限，也没有把未物化楼梯视为已工程。
+
+## 3. r144 实测
+
+输出：`bevy/work/rk-x/v3-final-r144-20261023/`
 
 - 世界修订：`6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`
-- 实体：4,223
+- 实体：4,371
 - 常规/市场建筑：335
+- 入口楼梯：309
 - 建筑 footprint：34,811.2m²（整幅 1km² 的 3.48%）
 - 用途：190 residential block、91 storefront、42 office tower、12 market
 - 道路段：1,475
@@ -123,7 +135,7 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 - `final-entity-audit=pass`；建筑—建筑 0、建筑—道路 0、
   建筑—草木 0、悬空 0、穿地 0、落水 0、无支撑 0。
 - 市场 12 个；10 分钟覆盖率和总覆盖率为 96.00%，计划和辐射报告守恒。
-- `quality-report=warn`：325 栋有至少一条入口连通，48 栋所有入口均断开。
+- `quality-report=warn`：350 栋有至少一条入口连通，23 栋所有入口均断开。
 - 运行态 `visual-feedback.json` 为 `warn`，已记录道路连续化通过、侧立面
   已补充，同时保留 `core-footprint-too-low`、`internal-block-underused`
   和 `intersection-edge-geometry` 三项问题。
@@ -133,7 +145,7 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 1. **密度和单体体量仍不足。** 150m 内 62 栋已接近 p75 城市均匀折算值，
    但平均 footprint 约 102m²；街廓内部已开始填充，仍远小于 250–700m²
    的组合建筑。不能把 340 栋解释为“已经达到中环”。
-2. **入口仍具名失败。** 48 栋建筑的所有入口均断开，必须逐项生成楼梯、坡道、平台或改选
+2. **入口仍具名失败。** 23 栋建筑的所有入口均断开，必须逐项生成楼梯、坡道、平台或改选
    地块；不得通过放宽入口距离、坡度或 OBB 合同消除。
 3. **交叉口边缘仍复杂。** 路面本身已连续，但路口周边仍有重叠人行道、
    台地和碎片边缘；需要单独的路口模板及统一三角剖分。
@@ -174,8 +186,8 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r143-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r143-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r144-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r144-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast
