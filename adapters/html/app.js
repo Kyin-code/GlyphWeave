@@ -1290,7 +1290,7 @@ async function drawNear(buildToken) {
     const t = (qx * sZ - qz * sX) / denominator
     const u = (qx * rZ - qz * rX) / denominator
     if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null
-    return { x: a.x + rX * t, z: a.z + rZ * t }
+    return { x: a.x + rX * t, z: a.z + rZ * t, leftT: t, rightT: u }
   }
   for (let leftIndex = 0; leftIndex < roadRoutes.length; leftIndex++) {
     for (let rightIndex = leftIndex + 1; rightIndex < roadRoutes.length; rightIndex++) {
@@ -1304,13 +1304,53 @@ async function drawNear(buildToken) {
             right.polyline[b - 1], right.polyline[b],
           )
           if (!hit) continue
+          const leftFrom = left.polyline[a - 1]
+          const leftTo = left.polyline[a]
+          const rightFrom = right.polyline[b - 1]
+          const rightTo = right.polyline[b]
+          const designAt = (from, to, t) => {
+            const y0 = Number(from.designHeightM)
+            const y1 = Number(to.designHeightM)
+            return Number.isFinite(y0) && Number.isFinite(y1) ? y0 + (y1 - y0) * t : heightAt(hit.x, hit.z)
+          }
+          const leftWidth = Number(left.roadWidthM) || 8
+          const rightWidth = Number(right.roadWidthM) || 8
           roadJunctions.push({
             ...hit,
-            radius: Math.max(left.roadWidthM ?? 8, right.roadWidthM ?? 8) * .5 + 3.5,
+            radius: Math.max(leftWidth, rightWidth) * .5 + 3.5,
+            pavementRadius: Math.max(leftWidth, rightWidth) * .5 + .35,
+            surfaceY: Math.max(
+              designAt(leftFrom, leftTo, hit.leftT),
+              designAt(rightFrom, rightTo, hit.rightT),
+              heightAt(hit.x, hit.z),
+            ) + .98,
           })
         }
       }
     }
+  }
+  const junctionMaterial = new THREE.MeshStandardMaterial({
+    color: '#3f4748', roughness: .95, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+  })
+  for (const [index, junction] of roadJunctions.entries()) {
+    // A junction is a designed pavement surface, not the accidental union of
+    // two segment quads. A closed low-sided polygon hides ribbon corner gaps
+    // while staying inside the carriageway footprint; collision still uses the
+    // independent road-chain volumes below.
+    const junctionMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(junction.pavementRadius, 16),
+      junctionMaterial,
+    )
+    junctionMesh.name = `route-junction:${index}`
+    junctionMesh.rotation.x = -Math.PI / 2
+    junctionMesh.position.set(
+      junction.x - scene.originX,
+      junction.surfaceY + .01,
+      junction.z - scene.originZ,
+    )
+    junctionMesh.renderOrder = 5
+    nearGroupRoot.add(junctionMesh)
   }
   // A route is rendered as one continuous carriageway. Its lane paint is
   // clipped around true polyline intersections so the preview no longer draws
