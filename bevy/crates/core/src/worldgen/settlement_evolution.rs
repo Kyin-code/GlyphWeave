@@ -1174,109 +1174,116 @@ fn try_build_candidate(
         if demand_is_empty(&spent) {
             continue;
         }
-        // Shrink from the street-facing edge, not around the lot centre. The
-        // latter left an artificial front setback while the rear edge continued
-        // to collide with a parallel road across the block.
         let frontage_dx = f64::from(candidate.frontage_road_point[0])
             - f64::from(candidate.world_x);
         let frontage_dz = f64::from(candidate.frontage_road_point[1])
             - f64::from(candidate.world_z);
         let frontage_length = frontage_dx.hypot(frontage_dz);
-        let depth_retreat = (candidate.depth_m - depth_m).max(0.0) * 0.5;
-        let world_x = if frontage_length > 1e-6 {
-            (f64::from(candidate.world_x) + frontage_dx / frontage_length * f64::from(depth_retreat))
-                .round() as i32
-        } else {
-            candidate.world_x
-        };
-        let world_z = if frontage_length > 1e-6 {
-            (f64::from(candidate.world_z) + frontage_dz / frontage_length * f64::from(depth_retreat))
-                .round() as i32
-        } else {
-            candidate.world_z
-        };
-        let building = Building {
-            id: candidate.id.clone(),
-            kind: form.kind.clone(),
-            route_id: candidate.route_id.clone(),
-            side: candidate.side.clone(),
-            world_x,
-            world_z,
-            width_m,
-            depth_m,
-            height_m: 4.0 + form.floors as f32 * 3.2,
-            floors: form.floors,
-            floor_area_m2: floor_area,
-            households: spent.households,
-            jobs: spent.jobs,
-            retail_floor_area_m2: spent.retail_floor_area_m2,
-            service_budget: spent.service_budget,
-            access_distance_m: candidate.access_distance_m,
-            center_distance_m: candidate.center_distance_m,
-            community_profile: rules.community_profile.clone(),
-            income_band: community_typology::income_band(
-                &rules.community_profile,
-                candidate.center_distance_m,
-            )
-            .into(),
-            archetype_id: form.archetype_id.clone(),
-            recommended_count: form.recommended_count,
-            lot_area_m2: f64::from(candidate.width_m) * f64::from(candidate.depth_m),
-            coverage_ratio: f64::from(form.coverage_ratio),
-            frontage_road_point: Some(candidate.frontage_road_point),
-            frontage_position_m: candidate.frontage_position_m,
-            district_stage: candidate.district_stage.clone(),
-            frontage_level_m: Some(candidate.road_design_m),
-            // A generated building always owns a declared platform, even when
-            // its required cut rounds to zero. Without an active platform a
-            // neighbour's higher fill ring can raise terrain through its base.
-            max_pad_cut_mm: Some(candidate.required_cut_mm.max(1)),
-            rotation_y_deg: candidate.rotation_y_deg,
-        };
-        let footprint = OrientedFootprint {
-            center_x: f64::from(building.world_x),
-            center_z: f64::from(building.world_z),
-            width_m: f64::from(building.width_m),
-            depth_m: f64::from(building.depth_m),
-            rotation_y_deg: f64::from(building.rotation_y_deg),
-        };
-        let conflicts_with_road = roads.iter().any(|road| {
-            road.kind == "road"
-                && !road
-                    .entity_id
-                    .starts_with("generated.settlement-evolution.approach.")
-                && oriented_footprints_overlap(
-                    &footprint,
-                    &OrientedFootprint::from_entity(road),
-                    0.5,
+        // A block narrowed by a second road is not necessarily unbuildable:
+        // the frontage can keep its street edge while the building body moves
+        // through the legal depth of the lot. Search the whole parcel section
+        // instead of collapsing the entire lot to a six-metre shed.
+        let depth_retreat = f64::from((candidate.depth_m - depth_m).max(0.0) * 0.5);
+        let depth_search_m = f64::from((candidate.depth_m - depth_m).max(0.0));
+        for placement in [0.0_f64, 0.25, 0.5, 0.75, 1.0] {
+            let local_retreat = depth_retreat + placement * depth_search_m;
+            let world_x = if frontage_length > 1e-6 {
+                (f64::from(candidate.world_x)
+                    + frontage_dx / frontage_length * local_retreat)
+                    .round() as i32
+            } else {
+                candidate.world_x
+            };
+            let world_z = if frontage_length > 1e-6 {
+                (f64::from(candidate.world_z)
+                    + frontage_dz / frontage_length * local_retreat)
+                    .round() as i32
+            } else {
+                candidate.world_z
+            };
+            let building = Building {
+                id: candidate.id.clone(),
+                kind: form.kind.clone(),
+                route_id: candidate.route_id.clone(),
+                side: candidate.side.clone(),
+                world_x,
+                world_z,
+                width_m,
+                depth_m,
+                height_m: 4.0 + form.floors as f32 * 3.2,
+                floors: form.floors,
+                floor_area_m2: floor_area,
+                households: spent.households,
+                jobs: spent.jobs,
+                retail_floor_area_m2: spent.retail_floor_area_m2,
+                service_budget: spent.service_budget,
+                access_distance_m: candidate.access_distance_m,
+                center_distance_m: candidate.center_distance_m,
+                community_profile: rules.community_profile.clone(),
+                income_band: community_typology::income_band(
+                    &rules.community_profile,
+                    candidate.center_distance_m,
                 )
-        });
-        if conflicts_with_road {
-            rejected = "building_conflicts_with_road_support";
-            continue;
+                .into(),
+                archetype_id: form.archetype_id.clone(),
+                recommended_count: form.recommended_count,
+                lot_area_m2: f64::from(candidate.width_m) * f64::from(candidate.depth_m),
+                coverage_ratio: f64::from(form.coverage_ratio),
+                frontage_road_point: Some(candidate.frontage_road_point),
+                frontage_position_m: candidate.frontage_position_m,
+                district_stage: candidate.district_stage.clone(),
+                frontage_level_m: Some(candidate.road_design_m),
+                // A generated building always owns a declared platform, even when
+                // its required cut rounds to zero. Without an active platform a
+                // neighbour's higher fill ring can raise terrain through its base.
+                max_pad_cut_mm: Some(candidate.required_cut_mm.max(1)),
+                rotation_y_deg: candidate.rotation_y_deg,
+            };
+            let footprint = OrientedFootprint {
+                center_x: f64::from(building.world_x),
+                center_z: f64::from(building.world_z),
+                width_m: f64::from(building.width_m),
+                depth_m: f64::from(building.depth_m),
+                rotation_y_deg: f64::from(building.rotation_y_deg),
+            };
+            let conflicts_with_road = roads.iter().any(|road| {
+                road.kind == "road"
+                    && !road
+                        .entity_id
+                        .starts_with("generated.settlement-evolution.approach.")
+                    && oriented_footprints_overlap(
+                        &footprint,
+                        &OrientedFootprint::from_entity(road),
+                        0.5,
+                    )
+            });
+            if conflicts_with_road {
+                rejected = "building_conflicts_with_road_support";
+                continue;
+            }
+            let conflicts_with_building = buildings.iter().any(|other| {
+                oriented_footprints_overlap(
+                    &footprint,
+                    &OrientedFootprint {
+                        center_x: f64::from(other.world_x),
+                        center_z: f64::from(other.world_z),
+                        width_m: f64::from(other.width_m),
+                        depth_m: f64::from(other.depth_m),
+                        rotation_y_deg: f64::from(other.rotation_y_deg),
+                    },
+                    0.25,
+                )
+            });
+            if conflicts_with_building {
+                rejected = "building_conflicts_with_prior_building";
+                continue;
+            }
+            return Ok(AcceptedCandidate {
+                building,
+                spent,
+                floor_area_m2: floor_area,
+            });
         }
-        let conflicts_with_building = buildings.iter().any(|other| {
-            oriented_footprints_overlap(
-                &footprint,
-                &OrientedFootprint {
-                    center_x: f64::from(other.world_x),
-                    center_z: f64::from(other.world_z),
-                    width_m: f64::from(other.width_m),
-                    depth_m: f64::from(other.depth_m),
-                    rotation_y_deg: f64::from(other.rotation_y_deg),
-                },
-                0.25,
-            )
-        });
-        if conflicts_with_building {
-            rejected = "building_conflicts_with_prior_building";
-            continue;
-        }
-        return Ok(AcceptedCandidate {
-            building,
-            spent,
-            floor_area_m2: floor_area,
-        });
     }
     Err(rejected)
 }

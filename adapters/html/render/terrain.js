@@ -268,16 +268,16 @@ export function makePolylineRibbonGeometry(points, halfWidth, heightAt, THREE, l
     const leftZ = point.z - nz * miter
     const rightX = point.x + nx * miter
     const rightZ = point.z + nz * miter
-    // A carriageway cross-section is one designed surface. Sampling left,
-    // centre and right independently made the ribbon twist across bends and
-    // let terrain poke through one edge. Use the highest bearing of the three
-    // samples for the whole row and add only a shallow crown at the centre.
-    const baseY = Math.max(
-      designY ?? heightAt(point.x, point.z),
+    // A carriageway cross-section is one designed surface. Once Rust has
+    // published a design elevation it is authoritative: mixing it back with
+    // separately sampled terrain made adjacent rows jump, twisted the ribbon
+    // across bends and left wedge-shaped holes in the pavement and lane paint.
+    // Terrain is only a fallback for legacy roads without a baked profile.
+    const baseY = (designY ?? Math.max(
       heightAt(leftX, leftZ),
       heightAt(point.x, point.z),
       heightAt(rightX, rightZ),
-    ) + lift
+    )) + lift
     rows.push([
       appendVertex(leftX, baseY, leftZ),
       appendVertex(point.x, baseY + .035, point.z),

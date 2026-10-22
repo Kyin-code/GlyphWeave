@@ -595,7 +595,7 @@
       "maxSlope": 0.25,
       "floorAreaRatio": 6.0,
       "maxFloors": 40,
-      "accessHeightToleranceM": 4,
+      "accessHeightToleranceM": 5,
       "maxPadCutM": 14,
       "districtDemand": {
         "version": 1,

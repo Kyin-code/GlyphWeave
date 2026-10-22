@@ -445,6 +445,12 @@ fn plan_with_artifacts_inner(
     let mut tier_counts = vec![0usize; tiers.len()];
     let total_demand: f64 = demand_points.iter().map(|point| point.demand).sum();
     let mut served = vec![0.0_f64; demand_points.len()];
+    // The post-access pass can remove demand footprints whose entrances fail
+    // or whose nearest graph node is no longer reachable. Stopping exactly at
+    // the authored target leaves no spare market coverage for that second
+    // topology, so plan a small deployment reserve without weakening the
+    // published target itself.
+    let selection_target = (program.coverage_target + 0.02).min(0.96);
     while selected.len() < program.max_markets {
         let mut best: Option<(f64, usize, usize)> = None;
         for (tier_index, tier) in tiers.iter().enumerate() {
@@ -539,7 +545,7 @@ fn plan_with_artifacts_inner(
             capacity -= grant;
         }
         let covered: f64 = served.iter().sum();
-        if covered / total_demand >= program.coverage_target {
+        if covered / total_demand >= selection_target {
             break;
         }
     }
