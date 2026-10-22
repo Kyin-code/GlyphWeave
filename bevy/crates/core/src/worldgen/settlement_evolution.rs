@@ -2061,6 +2061,24 @@ pub fn materialize(
                             target: Some("road".into()),
                         });
                     }
+                    // The supporting road network can place a higher street or
+                    // platform behind a frontage lot. Publish the exact rear
+                    // facade opposite the authored door as a real service
+                    // entrance; the front anchor remains first for rendering and
+                    // the remaining side options stay available to AccessGraph.
+                    let rear_direction = match direction {
+                        "east" => "west",
+                        "west" => "east",
+                        "south" => "north",
+                        _ => "south",
+                    };
+                    anchors.push(super::SpatialAnchor {
+                        id: "rear".into(),
+                        world_x: building.world_x * 2 - anchor_x,
+                        world_z: building.world_z * 2 - anchor_z,
+                        direction: rear_direction.into(),
+                        target: Some("road".into()),
+                    });
                     let [out_x, out_z] = outward_delta(direction);
                     let landing = [anchor_x + out_x * 2, anchor_z + out_z * 2];
                     if let Some(landing_m) = terrain.height(landing[0], landing[1]) {
@@ -2187,14 +2205,21 @@ pub fn attach_frontage_stairs(
             return None;
         }
     }
-    let start_height_m = f64::from(
-        terrain
-            .height(anchor.world_x, anchor.world_z)
-            .unwrap_or_else(|| building.ground_height_m()),
-    );
+    // A promoted frontage stair starts at the building's declared door
+    // threshold, not at the baked terrain beside it. The terrain at the facade
+    // may already have been lowered by the adjoining road carve; using that
+    // number erased the very step the stair was supposed to resolve.
+    let start_height_m = f64::from(building.ground_height_m());
     let end_height_m = f64::from(terrain.height(to[0], to[1])?);
     let delta_m = (end_height_m - start_height_m).abs();
-    if !(0.10..=8.0).contains(&delta_m) {
+    let run_m = f64::from(to[0] - anchor.world_x)
+        .hypot(f64::from(to[1] - anchor.world_z));
+    // Long stairs are published as <=22m flights. Each flight must still fit
+    // the 8.5m stair contract; the whole connection may therefore step through
+    // more than one legal flight on a steep block.
+    let flights = (run_m / 22.0).ceil().max(1.0) as f64;
+    let max_total_rise_m = 8.0 * flights;
+    if !(0.10..=max_total_rise_m).contains(&delta_m) {
         return None;
     }
     let low_m = start_height_m.min(end_height_m);
@@ -2785,6 +2810,57 @@ mod tests {
             (f64::from(entity.world_y) + f64::from(entity.grounding.bottom_offset_m) - 10.0).abs()
                 < 1e-6
         }));
+        assert!(entities.iter().all(|entity| {
+            let Some(front) = entity.anchors.iter().find(|anchor| anchor.id == "front") else {
+                return true;
+            };
+            let Some(rear) = entity.anchors.iter().find(|anchor| anchor.id == "rear") else {
+                return false;
+            };
+            rear.world_x == entity.world_x * 2 - front.world_x
+                && rear.world_z == entity.world_z * 2 - front.world_z
+                && rear.direction != front.direction
+        }));
+    }
+
+    #[test]
+    fn promoted_frontage_stair_starts_at_the_declared_door_threshold() {
+        let (_, terrain, _) = fixture();
+        let mut building = EntityInstance {
+            entity_id: "generated.settlement-evolution.test.door".into(),
+            asset_id: "building.residential_block".into(),
+            kind: "residential_block".into(),
+            world_x: 100,
+            world_z: 100,
+            world_y: 22,
+            width_m: 10.0,
+            depth_m: 10.0,
+            height_m: 20.0,
+            scale: 1.0,
+            rotation_y_deg: 0.0,
+            grounding: super::super::GroundingSpec::default(),
+            anchors: vec![super::super::SpatialAnchor {
+                id: "front".into(),
+                world_x: 100,
+                world_z: 95,
+                direction: "north".into(),
+                target: Some("road".into()),
+            }],
+            bounds: None,
+        };
+        let stairs = attach_frontage_stairs(&mut building, &terrain, [128, 100])
+            .expect("the 12 m facade step must be repaired by two legal flights");
+        assert_eq!(stairs.len(), 2);
+        assert!(stairs.iter().all(|stair| stair.height_m <= 8.5));
+        let contract = building
+            .grounding
+            .stair_connection
+            .as_ref()
+            .expect("the stair connection is attached to the building");
+        assert_eq!(contract.from_mm, 22_000);
+        assert_eq!(contract.to_mm, 10_000);
+        assert_eq!(contract.low_mm, 10_000);
+        assert_eq!(contract.high_mm, 22_000);
     }
 
     #[test]

@@ -618,6 +618,7 @@ pub fn validate_entity(e: &EntityInstance) -> Result<(), TerrainError> {
             anchor.id != "front"
                 && anchor.id != "side-left"
                 && anchor.id != "side-right"
+                && anchor.id != "rear"
         })
         || e.grounding.road_profile.is_some()
     {

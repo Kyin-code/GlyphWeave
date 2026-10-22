@@ -416,14 +416,25 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 
 ### 8.1 2026-10-23 最新交接状态
 
-- 最新烘焙：`bevy/work/rk-x/v3-final-r192-20261023`
+- 最新烘焙：`bevy/work/rk-x/v3-final-r201-20261023`
 - `scale-audit=pass`，最大跨块高差 1.071m
-- `final-entity-audit=pass`，检查 329 栋建筑；建筑-建筑/道路/细节碰撞均为 0
-- `quality-report=warn`：24 栋建筑无完整步行入口
+- `final-entity-audit=pass`，检查 311 栋建筑；建筑-建筑/道路/细节碰撞均为 0
+- `quality-report=pass`：步行入口 311 连接 / 0 断连
 - 已修：SAT 镜像旋转、分块 carve 漏烘、道路断面外扩、1,156 个重复路口盖面、重复未旋转规划盒、墙内花箱、双旋转风险
+- 已修入口收敛：直接可走门优先于无效可选楼梯；最终清理会拒绝没有入口的生成建筑及孤立 approach/stairs。18 栋不可建入口建筑被具名拒绝，建筑数 329→311。
 - 当前 150m 中心覆盖率 8.34%，尚未达到香港中环样本；下一轮应做独立街廓组合体/庭院地块，不再简单调高需求数量
 
 完整证据见 `ROAD-SECTION-OBB-DENSITY-20261023.md`。
+
+### 8.2 入口质量已闭环（r201）
+
+- 最新烘焙：`bevy/work/rk-x/v3-final-r201-20261023`
+- `scale-audit=pass`、`quality-report=pass`、最终实体审计 pass
+- 311 栋建筑全部有完整步行入口；无法建立合法入口的 18 栋已按建筑数涌现原则剔除
+- 已修：推广楼梯起点高度、多梯段高度上限、可选侧门失败误删建筑、无效梯段遮蔽直接入口、后侧服务入口
+- 下一优先级回到中心建筑体量/覆盖率，但新增建筑必须继续满足入口和 OBB 门限
+
+证据：`ENTRANCE-CLOSURE-20261023.md`。
 
 ## 9. 注意事项（别踩）
 

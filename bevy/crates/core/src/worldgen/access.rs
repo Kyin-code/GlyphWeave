@@ -435,20 +435,28 @@ pub(super) fn access_for_entity(
             }
             #[cfg(test)]
             observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
+            let direct_step = [start, facade_point].into_iter().any(|p| {
+                height(terrain, p)
+                    .is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
+            });
+            let direct_clear =
+                segment_clear(facade_point, start, &entrance_obstacles, terrain, water);
+            // Prefer a directly walkable facade over an optional stair. A
+            // stair is an engineering fallback for a step or blocked threshold;
+            // it must not move an already valid doorway to another landing.
+            if !direct_step && direct_clear {
+                stair_routing = None;
+            }
             if terrain.require_complete().is_err() {
                 link.status = "incomplete_terrain".into();
-            } else if had_stair_candidate && stair_routing.is_none() {
-                link.status = "stair_connection_invalid".into();
-            } else if stair_routing.is_none()
-                && [start, facade_point].into_iter().any(|p| {
-                    height(terrain, p)
-                        .is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
-                })
-            {
-                link.status = "entrance_step_requires_engineering".into();
-            } else if stair_routing.is_none()
-                && !segment_clear(facade_point, start, &entrance_obstacles, terrain, water)
-            {
+            } else if stair_routing.is_none() && direct_step {
+                link.status = if had_stair_candidate {
+                    "stair_connection_invalid"
+                } else {
+                    "entrance_step_requires_engineering"
+                }
+                .into();
+            } else if stair_routing.is_none() && !direct_clear {
                 link.status = "entrance_clearance_blocked".into();
             } else if let Some((road, mut path, length)) = route(
                 stair_routing.unwrap_or(start),
@@ -797,6 +805,12 @@ pub(super) fn rejectable_candidates(
     graph: &AccessGraph,
     protected: &BTreeSet<String>,
 ) -> BTreeSet<String> {
+    let connected: BTreeSet<&str> = graph
+        .links
+        .iter()
+        .filter(|link| link.connected)
+        .map(|link| link.entity_id.as_str())
+        .collect();
     graph
         .links
         .iter()
@@ -804,6 +818,9 @@ pub(super) fn rejectable_candidates(
             !l.connected
                 && l.entity_id.starts_with("generated.")
                 && !protected.contains(&l.entity_id)
+                // An entity with one verified door is not a failed building just
+                // because another optional side anchor could not route.
+                && !connected.contains(l.entity_id.as_str())
         })
         .map(|l| l.entity_id.clone())
         .collect()
@@ -1393,12 +1410,54 @@ mod tests {
                 path: vec![],
             });
         }
+        for (id, anchor_id, connected) in [
+            ("generated.partly-connected", "front", false),
+            ("generated.partly-connected", "side-left", true),
+        ] {
+            graph.links.push(AccessLink {
+                entity_id: id.into(),
+                anchor_id: anchor_id.into(),
+                road_id: connected.then(|| "road.main".into()),
+                distance_m: connected.then_some(8.0),
+                connected,
+                required: true,
+                status: if connected { "walkable_route" } else { "failed" }.into(),
+                path: vec![],
+            });
+        }
         let protected = BTreeSet::from(["authored.home".into(), "generated.planned".into()]);
         assert_eq!(
             rejectable_candidates(&graph, &protected),
             BTreeSet::from(["generated.optional".into()])
         );
-        assert_eq!(graph.links.len(), 3);
+        assert_eq!(graph.links.len(), 5);
+    }
+
+    #[test]
+    fn invalid_optional_stair_does_not_hide_a_clear_direct_entrance() {
+        let (mut entities, terrain, water) = fixture();
+        entities[0].grounding.stair_connection = Some(StairConnection {
+            version: 1,
+            stair_id: "generated.test.invalid-stair".into(),
+            from: [64, 58],
+            to: [200, 200],
+            from_mm: 0,
+            to_mm: 0,
+            low_mm: 0,
+            high_mm: 0,
+            step_count: 1,
+            width_m: 2.0,
+        });
+        let graph = build_access_graph(&entities, &terrain, water);
+        assert_eq!(graph.connected_entities, 1);
+        assert_eq!(graph.disconnected_entities, 0);
+        let link = graph
+            .links
+            .iter()
+            .find(|link| link.entity_id == entities[0].entity_id)
+            .expect("the building link");
+        assert!(link.connected);
+        assert_eq!(link.status, "walkable_route");
     }
 
     use super::*;
