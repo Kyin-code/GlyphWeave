@@ -159,7 +159,7 @@ pub struct WaterGeometry {
 /// `blend_m` is the width of the smooth transition ring around the pad.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TerrainCarve {
-    profile: Option<std::sync::Arc<road_profile::RoadProfile>>,
+    profile: Option<CarveProfile>,
     cx: f64,
     cz: f64,
     /// Half extents in the carve's own local X/Z frame. A rotated road keeps
@@ -197,6 +197,39 @@ pub(super) struct TerrainCarve {
     ramp: Option<std::sync::Arc<entry_corridor::EntryRamp>>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum CarveProfile {
+    Road(std::sync::Arc<road_profile::RoadProfile>),
+    Route(std::sync::Arc<RouteGrade>),
+}
+
+impl CarveProfile {
+    fn height_at(&self, x: f64, z: f64) -> Option<f64> {
+        match self {
+            Self::Road(profile) => profile.height_at(x, z),
+            Self::Route(grade) => grade.height_at(x, z),
+        }
+    }
+
+    fn as_road_profile(&self) -> Option<&road_profile::RoadProfile> {
+        match self {
+            Self::Road(profile) => Some(profile),
+            Self::Route(_) => None,
+        }
+    }
+
+    fn as_route_grade(&self) -> Option<&RouteGrade> {
+        match self {
+            Self::Road(_) => None,
+            Self::Route(grade) => Some(grade),
+        }
+    }
+
+    fn is_route(&self) -> bool {
+        matches!(self, Self::Route(_))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GroundingPivot {
@@ -212,6 +245,11 @@ pub struct GroundingSpec {
     pub frontage_road_point: Option<[i32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_profile: Option<road_profile::RoadProfile>,
+    /// Planner-authored longitudinal surface of one route-evolution segment.
+    /// Unlike the legacy axis-aligned profile, this supports arbitrary yaw and
+    /// carries the cut/fill authority for diagonal streets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_grade: Option<RouteGrade>,
     /// Authored road-tier provenance for an automatic/extension road. Base
     /// roads and every non-road entity leave it absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -360,6 +398,58 @@ impl RoadDesign {
     }
 }
 
+/// Authoritative longitudinal grade for one materialized route segment.
+///
+/// Route-evolution streets follow natural contours and are usually diagonal, so
+/// they cannot use the legacy axis-aligned `RoadProfile` contract. This compact
+/// segment profile still publishes enough information for terrain, rendering and
+/// collision consumers to derive the same surface without a renderer-only lift.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteGrade {
+    pub version: u32,
+    pub start: [i32; 2],
+    pub end: [i32; 2],
+    pub start_height_mm: i32,
+    pub end_height_mm: i32,
+}
+
+impl RouteGrade {
+    pub fn validate_shape(&self) -> Result<(), TerrainError> {
+        if self.version != 1
+            || self.start == self.end
+            || !(-32_000..=256_000).contains(&self.start_height_mm)
+            || !(-32_000..=256_000).contains(&self.end_height_mm)
+            || (self.start_height_mm - self.end_height_mm).abs() > 6_000
+        {
+            return Err(TerrainError("invalid route grade contract".into()));
+        }
+        Ok(())
+    }
+
+    /// Height at one world-space point, linearly interpolated along the segment.
+    pub fn height_at(&self, x: f64, z: f64) -> Option<f64> {
+        if !x.is_finite() || !z.is_finite() {
+            return None;
+        }
+        let dx = f64::from(self.end[0] - self.start[0]);
+        let dz = f64::from(self.end[1] - self.start[1]);
+        let length_sq = dx * dx + dz * dz;
+        if length_sq <= f64::EPSILON {
+            return None;
+        }
+        let t = (((x - f64::from(self.start[0])) * dx
+            + (z - f64::from(self.start[1])) * dz)
+            / length_sq)
+            .clamp(0.0, 1.0);
+        Some(
+            (f64::from(self.start_height_mm)
+                + (f64::from(self.end_height_mm) - f64::from(self.start_height_mm)) * t)
+                / 1000.0,
+        )
+    }
+}
+
 fn default_grounding_tolerance_m() -> f32 {
     1.0
 }
@@ -369,6 +459,7 @@ impl Default for GroundingSpec {
         Self {
             frontage_road_point: None,
             road_profile: None,
+            route_grade: None,
             road_tier: None,
             road_design: None,
             district_id: None,
@@ -3127,6 +3218,9 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             if let Some(p) = &e.grounding.road_profile {
                 p.validate_entity(e)?;
             }
+            if let Some(grade) = &e.grounding.route_grade {
+                grade.validate_shape()?;
+            }
             frontage::validate_entity(e)?;
         }
         let mut carves = plan_terrain_carves(&entities);
@@ -3943,7 +4037,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     .into(),
                     entity_id: carve
                         .profile
-                        .as_deref()
+                        .as_ref()
+                        .and_then(CarveProfile::as_road_profile)
                         .and_then(|p| {
                             entities
                                 .iter()
@@ -3957,7 +4052,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     half_depth_m: carve.half_d as f32,
                     rotation_y_deg: carve.rotation_y_deg,
                     target_height_m: carve.target_h_m as f32,
-                    road_profile: carve.profile.as_deref().cloned(),
+                    road_profile: carve
+                        .profile
+                        .as_ref()
+                        .and_then(CarveProfile::as_road_profile)
+                        .cloned(),
+                    route_grade: carve
+                        .profile
+                        .as_ref()
+                        .and_then(CarveProfile::as_route_grade)
+                        .cloned(),
                     blend_m: carve.blend_m as f32,
                     priority: carve.priority,
                     status: "applied-to-final-heightfield".into(),
@@ -5362,13 +5466,21 @@ fn generate_chunk_encoded(
             if !precise {
                 height.extend_from_slice(&quarter_meters.to_le_bytes());
             }
-            surface.push(surface_kind_with_geometry(
+            let mut surface_kind = surface_kind_with_geometry(
                 seed,
                 world_x,
                 world_z,
                 quarter_meters,
                 water,
-            ));
+            );
+            // Publish the engineered road corridor as stone/asphalt at the
+            // terrain semantics layer too. Renderer-side ribbon seams may expose
+            // one or two terrain cells at complex junctions; without this the
+            // hole reads as grass growing through the carriageway.
+            if route_pavement_at(&carves, &carve_index, world_x, world_z) {
+                surface_kind = 2;
+            }
+            surface.push(surface_kind);
         }
     }
     for z in 0..depth {
@@ -6282,7 +6394,10 @@ fn carve_geometry(entity: &EntityInstance) -> (f64, f64, f64, f32) {
     // the authored half extents in that local frame and publish the yaw on the
     // carve; every cell test goes through `carve_outside_m`. Treating 45/135
     // degrees as either X or Z intervals was the source of the oversized carve.
-    if is_road && entity.grounding.road_profile.is_some() {
+    if is_road
+        && (entity.grounding.road_profile.is_some()
+            || entity.grounding.route_grade.is_some())
+    {
         // Exactly the band the independent audit checks for the design
         // level (see `graded_flat_top_half_extents`).
         let (half_w, half_d) = graded_flat_top_local_half_extents(entity);
@@ -6479,9 +6594,16 @@ fn plan_terrain_carves(entities: &[EntityInstance]) -> Vec<TerrainCarve> {
         carves.push(TerrainCarve {
             profile: entity
                 .grounding
-                .road_profile
+                .route_grade
                 .clone()
-                .map(std::sync::Arc::new),
+                .map(|grade| CarveProfile::Route(std::sync::Arc::new(grade)))
+                .or_else(|| {
+                    entity
+                        .grounding
+                        .road_profile
+                        .clone()
+                        .map(|profile| CarveProfile::Road(std::sync::Arc::new(profile)))
+                }),
             cx: f64::from(entity.world_x),
             cz: f64::from(entity.world_z),
             half_w,
@@ -7019,7 +7141,7 @@ fn apply_terrain_carves(terrain: f64, x: i32, z: i32, carves: &[TerrainCarve]) -
 fn carve_list_has_road_cut(carves: &[TerrainCarve]) -> bool {
     carves
         .iter()
-        .any(|carve| carve.priority == 10 && carve.cut_cap_mm.is_some() && carve.profile.is_some())
+        .any(|carve| carve.priority == 10 && carve.profile.is_some())
 }
 
 /// The metres around a carve's own rectangle within which it can still change any
@@ -7037,6 +7159,29 @@ fn carve_influence_m(carve: &TerrainCarve) -> f64 {
         .cut_cap_mm
         .map_or(2.0, |cap| bounded_cut::ring_width_m(cap));
     carve.blend_m.max(ring).max(2.0)
+}
+
+/// Authored route pavement at one cell, used by the surface semantics bake.
+/// The route flat top carries a graded shoulder, so classify the central
+/// pavement band rather than painting the whole engineering envelope as road.
+fn route_pavement_at(
+    carves: &[TerrainCarve],
+    index: &CarveIndex,
+    x: i32,
+    z: i32,
+) -> bool {
+    index.active(x, z).iter().any(|carve_index| {
+        let carve = &carves[*carve_index as usize];
+        if carve.priority != 10
+            || !carve.profile.as_ref().is_some_and(CarveProfile::is_route)
+        {
+            return false;
+        }
+        // Include the engineering shoulder as urban hardscape. At complex
+        // junctions this prevents narrow uncovered terrain wedges from reading
+        // as grass growing through the carriageway.
+        carve_outside_m(carve, f64::from(x), f64::from(z)) <= 8.0
+    })
 }
 
 /// Bucket edge of the carve grid, in metres. A fixed coarse size: the grid is a
@@ -7342,6 +7487,11 @@ where
     // longer bury the roadbed above its 6 m fill contract. `None` everywhere else,
     // which keeps every fill-only input byte-identical.
     let mut road_support: Option<f64> = None;
+    // Route-evolution corridors have an arbitrary-yaw, segment-local grade.
+    // Their planned asphalt is authoritative on both sides of the natural
+    // surface: the flat top is cut or filled to the design line, and the
+    // shoulder blends back into terrain.
+    let mut route_support: Option<f64> = None;
     // The deepest unblocked ROAD excavation at this cell. Unlike a frontage pad's
     // cut - which the historical fill-first resolution keeps under any fill - a
     // graded road's cut is the road's own support surface, so it is authoritative
@@ -7436,8 +7586,23 @@ where
             .as_ref()
             .and_then(|p| p.height_at(xf, zf))
             .unwrap_or(carve.target_h_m);
+        if carve.priority == 10
+            && carve.profile.as_ref().is_some_and(CarveProfile::is_route)
+        {
+            let margin = 3.0;
+            if outside <= 0.0 {
+                route_support = Some(route_support.map_or(target, |known| known.max(target)));
+            } else if !road_flat_here && outside < carve.blend_m + margin {
+                let t = (outside / (carve.blend_m + margin)).clamp(0.0, 1.0);
+                let smooth_t = t * t * (3.0 - 2.0 * t);
+                let bank = target + (base_terrain - target) * smooth_t;
+                route_support = Some(route_support.map_or(bank, |known| known.max(bank)));
+            }
+        }
         let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p| {
-            base_terrain + f64::from(p.max_fill_mm) / 1000.
+            p.as_road_profile().map_or(f64::INFINITY, |profile| {
+                base_terrain + f64::from(profile.max_fill_mm) / 1000.
+            })
         });
         if carve.priority == 10 && outside < carve.blend_m {
             graded_influence = true;
@@ -7477,7 +7642,13 @@ where
         // minus its own). It also owns its transport band's FILL: the road's
         // authored surface is the answer there, not a neighbour's blend.
         if carve.priority == 10 && carve.cut_cap_mm.is_some() {
-            if let (Some(cap), Some(profile)) = (carve.cut_cap_mm, carve.profile.as_deref()) {
+            if let (Some(cap), Some(profile)) = (
+                carve.cut_cap_mm,
+                carve
+                    .profile
+                    .as_ref()
+                    .and_then(CarveProfile::as_road_profile),
+            ) {
                 let own_cut_window = outside < 2.0;
                 // Inside the road's own graded flat top only ANOTHER ROAD can take
                 // the cell away; outside it every entity's support window still
@@ -7584,7 +7755,9 @@ where
     // Everything else keeps the historical resolution: a road's flat top wins over
     // a neighbour's fill, a fill wins over a pad's cut, and a pad's cut is the
     // answer only when nothing raised the cell.
-    let resolved = if let Some(support) = road_support {
+    let resolved = if let Some(support) = route_support {
+        support
+    } else if let Some(support) = road_support {
         support
     } else if let Some(cut) = road_cut_floor {
         cut
@@ -12700,6 +12873,109 @@ mod tests {
         };
         assert!(oriented_footprints_overlap(&left, &overlapping, 0.0));
         assert!(!oriented_footprints_overlap(&left, &clear, 0.0));
+    }
+
+    #[test]
+    fn route_grade_cuts_and_fills_the_corridor_to_the_design_line() {
+        let grade = RouteGrade {
+            version: 1,
+            start: [0, 0],
+            end: [20, 0],
+            start_height_mm: 6_000,
+            end_height_mm: 4_000,
+        };
+        let entity = EntityInstance {
+            asset_id: "road.generated".into(),
+            entity_id: "generated.route-evolution.test.0".into(),
+            kind: "road".into(),
+            world_x: 10,
+            world_z: 0,
+            world_y: 5,
+            scale: 1.0,
+            width_m: 20.0,
+            depth_m: 8.0,
+            height_m: 0.45,
+            rotation_y_deg: 0.0,
+            grounding: GroundingSpec {
+                route_grade: Some(grade.clone()),
+                roadbed_offset_m: 0.5,
+                ..GroundingSpec::default()
+            },
+            anchors: Vec::new(),
+            bounds: None,
+        };
+        let planned = plan_terrain_carves(&[entity]);
+        assert_eq!(planned.len(), 1);
+        assert!(matches!(
+            planned[0].profile,
+            Some(CarveProfile::Route(_))
+        ));
+        let planned_surface_index = CarveIndex::new(&planned);
+        assert!(route_pavement_at(&planned, &planned_surface_index, 10, 0));
+        assert!(!route_pavement_at(
+            &planned,
+            &planned_surface_index,
+            10,
+            20
+        ));
+        assert!((apply_terrain_carves(20.0, 10, 0, &planned) - 5.0).abs() < 1e-9);
+        let crossing = TerrainCarve {
+            profile: Some(CarveProfile::Route(std::sync::Arc::new(RouteGrade {
+                version: 1,
+                start: [30, -20],
+                end: [30, 20],
+                start_height_mm: 15_000,
+                end_height_mm: 15_000,
+            }))),
+            cx: 25.0,
+            cz: 0.0,
+            half_w: 20.0,
+            half_d: 8.0,
+            rotation_y_deg: 90.0,
+            target_h_m: 15.0,
+            blend_m: 15.0,
+            priority: 10,
+            disturbance: 255,
+            cut_cap_mm: None,
+            ramp: None,
+        };
+        assert!(
+            (apply_terrain_carves(
+                20.0,
+                10,
+                0,
+                &[planned[0].clone(), crossing.clone()],
+            ) - 5.0)
+                .abs()
+                < 1e-9,
+            "another road's transition shoulder must not bury an owned flat top"
+        );
+        let carves = [planned[0].clone(), crossing];
+        let index = CarveIndex::new(&carves);
+        assert!(
+            (apply_terrain_carves_indexed(20.0, 10, 0, &carves, &index, PadPlatform::Active)
+                - 5.0)
+                .abs()
+                < 1e-9,
+            "the sparse carve index must preserve road ownership"
+        );
+        let carve = TerrainCarve {
+            profile: Some(CarveProfile::Route(std::sync::Arc::new(grade))),
+            cx: 10.0,
+            cz: 0.0,
+            half_w: 10.0,
+            half_d: 4.0,
+            rotation_y_deg: 0.0,
+            target_h_m: 5.0,
+            blend_m: 6.0,
+            priority: 10,
+            disturbance: 255,
+            cut_cap_mm: None,
+            ramp: None,
+        };
+        assert!((apply_terrain_carves(20.0, 10, 0, &[carve.clone()]) - 5.0).abs() < 1e-9);
+        assert!((apply_terrain_carves(20.0, 0, 0, &[carve.clone()]) - 6.0).abs() < 1e-9);
+        assert!((apply_terrain_carves(20.0, 20, 0, &[carve]) - 4.0).abs() < 1e-9);
     }
 
     #[test]

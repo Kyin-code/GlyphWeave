@@ -51,6 +51,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
+window.__glyphweaveBuild = 'route-grade-r165-20261023-5'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -131,6 +132,41 @@ Object.defineProperty(window, '__previewStats', {value: () => {
       drawCalls: nearRenderer.info.render.calls} : null,
     heap: performance.memory ? {usedBytes: performance.memory.usedJSHeapSize, source: 'performance.memory', gc: false} : null,
     gpuBytes: null})
+}})
+// Runtime road-family inspection without mutating baked world data. This is
+// intentionally observational: hiding a renderer family must never hide the
+// independent collision chain used by first-person movement.
+Object.defineProperty(window, '__glyphweaveRoadAudit', {value: {
+  families: () => {
+    const families = {}
+    nearScene?.traverse(object => {
+      const name = String(object.name || '')
+      const match = /^(route-evolution|route-sidewalk|route-median|route-lane|route-edge|route-centerline|route-junction|route-roadbed):?/.exec(name)
+      if (!match) return
+      const family = match[1]
+      const item = families[family] ??= {visible: 0, hidden: 0, meshes: []}
+      item[object.visible ? 'visible' : 'hidden'] += 1
+      if (object.isMesh) {
+        const position = object.geometry?.getAttribute?.('position')
+        item.meshes.push({
+          name,
+          visible: object.visible,
+          vertices: position?.count ?? 0,
+          triangles: object.geometry?.index ? object.geometry.index.count / 3 : (position?.count ?? 0) / 3,
+        })
+      }
+    })
+    return structuredClone(families)
+  },
+  setFamilyVisibility: (family, visible) => {
+    let changed = 0
+    nearScene?.traverse(object => {
+      if (!String(object.name || '').startsWith(`${family}:`)) return
+      object.visible = Boolean(visible)
+      changed += 1
+    })
+    return changed
+  },
 }})
 function requestNearDraw() {
   const requested = ++nearBuildToken
@@ -1315,22 +1351,121 @@ async function drawNear(buildToken) {
           }
           const leftWidth = Number(left.roadWidthM) || 8
           const rightWidth = Number(right.roadWidthM) || 8
+          const leftSurfaceY = designAt(leftFrom, leftTo, hit.leftT)
+          const rightSurfaceY = designAt(rightFrom, rightTo, hit.rightT)
+          // At grade-separated crossings the two ribbons already own separate
+          // deck levels. A single flat cap would erase that separation.
+          if (Math.abs(leftSurfaceY - rightSurfaceY) > 1.2) continue
+          const capRadius = Math.max(leftWidth, rightWidth) * .5 + 2
           roadJunctions.push({
             ...hit,
-            radius: Math.max(leftWidth, rightWidth) * .5 + 3.5,
-            pavementRadius: Math.max(leftWidth, rightWidth) * .5 + .35,
+            radius: capRadius + 1.5,
+            pavementRadius: capRadius,
             surfaceY: Math.max(
-              designAt(leftFrom, leftTo, hit.leftT),
-              designAt(rightFrom, rightTo, hit.rightT),
+              leftSurfaceY,
+              rightSurfaceY,
               heightAt(hit.x, hit.z),
+              heightAt(hit.x + capRadius, hit.z),
+              heightAt(hit.x - capRadius, hit.z),
+              heightAt(hit.x, hit.z + capRadius),
+              heightAt(hit.x, hit.z - capRadius),
             ) + .98,
           })
         }
       }
     }
   }
+  // Broken wedges also appeared where two same-level routes merged without a
+  // clean centreline crossing. Build a small spatial index over published route
+  // samples and cap those near-merge zones at the higher of the two design
+  // surfaces. Grade-separated pairs are deliberately excluded; they keep their
+  // distinct deck and ground pavement.
+  const routeSampleBuckets = new Map()
+  const sampleCellM = 12
+  const bucketKey = (x, z) => `${Math.floor(x / sampleCellM)}:${Math.floor(z / sampleCellM)}`
+  for (const route of roadRoutes) {
+    route.polyline.forEach((point, index) => {
+      const key = bucketKey(point.x, point.z)
+      const bucket = routeSampleBuckets.get(key) ?? []
+      bucket.push({ route, point, index })
+      routeSampleBuckets.set(key, bucket)
+    })
+  }
+  for (const [key, samples] of routeSampleBuckets) {
+    const [cellX, cellZ] = key.split(':').map(Number)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const neighbours = routeSampleBuckets.get(`${cellX + dx}:${cellZ + dz}`)
+        if (!neighbours) continue
+        for (const left of samples) {
+          for (const right of neighbours) {
+            if (left.route.id >= right.route.id) continue
+            const distance = Math.hypot(left.point.x - right.point.x, left.point.z - right.point.z)
+            const mergeDistance = Math.max(left.route.roadWidthM, right.route.roadWidthM) * .5 + 5
+            if (distance > mergeDistance) continue
+            const leftY = Number(left.point.designHeightM)
+            const rightY = Number(right.point.designHeightM)
+            if (!Number.isFinite(leftY) || !Number.isFinite(rightY)) continue
+            if (Math.abs(leftY - rightY) > 1.2) continue
+            const x = (left.point.x + right.point.x) * .5
+            const z = (left.point.z + right.point.z) * .5
+            const radius = Math.max(left.route.roadWidthM, right.route.roadWidthM) * .5 + 2
+            const surfaceY = Math.max(
+              leftY,
+              rightY,
+              heightAt(x, z),
+              heightAt(x + radius, z),
+              heightAt(x - radius, z),
+              heightAt(x, z + radius),
+              heightAt(x, z - radius),
+            ) + 1.02
+            if (roadJunctions.some(junction =>
+              Math.hypot(junction.x - x, junction.z - z) < 4
+              && Math.abs(junction.surfaceY - surfaceY) < 1.5)) continue
+            roadJunctions.push({ x, z, radius, pavementRadius: radius, surfaceY })
+          }
+        }
+      }
+    }
+  }
+  // A dense old/new-town centre can contain several nearby junctions whose
+  // individual caps leave grass wedges between road arms. Keep those as one
+  // designed paved junction, sourced only from at-grade caps (grade-separated
+  // crossings were excluded above).
+  const baseJunctions = roadJunctions.slice()
+  const clustered = new Set()
+  for (let index = 0; index < baseJunctions.length; index++) {
+    if (clustered.has(index)) continue
+    const group = [index]
+    clustered.add(index)
+    for (let cursor = 0; cursor < group.length; cursor++) {
+      const from = baseJunctions[group[cursor]]
+      for (let other = index + 1; other < baseJunctions.length; other++) {
+        if (clustered.has(other)) continue
+        const to = baseJunctions[other]
+        if (Math.hypot(from.x - to.x, from.z - to.z) < 34) {
+          clustered.add(other)
+          group.push(other)
+        }
+      }
+    }
+    if (group.length < 3) continue
+    const caps = group.map(item => baseJunctions[item])
+    const centreX = caps.reduce((sum, cap) => sum + cap.x, 0) / caps.length
+    const centreZ = caps.reduce((sum, cap) => sum + cap.z, 0) / caps.length
+    const outerRadius = caps.reduce((radius, cap) =>
+      Math.max(radius, Math.hypot(cap.x - centreX, cap.z - centreZ)), 0) + 10
+    const surfaceY = caps.reduce((surface, cap) => Math.max(surface, cap.surfaceY), -Infinity)
+    roadJunctions.push({
+      x: centreX,
+      z: centreZ,
+      radius: outerRadius,
+      pavementRadius: outerRadius * .96,
+      surfaceY,
+    })
+  }
   const junctionMaterial = new THREE.MeshStandardMaterial({
-    color: '#3f4748', roughness: .95, side: THREE.DoubleSide,
+    color: '#5d6364', roughness: .95, side: THREE.DoubleSide,
     polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
   })
   for (const [index, junction] of roadJunctions.entries()) {
@@ -1451,7 +1586,7 @@ async function drawNear(buildToken) {
       }
     }
     const carriagewayMaterial = new THREE.MeshStandardMaterial({
-      color: '#3f4748', roughness: .95,
+      color: '#5d6364', roughness: .95,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     })
     const carriagewayGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth, heightAt, THREE, .96, scene.originX, scene.originZ)
@@ -1522,10 +1657,9 @@ async function drawNear(buildToken) {
       )
       volume.rotation.y = -yaw
       volume.name = `route-roadbed:${route.id}:${index}`
-      // Collision remains independent from the visual ribbon, but the
-      // segmented debug box must not leak through intersections as a black
-      // polygon. It is intentionally invisible while still present in the
-      // collision index below.
+      // The continuous ribbon owns the visible surface. Keep this segmented
+      // solid solely as the independent collision proxy: exposing overlapping
+      // box faces produced alternating black bars at every bend.
       volume.visible = false
       volume.userData.collisionVolume = { type: 'road', roadClass: design.roadClass, laneCount, widthM: route.roadWidthM, heightM: design.collisionHeightM }
       nearCollisionVolumes.push({

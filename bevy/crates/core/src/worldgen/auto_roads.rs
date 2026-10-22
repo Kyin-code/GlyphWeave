@@ -9267,7 +9267,12 @@ mod tests {
                 || want.rotation_y_deg != got.rotation_y_deg
                 || !close(want.blend_m, got.blend_m)
                 || !close(want.target_h_m, got.target_h_m)
-                || !profile_contents_match(want.profile.as_ref(), got.profile.as_deref())
+                || !profile_contents_match(
+                    want.profile.as_ref(),
+                    got.profile
+                        .as_ref()
+                        .and_then(super::super::CarveProfile::as_road_profile),
+                )
             {
                 return Err(format!(
                     "carve {index} identity mismatch: expected {} / {} centre ({},{}) half ({},{}) rotation {} blend {} target {} profile {} but production has centre ({},{}) half ({},{}) rotation {} blend {} target {} profile {}",
@@ -9447,9 +9452,13 @@ mod tests {
             .as_ref()
             .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
             .unwrap_or(carve.target_h_m);
-        let limit = carve.profile.as_ref().map_or(f64::INFINITY, |p| {
-            natural_m + f64::from(p.max_fill_mm) / 1000.
-        });
+        let limit = carve
+            .profile
+            .as_ref()
+            .and_then(super::super::CarveProfile::as_road_profile)
+            .map_or(f64::INFINITY, |profile| {
+                natural_m + f64::from(profile.max_fill_mm) / 1000.
+            });
         (outside_x, outside_z, outside, target, limit, outside <= 0.0)
     }
 
@@ -10378,7 +10387,14 @@ mod tests {
             && close(a.half_d, b.half_d)
             && close(a.blend_m, b.blend_m)
             && close(a.target_h_m, b.target_h_m)
-            && profile_contents_match(a.profile.as_deref(), b.profile.as_deref())
+            && profile_contents_match(
+                a.profile
+                    .as_ref()
+                    .and_then(super::super::CarveProfile::as_road_profile),
+                b.profile
+                    .as_ref()
+                    .and_then(super::super::CarveProfile::as_road_profile),
+            )
     }
 
     /// Test-only: signature of a diagnostic baseline (carves plus their explicit
@@ -10405,7 +10421,11 @@ mod tests {
                         ("blendM", serde_json::json!(carve.blend_m)),
                         (
                             "profileHash",
-                            match carve.profile.as_deref() {
+                            match carve
+                                .profile
+                                .as_ref()
+                                .and_then(super::super::CarveProfile::as_road_profile)
+                            {
                                 Some(profile) => serde_json::json!(hash_json(profile)),
                                 None => serde_json::Value::Null,
                             },
@@ -17977,7 +17997,11 @@ mod tests {
             verify_carve_identity(std::slice::from_ref(&road), &carves).is_ok(),
             "the honest pair must bind"
         );
-        let arc = carves[0].profile.as_mut().expect("a profile carve");
+        let super::super::CarveProfile::Road(arc) =
+            carves[0].profile.as_mut().expect("a profile carve")
+        else {
+            panic!("expected a legacy road profile");
+        };
         let profile = std::sync::Arc::make_mut(arc);
         let index = 42_usize;
         assert!(index > 0 && index + 1 < profile.elevations_mm.len());
@@ -17989,10 +18013,15 @@ mod tests {
             "unexpected verification error: {error}"
         );
         // the retired weak check compared only profile presence, so it accepts it
-        assert!(profile_contents_match(
-            road.grounding.road_profile.as_ref(),
-            carves[0].profile.as_deref()
-        ) == false);
+        assert!(
+            profile_contents_match(
+                road.grounding.road_profile.as_ref(),
+                carves[0]
+                    .profile
+                    .as_ref()
+                    .and_then(super::super::CarveProfile::as_road_profile)
+            ) == false
+        );
     }
 
     /// B01-G10 synthetic regression (no natural input): the owner mapping must
@@ -19476,7 +19505,7 @@ mod tests {
             // contributes nothing, so the fixture exercises the same branch as
             // the frozen world instead of the legacy no-profile composition.
             let mut carves: Vec<super::super::TerrainCarve> = vec![super::super::TerrainCarve {
-                profile: Some(std::sync::Arc::new(
+                profile: Some(super::super::CarveProfile::Road(std::sync::Arc::new(
                     super::super::road_profile::RoadProfile {
                         version: 1,
                         road_width_m: 4,
@@ -19485,7 +19514,7 @@ mod tests {
                         elevations_mm: vec![0, 0, 0, 0, 0],
                         max_fill_mm: 6000,
                     },
-                )),
+                ))),
                 cx: 2.0,
                 cz: 16.0,
                 half_w: 1.0,
@@ -23959,7 +23988,7 @@ mod tests {
             ramp: None,
         };
         let graded = super::super::TerrainCarve {
-            profile: Some(std::sync::Arc::new(
+            profile: Some(super::super::CarveProfile::Road(std::sync::Arc::new(
                 super::super::road_profile::RoadProfile {
                     version: 1,
                     road_width_m: 12,
@@ -23968,7 +23997,7 @@ mod tests {
                     elevations_mm: vec![1500; 161],
                     max_fill_mm: 6000,
                 },
-            )),
+            ))),
             cx: 300.,
             cz: 162.,
             half_w: 80.,

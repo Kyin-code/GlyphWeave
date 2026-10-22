@@ -292,6 +292,7 @@ mod tests {
     fn operation(kind: &str) -> EngineeredTerrainOperation {
         EngineeredTerrainOperation {
             road_profile: None,
+            route_grade: None,
             id: "op".into(),
             kind: kind.into(),
             entity_id: "entity".into(),

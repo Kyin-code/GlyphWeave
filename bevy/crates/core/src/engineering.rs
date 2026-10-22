@@ -35,6 +35,9 @@ pub struct EngineeredTerrainSnapshot {
 pub struct EngineeredTerrainOperation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub road_profile: Option<crate::worldgen::road_profile::RoadProfile>,
+    /// Arbitrary-yaw longitudinal grade of a route-evolution segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_grade: Option<crate::worldgen::RouteGrade>,
     pub id: String,
     pub kind: String,
     pub entity_id: String,
@@ -59,9 +62,16 @@ fn rotation_is_zero(rotation: &f32) -> bool {
 impl EngineeredTerrainSnapshot {
     pub fn new(operations: Vec<EngineeredTerrainOperation>) -> Self {
         let graded = operations.iter().any(|op| op.road_profile.is_some());
+        let route_graded = operations.iter().any(|op| op.route_grade.is_some());
         Self {
             format: "glyphweave.engineered-terrain".into(),
-            version: if graded { 2 } else { 1 },
+            version: if route_graded {
+                3
+            } else if graded {
+                2
+            } else {
+                1
+            },
             status: if graded {
                 "profile-and-footprint-fill-surfaces"
             } else {

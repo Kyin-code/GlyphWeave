@@ -939,7 +939,18 @@ pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> 
         let prefix = format!("generated.route-evolution.{}.", action.target_id);
         for entity in entities
             .iter_mut()
-            .filter(|entity| entity.kind == "road" && entity.entity_id.starts_with(&prefix))
+            .filter(|entity| {
+                entity.kind == "road"
+                    && entity.entity_id.starts_with(&prefix)
+                    // Route-evolution width is a route-level contract consumed by
+                    // HTML and collision. A late per-segment entity widening
+                    // changes terrain and collision without changing the visible
+                    // road. Keep the published route width until the plan itself
+                    // supports segment-local widening.
+                    && !entity
+                        .entity_id
+                        .starts_with("generated.route-evolution.")
+            })
         {
             if entity.depth_m < target_width && !near_stream_chunk_boundary(entity, 48) {
                 let widened = OrientedFootprint {

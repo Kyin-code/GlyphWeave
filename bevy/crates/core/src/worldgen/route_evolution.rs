@@ -71,7 +71,7 @@ pub struct Program {
     pub routes: Vec<RouteRequest>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RoutePoint {
     pub x: i32,
@@ -307,6 +307,7 @@ pub fn plan(
         }
         routes.push(route);
     }
+    resolve_grade_crossings(&mut routes, program.max_bridge_span_m);
     Ok(Some(Plan {
         format: "glyphweave.route-evolution-plan".into(),
         version: 1,
@@ -325,6 +326,277 @@ pub fn plan(
         routes,
         failures,
     }))
+}
+
+const GRADE_SEPARATION_THRESHOLD_M: f64 = 1.2;
+
+/// Resolve route intersections that cannot form a sane at-grade junction.
+///
+/// A hillside local street and a contour road may meet with more than ten metres
+/// of vertical separation. Publishing both as ground-level ribbons made the
+/// terrain composer take the higher surface and bury the lower street. The
+/// higher route now publishes an explicit `overpass` span instead: it remains a
+/// real elevated deck, while the lower route keeps its own cut, pavement and
+/// collision chain.
+fn resolve_grade_crossings(routes: &mut [Route], max_span_m: f64) {
+    let mut additions = Vec::<(usize, BridgeSpan)>::new();
+    for left in 0..routes.len() {
+        for right in left + 1..routes.len() {
+            if routes[left].status != "pass" || routes[right].status != "pass" {
+                continue;
+            }
+            for left_index in 1..routes[left].polyline.len() {
+                for right_index in 1..routes[right].polyline.len() {
+                    let left_from = routes[left].polyline[left_index - 1];
+                    let left_to = routes[left].polyline[left_index];
+                    let right_from = routes[right].polyline[right_index - 1];
+                    let right_to = routes[right].polyline[right_index];
+                    let (left_t, right_t) = if let Some((_, _, t, u)) =
+                        segment_intersection(left_from, left_to, right_from, right_to)
+                    {
+                        (t, u)
+                    } else if let Some((overlap_lo, overlap_hi)) =
+                        collinear_overlap(left_from, left_to, right_from, right_to)
+                    {
+                        let left_length = f64::from(left_to.x - left_from.x)
+                            .hypot(f64::from(left_to.z - left_from.z));
+                        let midpoint_t = (overlap_lo + overlap_hi) * 0.5 / left_length;
+                        let point_x = f64::from(left_from.x)
+                            + f64::from(left_to.x - left_from.x) * midpoint_t;
+                        let point_z = f64::from(left_from.z)
+                            + f64::from(left_to.z - left_from.z) * midpoint_t;
+                        (midpoint_t, projection_fraction(right_from, right_to, point_x, point_z))
+                    } else if let Some((t, u, distance)) =
+                        segment_closest(left_from, left_to, right_from, right_to)
+                    {
+                        // `plan_terrain_carves` uses the wider published flat
+                        // top, including the one-metre transverse margin and the
+                        // seven-metre minimum band for narrow streets.
+                        let half_band = |width: u32| {
+                            (f64::from(width) * 0.5 + 1.0).max(7.0)
+                        };
+                        let footprint_overlap = half_band(routes[left].road_width_m)
+                            + half_band(routes[right].road_width_m);
+                        if distance >= footprint_overlap {
+                            continue;
+                        }
+                        (t, u)
+                    } else {
+                        continue;
+                    };
+                    let left_y = interpolate_height(left_from, left_to, left_t);
+                    let right_y = interpolate_height(right_from, right_to, right_t);
+                    if (left_y - right_y).abs() <= GRADE_SEPARATION_THRESHOLD_M {
+                        continue;
+                    }
+                    let (high, low, segment) = if left_y > right_y {
+                        (left, right, left_index)
+                    } else {
+                        (right, left, right_index)
+                    };
+                    let half_run = (f64::from(routes[left].road_width_m.max(routes[right].road_width_m))
+                        * 1.75
+                        + 12.0)
+                        .min(max_span_m * 0.5);
+                    let (start_index, end_index) =
+                        span_around(&routes[high].polyline, segment, half_run);
+                    let length_m = path_length(&routes[high].polyline[start_index..=end_index]);
+                    if length_m > max_span_m {
+                        continue;
+                    }
+                    additions.push((
+                        high,
+                        BridgeSpan {
+                            start_index,
+                            end_index,
+                            length_m,
+                            kind: format!("overpass-over-{}", routes[low].id),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    for (route_index, span) in additions {
+        routes[route_index].bridge_spans.push(span);
+    }
+    for route in routes {
+        route.bridge_spans.sort_by_key(|span| span.start_index);
+        let mut merged = Vec::<BridgeSpan>::new();
+        for span in route.bridge_spans.drain(..) {
+            if let Some(previous) = merged.last_mut() {
+                if span.start_index <= previous.end_index.saturating_add(1) {
+                    previous.end_index = previous.end_index.max(span.end_index);
+                    previous.length_m =
+                        path_length(&route.polyline[previous.start_index..=previous.end_index]);
+                    if span.kind.starts_with("rejected-") {
+                        previous.kind = span.kind;
+                    } else if previous.kind != span.kind && span.kind.starts_with("overpass") {
+                        previous.kind = "overpass".into();
+                    }
+                    continue;
+                }
+            }
+            merged.push(span);
+        }
+        route.bridge_spans = merged;
+    }
+}
+
+fn segment_intersection(
+    a: RoutePoint,
+    b: RoutePoint,
+    c: RoutePoint,
+    d: RoutePoint,
+) -> Option<(f64, f64, f64, f64)> {
+    let rx = f64::from(b.x - a.x);
+    let rz = f64::from(b.z - a.z);
+    let sx = f64::from(d.x - c.x);
+    let sz = f64::from(d.z - c.z);
+    let denominator = rx * sz - rz * sx;
+    if denominator.abs() < 1e-9 {
+        return None;
+    }
+    let qx = f64::from(c.x - a.x);
+    let qz = f64::from(c.z - a.z);
+    let t = (qx * sz - qz * sx) / denominator;
+    let u = (qx * rz - qz * rx) / denominator;
+    if !(-1e-6..=1.0 + 1e-6).contains(&t) || !(-1e-6..=1.0 + 1e-6).contains(&u) {
+        return None;
+    }
+    Some((
+        f64::from(a.x) + rx * t,
+        f64::from(a.z) + rz * t,
+        t,
+        u,
+    ))
+}
+
+/// Positive-length overlap of two collinear route segments, in metres along the
+/// first segment. Near-collinear centerlines within half a lane are accepted so
+/// independently smoothed route spellings of the same physical road converge.
+fn collinear_overlap(
+    a: RoutePoint,
+    b: RoutePoint,
+    c: RoutePoint,
+    d: RoutePoint,
+) -> Option<(f64, f64)> {
+    let ax = f64::from(b.x - a.x);
+    let az = f64::from(b.z - a.z);
+    let length = ax.hypot(az);
+    if length < 1e-6 {
+        return None;
+    }
+    let ux = ax / length;
+    let uz = az / length;
+    let distance = |point: RoutePoint| {
+        (f64::from(point.x - a.x) * -uz + f64::from(point.z - a.z) * ux).abs()
+    };
+    if distance(c).max(distance(d)) > 1.0 {
+        return None;
+    }
+    let project = |point: RoutePoint| {
+        f64::from(point.x - a.x) * ux + f64::from(point.z - a.z) * uz
+    };
+    let c_project = project(c);
+    let d_project = project(d);
+    let lo = c_project.min(d_project).max(0.0);
+    let hi = c_project.max(d_project).min(length);
+    (hi - lo > 1.0).then_some((lo, hi))
+}
+
+fn projection_fraction(a: RoutePoint, b: RoutePoint, x: f64, z: f64) -> f64 {
+    let dx = f64::from(b.x - a.x);
+    let dz = f64::from(b.z - a.z);
+    let length_sq = dx * dx + dz * dz;
+    if length_sq <= f64::EPSILON {
+        return 0.0;
+    }
+    (((x - f64::from(a.x)) * dx + (z - f64::from(a.z)) * dz) / length_sq).clamp(0.0, 1.0)
+}
+
+/// Fractions of the closest points on two segments and their centreline
+/// distance. Used to detect wide carriageways whose footprints overlap even
+/// when neither centreline actually crosses the other.
+fn segment_closest(
+    a: RoutePoint,
+    b: RoutePoint,
+    c: RoutePoint,
+    d: RoutePoint,
+) -> Option<(f64, f64, f64)> {
+    let ax = f64::from(a.x);
+    let az = f64::from(a.z);
+    let dx = f64::from(b.x) - ax;
+    let dz = f64::from(b.z) - az;
+    let cx = f64::from(c.x);
+    let cz = f64::from(c.z);
+    let ex = f64::from(d.x) - cx;
+    let ez = f64::from(d.z) - cz;
+    let rx = ax - cx;
+    let rz = az - cz;
+    let aa = dx * dx + dz * dz;
+    let ee = ex * ex + ez * ez;
+    let b = dx * ex + dz * ez;
+    let ef = ex * rx + ez * rz;
+    let denominator = aa * ee - b * b;
+    if aa <= f64::EPSILON || ee <= f64::EPSILON {
+        return None;
+    }
+    let f = dx * rx + dz * rz;
+    let (mut t, mut u) = if denominator.abs() < 1e-12 {
+        let mut t = (f / aa).clamp(0.0, 1.0);
+        let mut u = (((ax + dx * t) - cx) * ex + ((az + dz * t) - cz) * ez) / ee;
+        u = u.clamp(0.0, 1.0);
+        t = (((cx + ex * u) - ax) * dx + ((cz + ez * u) - az) * dz) / aa;
+        (t.clamp(0.0, 1.0), u)
+    } else {
+        (
+            ((b * ef - aa * f) / denominator).clamp(0.0, 1.0),
+            ((ee * f - b * ef) / denominator).clamp(0.0, 1.0),
+        )
+    };
+    if u < 0.0 {
+        u = 0.0;
+        t = (f / aa).clamp(0.0, 1.0);
+    } else if u > 1.0 {
+        u = 1.0;
+        t = ((dx * (cx + ex - ax) + dz * (cz + ez - az)) / aa).clamp(0.0, 1.0);
+    }
+    let px = ax + dx * t;
+    let pz = az + dz * t;
+    let qx = cx + ex * u;
+    let qz = cz + ez * u;
+    Some((t, u, (px - qx).hypot(pz - qz)))
+}
+
+fn interpolate_height(a: RoutePoint, b: RoutePoint, t: f64) -> f64 {
+    a.design_height_m + (b.design_height_m - a.design_height_m) * t
+}
+
+fn span_around(points: &[RoutePoint], center: usize, half_run_m: f64) -> (usize, usize) {
+    let mut start = center;
+    let mut travelled = 0.0;
+    while start > 0 {
+        let step = f64::from(points[start - 1].x - points[start].x)
+            .hypot(f64::from(points[start - 1].z - points[start].z));
+        if travelled + step > half_run_m {
+            break;
+        }
+        travelled += step;
+        start -= 1;
+    }
+    let mut end = center;
+    travelled = 0.0;
+    while end + 1 < points.len() {
+        let step = f64::from(points[end + 1].x - points[end].x)
+            .hypot(f64::from(points[end + 1].z - points[end].z));
+        if travelled + step > half_run_m {
+            break;
+        }
+        travelled += step;
+        end += 1;
+    }
+    (start, end)
 }
 
 struct Grid<'a> {
@@ -1208,8 +1480,17 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
             // Using atan2(dz, dx) mirrored every diagonal segment across X and
             // put its collision box on the opposite diagonal of the pavement.
             let rotation_y_deg = f64::from(-dz).atan2(f64::from(dx)).to_degrees() as f32;
+            let start_height_mm = (pair[0].design_height_m * 1000.).round() as i32;
+            let end_height_mm = (pair[1].design_height_m * 1000.).round() as i32;
             let design_height_m = (pair[0].design_height_m + pair[1].design_height_m) * 0.5;
             let structure_deck = route_segment_is_structure(route, &pair[0], &pair[1]);
+            let route_grade = super::RouteGrade {
+                version: 1,
+                start: [pair[0].x, pair[0].z],
+                end: [pair[1].x, pair[1].z],
+                start_height_mm,
+                end_height_mm,
+            };
             entities.push(EntityInstance {
                 asset_id: "road.generated".into(),
                 entity_id: format!("generated.route-evolution.{}.{}", route.id, index),
@@ -1225,6 +1506,7 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
                 grounding: super::GroundingSpec {
                     structure_deck,
                     roadbed_offset_m: if structure_deck { 0.0 } else { 0.5 },
+                    route_grade: Some(route_grade),
                     road_design: Some(super::RoadDesign::from_width(route.road_width_m as f32)),
                     ..super::GroundingSpec::default()
                 },
@@ -1516,6 +1798,218 @@ mod tests {
             .map(|entity| entity.entity_id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(ids.len(), entities.len());
+        for entity in &entities {
+            let grade = entity
+                .grounding
+                .route_grade
+                .as_ref()
+                .expect("every route segment must publish its design line");
+            grade.validate_shape().unwrap();
+            let midpoint = [
+                (grade.start[0] + grade.end[0]) as f64 * 0.5,
+                (grade.start[1] + grade.end[1]) as f64 * 0.5,
+            ];
+            let expected =
+                (f64::from(grade.start_height_mm) + f64::from(grade.end_height_mm)) * 0.0005;
+            assert!(
+                (grade
+                    .height_at(midpoint[0], midpoint[1])
+                    .expect("valid segment grade")
+                    - expected)
+                    .abs()
+                    < 1e-9
+            );
+        }
+    }
+
+    #[test]
+    fn conflicting_route_crossings_become_explicit_overpasses() {
+        let route = |id: &str, points: &[(i32, i32, f64)]| Route {
+            id: id.into(),
+            from: "a".into(),
+            to: "b".into(),
+            status: "pass".into(),
+            road_width_m: 8,
+            polyline: points
+                .iter()
+                .map(|(x, z, y)| RoutePoint {
+                    x: *x,
+                    z: *z,
+                    natural_height_m: *y,
+                    design_height_m: *y,
+                    water: false,
+                })
+                .collect(),
+            length_m: 20.0,
+            direct_length_m: 20.0,
+            curve_deviation_m: 0.0,
+            maximum_grade: 0.0,
+            maximum_fill_m: 0.0,
+            maximum_terrain_fill_m: 0.0,
+            fill_volume_m3: 0.0,
+            bridge_spans: Vec::new(),
+            failure: None,
+        };
+        let mut routes = vec![
+            route(
+                "low",
+                &[(0, 10, 2.0), (10, 10, 2.0), (20, 10, 2.0)],
+            ),
+            route(
+                "high",
+                &[(10, 0, 12.0), (10, 10, 12.0), (10, 20, 12.0)],
+            ),
+            route(
+                "parallel-high",
+                &[(0, 10, 5.0), (10, 10, 5.0), (20, 10, 5.0)],
+            ),
+            route(
+                "offset-high",
+                &[(0, 15, 5.0), (10, 15, 5.0), (20, 15, 5.0)],
+            ),
+        ];
+        resolve_grade_crossings(&mut routes, 420.0);
+        assert!(routes[0].bridge_spans.is_empty());
+        assert!(routes[1]
+            .bridge_spans
+            .iter()
+            .any(|span| span.kind == "overpass-over-low"));
+        assert!(routes[2]
+            .bridge_spans
+            .iter()
+            .any(|span| span.kind == "overpass-over-low"));
+        assert!(routes[3]
+            .bridge_spans
+            .iter()
+            .any(|span| span.kind == "overpass-over-low"));
+        let high = materialize(&Plan {
+            format: "glyphweave.route-evolution-plan".into(),
+            version: 1,
+            status: "pass".into(),
+            grid_step_m: 16,
+            road_width_m: 8,
+            max_grade: 0.08,
+            max_terrain_slope: 0.6,
+            max_fill_m: 6.0,
+            anchors: Vec::new(),
+            candidate_nodes: Vec::new(),
+            routes,
+            failures: Vec::new(),
+        });
+        assert!(high
+            .iter()
+            .filter(|entity| entity.entity_id.contains(".high."))
+            .any(|entity| entity.grounding.structure_deck));
+    }
+
+    #[test]
+    fn wide_sloped_road_footprints_without_centreline_crossing_grade_separate() {
+        let route = |id: &str, points: &[(i32, i32, f64)]| Route {
+            id: id.into(),
+            from: "a".into(),
+            to: "b".into(),
+            status: "pass".into(),
+            road_width_m: 8,
+            polyline: points
+                .iter()
+                .map(|(x, z, y)| RoutePoint {
+                    x: *x,
+                    z: *z,
+                    natural_height_m: *y,
+                    design_height_m: *y,
+                    water: false,
+                })
+                .collect(),
+            length_m: 20.0,
+            direct_length_m: 20.0,
+            curve_deviation_m: 0.0,
+            maximum_grade: 0.25,
+            maximum_fill_m: 0.0,
+            maximum_terrain_fill_m: 0.0,
+            fill_volume_m3: 0.0,
+            bridge_spans: Vec::new(),
+            failure: None,
+        };
+        let mut routes = vec![
+            route(
+                "local",
+                &[(744, 566, 2.0), (744, 570, 1.9), (744, 574, 1.8)],
+            ),
+            route(
+                "hillside",
+                &[
+                    (722, 568, 17.3),
+                    (726, 567, 17.0),
+                    (730, 565, 16.6),
+                    (734, 562, 16.2),
+                    (738, 558, 15.8),
+                    (741, 554, 15.4),
+                    (743, 550, 15.0),
+                ],
+            ),
+        ];
+        routes[1].road_width_m = 32;
+        let distance = segment_closest(
+            routes[0].polyline[0],
+            routes[0].polyline[1],
+            routes[1].polyline[0],
+            routes[1].polyline[1],
+        )
+        .unwrap()
+        .2;
+        assert!(distance < 20.0, "test geometry must overlap: {distance}");
+        resolve_grade_crossings(&mut routes, 420.0);
+        assert!(routes[1]
+            .bridge_spans
+            .iter()
+            .any(|span| span.kind == "overpass-over-local"));
+    }
+
+    #[test]
+    fn crossing_at_materialized_segment_endpoints_is_grade_separated() {
+        let route = |id: &str, width: u32, points: &[(i32, i32, f64)]| Route {
+            id: id.into(),
+            from: "a".into(),
+            to: "b".into(),
+            status: "pass".into(),
+            road_width_m: width,
+            polyline: points
+                .iter()
+                .map(|(x, z, y)| RoutePoint {
+                    x: *x,
+                    z: *z,
+                    natural_height_m: *y,
+                    design_height_m: *y,
+                    water: false,
+                })
+                .collect(),
+            length_m: 24.0,
+            direct_length_m: 24.0,
+            curve_deviation_m: 0.0,
+            maximum_grade: 0.08,
+            maximum_fill_m: 0.0,
+            maximum_terrain_fill_m: 0.0,
+            fill_volume_m3: 0.0,
+            bridge_spans: Vec::new(),
+            failure: None,
+        };
+        let mut routes = vec![
+            route(
+                "low",
+                16,
+                &[(550, 488, 33.75), (562, 488, 34.38), (574, 488, 35.34)],
+            ),
+            route(
+                "high",
+                10,
+                &[(568, 486, 41.96), (568, 490, 41.64), (568, 494, 41.32)],
+            ),
+        ];
+        resolve_grade_crossings(&mut routes, 420.0);
+        assert!(routes[1]
+            .bridge_spans
+            .iter()
+            .any(|span| span.kind == "overpass-over-low"));
     }
 
     #[test]

@@ -1,5 +1,18 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-23 道路纵断面/跨线/碰撞**：最新可验收输出为
+> `bevy/work/rk-x/v3-final-r169-20261023/`，`scale-audit=pass`。
+> r155 的 2,451/2,588 个道路中心线采样低于地形，最大埋深 14.716m；根因是
+> 路线设计面未进入最终地形 carve，并叠加规划历史 8m→32m 的实体单侧拓宽。
+> 现已为任意朝向路线分段发布 `routeGrade`，道路 corridor 同步挖填；
+> 高差冲突的交叉、共线重叠和宽 footprint 重叠发布为 41 个合并跨线 span；
+> 低位道路保留独立地形与 OBB 碰撞。r169 地面中心线偏差中位数
+> -0.0004m，最大埋深 2.817m，超过 0.75m 的剩余采样 16 个。
+> 逐段实体宽度隐式拓宽已停用；未来必须升级为 segment-local width 并同步
+> carve、HTML、碰撞后再开启。当前仍未完成 Rust 路口并集多边形、桥头挡墙与
+> 剩余局部高差。详见
+> [`ROAD-GRADE-COLLISION-20261023.zh-CN.md`](ROAD-GRADE-COLLISION-20261023.zh-CN.md)。
+
 > **2026-10-23 核心密度/道路碰撞复核**：当前工作分支
 > `refactor/authoritative-baked-audit`。已统一 Rust OBB、入口局部坐标与
 > THREE 正 Y 旋转；建筑可见 root 保留权威 yaw，立面翻转仅在子节点完成。
