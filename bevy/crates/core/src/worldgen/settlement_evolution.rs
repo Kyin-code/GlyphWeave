@@ -2095,12 +2095,62 @@ pub fn materialize(
         .collect()
 }
 
-pub fn materialize_stairs(buildings: &[EntityInstance]) -> Vec<EntityInstance> {
-    buildings
-        .iter()
-        .filter_map(|building| building.grounding.stair_connection.as_ref())
-        .flat_map(stair_entities)
-        .collect()
+pub fn materialize_stairs(
+    buildings: &[EntityInstance],
+    terrain: &BakedTerrain,
+) -> Vec<EntityInstance> {
+    let mut entities = Vec::new();
+    for building in buildings {
+        if let Some(primary) = building.grounding.stair_connection.as_ref() {
+            entities.extend(stair_entities(primary));
+        }
+        for anchor in &building.anchors {
+            let already_published = building
+                .grounding
+                .stair_connection
+                .as_ref()
+                .is_some_and(|stairs| stairs.from == [anchor.world_x, anchor.world_z]);
+            if already_published {
+                continue;
+            }
+            let [out_x, out_z] = outward_delta(&anchor.direction);
+            let landing = [anchor.world_x + out_x * 2, anchor.world_z + out_z * 2];
+            let near_seam = |value: i32| {
+                let rem = value.rem_euclid(STREAM_CHUNK_METERS as i32);
+                rem < 4 || rem > STREAM_CHUNK_METERS as i32 - 4
+            };
+            if near_seam(anchor.world_x)
+                || near_seam(anchor.world_z)
+                || near_seam(landing[0])
+                || near_seam(landing[1])
+            {
+                continue;
+            }
+            let Some(landing_m) = terrain.height(landing[0], landing[1]) else {
+                continue;
+            };
+            let start_m = f64::from(building.ground_height_m());
+            let delta_m = f64::from(landing_m) - start_m;
+            if !(0.30..=2.40).contains(&delta_m.abs()) {
+                continue;
+            }
+            let low_m = start_m.min(f64::from(landing_m));
+            let high_m = start_m.max(f64::from(landing_m));
+            entities.extend(stair_entities(&super::StairConnection {
+                version: 1,
+                stair_id: format!("{}.stairs.anchor.{}", building.entity_id, anchor.id),
+                from: [anchor.world_x, anchor.world_z],
+                to: landing,
+                from_mm: (start_m * 1000.0).round() as i32,
+                to_mm: (f64::from(landing_m) * 1000.0).round() as i32,
+                low_mm: (low_m * 1000.0).round() as i32,
+                high_mm: (high_m * 1000.0).round() as i32,
+                step_count: ((delta_m.abs() / 0.18).ceil() as u32).max(1),
+                width_m: 2.0,
+            }));
+        }
+    }
+    entities
 }
 
 pub fn attach_frontage_stairs(

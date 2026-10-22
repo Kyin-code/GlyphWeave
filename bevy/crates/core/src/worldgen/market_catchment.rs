@@ -1405,7 +1405,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
             });
         }
     }
-    let stairs = super::settlement_evolution::materialize_stairs(&entities);
+    let stairs = super::settlement_evolution::materialize_stairs(&entities, terrain);
     entities.extend(stairs);
     entities
 }

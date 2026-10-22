@@ -2993,7 +2993,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             .filter(|entity| !existing.contains(entity.entity_id.as_str()))
             .collect::<Vec<_>>();
             let count = materialized.len();
-            let stairs = settlement_evolution::materialize_stairs(&materialized);
+            let stairs =
+                settlement_evolution::materialize_stairs(&materialized, &natural_samples);
             let stair_count = stairs.len();
             drop(existing);
             entities.extend(materialized);

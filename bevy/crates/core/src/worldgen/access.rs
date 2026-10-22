@@ -396,36 +396,48 @@ pub(super) fn access_for_entity(
                 .copied()
                 .filter(|o| o.entity_id != e.entity_id)
                 .collect();
-            // A published stair belongs to the front facade. Reusing it for a
-            // side probe makes every side entrance fail by construction.
-            let stair = (e.anchors.len() == 1 || anchor.id == "front")
-                .then_some(e.grounding.stair_connection.as_ref())
-                .flatten();
-            let stair_routing = stair.and_then(|stairs| {
-                let part_prefix = format!("{}.part-", stairs.stair_id);
-                let stair_entity = entities.iter().find(|candidate| {
-                    (candidate.entity_id == stairs.stair_id
-                        || candidate.entity_id.starts_with(&part_prefix))
-                        && candidate.kind == "stairs"
-                })?;
-                let from = point(f64::from(stairs.from[0]), f64::from(stairs.from[1]));
-                let to = point(f64::from(stairs.to[0]), f64::from(stairs.to[1]));
-                if distance(from, facade_point) > 2.0
-                    || entrance_obstacles
+            let stair_candidates = e
+                .grounding
+                .stair_connection
+                .as_ref()
+                .into_iter()
+                .chain(
+                    entities
                         .iter()
-                        .any(|obstacle| crosses(obstacle, from, to))
+                        .filter(|candidate| candidate.kind == "stairs")
+                        .filter_map(|candidate| candidate.grounding.stair_connection.as_ref()),
+                )
+                .filter(|stairs| {
+                    distance(
+                        point(f64::from(stairs.from[0]), f64::from(stairs.from[1])),
+                        facade_point,
+                    ) <= 2.0
+                })
+                .collect::<Vec<_>>();
+            let had_stair_candidate = !stair_candidates.is_empty();
+            let mut stair_routing = None;
+            for candidate in stair_candidates {
+                let from = point(
+                    f64::from(candidate.from[0]),
+                    f64::from(candidate.from[1]),
+                );
+                let to = point(f64::from(candidate.to[0]), f64::from(candidate.to[1]));
+                if entrance_obstacles
+                    .iter()
+                    .any(|obstacle| crosses(obstacle, from, to))
                     || water.intersects_corridor(from.x, from.z, to.x, to.z, HALF_WIDTH)
+                    || height(terrain, to).is_none()
                 {
-                    return None;
+                    continue;
                 }
-                let _ = stair_entity;
-                height(terrain, to).is_some().then_some(to)
-            });
+                stair_routing = Some(to);
+                break;
+            }
             #[cfg(test)]
             observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
             if terrain.require_complete().is_err() {
                 link.status = "incomplete_terrain".into();
-            } else if stair.is_some() && stair_routing.is_none() {
+            } else if had_stair_candidate && stair_routing.is_none() {
                 link.status = "stair_connection_invalid".into();
             } else if stair_routing.is_none()
                 && [start, facade_point].into_iter().any(|p| {
