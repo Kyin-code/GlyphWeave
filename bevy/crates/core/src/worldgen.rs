@@ -7177,10 +7177,7 @@ fn route_pavement_at(
         {
             return false;
         }
-        // Include the engineering shoulder as urban hardscape. At complex
-        // junctions this prevents narrow uncovered terrain wedges from reading
-        // as grass growing through the carriageway.
-        carve_outside_m(carve, f64::from(x), f64::from(z)) <= 8.0
+        carve_outside_m(carve, f64::from(x), f64::from(z)) <= 0.0
     })
 }
 

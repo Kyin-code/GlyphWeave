@@ -254,6 +254,31 @@
 - 不用游戏截图证明测绘精度；
 - 不把 3D 模型包中的透视展示图反推为碰撞尺寸。
 
+## 5.1 2026-10-23 补充网络核对
+
+本轮重新核对了几类与本项目最接近的公开实现/资产来源。只采用“可验证页面
+存在且用途明确”的部分；没有把展示截图当尺度证据。
+
+| 来源 | 实测 | 可用于本项目 | 不能直接照搬 |
+|---|---|---|---|
+| Three.js Terrain Geometry<br>https://threejs.org/examples/webgl_geometry_terrain.html | HTTP 200 | 高度栅格 + 顶点法线的连续地表做法；说明渲染应消费同一高度场 | 该示例没有城市、道路横断面、碰撞或真实地貌语义 |
+| Three.js Ocean Shader<br>https://threejs.org/examples/webgl_shaders_ocean.html | HTTP 200 | 水面法线、波幅、受光与水平基准的表现方式 | 不是河流/潮汐/岸线模型，不能替代 Rust 水位与河床 |
+| Kenney City Kit Roads<br>https://kenney.nl/assets/city-kit-roads | HTTP 200 | 模块化道路、交叉口、路缘的造型参考 | 模块拼接不能决定世界中的车道数、转弯半径和碰撞 |
+| Quaternius<br>https://quaternius.com/ | HTTP 200 | 风格化建筑与自然资产的比例/色块参考 | 展示图透视不能反推真实 width/depth/height |
+| Khronos glTF Sample Assets<br>https://github.com/KhronosGroup/glTF-Sample-Assets | HTTP 200 | 模型坐标、材质和导入约定 | 通用示例资产不包含本项目资产合同与碰撞元数据 |
+| HKSS Natural Terrain<br>https://hkss.cedd.gov.hk/hkss/eng/natural_terrain.aspx | HTTP 200 | 山体、边坡、地表水与城市接触面的工程关注点 | 不是地图生成算法 |
+| Highways Department Structures Design Manual<br>https://www.hyd.gov.hk/en/technical_references/technical_document/structures_design_manual_2013/index.html | HTTP 200 | 桥梁/高架结构的设计语境 | 不把手册默认值直接复制到游戏碰撞 |
+| Poly Haven Models<br>https://polyhaven.com/models | HTTP 200 | 自然岩石、植被、建筑表面参考 | 资产许可和最终模型仍要逐项登记 |
+
+由此得到的实现约束：
+
+1. 地形、路面、水岸和碰撞必须共享 Rust 设计数据，Three.js 示例只提供
+   表现方法；
+2. 道路模块和交叉口应先来自路线/车道/碰撞合同，再选择模型；
+3. 山地城市优先考虑自然等高线、台地和高架/挡墙组合，不能把陡坡直接铺平；
+4. 水面使用独立水平面或明确河床纵坡，不跟随每个地形格子起伏；
+5. 建筑和自然资产按米制契约缩放，不能按截图或模型单位猜测。
+
 ## 6. 建议的下一轮取舍
 
 1. 先修复道路设计面、交叉口和车道连续性；

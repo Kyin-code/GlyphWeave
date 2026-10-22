@@ -264,9 +264,9 @@ export function makeHongKongTower(spec, THREE) {
   const antenna = new THREE.Mesh(new THREE.CylinderGeometry(.8, 1.4, Math.max(12, height * .12), 6), edge)
   antenna.position.y = height * 1.08
   tower.add(antenna)
-  const contactShadow = new THREE.Mesh(new THREE.CircleGeometry(Math.max(width, depth) * .72, 24), new THREE.MeshBasicMaterial({ color: '#101820', transparent: true, opacity: .28, depthWrite: false }))
+  const contactShadow = new THREE.Mesh(new THREE.CircleGeometry(Math.max(width, depth) * .5, 24), new THREE.MeshBasicMaterial({ color: '#101820', transparent: true, opacity: .28, depthWrite: false }))
   contactShadow.rotation.x = -Math.PI / 2
-  contactShadow.scale.set(1.35, 1.35, 1)
+  contactShadow.scale.set(1.05, 1.05, 1)
   contactShadow.position.y = .32
   contactShadow.renderOrder = 4
   contactShadow.material.depthTest = false
@@ -305,7 +305,7 @@ export function applySlopeFoundation(group, entity, heightAt, THREE, plinthColor
   const bottom = minGround - anchor
   if (top <= bottom + .4) return
   const plinth = new THREE.Mesh(
-    new THREE.BoxGeometry(entity.widthM + .6, top - bottom, entity.depthM + .6),
+    new THREE.BoxGeometry(entity.widthM, top - bottom, entity.depthM),
     new THREE.MeshStandardMaterial({ color: plinthColor, roughness: 1 })
   )
   plinth.position.set(0, (top + bottom) / 2, 0)
@@ -328,8 +328,11 @@ export function makeResidentialBlock(entity, THREE) {
   const roofPalette = ['#8a4f38', '#7a5a4a', '#b05038', '#6d5b72', '#5d7a6a']
   const windowMat = new THREE.MeshStandardMaterial({ color: '#7fc0d6', roughness: .2, metalness: .3 })
   const doorMat = new THREE.MeshStandardMaterial({ color: '#4a3426', roughness: .85 })
-  const rows = 2
-  const cols = 3
+  // Small plots should read as one coherent house; larger blocks may subdivide.
+  // A fixed 2x3 split turned a 6x10m building into six implausibly tiny cottages
+  // and made neighbouring visual envelopes appear to overlap.
+  const cols = entity.widthM >= 20 ? 3 : entity.widthM >= 12 ? 2 : 1
+  const rows = entity.depthM >= 20 ? 2 : 1
   for (let i = 0; i < rows; i++) {
     for (let j = 0; j < cols; j++) {
       const r = deterministicRand(entity.worldX, entity.worldZ, i * 7 + j * 3 + 1)

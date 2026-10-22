@@ -51,7 +51,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'route-grade-r165-20261023-5'
+window.__glyphweaveBuild = 'route-grade-building-r178-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -1146,7 +1146,7 @@ async function drawNear(buildToken) {
         periphery: '#7e8a69',
       }
       const plinth = new THREE.Mesh(
-        new THREE.BoxGeometry((entity.widthM ?? 12) + .6, .55, (entity.depthM ?? 12) + .6),
+        new THREE.BoxGeometry(entity.widthM ?? 12, .55, entity.depthM ?? 12),
         new THREE.MeshStandardMaterial({
           color: cohortColors[cohort] ?? '#80786b',
           roughness: .92,
@@ -1443,19 +1443,26 @@ async function drawNear(buildToken) {
       for (let other = index + 1; other < baseJunctions.length; other++) {
         if (clustered.has(other)) continue
         const to = baseJunctions[other]
-        if (Math.hypot(from.x - to.x, from.z - to.z) < 34) {
+        if (Math.hypot(from.x - to.x, from.z - to.z) < 60) {
           clustered.add(other)
           group.push(other)
         }
       }
     }
-    if (group.length < 3) continue
+    if (group.length < 2) continue
     const caps = group.map(item => baseJunctions[item])
     const centreX = caps.reduce((sum, cap) => sum + cap.x, 0) / caps.length
     const centreZ = caps.reduce((sum, cap) => sum + cap.z, 0) / caps.length
     const outerRadius = caps.reduce((radius, cap) =>
-      Math.max(radius, Math.hypot(cap.x - centreX, cap.z - centreZ)), 0) + 10
-    const surfaceY = caps.reduce((surface, cap) => Math.max(surface, cap.surfaceY), -Infinity)
+      Math.max(radius, Math.hypot(cap.x - centreX, cap.z - centreZ)), 0) + 15
+    let surfaceY = caps.reduce((surface, cap) => Math.max(surface, cap.surfaceY), -Infinity)
+    for (let step = 0; step < 8; step++) {
+      const angle = step * Math.PI / 4
+      surfaceY = Math.max(
+        surfaceY,
+        heightAt(centreX + Math.cos(angle) * outerRadius, centreZ + Math.sin(angle) * outerRadius) + 1.02,
+      )
+    }
     roadJunctions.push({
       x: centreX,
       z: centreZ,
