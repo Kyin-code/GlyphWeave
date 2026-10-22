@@ -742,11 +742,26 @@ async function drawNear(buildToken) {
         : entity.kind === 'residential_block' ? 2.5
           : entity.kind === 'residential_home' || entity.kind === 'residential_tower' ? 2
             : 1.5
+  const roadDistanceToPoint = (road, x, z) => {
+    const yaw = (Number(road.rotationYDeg) || 0) * Math.PI / 180
+    const cos = Math.cos(yaw)
+    const sin = Math.sin(yaw)
+    const dx = x - road.worldX
+    const dz = z - road.worldZ
+    const along = dx * cos - dz * sin
+    const across = dx * sin + dz * cos
+    const outsideAlong = Math.max(0, Math.abs(along) - (Number(road.widthM) || 0) * .5)
+    const outsideAcross = Math.max(0, Math.abs(across) - (Number(road.depthM) || 0) * .5)
+    return Math.hypot(outsideAlong, outsideAcross)
+  }
   const nearestStreetRoad = candidate => streetRoads.reduce((best, road) => {
     const front = candidate.grounding?.frontageRoadPoint
     const px = front?.[0] ?? candidate.worldX
     const pz = front?.[1] ?? candidate.worldZ
-    const d = Math.hypot(road.worldX - px, road.worldZ - pz)
+    // Segment centres can be tens of metres from their actual pavement.
+    // Measure to the oriented rectangle so a long segment crossing the core
+    // is not missed in favour of a short segment whose centre happens close.
+    const d = roadDistanceToPoint(road, px, pz)
     return !best || d < best.distance ? { road, distance: d } : best
   }, null)
   const routeChainFor = (road, point) => {
@@ -811,14 +826,16 @@ async function drawNear(buildToken) {
       z: front?.[1] ?? candidate.entity.worldZ,
     })
     return clearOfCrossings
-      && centreDist(candidate.entity) <= 260
+      && centreDist(candidate.entity) <= 180
       && route.chain.length >= 12
       && route.index >= 5
       && route.index < route.chain.length - 3
   }
+  const centralStreetHotspot = [...rankedStreetHotspots].sort((left, right) =>
+    centreDist(left.entity) - centreDist(right.entity)
+    || left.entity.entityId.localeCompare(right.entity.entityId))[0]
   const streetHotspot = rankedStreetHotspots.find(isMidBlockHotspot)
-    ?? rankedStreetHotspots.find(candidate => candidate.crossingPressure === 0)
-    ?? rankedStreetHotspots[0]
+    ?? centralStreetHotspot
     ?? null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
@@ -832,7 +849,7 @@ async function drawNear(buildToken) {
   const streetChain = selectedStreetRoute.chain
   const nearestChainIndex = selectedStreetRoute.index
   const streetCameraNode = nearestChainIndex >= 0
-    ? streetChain[Math.max(0, nearestChainIndex - 8)]
+    ? streetChain[Math.max(0, nearestChainIndex - 2)]
     : streetRoad
   const streetTargetNode = nearestChainIndex >= 0
     ? streetChain[Math.min(streetChain.length - 1, nearestChainIndex + 12)]
@@ -1298,7 +1315,7 @@ async function drawNear(buildToken) {
   // A route is rendered as one continuous carriageway. Its lane paint is
   // clipped around true polyline intersections so the preview no longer draws
   // a lattice of yellow/white lines straight through junction boxes.
-  const splitRoadPaint = (points, lift = 1.12) => {
+  const splitRoadPaint = (points, lift = 1.12, extraRadius = 0) => {
     const sampled = densifyPolylinePoints(points, 2.5)
     const runs = []
     let run = []
@@ -1308,7 +1325,7 @@ async function drawNear(buildToken) {
     }
     for (const point of sampled) {
       const insideJunction = roadJunctions.some(junction =>
-        Math.hypot(point.x - junction.x, point.z - junction.z) <= junction.radius)
+        Math.hypot(point.x - junction.x, point.z - junction.z) <= junction.radius + extraRadius)
       if (insideJunction) flush()
       else run.push(point)
     }
@@ -1375,12 +1392,23 @@ async function drawNear(buildToken) {
     })
     for (const side of [-1, 1]) {
       const sidewalkPoints = offsetPolylinePoints(route.polyline, side * (halfWidth + sidewalkWidth * .5))
-      const geometry = makePolylineRibbonGeometry(sidewalkPoints, sidewalkWidth * .5, heightAt, THREE, .9, scene.originX, scene.originZ)
-      if (!geometry) continue
-      const pavement = new THREE.Mesh(geometry, pavementMaterial)
-      pavement.name = `route-sidewalk:${route.id}:${side < 0 ? 'left' : 'right'}`
-      pavement.renderOrder = 3
-      nearGroupRoot.add(pavement)
+      // Sidewalk ribbons must not pass through a junction box as one folded
+      // polygon. At a corner their independent offsets can self-intersect and
+      // leave the large triangular wedges seen in the street preview. Clip
+      // each side into clean mid-block runs; the carriageway and its collision
+      // chain remain continuous.
+      for (const [runIndex, run] of splitRoadPaint(
+        sidewalkPoints,
+        .9,
+        sidewalkWidth * .5,
+      ).entries()) {
+        const geometry = makePolylineRibbonGeometry(run, sidewalkWidth * .5, heightAt, THREE, .9, scene.originX, scene.originZ)
+        if (!geometry) continue
+        const pavement = new THREE.Mesh(geometry, pavementMaterial)
+        pavement.name = `route-sidewalk:${route.id}:${side < 0 ? 'left' : 'right'}:${runIndex}`
+        pavement.renderOrder = 3
+        nearGroupRoot.add(pavement)
+      }
     }
     const carriagewayMaterial = new THREE.MeshStandardMaterial({
       color: '#3f4748', roughness: .95,
@@ -1395,12 +1423,18 @@ async function drawNear(buildToken) {
     }
     const medianWidth = Math.max(0, Number(design.medianWidthM) || 0)
     if (medianWidth > .2) {
-      const medianGeometry = makePolylineRibbonGeometry(route.polyline, medianWidth * .5, heightAt, THREE, 1.03, scene.originX, scene.originZ)
-      if (medianGeometry) {
-        const median = new THREE.Mesh(medianGeometry, new THREE.MeshStandardMaterial({ color: '#7f8870', roughness: .98 }))
-        median.name = 'route-median:' + route.id
-        median.renderOrder = 5
-        nearGroupRoot.add(median)
+      for (const [runIndex, run] of splitRoadPaint(
+        route.polyline,
+        1.03,
+        medianWidth * .5,
+      ).entries()) {
+        const medianGeometry = makePolylineRibbonGeometry(run, medianWidth * .5, heightAt, THREE, 1.03, scene.originX, scene.originZ)
+        if (medianGeometry) {
+          const median = new THREE.Mesh(medianGeometry, new THREE.MeshStandardMaterial({ color: '#7f8870', roughness: .98 }))
+          median.name = `route-median:${route.id}:${runIndex}`
+          median.renderOrder = 5
+          nearGroupRoot.add(median)
+        }
       }
     }
     const laneCount = Math.max(1, Number(design.laneCount) || 2)
