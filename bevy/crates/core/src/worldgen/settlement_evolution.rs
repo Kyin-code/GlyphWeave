@@ -806,8 +806,22 @@ pub fn plan(
                 }
                 let (stage_width, stage_depth) =
                     staged_lot_size(district_stage, base_lot_width_m, base_lot_depth_m);
-                let lot_width_m = (stage_width * 0.75).clamp(6.0, 10.0);
-                let lot_depth_m = (stage_depth * 0.50).clamp(8.0, 16.0);
+                // Keep small infill for tight gaps, but let roughly one in
+                // four positions become a genuine combined residential block.
+                // A single uniform grain was still producing a wall of tiny
+                // boxes and under-reporting the real mid-block floorspace.
+                let large_block = hash.as_bytes()[8] % 4 == 0;
+                let (lot_width_m, lot_depth_m) = if large_block {
+                    (
+                        (stage_width * 1.20).clamp(10.0, 20.0),
+                        (stage_depth * 0.80).clamp(16.0, 28.0),
+                    )
+                } else {
+                    (
+                        (stage_width * 0.75).clamp(6.0, 10.0),
+                        (stage_depth * 0.50).clamp(8.0, 16.0),
+                    )
+                };
                 let rotation_y_deg = (-f64::from(road_point[0] - x))
                     .atan2(-f64::from(road_point[1] - z))
                     .to_degrees() as f32;
