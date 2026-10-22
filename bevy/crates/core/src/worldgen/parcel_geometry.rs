@@ -101,7 +101,9 @@ pub fn boundary(
         || result[3] <= result[1]
         || result[2] - result[0] > 128
         || result[3] - result[1] > 128
-        || result.iter().any(|v| *v < i64::from(i32::MIN) || *v > i64::from(i32::MAX))
+        || result
+            .iter()
+            .any(|v| *v < i64::from(i32::MIN) || *v > i64::from(i32::MAX))
     {
         return Err("parcel boundary is degenerate, exceeds 128m, or overflows i32".into());
     }
@@ -164,7 +166,10 @@ mod tests {
             (180., [-10, -17, 10, 9]),
             (270., [-17, -10, 9, 10]),
         ] {
-            assert_eq!(boundary_for_entity(&entity(0, 0, rotation), insets).unwrap(), expected);
+            assert_eq!(
+                boundary_for_entity(&entity(0, 0, rotation), insets).unwrap(),
+                expected
+            );
         }
         let p = boundary_for_entity(&entity(100, 200, 0.0), insets).unwrap();
         assert_eq!((p[2] - p[0]) * (p[3] - p[1]), 520);
@@ -191,27 +196,33 @@ mod tests {
 
     #[test]
     fn invalid_insets_and_overflow_fail_closed() {
-        assert!(ParcelInsets {
-            front_m: 3,
-            side_m: 2,
-            rear_m: 2
-        }
-        .validate(12, 10)
-        .is_err());
-        assert!(ParcelInsets {
-            front_m: 4,
-            side_m: 64,
-            rear_m: 12
-        }
-        .validate(12, 10)
-        .is_err());
-        assert!(ParcelInsets {
-            front_m: 4,
-            side_m: 4,
-            rear_m: 12
-        }
-        .validate_for_request(12, 10, 2)
-        .is_err());
+        assert!(
+            ParcelInsets {
+                front_m: 3,
+                side_m: 2,
+                rear_m: 2
+            }
+            .validate(12, 10)
+            .is_err()
+        );
+        assert!(
+            ParcelInsets {
+                front_m: 4,
+                side_m: 64,
+                rear_m: 12
+            }
+            .validate(12, 10)
+            .is_err()
+        );
+        assert!(
+            ParcelInsets {
+                front_m: 4,
+                side_m: 4,
+                rear_m: 12
+            }
+            .validate_for_request(12, 10, 2)
+            .is_err()
+        );
         assert!(boundary(i32::MAX, 0, 12, 10, 0., ParcelInsets::legacy()).is_err());
     }
 }

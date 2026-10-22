@@ -6,7 +6,9 @@
 //! `validate-world` and `quality-report` subcommands on the same world, plus the
 //! source-binding negatives. Nothing is proven by calling a core helper instead
 //! of the CLI.
-use glyphweave_core::worldgen::{NaturalSource, WorldManifest, bake_world, declared_natural_source};
+use glyphweave_core::worldgen::{
+    NaturalSource, WorldManifest, bake_world, declared_natural_source,
+};
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf, process::Command};
 
@@ -62,8 +64,7 @@ fn streams(output: &std::process::Output) -> (String, String) {
 fn supply_manifest() -> WorldManifest {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/b02-road-supply.manifest.json");
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.world.seed = 0x00c0_ffee;
     manifest.scenes[0].seed_offset = 0x0000_beef;
     manifest.style["heightPrecision"] = json!("millimeter");

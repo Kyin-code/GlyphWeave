@@ -365,16 +365,17 @@ fn resolve_grade_crossings(routes: &mut [Route], max_span_m: f64) {
                             + f64::from(left_to.x - left_from.x) * midpoint_t;
                         let point_z = f64::from(left_from.z)
                             + f64::from(left_to.z - left_from.z) * midpoint_t;
-                        (midpoint_t, projection_fraction(right_from, right_to, point_x, point_z))
+                        (
+                            midpoint_t,
+                            projection_fraction(right_from, right_to, point_x, point_z),
+                        )
                     } else if let Some((t, u, distance)) =
                         segment_closest(left_from, left_to, right_from, right_to)
                     {
                         // `plan_terrain_carves` uses the wider published flat
                         // top, including the one-metre transverse margin and the
                         // seven-metre minimum band for narrow streets.
-                        let half_band = |width: u32| {
-                            (f64::from(width) * 0.5 + 1.0).max(7.0)
-                        };
+                        let half_band = |width: u32| (f64::from(width) * 0.5 + 1.0).max(7.0);
                         let footprint_overlap = half_band(routes[left].road_width_m)
                             + half_band(routes[right].road_width_m);
                         if distance >= footprint_overlap {
@@ -394,10 +395,11 @@ fn resolve_grade_crossings(routes: &mut [Route], max_span_m: f64) {
                     } else {
                         (right, left, right_index)
                     };
-                    let half_run = (f64::from(routes[left].road_width_m.max(routes[right].road_width_m))
-                        * 1.75
-                        + 12.0)
-                        .min(max_span_m * 0.5);
+                    let half_run =
+                        (f64::from(routes[left].road_width_m.max(routes[right].road_width_m))
+                            * 1.75
+                            + 12.0)
+                            .min(max_span_m * 0.5);
                     let (start_index, end_index) =
                         span_around(&routes[high].polyline, segment, half_run);
                     let length_m = path_length(&routes[high].polyline[start_index..=end_index]);
@@ -464,12 +466,7 @@ fn segment_intersection(
     if !(-1e-6..=1.0 + 1e-6).contains(&t) || !(-1e-6..=1.0 + 1e-6).contains(&u) {
         return None;
     }
-    Some((
-        f64::from(a.x) + rx * t,
-        f64::from(a.z) + rz * t,
-        t,
-        u,
-    ))
+    Some((f64::from(a.x) + rx * t, f64::from(a.z) + rz * t, t, u))
 }
 
 /// Positive-length overlap of two collinear route segments, in metres along the
@@ -489,15 +486,12 @@ fn collinear_overlap(
     }
     let ux = ax / length;
     let uz = az / length;
-    let distance = |point: RoutePoint| {
-        (f64::from(point.x - a.x) * -uz + f64::from(point.z - a.z) * ux).abs()
-    };
+    let distance =
+        |point: RoutePoint| (f64::from(point.x - a.x) * -uz + f64::from(point.z - a.z) * ux).abs();
     if distance(c).max(distance(d)) > 1.0 {
         return None;
     }
-    let project = |point: RoutePoint| {
-        f64::from(point.x - a.x) * ux + f64::from(point.z - a.z) * uz
-    };
+    let project = |point: RoutePoint| f64::from(point.x - a.x) * ux + f64::from(point.z - a.z) * uz;
     let c_project = project(c);
     let d_project = project(d);
     let lo = c_project.min(d_project).max(0.0);
@@ -1851,37 +1845,34 @@ mod tests {
             failure: None,
         };
         let mut routes = vec![
-            route(
-                "low",
-                &[(0, 10, 2.0), (10, 10, 2.0), (20, 10, 2.0)],
-            ),
-            route(
-                "high",
-                &[(10, 0, 12.0), (10, 10, 12.0), (10, 20, 12.0)],
-            ),
+            route("low", &[(0, 10, 2.0), (10, 10, 2.0), (20, 10, 2.0)]),
+            route("high", &[(10, 0, 12.0), (10, 10, 12.0), (10, 20, 12.0)]),
             route(
                 "parallel-high",
                 &[(0, 10, 5.0), (10, 10, 5.0), (20, 10, 5.0)],
             ),
-            route(
-                "offset-high",
-                &[(0, 15, 5.0), (10, 15, 5.0), (20, 15, 5.0)],
-            ),
+            route("offset-high", &[(0, 15, 5.0), (10, 15, 5.0), (20, 15, 5.0)]),
         ];
         resolve_grade_crossings(&mut routes, 420.0);
         assert!(routes[0].bridge_spans.is_empty());
-        assert!(routes[1]
-            .bridge_spans
-            .iter()
-            .any(|span| span.kind == "overpass-over-low"));
-        assert!(routes[2]
-            .bridge_spans
-            .iter()
-            .any(|span| span.kind == "overpass-over-low"));
-        assert!(routes[3]
-            .bridge_spans
-            .iter()
-            .any(|span| span.kind == "overpass-over-low"));
+        assert!(
+            routes[1]
+                .bridge_spans
+                .iter()
+                .any(|span| span.kind == "overpass-over-low")
+        );
+        assert!(
+            routes[2]
+                .bridge_spans
+                .iter()
+                .any(|span| span.kind == "overpass-over-low")
+        );
+        assert!(
+            routes[3]
+                .bridge_spans
+                .iter()
+                .any(|span| span.kind == "overpass-over-low")
+        );
         let high = materialize(&Plan {
             format: "glyphweave.route-evolution-plan".into(),
             version: 1,
@@ -1896,10 +1887,11 @@ mod tests {
             routes,
             failures: Vec::new(),
         });
-        assert!(high
-            .iter()
-            .filter(|entity| entity.entity_id.contains(".high."))
-            .any(|entity| entity.grounding.structure_deck));
+        assert!(
+            high.iter()
+                .filter(|entity| entity.entity_id.contains(".high."))
+                .any(|entity| entity.grounding.structure_deck)
+        );
     }
 
     #[test]
@@ -1959,10 +1951,12 @@ mod tests {
         .2;
         assert!(distance < 20.0, "test geometry must overlap: {distance}");
         resolve_grade_crossings(&mut routes, 420.0);
-        assert!(routes[1]
-            .bridge_spans
-            .iter()
-            .any(|span| span.kind == "overpass-over-local"));
+        assert!(
+            routes[1]
+                .bridge_spans
+                .iter()
+                .any(|span| span.kind == "overpass-over-local")
+        );
     }
 
     #[test]
@@ -2006,10 +2000,12 @@ mod tests {
             ),
         ];
         resolve_grade_crossings(&mut routes, 420.0);
-        assert!(routes[1]
-            .bridge_spans
-            .iter()
-            .any(|span| span.kind == "overpass-over-low"));
+        assert!(
+            routes[1]
+                .bridge_spans
+                .iter()
+                .any(|span| span.kind == "overpass-over-low")
+        );
     }
 
     #[test]

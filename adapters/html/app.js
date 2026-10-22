@@ -762,8 +762,10 @@ async function drawNear(buildToken) {
   const streetFabricKinds = new Set(['residential_home', 'residential_block', 'residential_tower', 'storefront', 'market', 'urban_building', 'office_tower', 'community_plaza'])
   const streetFabric = (scene.entities ?? []).filter(entity => streetFabricKinds.has(entity.kind))
   const allStreetRoads = (scene.entities ?? []).filter(entity => entity.kind === 'road' && !entity.entityId.includes('.approach.'))
-  const longStreetRoads = allStreetRoads.filter(entity => (entity.widthM || 0) >= 16)
-  const streetRoads = longStreetRoads.length ? longStreetRoads : allStreetRoads
+  // A dense historic quarter is often served by 8-12m lanes. Restricting the
+  // hotspot search to arterials moved the default camera from the densest
+  // fabric to an empty central interchange.
+  const streetRoads = allStreetRoads
   const streetFabricCentre = streetFabric.length ? {
     x: streetFabric.reduce((sum, entity) => sum + entity.worldX, 0) / streetFabric.length,
     z: streetFabric.reduce((sum, entity) => sum + entity.worldZ, 0) / streetFabric.length,

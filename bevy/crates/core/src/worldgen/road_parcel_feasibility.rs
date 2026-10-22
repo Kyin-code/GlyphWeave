@@ -86,7 +86,10 @@ pub fn trusted_base_contract(
         match &entity.grounding.road_profile {
             Some(profile) => {
                 profile.validate_shape().map_err(|error| {
-                    format!("trusted base edge {} profile is invalid: {}", edge.id, error.0)
+                    format!(
+                        "trusted base edge {} profile is invalid: {}",
+                        edge.id, error.0
+                    )
                 })?;
                 let from = base
                     .nodes
@@ -111,9 +114,7 @@ pub fn trusted_base_contract(
             }
             None => {
                 if (entity.ground_height_m() * 1000.).round() as i32 != base_level_m {
-                    return Err(
-                        "trusted base supports only base roads at the base level".into(),
-                    );
+                    return Err("trusted base supports only base roads at the base level".into());
                 }
             }
         }
@@ -154,7 +155,10 @@ pub fn apply_fixed_endpoint_levels(
                 .get(point_field)
                 .and_then(serde_json::Value::as_array)
                 .and_then(|values| {
-                    Some([values.first()?.as_i64()? as i32, values.get(1)?.as_i64()? as i32])
+                    Some([
+                        values.first()?.as_i64()? as i32,
+                        values.get(1)?.as_i64()? as i32,
+                    ])
                 })
                 .ok_or_else(|| format!("invalid corridor {point_field}"))?;
             if let Some(level) = trusted.fixed_nodes.get(&point) {
@@ -199,7 +203,9 @@ pub fn audit_node_heights(
     }
     for (point, level) in &trusted.fixed_nodes {
         if !nodes.contains_key(point) {
-            return Err(format!("fixed road node {point:?} is missing from candidate"));
+            return Err(format!(
+                "fixed road node {point:?} is missing from candidate"
+            ));
         }
         levels.insert(*point, *level);
     }
@@ -276,15 +282,9 @@ fn audit_final_road_support(
     let carves = super::plan_terrain_carves(&plan_entities);
     for entity in &plan_entities {
         let (hw, hd) = if entity.rotation_y_deg == 0. {
-            (
-                entity.width_m as i32 / 2 + 4,
-                entity.depth_m as i32 / 2 + 3,
-            )
+            (entity.width_m as i32 / 2 + 4, entity.depth_m as i32 / 2 + 3)
         } else {
-            (
-                entity.depth_m as i32 / 2 + 3,
-                entity.width_m as i32 / 2 + 4,
-            )
+            (entity.depth_m as i32 / 2 + 3, entity.width_m as i32 / 2 + 4)
         };
         for z in entity.world_z - hd..=entity.world_z + hd {
             for x in entity.world_x - hw..=entity.world_x + hw {
@@ -302,10 +302,9 @@ fn audit_final_road_support(
                 // natural ground by at most that cap (its own entity states it, exactly
                 // as `road_network::verify_impl` reads it). Without a cap this is the
                 // historical `fill >= 0` rule, cell for cell.
-                let cut_allowance_m = entity
-                    .grounding
-                    .bounded_cut_mm
-                    .map_or(0_f64, |cap| f64::from(super::bounded_cut::clamp_cap(cap)) / 1000.);
+                let cut_allowance_m = entity.grounding.bounded_cut_mm.map_or(0_f64, |cap| {
+                    f64::from(super::bounded_cut::clamp_cap(cap)) / 1000.
+                });
                 if fill < -cut_allowance_m - 1e-9
                     || fill > f64::from(plan.max_roadbed_fill_m) + 1e-9
                     || fill > mask.fill_capacity_at(x, z) + 1e-9
@@ -315,12 +314,8 @@ fn audit_final_road_support(
                         entity.entity_id
                     ));
                 }
-                let expected = super::apply_terrain_carves(
-                    f64::from(natural_height),
-                    x,
-                    z,
-                    &carves,
-                );
+                let expected =
+                    super::apply_terrain_carves(f64::from(natural_height), x, z, &carves);
                 let actual = final_terrain
                     .height(x, z)
                     .ok_or("road support sample missing from final terrain")?;
@@ -349,15 +344,7 @@ pub fn audit_joint_plan(
     plan: &super::road_network::RoadNetworkPlan,
     trusted: &TrustedBaseContract,
 ) -> Result<JointAudit, String> {
-    audit_joint_plan_with_fixed_nodes(
-        scene,
-        natural,
-        final_terrain,
-        water,
-        zones,
-        plan,
-        trusted,
-    )
+    audit_joint_plan_with_fixed_nodes(scene, natural, final_terrain, water, zones, plan, trusted)
 }
 
 pub fn audit_joint_plan_with_fixed_nodes(
@@ -372,11 +359,7 @@ pub fn audit_joint_plan_with_fixed_nodes(
     if plan.extensions.len() > MAX_JOINT_EXTENSIONS {
         return Err("joint road candidate exceeds the bounded 256-state budget".into());
     }
-    if natural
-        .content_hash()
-        .map_err(|error| error.to_string())?
-        != trusted.natural_hash
-    {
+    if natural.content_hash().map_err(|error| error.to_string())? != trusted.natural_hash {
         return Err("joint candidate natural terrain differs from trusted source".into());
     }
     let node_audit = audit_node_heights(plan, trusted)?;
@@ -389,14 +372,26 @@ pub fn audit_joint_plan_with_fixed_nodes(
             water,
             zones,
         )
-        .map_err(|error| format!("extension {} source rebuild failed: {error}", extension.entity_id))?;
+        .map_err(|error| {
+            format!(
+                "extension {} source rebuild failed: {error}",
+                extension.entity_id
+            )
+        })?;
     }
     audit_final_road_support(plan, natural, final_terrain, zones, scene)?;
     let entities = candidate_entities(plan);
     let access = super::build_access_graph(&entities, final_terrain, water);
     let development_plan = development::plan(scene, zones, plan)?;
-    let development_audit =
-        development::verify(&development_plan, scene, zones, plan, &entities, &access, &[])?;
+    let development_audit = development::verify(
+        &development_plan,
+        scene,
+        zones,
+        plan,
+        &entities,
+        &access,
+        &[],
+    )?;
     let landcover_plan = development::plan_landcover(scene, &development_plan)?;
     let surfaces = landcover::realize(
         scene,
@@ -464,8 +459,7 @@ pub fn evaluate_style_candidate(
     style: &serde_json::Value,
     trusted: &TrustedBaseContract,
 ) -> Result<JointAudit, String> {
-    let service_program =
-        super::services::from_style(style).map_err(|error| error.to_string())?;
+    let service_program = super::services::from_style(style).map_err(|error| error.to_string())?;
     let plan = super::road_network::plan_with_style(
         scene,
         natural,
@@ -608,17 +602,17 @@ mod tests {
             roadside_sites: vec![],
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: vec![],
             joint_layout: None,
             water_crossings: Vec::new(),
             water_crossing_rejections: Vec::new(),
-        
+
             entry_corridor_policy: Default::default(),
-}
-}
+        }
+    }
 
     fn append_network(
         plan: &mut super::super::road_network::RoadNetworkPlan,
@@ -663,16 +657,9 @@ mod tests {
                 end_level_mm: Some(end_level_mm),
                 junction_length_m: 8,
             };
-            super::super::road_extensions::append_one(
-                plan,
-                &context,
-                &request,
-                id.into(),
-            )
-            .unwrap();
+            super::super::road_extensions::append_one(plan, &context, &request, id.into()).unwrap();
         }
-        super::super::frontage::append(plan, scene, terrain, water, Some(zones), &style())
-            .unwrap();
+        super::super::frontage::append(plan, scene, terrain, water, Some(zones), &style()).unwrap();
     }
 
     fn engineered_terrain(
@@ -783,16 +770,8 @@ mod tests {
         let trusted = trusted_base_contract(&base, &natural_hash).unwrap();
         let mut plan = base;
         append_network(&mut plan, &scene, &terrain, water, &zones, 0, 0, 0);
-        let audit = audit_joint_plan(
-            &scene,
-            &terrain,
-            &terrain,
-            water,
-            &zones,
-            &plan,
-            &trusted,
-        )
-        .unwrap();
+        let audit =
+            audit_joint_plan(&scene, &terrain, &terrain, water, &zones, &plan, &trusted).unwrap();
         assert_eq!(audit.frontage_requested, 24);
         assert_eq!(audit.frontage_planned, 24);
         assert_eq!(audit.frontage_realized_with_access, 24);
@@ -830,29 +809,25 @@ mod tests {
             .position(|patch| patch.material == landcover::Material::ManagedGrass)
             .expect("yard patch");
         surfaces.patches.remove(yard);
-        assert!(landcover::verify(
-            &surfaces,
-            &scene,
-            &development_plan,
-            &landcover_plan,
-            &terrain,
-            water,
-            &entities,
-        )
-        .is_err());
+        assert!(
+            landcover::verify(
+                &surfaces,
+                &scene,
+                &development_plan,
+                &landcover_plan,
+                &terrain,
+                water,
+                &entities,
+            )
+            .is_err()
+        );
 
         let mut bad_entry = development_plan.clone();
         bad_entry.buildings[0].entity.anchors[0].world_x += 1;
-        assert!(development::verify(
-            &bad_entry,
-            &scene,
-            &zones,
-            &plan,
-            &entities,
-            &access,
-            &[],
-        )
-        .is_err());
+        assert!(
+            development::verify(&bad_entry, &scene, &zones, &plan, &entities, &access, &[],)
+                .is_err()
+        );
 
         development_plan.parcels[1].boundary = development_plan.parcels[0].boundary;
         assert!(development::validate(&development_plan, &scene, &zones).is_err());
@@ -902,10 +877,7 @@ mod tests {
         let trusted = TrustedBaseContract {
             natural_hash: "fixture".into(),
             base_level_mm: 8000,
-            fixed_nodes: BTreeMap::from([
-                ([224, 96], 8000),
-                ([288, 224], 8000),
-            ]),
+            fixed_nodes: BTreeMap::from([([224, 96], 8000), ([288, 224], 8000)]),
             base_edges: vec![],
         };
         let mut style = serde_json::json!({
@@ -918,16 +890,29 @@ mod tests {
             }
         });
         apply_fixed_endpoint_levels(&mut style, &trusted).unwrap();
-        assert_eq!(style["roadExtensions"]["corridors"][0]["startLevelMm"], 8000);
+        assert_eq!(
+            style["roadExtensions"]["corridors"][0]["startLevelMm"],
+            8000
+        );
         assert_eq!(style["roadExtensions"]["corridors"][0]["endLevelMm"], 7000);
-        assert_eq!(style["roadExtensions"]["corridors"][1]["startLevelMm"], 8000);
+        assert_eq!(
+            style["roadExtensions"]["corridors"][1]["startLevelMm"],
+            8000
+        );
         assert_eq!(style["roadExtensions"]["corridors"][1]["endLevelMm"], 7000);
     }
 
     #[test]
     fn base_support_extension_design_and_base_edge_are_independently_audited() {
         let (scene, natural, water, zones, trusted, plan, ..) = built_artifacts();
-        for (x, z) in [(64, 160), (65, 160), (64, 161), (96, 160), (28, 160), (100, 160)] {
+        for (x, z) in [
+            (64, 160),
+            (65, 160),
+            (64, 161),
+            (96, 160),
+            (28, 160),
+            (100, 160),
+        ] {
             let bumped_final = terrain_with_bump(&scene, &natural, x, z, 0.001);
             let error = audit_joint_plan(
                 &scene,
@@ -942,16 +927,7 @@ mod tests {
             assert!(error.contains("support"), "{error}");
         }
         let unrelated = terrain_with_bump(&scene, &natural, 0, 0, 0.001);
-        audit_joint_plan(
-            &scene,
-            &natural,
-            &unrelated,
-            water,
-            &zones,
-            &plan,
-            &trusted,
-        )
-        .unwrap();
+        audit_joint_plan(&scene, &natural, &unrelated, water, &zones, &plan, &trusted).unwrap();
 
         let mut forged_design = plan.clone();
         forged_design.extensions[0].design.road_mesh.vertices[0][1] += 1.0;
@@ -968,9 +944,7 @@ mod tests {
         assert!(error.contains("source rebuild"));
 
         let mut deleted_base = plan.clone();
-        deleted_base
-            .edges
-            .retain(|edge| edge.id != "fixture.base");
+        deleted_base.edges.retain(|edge| edge.id != "fixture.base");
         let error = audit_joint_plan(
             &scene,
             &natural,
@@ -991,16 +965,7 @@ mod tests {
         let base = minimal_plan(&natural_hash);
         let trusted = trusted_base_contract(&base, &natural_hash).unwrap();
         let mut plan = base;
-        append_network(
-            &mut plan,
-            &scene,
-            &natural,
-            water,
-            &zones,
-            0,
-            100,
-            100,
-        );
+        append_network(&mut plan, &scene, &natural, water, &zones, 0, 100, 100);
         let entities = candidate_entities(&plan);
         let final_terrain = engineered_terrain(&scene, &natural, &entities);
         let final_hash = final_terrain.content_hash().unwrap();
@@ -1032,7 +997,11 @@ mod tests {
     #[test]
     #[ignore = "writes and re-reads persisted R4 integration fixture artifacts"]
     fn persisted_positive_reloads_and_reaudits() {
-        use std::{fs::{self, OpenOptions}, io::Write as _, path::PathBuf};
+        use std::{
+            fs::{self, OpenOptions},
+            io::Write as _,
+            path::PathBuf,
+        };
 
         let (scene, natural, water, zones) = fixture();
         let natural_hash = natural.content_hash().unwrap();
@@ -1101,9 +1070,13 @@ mod tests {
             "landcover-surfaces.json",
             &serde_json::to_vec_pretty(&surfaces).unwrap(),
         );
-        write_new("entities.json", &serde_json::to_vec_pretty(&entities).unwrap());
+        write_new(
+            "entities.json",
+            &serde_json::to_vec_pretty(&entities).unwrap(),
+        );
 
-        let scene: SceneSpec = serde_json::from_slice(&fs::read(root.join("scene.json")).unwrap()).unwrap();
+        let scene: SceneSpec =
+            serde_json::from_slice(&fs::read(root.join("scene.json")).unwrap()).unwrap();
         let zones: Vec<LandUseZone> =
             serde_json::from_slice(&fs::read(root.join("zones.json")).unwrap()).unwrap();
         let base: super::super::road_network::RoadNetworkPlan =
@@ -1112,18 +1085,31 @@ mod tests {
             serde_json::from_slice(&fs::read(root.join("candidate-plan.json")).unwrap()).unwrap();
         let mut natural = BakedTerrain::new(&scene).unwrap();
         natural
-            .insert_chunk(0, 0, 512, 512, &fs::read(root.join("natural.height.bin")).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &fs::read(root.join("natural.height.bin")).unwrap(),
+            )
             .unwrap();
         let mut final_terrain = BakedTerrain::new(&scene).unwrap();
         final_terrain
-            .insert_chunk(0, 0, 512, 512, &fs::read(root.join("final.height.bin")).unwrap())
+            .insert_chunk(
+                0,
+                0,
+                512,
+                512,
+                &fs::read(root.join("final.height.bin")).unwrap(),
+            )
             .unwrap();
         let development_plan: development::DevelopmentPlan =
             serde_json::from_slice(&fs::read(root.join("development-plan.json")).unwrap()).unwrap();
         let landcover_plan: development::LandcoverPlan =
             serde_json::from_slice(&fs::read(root.join("landcover-plan.json")).unwrap()).unwrap();
         let surfaces: landcover::SurfaceRealization =
-            serde_json::from_slice(&fs::read(root.join("landcover-surfaces.json")).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(root.join("landcover-surfaces.json")).unwrap())
+                .unwrap();
         let entities: Vec<EntityInstance> =
             serde_json::from_slice(&fs::read(root.join("entities.json")).unwrap()).unwrap();
         let natural_hash = natural.content_hash().unwrap();
@@ -1160,28 +1146,23 @@ mod tests {
 
         let mut broken = surfaces.clone();
         broken.patches.remove(0);
-        assert!(landcover::verify(
-            &broken,
-            &scene,
-            &development_plan,
-            &landcover_plan,
-            &final_terrain,
-            water,
-            &entities,
-        )
-        .is_err());
+        assert!(
+            landcover::verify(
+                &broken,
+                &scene,
+                &development_plan,
+                &landcover_plan,
+                &final_terrain,
+                water,
+                &entities,
+            )
+            .is_err()
+        );
 
         let bumped = terrain_with_bump(&scene, &final_terrain, 64, 160, 0.001);
-        assert!(audit_joint_plan(
-            &scene,
-            &natural,
-            &bumped,
-            water,
-            &zones,
-            &plan,
-            &trusted,
-        )
-        .is_err());
+        assert!(
+            audit_joint_plan(&scene, &natural, &bumped, water, &zones, &plan, &trusted,).is_err()
+        );
 
         let mut wrong_base = base.clone();
         wrong_base.natural_heightfield_hash = "forged-natural".into();
@@ -1189,16 +1170,18 @@ mod tests {
 
         let mut deleted_base = plan.clone();
         deleted_base.edges.retain(|edge| edge.id != "fixture.base");
-        assert!(audit_joint_plan(
-            &scene,
-            &natural,
-            &final_terrain,
-            water,
-            &zones,
-            &deleted_base,
-            &trusted,
-        )
-        .is_err());
+        assert!(
+            audit_joint_plan(
+                &scene,
+                &natural,
+                &final_terrain,
+                water,
+                &zones,
+                &deleted_base,
+                &trusted,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1212,9 +1195,10 @@ mod tests {
         let manifest: super::super::WorldManifest =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
         let scene = manifest.scenes[0].clone();
-        let scene_json: serde_json::Value =
-            serde_json::from_slice(&fs::read(world_root.join("scenes/scene-0/scene.json")).unwrap())
-                .unwrap();
+        let scene_json: serde_json::Value = serde_json::from_slice(
+            &fs::read(world_root.join("scenes/scene-0/scene.json")).unwrap(),
+        )
+        .unwrap();
         let mut natural = BakedTerrain::new(&scene).unwrap();
         for chunk in scene_json["chunks"].as_array().unwrap() {
             let file = chunk["naturalHeightFile"].as_str().unwrap();
@@ -1237,13 +1221,9 @@ mod tests {
         );
         let profile = super::super::LandUseProfile::from_style(&manifest.style).unwrap();
         let zones = super::super::plan_landuse_zones(&scene, &profile);
-        let base = super::super::road_network::plan_with_zones(
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-        )
-        .unwrap();
+        let base =
+            super::super::road_network::plan_with_zones(&scene, &natural, water, Some(&zones))
+                .unwrap();
         let trusted = trusted_base_contract(&base, &natural_hash).unwrap();
 
         let mut states = Vec::new();
@@ -1251,7 +1231,7 @@ mod tests {
         let mut attempted_states = 0_usize;
         for level in [8000_i32, 7000, 6000, 5000] {
             attempted_states += 1;
-        let mut style = manifest.style.clone();
+            let mut style = manifest.style.clone();
             if let Some(corridors) = style["roadExtensions"]["corridors"].as_array_mut() {
                 for corridor in corridors {
                     corridor["startLevelMm"] = serde_json::json!(level);
@@ -1422,14 +1402,9 @@ mod tests {
             end_level_mm: Some(7000),
             junction_length_m: 8,
         };
-        assert!(super::super::road_alignment::design(
-            &request,
-            &scene,
-            &terrain,
-            water,
-            &zones
-        )
-        .is_ok());
+        assert!(
+            super::super::road_alignment::design(&request, &scene, &terrain, water, &zones).is_ok()
+        );
         let error = super::super::road_extensions::append_one(
             &mut plan,
             &context,

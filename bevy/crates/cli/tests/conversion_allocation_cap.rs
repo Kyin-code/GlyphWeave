@@ -61,10 +61,8 @@ impl TestDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "glyphweave-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("glyphweave-{label}-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -133,7 +131,10 @@ fn tree(root: &PathBuf) -> BTreeMap<String, String> {
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/");
-                out.insert(rel, blake3::hash(&fs::read(&path).unwrap()).to_hex().to_string());
+                out.insert(
+                    rel,
+                    blake3::hash(&fs::read(&path).unwrap()).to_hex().to_string(),
+                );
             }
         }
     }
@@ -144,7 +145,9 @@ fn tree(root: &PathBuf) -> BTreeMap<String, String> {
 fn the_capped_conversion_world_spends_inside_its_allocation_and_inside_the_urban_edge() {
     let dir = TestDir::new("conversion-allocation");
     let manifest = oversized();
-    manifest.validate().expect("the over-subscribed sample validates");
+    manifest
+        .validate()
+        .expect("the over-subscribed sample validates");
     assert_eq!(
         manifest.style["frontageProgram"]["ruralConversion"],
         json!("explicit")
@@ -216,7 +219,10 @@ fn the_capped_conversion_world_spends_inside_its_allocation_and_inside_the_urban
     // residual-land share is not part of the claim). The area the plan kept fits it, and one square
     // metre more does not - which is the cap doing its job, asserted on the real plan.
     let bound = (planned - committed).max(0);
-    assert!(kept_m2 <= bound, "{kept_m2} m2 of conversions vs a bound of {bound} m2");
+    assert!(
+        kept_m2 <= bound,
+        "{kept_m2} m2 of conversions vs a bound of {bound} m2"
+    );
     assert_eq!(
         conversion_budget::allocation_failures(plan, zones, kept_m2),
         Vec::<String>::new(),

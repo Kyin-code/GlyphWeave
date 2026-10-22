@@ -120,32 +120,100 @@ pub const UNCONSUMED_SCENE_KEYS: [&str; 8] = [
 pub enum ContextError {
     WindowMalformed(String),
     WindowEmpty,
-    WindowTooLarge { side_m: i32, limit_m: i32 },
-    WindowOutsideScene { detail: String },
-    MissingChunk { world_x: i32, world_z: i32 },
-    OverlappingCoverage { world_x: i32, world_z: i32, chunks: Vec<(i32, i32)> },
-    CoverageContradiction { detail: String },
-    MissingNaturalHeight { path: String },
-    PathNotCanonicalRelative { path: String },
-    PathEscapesRoot { path: String, detail: String },
-    SourceRead { path: String, detail: String },
-    SourceTooLarge { path: String, limit: u64, actual: u64 },
-    TotalPayloadTooLarge { limit: u64, actual: u64 },
+    WindowTooLarge {
+        side_m: i32,
+        limit_m: i32,
+    },
+    WindowOutsideScene {
+        detail: String,
+    },
+    MissingChunk {
+        world_x: i32,
+        world_z: i32,
+    },
+    OverlappingCoverage {
+        world_x: i32,
+        world_z: i32,
+        chunks: Vec<(i32, i32)>,
+    },
+    CoverageContradiction {
+        detail: String,
+    },
+    MissingNaturalHeight {
+        path: String,
+    },
+    PathNotCanonicalRelative {
+        path: String,
+    },
+    PathEscapesRoot {
+        path: String,
+        detail: String,
+    },
+    SourceRead {
+        path: String,
+        detail: String,
+    },
+    SourceTooLarge {
+        path: String,
+        limit: u64,
+        actual: u64,
+    },
+    TotalPayloadTooLarge {
+        limit: u64,
+        actual: u64,
+    },
     /// The authoritative height parser refused these bytes.
-    HeightRejected { path: String, detail: String },
-    IndexOutOfRange { path: String, index: u64, count: u64 },
-    ChunkGridMismatch { detail: String },
-    PlanUnreadable { detail: String },
-    SceneUnreadable { detail: String },
-    SceneIdentityMismatch { detail: String },
-    ConsumedGeometryMutated { detail: String },
-    InconsistentSource { detail: String },
-    UnsupportedSource { detail: String },
-    DuplicateRoadIdentity { id: String, count: usize },
-    DuplicateNodeIdentity { id: u64, count: usize },
-    DuplicateEntityIdentity { id: String, count: usize },
-    UnknownRoadNode { road_id: String, node: u64 },
-    TooManyRecords { what: &'static str, limit: usize, actual: usize },
+    HeightRejected {
+        path: String,
+        detail: String,
+    },
+    IndexOutOfRange {
+        path: String,
+        index: u64,
+        count: u64,
+    },
+    ChunkGridMismatch {
+        detail: String,
+    },
+    PlanUnreadable {
+        detail: String,
+    },
+    SceneUnreadable {
+        detail: String,
+    },
+    SceneIdentityMismatch {
+        detail: String,
+    },
+    ConsumedGeometryMutated {
+        detail: String,
+    },
+    InconsistentSource {
+        detail: String,
+    },
+    UnsupportedSource {
+        detail: String,
+    },
+    DuplicateRoadIdentity {
+        id: String,
+        count: usize,
+    },
+    DuplicateNodeIdentity {
+        id: u64,
+        count: usize,
+    },
+    DuplicateEntityIdentity {
+        id: String,
+        count: usize,
+    },
+    UnknownRoadNode {
+        road_id: String,
+        node: u64,
+    },
+    TooManyRecords {
+        what: &'static str,
+        limit: usize,
+        actual: usize,
+    },
 }
 
 impl fmt::Display for ContextError {
@@ -160,7 +228,11 @@ impl fmt::Display for ContextError {
             Self::MissingChunk { world_x, world_z } => {
                 write!(f, "no chunk covers world sample ({world_x}, {world_z})")
             }
-            Self::OverlappingCoverage { world_x, world_z, chunks } => write!(
+            Self::OverlappingCoverage {
+                world_x,
+                world_z,
+                chunks,
+            } => write!(
                 f,
                 "world sample ({world_x}, {world_z}) is covered by {} chunks {chunks:?}",
                 chunks.len()
@@ -176,11 +248,18 @@ impl fmt::Display for ContextError {
                 write!(f, "path {path} escapes the source root: {detail}")
             }
             Self::SourceRead { path, detail } => write!(f, "cannot read {path}: {detail}"),
-            Self::SourceTooLarge { path, limit, actual } => {
+            Self::SourceTooLarge {
+                path,
+                limit,
+                actual,
+            } => {
                 write!(f, "{path} is {actual} bytes, over the {limit} byte cap")
             }
             Self::TotalPayloadTooLarge { limit, actual } => {
-                write!(f, "consumed height payloads total {actual} bytes, over {limit}")
+                write!(
+                    f,
+                    "consumed height payloads total {actual} bytes, over {limit}"
+                )
             }
             Self::HeightRejected { path, detail } => {
                 write!(f, "authoritative height parser refused {path}: {detail}")
@@ -195,7 +274,10 @@ impl fmt::Display for ContextError {
                 write!(f, "scene identity does not match its source: {detail}")
             }
             Self::ConsumedGeometryMutated { detail } => {
-                write!(f, "consumed scene geometry changed after it was read: {detail}")
+                write!(
+                    f,
+                    "consumed scene geometry changed after it was read: {detail}"
+                )
             }
             Self::InconsistentSource { detail } => write!(f, "inconsistent source: {detail}"),
             Self::UnsupportedSource { detail } => write!(f, "unsupported source: {detail}"),
@@ -211,7 +293,11 @@ impl fmt::Display for ContextError {
             Self::UnknownRoadNode { road_id, node } => {
                 write!(f, "road {road_id} references undeclared node {node}")
             }
-            Self::TooManyRecords { what, limit, actual } => {
+            Self::TooManyRecords {
+                what,
+                limit,
+                actual,
+            } => {
                 write!(f, "too many {what} records: {actual} over {limit}")
             }
         }
@@ -250,22 +336,24 @@ impl DecodedHeight {
         width: u32,
         depth: u32,
     ) -> Result<Self, ContextError> {
-        let payload =
-            HeightPayload::parse(bytes, width, depth).map_err(|error| ContextError::HeightRejected {
+        let payload = HeightPayload::parse(bytes, width, depth).map_err(|error| {
+            ContextError::HeightRejected {
                 path: path.to_string(),
                 detail: error.to_string(),
-            })?;
+            }
+        })?;
         let mut millimetres = Vec::with_capacity(payload.count);
         for index in 0..payload.count {
             let millimetres_value = match payload.encoding {
                 HeightEncoding::Millimetre => payload.raw(index),
-                HeightEncoding::QuarterMetre => payload
-                    .raw(index)
-                    .checked_mul(250)
-                    .ok_or_else(|| ContextError::HeightRejected {
-                        path: path.to_string(),
-                        detail: format!("sample {index} overflows millimetres"),
-                    })?,
+                HeightEncoding::QuarterMetre => {
+                    payload.raw(index).checked_mul(250).ok_or_else(|| {
+                        ContextError::HeightRejected {
+                            path: path.to_string(),
+                            detail: format!("sample {index} overflows millimetres"),
+                        }
+                    })?
+                }
             };
             millimetres.push(millimetres_value);
         }
@@ -446,7 +534,7 @@ pub fn load_scene_index(bytes: &[u8]) -> Result<SceneLoad, ContextError> {
                 strict: true,
                 strict_error: None,
                 dropped_keys: Vec::new(),
-            })
+            });
         }
         Err(error) => error.to_string(),
     };
@@ -466,7 +554,9 @@ pub fn load_scene_index(bytes: &[u8]) -> Result<SceneLoad, ContextError> {
         }
     }
     if dropped_keys.is_empty() {
-        return Err(ContextError::SceneUnreadable { detail: strict_error });
+        return Err(ContextError::SceneUnreadable {
+            detail: strict_error,
+        });
     }
     let scene: SceneIndex =
         serde_json::from_value(value).map_err(|error| ContextError::SceneUnreadable {
@@ -548,10 +638,11 @@ pub fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, Conte
     let mut current = root_canonical.clone();
     for part in relative.split('/') {
         current.push(part);
-        let metadata = fs::symlink_metadata(&current).map_err(|error| ContextError::SourceRead {
-            path: relative.to_string(),
-            detail: error.to_string(),
-        })?;
+        let metadata =
+            fs::symlink_metadata(&current).map_err(|error| ContextError::SourceRead {
+                path: relative.to_string(),
+                detail: error.to_string(),
+            })?;
         if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
             return Err(ContextError::PathEscapesRoot {
                 path: relative.to_string(),
@@ -739,7 +830,9 @@ pub fn crop_chunks(chunks: &[ChunkSource], window: WindowRect) -> Result<Crop, C
             let world_x = window.min_x + local_x;
             let world_z = window.min_z + local_z;
             let mut matches = chunks.iter().filter(|c| c.covers(world_x, world_z));
-            let chunk = matches.next().ok_or(ContextError::MissingChunk { world_x, world_z })?;
+            let chunk = matches
+                .next()
+                .ok_or(ContextError::MissingChunk { world_x, world_z })?;
             let extra: Vec<(i32, i32)> = matches.map(ChunkSource::key).collect();
             if !extra.is_empty() {
                 let mut keys = vec![chunk.key()];
@@ -753,7 +846,9 @@ pub fn crop_chunks(chunks: &[ChunkSource], window: WindowRect) -> Result<Crop, C
             let in_chunk_x = (i64::from(world_x) - i64::from(chunk.world_x)) as u32;
             let in_chunk_z = (i64::from(world_z) - i64::from(chunk.world_z)) as u32;
             let final_value = chunk.final_height.millimetres_at(in_chunk_x, in_chunk_z)?;
-            let natural_value = chunk.natural_height.millimetres_at(in_chunk_x, in_chunk_z)?;
+            let natural_value = chunk
+                .natural_height
+                .millimetres_at(in_chunk_x, in_chunk_z)?;
             if final_value != natural_value {
                 differing += 1;
             }
@@ -815,7 +910,9 @@ pub struct PlanEdge {
 /// checked over the whole plan: duplicate edge or node identities and endpoint
 /// references to undeclared nodes are refused, and an edge-bearing plan is
 /// never allowed to skip the endpoint check.
-pub fn plan_facts(scene: &SceneIndex) -> Result<(BTreeMap<String, PlanEdge>, BTreeMap<u64, NodeFact>), ContextError> {
+pub fn plan_facts(
+    scene: &SceneIndex,
+) -> Result<(BTreeMap<String, PlanEdge>, BTreeMap<u64, NodeFact>), ContextError> {
     let mut edges: BTreeMap<String, PlanEdge> = BTreeMap::new();
     let mut nodes: BTreeMap<u64, NodeFact> = BTreeMap::new();
     let mut node_counts: BTreeMap<u64, usize> = BTreeMap::new();
@@ -1018,10 +1115,11 @@ impl BoundScene {
         window.check_shape()?;
         let world_path = "world.json".to_string();
         let world_bytes = read_capped(world_dir, &world_path, MAX_WORLD_BYTES)?;
-        let world: serde_json::Value =
-            serde_json::from_slice(&world_bytes).map_err(|error| ContextError::SceneUnreadable {
+        let world: serde_json::Value = serde_json::from_slice(&world_bytes).map_err(|error| {
+            ContextError::SceneUnreadable {
                 detail: format!("world.json: {error}"),
-            })?;
+            }
+        })?;
         let scene_declaration = scene_declaration_of(&world)?;
         let scene_rel_path = scene_declaration.clone();
         let scene_dir = scene_rel_path
@@ -1069,7 +1167,8 @@ impl BoundScene {
         ];
         let digest = consumed_digest(&load.scene)?;
 
-        let declared_chunks = u64::from(load.scene.chunk_count_x) * u64::from(load.scene.chunk_count_z);
+        let declared_chunks =
+            u64::from(load.scene.chunk_count_x) * u64::from(load.scene.chunk_count_z);
         if declared_chunks != load.scene.chunks.len() as u64 {
             return Err(ContextError::ChunkGridMismatch {
                 detail: format!(
@@ -1115,7 +1214,13 @@ impl BoundScene {
         let mut chunks: Vec<ChunkSource> = Vec::new();
         let mut total_height_bytes = 0u64;
         for descriptor in candidates {
-            let chunk = read_chunk(world_dir, &scene_dir, descriptor, &mut bindings, &mut total_height_bytes)?;
+            let chunk = read_chunk(
+                world_dir,
+                &scene_dir,
+                descriptor,
+                &mut bindings,
+                &mut total_height_bytes,
+            )?;
             chunk.check_extent()?;
             chunks.push(chunk);
         }
@@ -1316,16 +1421,14 @@ fn read_chunk(
         bindings,
         total,
     )?;
-    let natural_rel =
-        descriptor
-            .natural_height_file
-            .clone()
-            .ok_or_else(|| ContextError::MissingNaturalHeight {
-                path: format!(
-                    "chunk({}, {}) names no natural height payload",
-                    descriptor.chunk_x, descriptor.chunk_z
-                ),
-            })?;
+    let natural_rel = descriptor.natural_height_file.clone().ok_or_else(|| {
+        ContextError::MissingNaturalHeight {
+            path: format!(
+                "chunk({}, {}) names no natural height payload",
+                descriptor.chunk_x, descriptor.chunk_z
+            ),
+        }
+    })?;
     let natural_height = read_height(
         world_dir,
         scene_dir,
@@ -1696,7 +1799,10 @@ pub fn build_context(bound: &BoundScene) -> Result<EngineeringContext, ContextEr
 
     let mut roads: Vec<RoadRecord> = Vec::new();
     let mut plan_edge_references: Vec<PlanEdgeReference> = Vec::new();
-    for (entity, _value, footprint) in selected.iter().filter(|(entity, _, _)| entity.kind == "road") {
+    for (entity, _value, footprint) in selected
+        .iter()
+        .filter(|(entity, _, _)| entity.kind == "road")
+    {
         let edge = edges.get(&entity.entity_id);
         let node_fact = |id: Option<u64>| id.and_then(|id| nodes.get(&id).cloned());
         let geometry_agrees = edge.map_or(false, |edge| {
@@ -1778,7 +1884,8 @@ pub fn build_context(bound: &BoundScene) -> Result<EngineeringContext, ContextEr
             state: "evaluated",
             detail: format!(
                 "scene {} read from {} and re-verified against the consumed digest",
-                bound.scene().scene_id, bound.scene_rel_path()
+                bound.scene().scene_id,
+                bound.scene_rel_path()
             ),
         },
         CheckState {
@@ -1804,8 +1911,9 @@ pub fn build_context(bound: &BoundScene) -> Result<EngineeringContext, ContextEr
         CheckState {
             name: "sourceBinding",
             state: "notEvaluated",
-            detail: "formal audit stage; requires an independent rebuild from the caller-given root"
-                .to_string(),
+            detail:
+                "formal audit stage; requires an independent rebuild from the caller-given root"
+                    .to_string(),
         },
         CheckState {
             name: "terrainParity",
@@ -1857,7 +1965,10 @@ pub fn build_context(bound: &BoundScene) -> Result<EngineeringContext, ContextEr
         selected_entities: entities.len(),
         roads_in_window: roads.len(),
         access_records_total: access_records.len(),
-        access_records_in_window: access_records.iter().filter(|record| record.in_window).count(),
+        access_records_in_window: access_records
+            .iter()
+            .filter(|record| record.in_window)
+            .count(),
         reference_only_access_records: access_records
             .iter()
             .filter(|record| record.reference_only)
@@ -1991,8 +2102,11 @@ mod tests {
     }
 
     fn fixed_bound(window: &str) -> BoundScene {
-        BoundScene::read(&fixed_dir(), WindowRect::parse(window).expect("window parses"))
-            .expect("fixed source binds")
+        BoundScene::read(
+            &fixed_dir(),
+            WindowRect::parse(window).expect("window parses"),
+        )
+        .expect("fixed source binds")
     }
 
     fn fixed_scene() -> SceneIndex {
@@ -2013,7 +2127,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("gwc-{}-{}-{}", std::process::id(), tag, nanos));
+        let dir =
+            std::env::temp_dir().join(format!("gwc-{}-{}-{}", std::process::id(), tag, nanos));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }
@@ -2039,11 +2154,12 @@ mod tests {
         let bytes = fs::read(fixed_dir().join("scenes/scene-0/scene.json")).expect("readable");
         let load = load_scene_index(&bytes).expect("compatibility read");
         assert!(!load.strict);
-        assert!(load
-            .strict_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("accessMethod"));
+        assert!(
+            load.strict_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("accessMethod")
+        );
         assert!(load.dropped_keys.contains(&"landcoverPlan".to_string()));
         assert_eq!(load.scene.scene_id, "scene-0");
         assert_eq!(load.scene.entities.len(), 51);
@@ -2057,18 +2173,24 @@ mod tests {
         let context = build_context(&fixed_bound(FIXED_WINDOW)).expect("context builds");
         assert!(!context.scene_binding.strict_scene_parse);
         assert!(context.scene_binding.scene_schema_drift.is_some());
-        assert!(context
-            .scene_binding
-            .dropped_unconsumed_keys
-            .contains(&"landcoverPlan".to_string()));
-        assert!(context
-            .limitations
-            .iter()
-            .any(|line| line.contains("are not verified")));
-        assert!(!context
-            .limitations
-            .iter()
-            .any(|line| line.contains("proven empty")));
+        assert!(
+            context
+                .scene_binding
+                .dropped_unconsumed_keys
+                .contains(&"landcoverPlan".to_string())
+        );
+        assert!(
+            context
+                .limitations
+                .iter()
+                .any(|line| line.contains("are not verified"))
+        );
+        assert!(
+            !context
+                .limitations
+                .iter()
+                .any(|line| line.contains("proven empty"))
+        );
     }
 
     /// If a consumed subtree is illegal, the compatibility projection must
@@ -2201,8 +2323,11 @@ mod tests {
     fn far_chunk_payloads_are_not_read_and_may_be_absent() {
         let dir = temp_dir("far");
         fs::create_dir_all(dir.join("scenes/scene-0")).expect("scene dir");
-        fs::write(dir.join("world.json"), br#"{"scenes":["scenes/scene-0/scene.json"]}"#)
-            .expect("world write");
+        fs::write(
+            dir.join("world.json"),
+            br#"{"scenes":["scenes/scene-0/scene.json"]}"#,
+        )
+        .expect("world write");
         let mut scene = fixed_scene();
         scene.width_m = 4;
         scene.depth_m = 2;
@@ -2246,7 +2371,11 @@ mod tests {
             .expect("the local window must succeed without the far payloads");
         assert_eq!(bound.skipped_chunks(), &[(1, 0)]);
         assert_eq!(bound.chunk_evidences().len(), 2);
-        assert_eq!(bound.bindings().len(), 4, "world, scene and two local payloads");
+        assert_eq!(
+            bound.bindings().len(),
+            4,
+            "world, scene and two local payloads"
+        );
         let context = build_context(&bound).expect("context builds");
         assert_eq!(context.derived.window_samples, 4);
         assert_eq!(context.derived.skipped_chunks, vec![(1, 0)]);
@@ -2279,12 +2408,12 @@ mod tests {
         let required = bound.required_file_set().expect("required set");
         assert!(required.contains(&"world.json".to_string()));
         assert!(required.contains(&"scenes/scene-0/scene.json".to_string()));
-        assert!(required
-            .contains(&"scenes/scene-0/chunk-0-0.height.bin".to_string()));
-        assert!(required
-            .contains(&"scenes/scene-0/chunk-0-0.natural.height.bin".to_string()));
+        assert!(required.contains(&"scenes/scene-0/chunk-0-0.height.bin".to_string()));
+        assert!(required.contains(&"scenes/scene-0/chunk-0-0.natural.height.bin".to_string()));
         assert_eq!(required.len(), 4);
-        bound.verify_identity().expect("bindings cover the required set");
+        bound
+            .verify_identity()
+            .expect("bindings cover the required set");
     }
 
     #[test]
@@ -2315,8 +2444,7 @@ mod tests {
         let decoded =
             DecodedHeight::decode("probe.height.bin", ROLE_FINAL_HEIGHT, &millimetre, 4, 3)
                 .expect("decodes");
-        let authoritative =
-            HeightPayload::parse(&millimetre, 4, 3).expect("frozen parser accepts");
+        let authoritative = HeightPayload::parse(&millimetre, 4, 3).expect("frozen parser accepts");
         assert_eq!(decoded.encoding, HeightEncoding::Millimetre);
         for index in 0..authoritative.count {
             assert_eq!(decoded.millimetres[index], authoritative.raw(index));
@@ -2422,10 +2550,7 @@ mod tests {
                 .expect_err("no covering chunk"),
             ContextError::MissingChunk { .. }
         ));
-        let double = vec![
-            chunk(0, 0, 0, 0, 2, 2, None),
-            chunk(1, 1, 0, 0, 2, 2, None),
-        ];
+        let double = vec![chunk(0, 0, 0, 0, 2, 2, None), chunk(1, 1, 0, 0, 2, 2, None)];
         assert!(matches!(
             crop_chunks(&double, WindowRect::parse("0,0,1,1").expect("window"))
                 .expect_err("overlap"),
@@ -2577,7 +2702,10 @@ mod tests {
         let entity = &entity.entities[0];
         let footprint = footprint_of(entity, None);
         assert!(entity.world_x < 256, "the centre is outside the window");
-        assert!(footprint.max_x > 256.0, "but the rotated outline reaches in");
+        assert!(
+            footprint.max_x > 256.0,
+            "but the rotated outline reaches in"
+        );
         assert!(footprint_intersects(
             &footprint,
             WindowRect::parse(FIXED_WINDOW).expect("window")
@@ -2603,18 +2731,24 @@ mod tests {
         assert_eq!(from.id, 4);
         assert_eq!(from.world_x, Some(288));
         assert_eq!(from.world_z, Some(32));
-        assert!(context
-            .checks
-            .iter()
-            .any(|check| check.name == "contextCompleteness" && check.state == "notEvaluated"));
-        assert!(context
-            .checks
-            .iter()
-            .any(|check| check.name == "terrainComparison" && check.state == "diagnostic"));
-        assert!(context
-            .checks
-            .iter()
-            .any(|check| check.name == "sourceBytesRecorded" && check.state == "diagnostic"));
+        assert!(
+            context
+                .checks
+                .iter()
+                .any(|check| check.name == "contextCompleteness" && check.state == "notEvaluated")
+        );
+        assert!(
+            context
+                .checks
+                .iter()
+                .any(|check| check.name == "terrainComparison" && check.state == "diagnostic")
+        );
+        assert!(
+            context
+                .checks
+                .iter()
+                .any(|check| check.name == "sourceBytesRecorded" && check.state == "diagnostic")
+        );
     }
 
     /// P1-2 counterexample 4: full entity and access facts survive, and
@@ -2712,13 +2846,18 @@ mod tests {
             value["roadNetworkPlan"]["nodes"] = serde_json::json!([]);
         });
         let error = plan_facts(&scene).expect_err("endpoint check must still run");
-        assert!(matches!(error, ContextError::UnknownRoadNode { .. }), "{error}");
+        assert!(
+            matches!(error, ContextError::UnknownRoadNode { .. }),
+            "{error}"
+        );
     }
 
     #[test]
     fn duplicate_nodes_edges_and_entities_are_refused() {
         let duplicate_node = scene_with(|value| {
-            let nodes = value["roadNetworkPlan"]["nodes"].as_array_mut().expect("nodes");
+            let nodes = value["roadNetworkPlan"]["nodes"]
+                .as_array_mut()
+                .expect("nodes");
             let copy = nodes[0].clone();
             nodes.push(copy);
         });
@@ -2727,7 +2866,9 @@ mod tests {
             ContextError::DuplicateNodeIdentity { .. }
         ));
         let duplicate_edge = scene_with(|value| {
-            let edges = value["roadNetworkPlan"]["edges"].as_array_mut().expect("edges");
+            let edges = value["roadNetworkPlan"]["edges"]
+                .as_array_mut()
+                .expect("edges");
             let copy = edges[0].clone();
             edges.push(copy);
         });
@@ -2749,11 +2890,14 @@ mod tests {
     #[test]
     fn road_entity_without_a_plan_edge_is_an_inconsistent_source() {
         let scene = scene_with(|value| {
-            let edges = value["roadNetworkPlan"]["edges"].as_array_mut().expect("edges");
+            let edges = value["roadNetworkPlan"]["edges"]
+                .as_array_mut()
+                .expect("edges");
             edges.retain(|edge| edge["id"] != serde_json::json!(NAMED_ROAD));
         });
-        let error = validate_road_geometry(&scene, WindowRect::parse(FIXED_WINDOW).expect("window"))
-            .expect_err("a named road without its plan edge must not pass");
+        let error =
+            validate_road_geometry(&scene, WindowRect::parse(FIXED_WINDOW).expect("window"))
+                .expect_err("a named road without its plan edge must not pass");
         assert!(
             matches!(error, ContextError::InconsistentSource { .. }),
             "{error}"
@@ -2771,8 +2915,9 @@ mod tests {
                 }
             }
         });
-        let error = validate_road_geometry(&scene, WindowRect::parse(FIXED_WINDOW).expect("window"))
-            .expect_err("contradicting geometry must be refused");
+        let error =
+            validate_road_geometry(&scene, WindowRect::parse(FIXED_WINDOW).expect("window"))
+                .expect_err("contradicting geometry must be refused");
         assert!(
             matches!(error, ContextError::InconsistentSource { .. }),
             "{error}"

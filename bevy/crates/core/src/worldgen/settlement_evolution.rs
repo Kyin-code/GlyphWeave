@@ -17,8 +17,8 @@ use super::epoch_evolution;
 use super::route_evolution::Plan as RoutePlan;
 use super::water_query::WATER_SHORE_CLEARANCE_M;
 use super::{
-    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SceneSpec,
-    WaterGeometry, STREAM_CHUNK_METERS,
+    EntityInstance, OrientedFootprint, STREAM_CHUNK_METERS, SceneSpec, WaterGeometry,
+    oriented_footprints_overlap, urban_slice,
 };
 use crate::settlement::building_archetypes;
 
@@ -418,8 +418,8 @@ fn nearest_route_station(routes: &RoutePlan, x: f64, z: f64) -> Option<([i32; 2]
             let pz = az + dz * t;
             let distance = (x - px).hypot(z - pz);
             if best.is_none_or(|(_, prior, _)| distance < prior) {
-                let design_m =
-                    segment[0].design_height_m + (segment[1].design_height_m - segment[0].design_height_m) * t;
+                let design_m = segment[0].design_height_m
+                    + (segment[1].design_height_m - segment[0].design_height_m) * t;
                 best = Some(([px.round() as i32, pz.round() as i32], distance, design_m));
             }
         }
@@ -566,8 +566,7 @@ pub fn plan(
             } else {
                 standard_step
             };
-            let probe_stage =
-                district_stage(style, (probe_x - center.0).hypot(probe_z - center.1));
+            let probe_stage = district_stage(style, (probe_x - center.0).hypot(probe_z - center.1));
             // A street wall is made of parcels, not identical 7-9m slots. The
             // module count changes the frontage lot width and the advance along
             // the route together, so wider blocks do not create overlapping
@@ -861,8 +860,7 @@ pub fn plan(
                 let natural_ceiling_m =
                     lot_ground_ceiling_m(terrain, x, z, lot_width_m, lot_depth_m, rotation_y_deg)
                         .unwrap_or(f32::INFINITY);
-                let required_cut_m =
-                    (f64::from(natural_ceiling_m) - road_design_m).max(0.0);
+                let required_cut_m = (f64::from(natural_ceiling_m) - road_design_m).max(0.0);
                 if required_cut_m > f64::from(program.max_pad_cut_m) {
                     continue;
                 }
@@ -872,14 +870,10 @@ pub fn plan(
                 // platform. Keep that complete earthwork away from the seam.
                 let seam_guard = 32.0;
                 let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
-                    .map(|chunk| {
-                        f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32)
-                    })
+                    .map(|chunk| f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32))
                     .any(|seam| (lot_footprint.center_x - seam).abs() < half_x + seam_guard);
                 let crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
-                    .map(|chunk| {
-                        f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32)
-                    })
+                    .map(|chunk| f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32))
                     .any(|seam| (lot_footprint.center_z - seam).abs() < half_z + seam_guard);
                 if crosses_x || crosses_z {
                     continue;
@@ -1356,8 +1350,7 @@ fn try_build_candidate(
         let width_m = (form.width_m * scale).max(6.0);
         let depth_m = (form.depth_m * scale).max(6.0);
         let footprint_m2 = width_m * depth_m * form.coverage_ratio;
-        let floor_area =
-            f64::from(footprint_m2) * f64::from(form.floors) * rules.floor_area_ratio;
+        let floor_area = f64::from(footprint_m2) * f64::from(form.floors) * rules.floor_area_ratio;
         let household_capacity = (floor_area / rules.household_area_m2).floor() as u32;
         let job_capacity = (floor_area / rules.job_area_m2).floor() as u32;
         let retail_capacity = floor_area * rules.retail_share;
@@ -1374,15 +1367,17 @@ fn try_build_candidate(
             retail_floor_area_m2: retail_capacity
                 .min(retail_grain_m2)
                 .min(limit.retail_floor_area_m2),
-            service_budget: service_capacity.min(service_grain).min(limit.service_budget),
+            service_budget: service_capacity
+                .min(service_grain)
+                .min(limit.service_budget),
         };
         if demand_is_empty(&spent) {
             continue;
         }
-        let frontage_dx = f64::from(candidate.frontage_road_point[0])
-            - f64::from(candidate.world_x);
-        let frontage_dz = f64::from(candidate.frontage_road_point[1])
-            - f64::from(candidate.world_z);
+        let frontage_dx =
+            f64::from(candidate.frontage_road_point[0]) - f64::from(candidate.world_x);
+        let frontage_dz =
+            f64::from(candidate.frontage_road_point[1]) - f64::from(candidate.world_z);
         let frontage_length = frontage_dx.hypot(frontage_dz);
         // A block narrowed by a second road is not necessarily unbuildable:
         // the frontage can keep its street edge while the building body moves
@@ -1393,15 +1388,13 @@ fn try_build_candidate(
         for placement in [0.0_f64, 0.25, 0.5, 0.75, 1.0] {
             let local_retreat = depth_retreat + placement * depth_search_m;
             let world_x = if frontage_length > 1e-6 {
-                (f64::from(candidate.world_x)
-                    + frontage_dx / frontage_length * local_retreat)
+                (f64::from(candidate.world_x) + frontage_dx / frontage_length * local_retreat)
                     .round() as i32
             } else {
                 candidate.world_x
             };
             let world_z = if frontage_length > 1e-6 {
-                (f64::from(candidate.world_z)
-                    + frontage_dz / frontage_length * local_retreat)
+                (f64::from(candidate.world_z) + frontage_dz / frontage_length * local_retreat)
                     .round() as i32
             } else {
                 candidate.world_z
@@ -1563,9 +1556,7 @@ fn try_build_candidate(
 fn parcel_use_mix(id: &str) -> f64 {
     let hash = blake3::hash(format!("{id}:building-use-mix").as_bytes());
     f64::from(u32::from_le_bytes(
-        hash.as_bytes()[..4]
-            .try_into()
-            .expect("four-byte use hash"),
+        hash.as_bytes()[..4].try_into().expect("four-byte use hash"),
     )) / f64::from(u32::MAX)
 }
 
@@ -2036,11 +2027,9 @@ pub fn materialize(
                         f64::from(building.rotation_y_deg).to_radians().sin_cos();
                     let side_half = (f64::from(building.width_m) * 0.5 - 0.5).max(0.5);
                     for (side_id, sign) in [("side-left", -1.0_f64), ("side-right", 1.0)] {
-                        let side_x = (f64::from(building.world_x)
-                            + side_cos * sign * side_half)
+                        let side_x = (f64::from(building.world_x) + side_cos * sign * side_half)
                             .round() as i32;
-                        let side_z = (f64::from(building.world_z)
-                            - side_sin * sign * side_half)
+                        let side_z = (f64::from(building.world_z) - side_sin * sign * side_half)
                             .round() as i32;
                         let side_direction = if side_cos.abs() >= side_sin.abs() {
                             if side_cos * sign >= 0.0 {
@@ -2212,8 +2201,7 @@ pub fn attach_frontage_stairs(
     let start_height_m = f64::from(building.ground_height_m());
     let end_height_m = f64::from(terrain.height(to[0], to[1])?);
     let delta_m = (end_height_m - start_height_m).abs();
-    let run_m = f64::from(to[0] - anchor.world_x)
-        .hypot(f64::from(to[1] - anchor.world_z));
+    let run_m = f64::from(to[0] - anchor.world_x).hypot(f64::from(to[1] - anchor.world_z));
     // Long stairs are published as <=22m flights. Each flight must still fit
     // the 8.5m stair contract; the whole connection may therefore step through
     // more than one legal flight on a steep block.
@@ -2251,6 +2239,50 @@ pub fn attach_frontage_stairs(
     };
     building.grounding.stair_connection = Some(stairs.clone());
     Some(stair_entities(&stairs))
+}
+
+/// Nearest pavement-edge landing for a door stair. The assigned frontage point
+/// is a road target, often near the carriageway centre; a stair must stop at the
+/// road OBB edge, never span the traffic lanes.
+pub fn frontage_landing_point(
+    roads: &[EntityInstance],
+    anchor: [i32; 2],
+    road_point: [i32; 2],
+) -> Option<[i32; 2]> {
+    let anchor_x = f64::from(anchor[0]);
+    let anchor_z = f64::from(anchor[1]);
+    let road_x = f64::from(road_point[0]);
+    let road_z = f64::from(road_point[1]);
+    roads
+        .iter()
+        .filter(|road| road.kind == "road")
+        .filter_map(|road| {
+            let (sin, cos) = f64::from(road.rotation_y_deg).to_radians().sin_cos();
+            let target_dx = road_x - f64::from(road.world_x);
+            let target_dz = road_z - f64::from(road.world_z);
+            let target_local_x = target_dx * cos - target_dz * sin;
+            let target_local_z = target_dx * sin + target_dz * cos;
+            // Only roads actually associated with this frontage target are
+            // candidates. This prevents a nearby cross street from becoming a
+            // second, accidental door.
+            let half_w = f64::from(road.width_m) * 0.5;
+            let half_d = f64::from(road.depth_m) * 0.5;
+            if target_local_x.abs() > half_w + 12.0 || target_local_z.abs() > half_d + 12.0 {
+                return None;
+            }
+            let door_dx = anchor_x - f64::from(road.world_x);
+            let door_dz = anchor_z - f64::from(road.world_z);
+            let door_local_x = (door_dx * cos - door_dz * sin).clamp(-half_w, half_w);
+            let door_local_z = (door_dx * sin + door_dz * cos).clamp(-half_d, half_d);
+            let landing_x = f64::from(road.world_x) + door_local_x * cos + door_local_z * sin;
+            let landing_z = f64::from(road.world_z) - door_local_x * sin + door_local_z * cos;
+            Some((
+                [landing_x.round() as i32, landing_z.round() as i32],
+                (landing_x - anchor_x).hypot(landing_z - anchor_z),
+            ))
+        })
+        .min_by(|left, right| left.1.total_cmp(&right.1))
+        .map(|(point, _)| point)
 }
 
 fn stair_entity(stairs: &super::StairConnection) -> EntityInstance {
@@ -2436,11 +2468,7 @@ fn facade_anchor(
     let anchor_x = (f64::from(world_x) + out_x * (half - 0.5)).round() as i32;
     let anchor_z = (f64::from(world_z) + out_z * (half - 0.5)).round() as i32;
     let direction = if out_x.abs() >= out_z.abs() {
-        if out_x >= 0.0 {
-            "east"
-        } else {
-            "west"
-        }
+        if out_x >= 0.0 { "east" } else { "west" }
     } else if out_z >= 0.0 {
         "south"
     } else {
@@ -2512,7 +2540,7 @@ mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
     use crate::worldgen::route_evolution::{Anchor, Plan as RoutePlan, Route, RoutePoint};
-    use crate::worldgen::{water_geometry, WaterKind};
+    use crate::worldgen::{WaterKind, water_geometry};
 
     fn fixture() -> (SceneSpec, BakedTerrain, WaterGeometry) {
         let scene = SceneSpec {
@@ -2686,10 +2714,11 @@ mod tests {
             "the one-street fixture must expose unmet demand once its physical frontage is exhausted"
         );
         assert!(high.unmet_demand.households > 0);
-        assert!(high
-            .buildings
-            .iter()
-            .all(|building| building.recommended_count > 0));
+        assert!(
+            high.buildings
+                .iter()
+                .all(|building| building.recommended_count > 0)
+        );
         let entities = materialize(&low, &terrain, None);
         assert_eq!(entities.len(), low.buildings.len());
         assert!(entities.iter().all(|entity| {
@@ -2771,13 +2800,7 @@ mod tests {
         assert!((1..=2).contains(&key));
 
         let samples = (0..512)
-            .map(|index| {
-                frontage_module_count(
-                    "urban-grid-v260",
-                    f64::from(index * 11),
-                    "renewal",
-                )
-            })
+            .map(|index| frontage_module_count("urban-grid-v260", f64::from(index * 11), "renewal"))
             .collect::<Vec<_>>();
         let values = samples
             .iter()
@@ -2861,6 +2884,31 @@ mod tests {
         assert_eq!(contract.to_mm, 10_000);
         assert_eq!(contract.low_mm, 10_000);
         assert_eq!(contract.high_mm, 22_000);
+    }
+
+    #[test]
+    fn frontage_stair_landing_stops_at_the_road_edge() {
+        let road = EntityInstance {
+            entity_id: "generated.route.test.0".into(),
+            asset_id: "road.generated".into(),
+            kind: "road".into(),
+            world_x: 100,
+            world_z: 100,
+            world_y: 10,
+            width_m: 20.0,
+            depth_m: 10.0,
+            height_m: 0.3,
+            scale: 1.0,
+            rotation_y_deg: 0.0,
+            grounding: super::super::GroundingSpec::default(),
+            anchors: vec![],
+            bounds: None,
+        };
+        assert_eq!(
+            frontage_landing_point(&[road], [100, 80], [100, 100]),
+            Some([100, 95]),
+            "the stair must stop at the near road edge instead of the centreline"
+        );
     }
 
     #[test]
@@ -3091,10 +3139,11 @@ mod tests {
             (footprint(&china) - footprint(&us)).abs() > 1.0,
             "regional typologies must change the realized building-floor capacity"
         );
-        assert!(us
-            .buildings
-            .iter()
-            .all(|building| building.income_band == "homeowner"));
+        assert!(
+            us.buildings
+                .iter()
+                .all(|building| building.income_band == "homeowner")
+        );
     }
 
     #[test]

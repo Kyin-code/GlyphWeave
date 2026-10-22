@@ -297,7 +297,17 @@ mod tests {
         let (base, s, t, w, z) = fixture();
         let program=services::from_style(&serde_json::json!({"settlementProgram":{"version":2,"housingMinimum":{"joint":1},"requests":[
             {"id":"school","sceneId":"joint","kind":"school","count":1,"widthM":40,"depthM":30,"heightM":8}]}})).unwrap().unwrap();
-        let joint = plan(base.clone(), &s, &t, w, &z, &program, super::super::frontage::RuralConversion::Disabled, 0).unwrap();
+        let joint = plan(
+            base.clone(),
+            &s,
+            &t,
+            w,
+            &z,
+            &program,
+            super::super::frontage::RuralConversion::Disabled,
+            0,
+        )
+        .unwrap();
         let receipt = joint.joint_layout.as_ref().unwrap();
         assert_eq!(receipt.residential_minimum, 1);
         assert_eq!(receipt.unfilled_residential, 0);
@@ -323,7 +333,17 @@ mod tests {
         crate::settlement::development::plan(&s, &z, &joint).unwrap();
         let school = entities.iter().find(|e| e.kind == "school").unwrap();
         assert_eq!((school.width_m, school.depth_m), (40., 30.));
-        let second = plan(base, &s, &t, w, &z, &program, super::super::frontage::RuralConversion::Disabled, 0).unwrap();
+        let second = plan(
+            base,
+            &s,
+            &t,
+            w,
+            &z,
+            &program,
+            super::super::frontage::RuralConversion::Disabled,
+            0,
+        )
+        .unwrap();
         assert_eq!(
             serde_json::to_value(&joint).unwrap(),
             serde_json::to_value(second).unwrap()
@@ -353,7 +373,17 @@ mod tests {
         base.roadside_sites.clear();
         base.level_m = None;
         let program=services::from_style(&serde_json::json!({"settlementProgram":{"version":2,"housingMinimum":{"joint":3},"requests":[]}})).unwrap().unwrap();
-        let mut joint = plan(base, &s, &t, w, &z, &program, super::super::frontage::RuralConversion::Disabled, 0).unwrap();
+        let mut joint = plan(
+            base,
+            &s,
+            &t,
+            w,
+            &z,
+            &program,
+            super::super::frontage::RuralConversion::Disabled,
+            0,
+        )
+        .unwrap();
         assert_eq!(joint.joint_layout.as_ref().unwrap().unfilled_residential, 3);
         assert_eq!(
             audit(&joint, &[], &AccessGraph::default()).missing_residential,

@@ -477,8 +477,7 @@ fn shared_track_terminals(
     };
     let mut bounds = BTreeMap::<[i64; 2], u64>::new();
     for (&(x, zz), claim) in claimed_tracks {
-        if x.rem_euclid(2) != parity[0].rem_euclid(2)
-            || zz.rem_euclid(2) != parity[1].rem_euclid(2)
+        if x.rem_euclid(2) != parity[0].rem_euclid(2) || zz.rem_euclid(2) != parity[1].rem_euclid(2)
         {
             continue;
         }
@@ -687,9 +686,13 @@ pub fn realize(
 /// what it still may not: no geometry, grade, ownership or budget contract
 /// depends on it.
 fn realize_with_query(
-    scene:&SceneSpec,plan:&LandcoverPlan,t:&BakedTerrain,water:WaterGeometry,
-    entities:&[EntityInstance],min_saving_m:u64,
-    mut pedestrian_contains:impl FnMut(i64,i64)->bool,
+    scene: &SceneSpec,
+    plan: &LandcoverPlan,
+    t: &BakedTerrain,
+    water: WaterGeometry,
+    entities: &[EntityInstance],
+    min_saving_m: u64,
+    mut pedestrian_contains: impl FnMut(i64, i64) -> bool,
 ) -> Result<(AgricultureRealization, Vec<SurfacePatch>), String> {
     if !t.matches_scene(scene) {
         return Err("agriculture terrain scene mismatch".into());
@@ -773,8 +776,7 @@ fn realize_with_query(
             {
                 return Err("solid_object_intersection");
             }
-            if pedestrian_contains(x,z)
-            {
+            if pedestrian_contains(x, z) {
                 return Err("pedestrian_access_reserved");
             }
             grade(t, x, z).ok_or("missing_final_terrain_sample")
@@ -862,9 +864,7 @@ fn realize_with_query(
         if let Some(axis) = axis {
             for (rank, (strip_w, strip_d)) in ladder.iter().copied().enumerate() {
                 for z in (cell.boundary.z + FIELD_MARGIN
-                    ..cell.boundary.z + i64::from(cell.boundary.depth_m)
-                        - i64::from(strip_d)
-                        - 1)
+                    ..cell.boundary.z + i64::from(cell.boundary.depth_m) - i64::from(strip_d) - 1)
                     .step_by((i64::from(strip_d) + 4) as usize)
                 {
                     for x in (cell.boundary.x + FIELD_MARGIN
@@ -1380,16 +1380,12 @@ pub fn verify_access_network(
                     || owner.road_id != field.road_id
                     || owner.chain_lanes + 1 != join.chain_lanes
                 {
-                    return Err(
-                        "shared farm track join differs from the realized network".into(),
-                    );
+                    return Err("shared farm track join differs from the realized network".into());
                 }
                 match position.get(owner.field_id.as_str()) {
                     Some(&owner_index) if owner_index < position[field.id.as_str()] => {}
                     _ => {
-                        return Err(
-                            "shared farm track lane joins a track that is not older".into(),
-                        )
+                        return Err("shared farm track lane joins a track that is not older".into());
                     }
                 }
                 // The round-16 trigger is a cost comparison, so the audit
@@ -1418,9 +1414,7 @@ pub fn verify_access_network(
                                     .into(),
                             );
                         }
-                        if join.road_path_length_m
-                            < field.access_length_m + JOIN_MIN_SAVING_M
-                        {
+                        if join.road_path_length_m < field.access_length_m + JOIN_MIN_SAVING_M {
                             return Err(
                                 "shared farm track join does not save the required lane metres"
                                     .into(),
@@ -1600,7 +1594,7 @@ pub fn verify_field_shapes(
             match grade(terrain, x, z) {
                 None => return Err("agricultural field has no final terrain sample".into()),
                 Some(g) if g > FIELD_GRADE + 1e-9 => {
-                    return Err("agricultural field exceeds the unchanged 12 percent grade".into())
+                    return Err("agricultural field exceeds the unchanged 12 percent grade".into());
                 }
                 _ => {}
             }
@@ -1611,9 +1605,9 @@ pub fn verify_field_shapes(
 
 #[cfg(test)]
 mod tests {
-    use super::super::pedestrian_index::triangle_overlaps_cell;
     use super::super::development;
     use super::super::farm_program::{FarmPattern, FieldTemplate, TrackNetwork};
+    use super::super::pedestrian_index::triangle_overlaps_cell;
     use super::*;
     use crate::worldgen::{
         GroundingSpec, LandUseZone, WaterKind,
@@ -1664,7 +1658,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -1688,9 +1682,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        
+
             entry_corridor_policy: Default::default(),
-};
+        };
         let development = development::plan(&scene, &zones, &roads).unwrap();
         let plan = development::plan_landcover(&scene, &development).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
@@ -1704,7 +1698,9 @@ mod tests {
     /// narrow on purpose: its search inset is a single odd row, which the
     /// established 2m centre lattice can never stand on, so the road search
     /// cannot terminate there while a realized lane still can.
-    fn barrier_fixture_at(depth_m: u32) -> (
+    fn barrier_fixture_at(
+        depth_m: u32,
+    ) -> (
         SceneSpec,
         development::DevelopmentPlan,
         LandcoverPlan,
@@ -1749,7 +1745,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -1772,9 +1768,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        
+
             entry_corridor_policy: Default::default(),
-};
+        };
         let development_plan = development::plan(&scene, &zones, &roads).unwrap();
         let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
         let template = plan.cells[0].clone();
@@ -1874,7 +1870,7 @@ mod tests {
         plan
     }
 
-        #[test]
+    #[test]
     fn shared_track_terminals_realize_more_fields_on_the_same_input() {
         let (scene, _, plan, terrain, water, entities) = barrier_fixture();
         let plain = with_track_network(&plan, false);
@@ -1933,18 +1929,14 @@ mod tests {
             assert!(after_patches.iter().all(|patch| {
                 !(patch.parcel_id == field.id
                     && patch.vertices.chunks_exact(4).any(|square| {
-                        square[0][0] as i64 == join.cell[0]
-                            && square[0][2] as i64 == join.cell[1]
+                        square[0][0] as i64 == join.cell[0] && square[0][2] as i64 == join.cell[1]
                     }))
             }));
         }
         // Chains of one and two shared lanes both occur, and every one of them
         // is bounded by metres of path to a road rather than by hops.
         assert_eq!(chains, BTreeSet::from([1, 2]));
-        assert_eq!(
-            budgets,
-            BTreeSet::from([47, 75, 87, 103, 131])
-        );
+        assert_eq!(budgets, BTreeSet::from([47, 75, 87, 103, 131]));
         // Determinism and unique area ownership survive the new rule.
         let (again, again_patches) =
             realize(&scene, &shared, &terrain, water, &entities, &[]).unwrap();
@@ -2228,10 +2220,12 @@ mod tests {
         let (realization, patches) =
             realize(&scene, &plan, &terrain, water, &entities, &[]).unwrap();
         assert_eq!(realization.model, "explicit-rectangular-field-access-v3");
-        assert!(realization
-            .fields
-            .iter()
-            .all(|field| field.shared_track.is_none()));
+        assert!(
+            realization
+                .fields
+                .iter()
+                .all(|field| field.shared_track.is_none())
+        );
         let bytes = serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap();
         assert!(
             !String::from_utf8_lossy(&bytes).contains("sharedTrack"),
@@ -2254,10 +2248,12 @@ mod tests {
         with_program.farm_pattern = Some(legacy);
         let (unchanged, _) =
             realize(&scene, &with_program, &terrain, water, &entities, &[]).unwrap();
-        assert!(unchanged
-            .fields
-            .iter()
-            .all(|field| field.shared_track.is_none()));
+        assert!(
+            unchanged
+                .fields
+                .iter()
+                .all(|field| field.shared_track.is_none())
+        );
         assert_eq!(
             serde_json::to_value(&unchanged.model).unwrap(),
             serde_json::to_value("explicit-rectangular-field-access-v3").unwrap()
@@ -2267,9 +2263,9 @@ mod tests {
     /// Locked bytes of the road-only agriculture surface on the flat fixture.
     /// Any change to the legacy path breaks this constant on purpose.
     const LEGACY_AGRICULTURE_HASH: &str =
-    "57268eb9f4126518ce6d15a479ff6ceb5d37f6a0bd8f8024d8fc5fe138727f82";
+        "57268eb9f4126518ce6d15a479ff6ceb5d37f6a0bd8f8024d8fc5fe138727f82";
 
-#[test]
+    #[test]
     fn flat_fields_have_four_metre_access_and_disjoint_surface_ownership() {
         let (s, p, t, w, e) = fixture();
         let (a, patches) = realize(&s, &p, &t, w, &e, &[]).unwrap();
@@ -2773,17 +2769,19 @@ mod tests {
             vec![(60, 20), (48, 16)]
         );
         // 16 m deep is 4 m short of the minimum strip plus its 2 m margins.
-        assert!(contour_shapes(
-            Rect {
-                x: 0,
-                z: 0,
-                width_m: 143,
-                depth_m: 16
-            },
-            template,
-            ContourAxis::X
-        )
-        .is_empty());
+        assert!(
+            contour_shapes(
+                Rect {
+                    x: 0,
+                    z: 0,
+                    width_m: 143,
+                    depth_m: 16
+                },
+                template,
+                ContourAxis::X
+            )
+            .is_empty()
+        );
         // Every offered shape honours the domain, the lattice, the aspect cap
         // and the cell's own 2 m margin.
         for cell in [
@@ -2819,7 +2817,6 @@ mod tests {
             }
         }
     }
-
 
     /// A 160 x 24 m rural source whose requested 24 x 24 field plus its 2 m
     /// margin needs 28 m of depth. A 24 m deep connector bridges it to the road,
@@ -2889,10 +2886,11 @@ mod tests {
         let off_hash = blake3::hash(&serde_json::to_vec(&off).unwrap())
             .to_hex()
             .to_string();
-        assert!(off
-            .rejected_fields
-            .iter()
-            .any(|r| r.reason == "source_too_small_for_requested_field_and_margin"));
+        assert!(
+            off.rejected_fields
+                .iter()
+                .any(|r| r.reason == "source_too_small_for_requested_field_and_margin")
+        );
         for shapes in [
             Some(""),
             Some("contour"),
@@ -2923,8 +2921,7 @@ mod tests {
             .to_hex()
             .to_string();
         let shared_other = with_pattern(&p, pattern((24, 24), Some("square"), true));
-        let (shared_out, shared_out_patches) =
-            realize(&s, &shared_other, &t, w, &e, &[]).unwrap();
+        let (shared_out, shared_out_patches) = realize(&s, &shared_other, &t, w, &e, &[]).unwrap();
         assert_eq!(
             blake3::hash(&serde_json::to_vec(&shared_out).unwrap())
                 .to_hex()
@@ -2957,14 +2954,16 @@ mod tests {
         assert!(verify_field_shapes(&on, &on_plan, &t, w, &e).is_ok());
         // The square rule's rejections survive verbatim, and the strips that
         // lost their cells to a square say so by name.
-        assert!(on
-            .rejected_fields
-            .iter()
-            .any(|r| r.reason == "source_too_small_for_requested_field_and_margin"));
-        assert!(on
-            .rejected_fields
-            .iter()
-            .any(|r| r.reason == "reserved_field_or_track"));
+        assert!(
+            on.rejected_fields
+                .iter()
+                .any(|r| r.reason == "source_too_small_for_requested_field_and_margin")
+        );
+        assert!(
+            on.rejected_fields
+                .iter()
+                .any(|r| r.reason == "reserved_field_or_track")
+        );
     }
 
     #[test]
@@ -2991,7 +2990,12 @@ mod tests {
         assert_eq!(
             strips
                 .iter()
-                .map(|f| (f.boundary.x, f.boundary.z, f.boundary.width_m, f.boundary.depth_m))
+                .map(|f| (
+                    f.boundary.x,
+                    f.boundary.z,
+                    f.boundary.width_m,
+                    f.boundary.depth_m
+                ))
                 .collect::<Vec<_>>(),
             vec![(2, 42, 60, 20), (66, 42, 60, 20)]
         );
@@ -3017,10 +3021,11 @@ mod tests {
             assert!(field.access_length_m <= 160);
         }
         // The small-source refusal is gone because a legal field now fits.
-        assert!(on
-            .rejected_fields
-            .iter()
-            .all(|r| r.reason != "source_too_small_for_requested_field_and_margin"));
+        assert!(
+            on.rejected_fields
+                .iter()
+                .all(|r| r.reason != "source_too_small_for_requested_field_and_margin")
+        );
         // Every square the road-only rule would have accepted is untouched: on
         // this fixture there are none, and the strips are pure addition.
         assert!(on.fields.len() >= off.fields.len());
@@ -3059,10 +3064,11 @@ mod tests {
         let gentle = ramp_terrain(&s, 0.10);
         let (pass, _) = realize(&s, &on_plan, &gentle, w, &e, &[]).unwrap();
         assert_eq!(pass.fields.len(), 2);
-        assert!(pass
-            .rejected_fields
-            .iter()
-            .all(|r| r.reason != "field_grade_exceeds_12_percent"));
+        assert!(
+            pass.rejected_fields
+                .iter()
+                .all(|r| r.reason != "field_grade_exceeds_12_percent")
+        );
         verify_field_shapes(&pass, &on_plan, &gentle, w, &e).unwrap();
         // 12.5% fails: the gate is not relaxed for strips. 0.125 is exact in
         // binary, so this is a slope decision and not a rounding artefact.
@@ -3101,8 +3107,12 @@ mod tests {
         };
         // A published shape that no longer matches its own rectangle.
         assert_eq!(
-            tamper(field_index, &|f| f.contour_shape.as_mut().unwrap().long_side_m += 4)
-                .unwrap_err(),
+            tamper(field_index, &|f| f
+                .contour_shape
+                .as_mut()
+                .unwrap()
+                .long_side_m += 4)
+            .unwrap_err(),
             "contour field shape differs from its own boundary"
         );
         // A strip on the wrong axis for its cell's contours.
@@ -3140,31 +3150,35 @@ mod tests {
             };
             cell.role = LandcoverRole::AgricultureCandidate;
         }
-        let wide = with_pattern(&wide_plan, pattern((24, 24), Some(CONTOUR_ELONGATED), false));
-        let field = |x: i64, z: i64, width_m: u32, depth_m: u32, shape: ContourFieldShape| FarmField {
-            id: format!("probe.field.{x}.{z}"),
-            source_cell_id: "shallow.cell".into(),
-            boundary: Rect {
-                x,
-                z,
-                width_m,
-                depth_m,
-            },
-            cultivated: Rect {
-                x: x + HEADLAND,
-                z: z + HEADLAND,
-                width_m: width_m - 8,
-                depth_m: depth_m - 8,
-            },
-            road_id: "road".into(),
-            access_path: vec![[x + 2, z + 2], [x + 2, 80]],
-            access_method: "direct_axis_route".into(),
-            access_length_m: 1,
-            access_search_expanded: 0,
-            preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
-            shared_track: None,
-            contour_shape: Some(shape),
-        };
+        let wide = with_pattern(
+            &wide_plan,
+            pattern((24, 24), Some(CONTOUR_ELONGATED), false),
+        );
+        let field =
+            |x: i64, z: i64, width_m: u32, depth_m: u32, shape: ContourFieldShape| FarmField {
+                id: format!("probe.field.{x}.{z}"),
+                source_cell_id: "shallow.cell".into(),
+                boundary: Rect {
+                    x,
+                    z,
+                    width_m,
+                    depth_m,
+                },
+                cultivated: Rect {
+                    x: x + HEADLAND,
+                    z: z + HEADLAND,
+                    width_m: width_m - 8,
+                    depth_m: depth_m - 8,
+                },
+                road_id: "road".into(),
+                access_path: vec![[x + 2, z + 2], [x + 2, 80]],
+                access_method: "direct_axis_route".into(),
+                access_length_m: 1,
+                access_search_expanded: 0,
+                preparation: "rainfed-prepared-soil-no-irrigation-or-yield-claim".into(),
+                shared_track: None,
+                contour_shape: Some(shape),
+            };
         let realization = |f: FarmField| AgricultureRealization {
             model: "explicit-rectangular-field-access-v3".into(),
             fields: vec![f],
@@ -3285,7 +3299,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -3308,9 +3322,9 @@ mod tests {
                 earthwork_blend_m: None,
             }],
             roadside_sites: vec![],
-        
+
             entry_corridor_policy: Default::default(),
-};
+        };
         let development_plan = development::plan(&scene, &zones, &roads).unwrap();
         let mut plan = development::plan_landcover(&scene, &development_plan).unwrap();
         let template = plan.cells[0].clone();
@@ -3417,7 +3431,10 @@ mod tests {
             !String::from_utf8_lossy(&bytes).contains("sharedTrack"),
             "the off switch must not publish a shared-track field"
         );
-        assert_eq!(blake3::hash(&bytes).to_hex().to_string(), LEGACY_CORRIDOR_HASH);
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            LEGACY_CORRIDOR_HASH
+        );
         // A second fixture, frozen independently: proving the off path is
         // untouched is only meaningful on more than one input.
         let (scene, _, plan, terrain, water, entities) = barrier_fixture();
@@ -3431,10 +3448,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(barrier.fields.len(), 6);
-        assert!(barrier
-            .fields
-            .iter()
-            .all(|field| field.access_method == "direct_axis_route"));
+        assert!(
+            barrier
+                .fields
+                .iter()
+                .all(|field| field.access_method == "direct_axis_route")
+        );
         assert_eq!(
             blake3::hash(&serde_json::to_vec(&(barrier, barrier_patches)).unwrap())
                 .to_hex()
@@ -3470,7 +3489,10 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(on.model, "explicit-rectangular-field-access-v4-shared-tracks");
+        assert_eq!(
+            on.model,
+            "explicit-rectangular-field-access-v4-shared-tracks"
+        );
         // Same fields, different access: this fixture cannot justify a join by
         // "no road route", so all nine are cost decisions.
         assert_eq!(on.fields.len(), off.fields.len());
@@ -3593,8 +3615,7 @@ mod tests {
             .find(|other| other.id == victim.id)
             .unwrap();
         assert_eq!(
-            field.access_length_m
-                + field.shared_track.as_ref().unwrap().road_distance_m,
+            field.access_length_m + field.shared_track.as_ref().unwrap().road_distance_m,
             60
         );
         field.shared_track.as_mut().unwrap().road_distance_m = 161 - field.access_length_m;
@@ -3721,8 +3742,7 @@ mod tests {
         // The metres the joined square already spends are recomputed from the
         // older lane, never read from the record.
         assert_eq!(
-            forged(&|field| field.shared_track.as_mut().unwrap().road_distance_m += 2)
-                .unwrap_err(),
+            forged(&|field| field.shared_track.as_mut().unwrap().road_distance_m += 2).unwrap_err(),
             "shared farm track join differs from the realized network"
         );
         assert_eq!(
@@ -3882,9 +3902,11 @@ mod tests {
             if name == "published" {
                 // The control: the replay must reproduce the published bytes.
                 assert_eq!(
-                    blake3::hash(&serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap())
-                        .to_hex()
-                        .to_string(),
+                    blake3::hash(
+                        &serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap()
+                    )
+                    .to_hex()
+                    .to_string(),
                     blake3::hash(&serde_json::to_vec(&published_agriculture).unwrap())
                         .to_hex()
                         .to_string(),
@@ -4038,8 +4060,11 @@ mod tests {
             spec,
             &manifest.style,
         );
-        let access = bake_access_surfaces(&build_access_graph(&scene.entities, &terrain, water), &terrain)
-            .unwrap_or_default();
+        let access = bake_access_surfaces(
+            &build_access_graph(&scene.entities, &terrain, water),
+            &terrain,
+        )
+        .unwrap_or_default();
         let plan = scene.landcover_plan.as_ref().unwrap().clone();
         let profile = LandUseProfile::from_style(&manifest.style).expect("land use profile");
         let published = scene.landcover_surfaces.as_ref().unwrap().clone();
@@ -4078,9 +4103,11 @@ mod tests {
                 // The control: recomputing the published planet must reproduce
                 // the stored agriculture bytes exactly.
                 assert_eq!(
-                    blake3::hash(&serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap())
-                        .to_hex()
-                        .to_string(),
+                    blake3::hash(
+                        &serde_json::to_vec(&(realization.clone(), patches.clone())).unwrap()
+                    )
+                    .to_hex()
+                    .to_string(),
                     blake3::hash(&serde_json::to_vec(&published_agriculture).unwrap())
                         .to_hex()
                         .to_string(),
@@ -4154,9 +4181,11 @@ mod tests {
         // with identical geometry and access.
         let mut config = plan.clone();
         config.farm_pattern = Some(pattern((24, 24), None, true));
-        let (envelope, _) = realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+        let (envelope, _) =
+            realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
         config.farm_pattern = Some(pattern((24, 24), Some(CONTOUR_ELONGATED), true));
-        let (contour, _) = realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
+        let (contour, _) =
+            realize(spec, &config, &terrain, water, &scene.entities, &access).unwrap();
         for field in &envelope.fields {
             let kept = contour
                 .fields
@@ -4202,51 +4231,139 @@ mod tests {
 
     #[test]
     fn indexed_and_linear_complete_farm_outputs_are_identical() {
-        let(s,p,t,w,e)=fixture();
-        let access=vec![AccessSurface{version:1,entity_id:"pedestrian".into(),anchor_id:"front".into(),road_id:"road".into(),width_m:1.5,
-            vertices:vec![[0.,0.,44.],[159.,0.,44.75],[0.,0.,45.5],[32.,0.,0.],[33.,0.,159.],[34.,0.,0.]],triangles:vec![[0,1,2],[3,5,4]]}];
-        let index=super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
-        let reference=realize_with_query(&s,&p,&t,w,&e,JOIN_MIN_SAVING_M,|x,z|index.linear_reference(x,z)).unwrap();
-        let optimized=realize(&s,&p,&t,w,&e,&access).unwrap();
-        assert!(serde_json::to_vec(&reference).unwrap()==serde_json::to_vec(&optimized).unwrap());
-        assert!(!optimized.0.fields.is_empty());assert!(!optimized.0.rejected_fields.is_empty());
+        let (s, p, t, w, e) = fixture();
+        let access = vec![AccessSurface {
+            version: 1,
+            entity_id: "pedestrian".into(),
+            anchor_id: "front".into(),
+            road_id: "road".into(),
+            width_m: 1.5,
+            vertices: vec![
+                [0., 0., 44.],
+                [159., 0., 44.75],
+                [0., 0., 45.5],
+                [32., 0., 0.],
+                [33., 0., 159.],
+                [34., 0., 0.],
+            ],
+            triangles: vec![[0, 1, 2], [3, 5, 4]],
+        }];
+        let index = super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
+        let reference = realize_with_query(&s, &p, &t, w, &e, JOIN_MIN_SAVING_M, |x, z| {
+            index.linear_reference(x, z)
+        })
+        .unwrap();
+        let optimized = realize(&s, &p, &t, w, &e, &access).unwrap();
+        assert!(serde_json::to_vec(&reference).unwrap() == serde_json::to_vec(&optimized).unwrap());
+        assert!(!optimized.0.fields.is_empty());
+        assert!(!optimized.0.rejected_fields.is_empty());
     }
     #[test]
     #[ignore = "explicit full-world same-input indexed/reference benchmark; requires completed world and fresh report path"]
     fn benchmark_pedestrian_index_on_published_world() {
-        use crate::worldgen::{WorldManifest,SceneIndex,build_access_graph,bake_access_surfaces};
-        let root=std::path::PathBuf::from(std::env::var_os("GLYPHWEAVE_BENCH_WORLD").expect("set completed world path"));
-        assert!(root.join("world.json").is_file(),"partial bake is not a published benchmark source");
-        let report=std::path::PathBuf::from(std::env::var_os("GLYPHWEAVE_BENCH_REPORT").expect("set fresh report path"));
-        assert!(!report.exists(),"keep earlier evidence");
-        let setup=std::time::Instant::now();
-        let manifest:WorldManifest=serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(root.join("glyphweave.manifest.json")).unwrap())).unwrap();
-        let spec=&manifest.scenes[0];let folder=root.join("scenes").join(&spec.scene_id);
-        let scene:SceneIndex=serde_json::from_reader(std::io::BufReader::with_capacity(1024*1024,std::fs::File::open(folder.join("scene.json")).unwrap())).unwrap();
-        let mut terrain=BakedTerrain::new(spec).unwrap();
-        for c in &scene.chunks {terrain.insert_chunk(c.world_x,c.world_z,c.valid_width_m,c.valid_depth_m,&std::fs::read(folder.join(&c.height_file)).unwrap()).unwrap();}
+        use crate::worldgen::{
+            SceneIndex, WorldManifest, bake_access_surfaces, build_access_graph,
+        };
+        let root = std::path::PathBuf::from(
+            std::env::var_os("GLYPHWEAVE_BENCH_WORLD").expect("set completed world path"),
+        );
+        assert!(
+            root.join("world.json").is_file(),
+            "partial bake is not a published benchmark source"
+        );
+        let report = std::path::PathBuf::from(
+            std::env::var_os("GLYPHWEAVE_BENCH_REPORT").expect("set fresh report path"),
+        );
+        assert!(!report.exists(), "keep earlier evidence");
+        let setup = std::time::Instant::now();
+        let manifest: WorldManifest = serde_json::from_reader(std::io::BufReader::new(
+            std::fs::File::open(root.join("glyphweave.manifest.json")).unwrap(),
+        ))
+        .unwrap();
+        let spec = &manifest.scenes[0];
+        let folder = root.join("scenes").join(&spec.scene_id);
+        let scene: SceneIndex = serde_json::from_reader(std::io::BufReader::with_capacity(
+            1024 * 1024,
+            std::fs::File::open(folder.join("scene.json")).unwrap(),
+        ))
+        .unwrap();
+        let mut terrain = BakedTerrain::new(spec).unwrap();
+        for c in &scene.chunks {
+            terrain
+                .insert_chunk(
+                    c.world_x,
+                    c.world_z,
+                    c.valid_width_m,
+                    c.valid_depth_m,
+                    &std::fs::read(folder.join(&c.height_file)).unwrap(),
+                )
+                .unwrap();
+        }
         terrain.require_complete().unwrap();
-        let water=water_geometry(super::super::super::worldgen::water_kind(&manifest.style),&manifest.landmarks,spec,&manifest.style);
-        let graph=build_access_graph(&scene.entities,&terrain,water);
-        let access=bake_access_surfaces(&graph,&terrain).unwrap();
-        let plan=scene.landcover_plan.as_ref().unwrap();
-        let index=super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
-        let setup_seconds=setup.elapsed().as_secs_f64();
-        eprintln!("reference benchmark inputs loaded in {setup_seconds}s; starting linear agriculture");
-        let start=std::time::Instant::now();
-        let old=realize_with_query(spec,plan,&terrain,water,&scene.entities,JOIN_MIN_SAVING_M,|x,z|index.linear_reference(x,z)).unwrap();
-        let reference_seconds=start.elapsed().as_secs_f64();
-        eprintln!("linear agriculture complete in {reference_seconds}s; starting indexed agriculture");
-        let start=std::time::Instant::now();let new=realize(spec,plan,&terrain,water,&scene.entities,&access).unwrap();let indexed_seconds=start.elapsed().as_secs_f64();
-        let old_bytes=serde_json::to_vec(&old).unwrap();let new_bytes=serde_json::to_vec(&new).unwrap();
-        let saved=scene.landcover_surfaces.as_ref().unwrap();
-        let saved_patches:Vec<_>=saved.patches.iter().filter(|p|matches!(p.material,Material::CultivatedSoil|Material::FieldHeadland|Material::FarmTrack)).collect();
-        let saved_bytes=serde_json::to_vec(&(&saved.agriculture,saved_patches)).unwrap();
-        let result=serde_json::json!({"format":"glyphweave.agriculture-index-reference","status":if old_bytes==new_bytes&&new_bytes==saved_bytes {"pass"} else {"fail"},"scope":"same complete agriculture fields/rejections/routes/meshes; not full-world time SLA","world":root,"sceneId":spec.scene_id,"sizeM":[spec.width_m,spec.depth_m],"entities":scene.entities.len(),"pedestrianTriangles":access.iter().map(|s|s.triangles.len()).sum::<usize>(),"fields":new.0.fields.len(),"rejections":new.0.rejected_fields.len(),"patches":new.1.len(),"setupSeconds":setup_seconds,"referenceSeconds":reference_seconds,"indexedSeconds":indexed_seconds,"serializedBytes":new_bytes.len(),"referenceHash":blake3::hash(&old_bytes).to_hex().to_string(),"indexedHash":blake3::hash(&new_bytes).to_hex().to_string(),"publishedHash":blake3::hash(&saved_bytes).to_hex().to_string(),"naturalHash":scene.road_network_plan.as_ref().unwrap().natural_heightfield_hash,"finalTerrainHash":terrain.content_hash().unwrap()});
-        std::io::Write::write_all(&mut std::fs::OpenOptions::new().write(true).create_new(true).open(report).unwrap(),&serde_json::to_vec_pretty(&result).unwrap()).unwrap();
-        eprintln!("{}",result);
-        assert!(old_bytes==new_bytes,"indexed results differ from original linear predicate");
-        assert!(new_bytes==saved_bytes,"published agriculture differs from reconstruction");
+        let water = water_geometry(
+            super::super::super::worldgen::water_kind(&manifest.style),
+            &manifest.landmarks,
+            spec,
+            &manifest.style,
+        );
+        let graph = build_access_graph(&scene.entities, &terrain, water);
+        let access = bake_access_surfaces(&graph, &terrain).unwrap();
+        let plan = scene.landcover_plan.as_ref().unwrap();
+        let index = super::super::pedestrian_index::PedestrianIndex::new(&access).unwrap();
+        let setup_seconds = setup.elapsed().as_secs_f64();
+        eprintln!(
+            "reference benchmark inputs loaded in {setup_seconds}s; starting linear agriculture"
+        );
+        let start = std::time::Instant::now();
+        let old = realize_with_query(
+            spec,
+            plan,
+            &terrain,
+            water,
+            &scene.entities,
+            JOIN_MIN_SAVING_M,
+            |x, z| index.linear_reference(x, z),
+        )
+        .unwrap();
+        let reference_seconds = start.elapsed().as_secs_f64();
+        eprintln!(
+            "linear agriculture complete in {reference_seconds}s; starting indexed agriculture"
+        );
+        let start = std::time::Instant::now();
+        let new = realize(spec, plan, &terrain, water, &scene.entities, &access).unwrap();
+        let indexed_seconds = start.elapsed().as_secs_f64();
+        let old_bytes = serde_json::to_vec(&old).unwrap();
+        let new_bytes = serde_json::to_vec(&new).unwrap();
+        let saved = scene.landcover_surfaces.as_ref().unwrap();
+        let saved_patches: Vec<_> = saved
+            .patches
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.material,
+                    Material::CultivatedSoil | Material::FieldHeadland | Material::FarmTrack
+                )
+            })
+            .collect();
+        let saved_bytes = serde_json::to_vec(&(&saved.agriculture, saved_patches)).unwrap();
+        let result = serde_json::json!({"format":"glyphweave.agriculture-index-reference","status":if old_bytes==new_bytes&&new_bytes==saved_bytes {"pass"} else {"fail"},"scope":"same complete agriculture fields/rejections/routes/meshes; not full-world time SLA","world":root,"sceneId":spec.scene_id,"sizeM":[spec.width_m,spec.depth_m],"entities":scene.entities.len(),"pedestrianTriangles":access.iter().map(|s|s.triangles.len()).sum::<usize>(),"fields":new.0.fields.len(),"rejections":new.0.rejected_fields.len(),"patches":new.1.len(),"setupSeconds":setup_seconds,"referenceSeconds":reference_seconds,"indexedSeconds":indexed_seconds,"serializedBytes":new_bytes.len(),"referenceHash":blake3::hash(&old_bytes).to_hex().to_string(),"indexedHash":blake3::hash(&new_bytes).to_hex().to_string(),"publishedHash":blake3::hash(&saved_bytes).to_hex().to_string(),"naturalHash":scene.road_network_plan.as_ref().unwrap().natural_heightfield_hash,"finalTerrainHash":terrain.content_hash().unwrap()});
+        std::io::Write::write_all(
+            &mut std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(report)
+                .unwrap(),
+            &serde_json::to_vec_pretty(&result).unwrap(),
+        )
+        .unwrap();
+        eprintln!("{}", result);
+        assert!(
+            old_bytes == new_bytes,
+            "indexed results differ from original linear predicate"
+        );
+        assert!(
+            new_bytes == saved_bytes,
+            "published agriculture differs from reconstruction"
+        );
     }
-
 }

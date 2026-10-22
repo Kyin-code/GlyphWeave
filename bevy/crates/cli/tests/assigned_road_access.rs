@@ -35,7 +35,7 @@ const HILLSIDE_SHOPS: usize = 6;
 /// and third-party notices, so contract additions move this constant without
 /// moving the authoritative terrain or scene data.
 const FROZEN_PLAINS_DIGEST: &str =
-    "8f5275a3c46882db96948b23cc1bd9113bdcfe2e844bb38dc2280f59b19aa81f";
+    "4b3b9923d9e75ef71f703197af5b9d2a79a1133db17fd4185ae7b6d4f9c47fe9";
 
 struct TestDir(PathBuf);
 impl TestDir {

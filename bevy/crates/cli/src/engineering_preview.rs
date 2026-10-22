@@ -56,7 +56,10 @@ fn parse_export(args: &[String]) -> CliResult<ExportOptions> {
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> CliResult<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)?;
     }
     let mut file = fs::OpenOptions::new()
@@ -104,13 +107,20 @@ pub(super) fn run(args: &[String], audit: bool) -> CliResult<()> {
 fn export_command(args: &[String]) -> CliResult<()> {
     let options = parse_export(args)?;
     let input_bytes = fs::read(&options.input).map_err(|error| {
-        format!("cannot read the input description {}: {error}", options.input.display())
+        format!(
+            "cannot read the input description {}: {error}",
+            options.input.display()
+        )
     })?;
     let bundle_bytes = fs::read(&options.bundle).map_err(|error| {
-        format!("cannot read the bundle {}: {error}", options.bundle.display())
+        format!(
+            "cannot read the bundle {}: {error}",
+            options.bundle.display()
+        )
     })?;
     let input_json = String::from_utf8(input_bytes).map_err(|_| "the input is not UTF-8 text")?;
-    let bundle_json = String::from_utf8(bundle_bytes).map_err(|_| "the bundle is not UTF-8 text")?;
+    let bundle_json =
+        String::from_utf8(bundle_bytes).map_err(|_| "the bundle is not UTF-8 text")?;
 
     // The gate: the production verifier decides, and nothing is written before it does.
     let export = match preview::build_export(&input_json, &bundle_json) {
@@ -148,7 +158,9 @@ fn export_command(args: &[String]) -> CliResult<()> {
             "wrotePreview": false,
         });
         println!("{}", serde_json::to_string(&report)?);
-        return Err("engineering preview export conflict: the target directory already exists".into());
+        return Err(
+            "engineering preview export conflict: the target directory already exists".into(),
+        );
     }
 
     fs::create_dir_all(&options.out)?;
@@ -159,9 +171,18 @@ fn export_command(args: &[String]) -> CliResult<()> {
         created.push(staging.clone());
         // 1. Everything, including the two source copies, is written into staging first.
         let mut payload: Vec<(String, Vec<u8>)> = vec![
-            (preview::SOURCE_INPUT_FILE.to_string(), export.source_input.clone()),
-            (preview::SOURCE_BUNDLE_FILE.to_string(), export.source_bundle.clone()),
-            (preview::RENDER_MODEL_FILE.to_string(), export.render_model_json.clone()),
+            (
+                preview::SOURCE_INPUT_FILE.to_string(),
+                export.source_input.clone(),
+            ),
+            (
+                preview::SOURCE_BUNDLE_FILE.to_string(),
+                export.source_bundle.clone(),
+            ),
+            (
+                preview::RENDER_MODEL_FILE.to_string(),
+                export.render_model_json.clone(),
+            ),
         ];
         payload.extend(export.assets.iter().cloned());
         for (relative, bytes) in &payload {
@@ -190,7 +211,10 @@ fn export_command(args: &[String]) -> CliResult<()> {
             return Err("injected failure before the completion marker (test hook)".into());
         }
         // 3. The description is the completion marker and is written last.
-        write_new(&options.out.join(preview::DESCRIPTION_FILE), &export.description_json)?;
+        write_new(
+            &options.out.join(preview::DESCRIPTION_FILE),
+            &export.description_json,
+        )?;
         created.push(options.out.join(preview::DESCRIPTION_FILE));
         let report = serde_json::json!({
             "status": "exported",
@@ -296,10 +320,7 @@ fn audit_command(args: &[String]) -> CliResult<()> {
         Err(error) => preview::refusal_report(&root.to_string_lossy(), &error.message),
     };
 
-    write_new(
-        &report_path,
-        serde_json::to_vec_pretty(&report)?.as_slice(),
-    )?;
+    write_new(&report_path, serde_json::to_vec_pretty(&report)?.as_slice())?;
     let summary = serde_json::json!({
         "status": report.status,
         "command": "audit-engineering-preview",

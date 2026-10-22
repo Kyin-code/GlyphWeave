@@ -225,6 +225,39 @@ pub fn compile(style: &Value) -> Result<Option<Plan>, String> {
     }))
 }
 
+pub fn planned_road_width_m(style: &Value) -> Result<Option<f32>, String> {
+    let planning = style
+        .get("planningHistory")
+        .and_then(Value::as_object)
+        .filter(|program| {
+            program
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        });
+    if planning.is_none() {
+        return Ok(None);
+    }
+    let Some(plan) = compile(style)? else {
+        return Ok(None);
+    };
+    Ok(Some(road_target_width_m(
+        &plan.settlement_scale,
+        plan.focus_bias.road_widening_bias,
+    )))
+}
+
+pub fn road_target_width_m(settlement_scale: &str, focus_multiplier: f32) -> f32 {
+    let base_width = if matches!(settlement_scale, "metropolis" | "megacity") {
+        24.0
+    } else if settlement_scale == "city" {
+        16.0
+    } else {
+        12.0
+    };
+    (base_width * focus_multiplier).round().clamp(8.0, 32.0)
+}
+
 fn compile_focus_bias(program: &Program) -> FocusBias {
     let mut old_core = 1.0_f32;
     let mut renewal = 1.0_f32;
@@ -748,15 +781,19 @@ mod tests {
         );
         assert!(waterfront.focus_bias.road_widening_bias > historic.focus_bias.road_widening_bias);
         assert!(historic.focus_bias.engineering_bias > waterfront.focus_bias.engineering_bias);
-        assert!(waterfront
-            .focus_bias
-            .signals
-            .iter()
-            .any(|signal| signal.contains("waterfront-growth")));
-        assert!(historic
-            .focus_bias
-            .signals
-            .iter()
-            .any(|signal| signal.contains("terrain-engineering")));
+        assert!(
+            waterfront
+                .focus_bias
+                .signals
+                .iter()
+                .any(|signal| signal.contains("waterfront-growth"))
+        );
+        assert!(
+            historic
+                .focus_bias
+                .signals
+                .iter()
+                .any(|signal| signal.contains("terrain-engineering"))
+        );
     }
 }

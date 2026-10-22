@@ -11,13 +11,13 @@
 //! `notReverified`, and the viewer can only display source facts.
 
 use super::engineering_context::{
-    check_report_path, claim_directory, compare_stage, publish, release, write_report, Stage,
+    Stage, check_report_path, claim_directory, compare_stage, publish, release, write_report,
 };
 use glyphweave_core::engineering_context::{
-    build_context, resolve_within_root, BoundScene, WindowRect,
+    BoundScene, WindowRect, build_context, resolve_within_root,
 };
 use glyphweave_core::engineering_preview::sha256_hex;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -91,9 +91,13 @@ fn required(args: &[String], name: &str) -> CliResult<String> {
 
 fn read_confined(root: &Path, relative: &str, budget: &mut u64) -> Result<Vec<u8>, String> {
     let resolved = resolve_within_root(root, relative).map_err(|error| {
-        format!("{relative} is not a confined path inside {}: {error}", root.display())
+        format!(
+            "{relative} is not a confined path inside {}: {error}",
+            root.display()
+        )
     })?;
-    let metadata = fs::metadata(&resolved).map_err(|error| format!("{relative} is unreadable: {error}"))?;
+    let metadata =
+        fs::metadata(&resolved).map_err(|error| format!("{relative} is unreadable: {error}"))?;
     if !metadata.is_file() {
         return Err(format!("{relative} is not a regular file"));
     }
@@ -210,7 +214,11 @@ pub(super) struct Rebuild {
     scene_bytes: u64,
 }
 
-pub(super) fn rebuild(world: &Path, window: WindowRect, expected_context: &Value) -> Result<Rebuild, String> {
+pub(super) fn rebuild(
+    world: &Path,
+    window: WindowRect,
+    expected_context: &Value,
+) -> Result<Rebuild, String> {
     let bound = BoundScene::read(world, window)
         .map_err(|error| format!("the caller-given source could not be rebuilt: {error}"))?;
     let context = build_context(&bound)
@@ -432,15 +440,53 @@ grades no terrain and certifies nothing.\n\n\
 * access records: source observations, marked sourceObservationOnly / notReverified\n\
 * unknown kinds and schema drift are displayed as source facts, not as safe ground\n",
         PREVIEW_SCHEMA,
-        model.get("contextSchemaVersion").cloned().unwrap_or(Value::Null),
-        model.get("sources").and_then(|sources| sources.get("sceneId")).cloned().unwrap_or(Value::Null),
-        model.get("window").and_then(|w| w.get("minX")).cloned().unwrap_or(Value::Null),
-        model.get("window").and_then(|w| w.get("minZ")).cloned().unwrap_or(Value::Null),
-        model.get("window").and_then(|w| w.get("widthM")).cloned().unwrap_or(Value::Null),
-        model.get("window").and_then(|w| w.get("depthM")).cloned().unwrap_or(Value::Null),
-        model.get("sources").and_then(|sources| sources.get("world")).and_then(|world| world.get("sha256")).cloned().unwrap_or(Value::Null),
-        model.get("sources").and_then(|sources| sources.get("scene")).and_then(|scene| scene.get("sha256")).cloned().unwrap_or(Value::Null),
-        model.get("sources").and_then(|sources| sources.get("context")).and_then(|context| context.get("sha256")).cloned().unwrap_or(Value::Null),
+        model
+            .get("contextSchemaVersion")
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("sources")
+            .and_then(|sources| sources.get("sceneId"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("window")
+            .and_then(|w| w.get("minX"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("window")
+            .and_then(|w| w.get("minZ"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("window")
+            .and_then(|w| w.get("widthM"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("window")
+            .and_then(|w| w.get("depthM"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("sources")
+            .and_then(|sources| sources.get("world"))
+            .and_then(|world| world.get("sha256"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("sources")
+            .and_then(|sources| sources.get("scene"))
+            .and_then(|scene| scene.get("sha256"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        model
+            .get("sources")
+            .and_then(|sources| sources.get("context"))
+            .and_then(|context| context.get("sha256"))
+            .cloned()
+            .unwrap_or(Value::Null),
     )
 }
 
@@ -489,9 +535,10 @@ fn export_preview(args: &[String]) -> CliResult<()> {
             return Err(format!("--window {expected} is not the context window {declared}").into());
         }
     }
-    let rebuilt = rebuild(&world, window, &package.context).map_err(|detail| -> Box<dyn Error> {
-        format!("independent rebuild refused: {detail}").into()
-    })?;
+    let rebuilt =
+        rebuild(&world, window, &package.context).map_err(|detail| -> Box<dyn Error> {
+            format!("independent rebuild refused: {detail}").into()
+        })?;
     let model = build_model(&rebuilt.context, &package, &rebuilt, window);
     let model_json = serde_json::to_string_pretty(&model)?;
     let model_sha256 = sha256_hex(model_json.as_bytes());
@@ -505,10 +552,16 @@ fn export_preview(args: &[String]) -> CliResult<()> {
         let artifacts = vec![
             (MODEL_FILE.to_string(), model_json.clone().into_bytes()),
             (VIEWER_FILE.to_string(), VIEWER_JS.as_bytes().to_vec()),
-            (HTML_FILE.to_string(), preview_html(&model_json).into_bytes()),
+            (
+                HTML_FILE.to_string(),
+                preview_html(&model_json).into_bytes(),
+            ),
             (README_FILE.to_string(), readme(&model).into_bytes()),
             (MANIFEST_FILE.to_string(), manifest_bytes.clone()),
-            (MARKER_FILE.to_string(), serde_json::to_vec_pretty(&marker).unwrap_or_default()),
+            (
+                MARKER_FILE.to_string(),
+                serde_json::to_vec_pretty(&marker).unwrap_or_default(),
+            ),
         ];
         publish(&mut owned, &artifacts, None)
     })();
@@ -558,7 +611,8 @@ fn embedded_model(html: &str) -> Result<Value, String> {
         return Err("the embedded render model markers are inverted".to_string());
     }
     let body = &html[start + MODEL_MARK_BEGIN.len()..end];
-    serde_json::from_str::<Value>(body).map_err(|error| format!("the embedded model is invalid: {error}"))
+    serde_json::from_str::<Value>(body)
+        .map_err(|error| format!("the embedded model is invalid: {error}"))
 }
 
 fn audit_preview(args: &[String]) -> CliResult<()> {
@@ -622,8 +676,9 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
                     }
                 }
             }
-            Err(error) => completeness_failures
-                .push(format!("the preview directory is unreadable: {error}")),
+            Err(error) => {
+                completeness_failures.push(format!("the preview directory is unreadable: {error}"))
+            }
         }
         for name in REQUIRED_FILES {
             match read_confined(&preview_root, name, &mut budget) {
@@ -670,8 +725,9 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
             let model_sha256 = sha256_hex(model_bytes.as_deref().unwrap_or(&[]));
             match string_at(manifest, &["schemaVersion"]).as_deref() {
                 Some(PACKAGE_SCHEMA) => {}
-                Some(other) => completeness_failures
-                    .push(format!("unsupported preview manifest schemaVersion {other}")),
+                Some(other) => completeness_failures.push(format!(
+                    "unsupported preview manifest schemaVersion {other}"
+                )),
                 None => completeness_failures
                     .push("the preview manifest declares no schemaVersion".to_string()),
             }
@@ -765,7 +821,9 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
     let package = match load_context_package(&context_dir) {
         Ok(package) => Some(package),
         Err(detail) => {
-            source_failures.push(format!("the audited context package is not usable: {detail}"));
+            source_failures.push(format!(
+                "the audited context package is not usable: {detail}"
+            ));
             None
         }
     };
@@ -800,26 +858,11 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
     // sourceBinding: what the model claims about its own sources.
     if let (Some(model), Some(package), Some(rebuilt)) = (&model, &package, &rebuilt) {
         let expectations: [(&str, String); 5] = [
-            (
-                "sources.world.sha256",
-                rebuilt.world_sha256.clone(),
-            ),
-            (
-                "sources.scene.sha256",
-                rebuilt.scene_sha256.clone(),
-            ),
-            (
-                "sources.context.sha256",
-                package.context_sha256.clone(),
-            ),
-            (
-                "sources.manifest.sha256",
-                package.manifest_sha256.clone(),
-            ),
-            (
-                "sources.marker.sha256",
-                package.marker_sha256.clone(),
-            ),
+            ("sources.world.sha256", rebuilt.world_sha256.clone()),
+            ("sources.scene.sha256", rebuilt.scene_sha256.clone()),
+            ("sources.context.sha256", package.context_sha256.clone()),
+            ("sources.manifest.sha256", package.manifest_sha256.clone()),
+            ("sources.marker.sha256", package.marker_sha256.clone()),
         ];
         for (path, expected) in expectations {
             let actual = model
@@ -851,17 +894,20 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
             })
             .unwrap_or(false);
         if !model_window_matches {
-            source_failures.push("the render model window does not match the context window".to_string());
+            source_failures
+                .push("the render model window does not match the context window".to_string());
         }
         let model_scene = string_at(model, &["sources", "sceneId"]);
         let context_scene = string_at(&package.context, &["sceneBinding", "sceneId"]);
         if model_scene != context_scene {
-            source_failures.push("the render model scene identity does not match the context".to_string());
+            source_failures
+                .push("the render model scene identity does not match the context".to_string());
         }
         let model_version = string_at(model, &["contextSchemaVersion"]);
         let context_version = string_at(&package.context, &["schemaVersion"]);
         if model_version != context_version {
-            source_failures.push("the render model context version does not match the context".to_string());
+            source_failures
+                .push("the render model context version does not match the context".to_string());
         }
     }
     // The render model is compared only when it declares the version this audit
@@ -903,12 +949,7 @@ fn audit_preview(args: &[String]) -> CliResult<()> {
     };
     match (&model, &fresh_model) {
         (Some(model), Some(fresh)) if model_supported => {
-            stages.push(compare_stage(
-                "terrainParity",
-                fresh,
-                model,
-                &["surfaces"],
-            ));
+            stages.push(compare_stage("terrainParity", fresh, model, &["surfaces"]));
             stages.push(compare_stage(
                 "entityAndRoadParity",
                 fresh,
@@ -965,7 +1006,10 @@ fn finish_preview(
     for name in order {
         match stages.iter().position(|stage| stage.name == name) {
             Some(index) => ordered.push(stages.remove(index)),
-            None => ordered.push(Stage::not_evaluated(name, "the stage did not run".to_string())),
+            None => ordered.push(Stage::not_evaluated(
+                name,
+                "the stage did not run".to_string(),
+            )),
         }
     }
     let stages = ordered;
@@ -1403,7 +1447,12 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("gwc-preview-{}-{}-{}", std::process::id(), tag, nanos));
+        let dir = std::env::temp_dir().join(format!(
+            "gwc-preview-{}-{}-{}",
+            std::process::id(),
+            tag,
+            nanos
+        ));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }
@@ -1420,7 +1469,8 @@ mod tests {
         let context_bytes = serde_json::to_vec_pretty(&context).expect("context bytes");
         let context_sha = sha256_hex(&context_bytes);
         fs::write(dir.join("engineering-context.json"), &context_bytes).expect("context");
-        let manifest = json!({"schemaVersion": "engineering-context-audit-v1", "contextSha256": context_sha});
+        let manifest =
+            json!({"schemaVersion": "engineering-context-audit-v1", "contextSha256": context_sha});
         let manifest_bytes = serde_json::to_vec_pretty(&manifest).expect("manifest");
         let manifest_sha = sha256_hex(&manifest_bytes);
         fs::write(dir.join("manifest.json"), &manifest_bytes).expect("manifest");
@@ -1430,8 +1480,11 @@ mod tests {
             "contextSha256": context_sha,
             "manifestSha256": manifest_sha,
         });
-        fs::write(dir.join("COMPLETE.json"), serde_json::to_vec_pretty(&marker).expect("marker"))
-            .expect("marker");
+        fs::write(
+            dir.join("COMPLETE.json"),
+            serde_json::to_vec_pretty(&marker).expect("marker"),
+        )
+        .expect("marker");
         let package = load_context_package(&dir).expect("package loads");
         let rebuilt = rebuild(&fixed_source_dir(), window, &package.context).expect("rebuild");
         (dir, package, window, rebuilt)
@@ -1441,20 +1494,36 @@ mod tests {
     fn model_keeps_both_surfaces_entities_roads_and_access_observations() {
         let (_dir, package, window, rebuilt) = context_package();
         let model = build_model(&rebuilt.context, &package, &rebuilt, window);
-        let natural = model["surfaces"]["natural"]["samples"].as_array().expect("natural");
-        let final_samples = model["surfaces"]["final"]["samples"].as_array().expect("final");
+        let natural = model["surfaces"]["natural"]["samples"]
+            .as_array()
+            .expect("natural");
+        let final_samples = model["surfaces"]["final"]["samples"]
+            .as_array()
+            .expect("final");
         assert_eq!(natural.len(), 4096);
         assert_eq!(final_samples.len(), 4096);
-        assert_eq!(model["surfaces"]["natural"]["sourceField"], json!("crop.naturalMm"));
-        assert_eq!(model["surfaces"]["final"]["sourceField"], json!("crop.finalMm"));
-        assert_ne!(natural[0], final_samples[0], "the two surfaces are separate facts");
+        assert_eq!(
+            model["surfaces"]["natural"]["sourceField"],
+            json!("crop.naturalMm")
+        );
+        assert_eq!(
+            model["surfaces"]["final"]["sourceField"],
+            json!("crop.finalMm")
+        );
+        assert_ne!(
+            natural[0], final_samples[0],
+            "the two surfaces are separate facts"
+        );
         let entities = model["entities"].as_array().expect("entities");
         assert!(!entities.is_empty());
         let named = entities
             .iter()
             .find(|entity| entity["entityId"] == json!("generated.road-network.scene-0.4-11"))
             .expect("the named road entity");
-        assert!(named.get("savedBounds").is_some(), "original bounds are kept");
+        assert!(
+            named.get("savedBounds").is_some(),
+            "original bounds are kept"
+        );
         assert!(named.get("rotationYDeg").is_some());
         assert!(named.get("scale").is_some());
         let roads = model["roads"].as_array().expect("roads");
@@ -1466,11 +1535,20 @@ mod tests {
         assert_eq!(road["toNodeFact"]["id"], json!(11));
         let records = model["access"]["records"].as_array().expect("access");
         assert_eq!(records.len(), 18);
-        assert!(records.iter().all(|record| record["sourceObservationOnly"] == json!(true)
-            && record["notReverified"] == json!(true)));
+        assert!(
+            records
+                .iter()
+                .all(|record| record["sourceObservationOnly"] == json!(true)
+                    && record["notReverified"] == json!(true))
+        );
         let with_path = records
             .iter()
-            .find(|record| record["path"].as_array().map(|path| path.len() == 3).unwrap_or(false))
+            .find(|record| {
+                record["path"]
+                    .as_array()
+                    .map(|path| path.len() == 3)
+                    .unwrap_or(false)
+            })
             .expect("a saved polyline is kept in full");
         assert_eq!(with_path["path"][0]["x"], json!(276.0));
         assert_eq!(model["status"]["entityCount"], json!(entities.len()));
@@ -1485,12 +1563,27 @@ mod tests {
             assert!(model.get(field).is_some(), "missing field {field}");
         }
         assert!(
-            model["unknownKinds"].as_object().map(|map| !map.is_empty()).unwrap_or(false),
+            model["unknownKinds"]
+                .as_object()
+                .map(|map| !map.is_empty())
+                .unwrap_or(false),
             "unmodelled kinds are kept as source facts"
         );
-        assert!(model["schemaDrift"].is_string(), "schema drift is disclosed");
-        assert!(model["status"]["schemaDriftPresent"].as_bool().unwrap_or(false));
-        assert!(!model["limitations"].as_array().expect("limitations").is_empty());
+        assert!(
+            model["schemaDrift"].is_string(),
+            "schema drift is disclosed"
+        );
+        assert!(
+            model["status"]["schemaDriftPresent"]
+                .as_bool()
+                .unwrap_or(false)
+        );
+        assert!(
+            !model["limitations"]
+                .as_array()
+                .expect("limitations")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1500,7 +1593,9 @@ mod tests {
         let model_json = serde_json::to_string_pretty(&model).expect("json");
         let html = preview_html(&model_json);
         assert!(html.contains("viewer.js"), "the viewer is a separate asset");
-        assert!(html.contains("sourceObservationOnly") || VIEWER_JS.contains("sourceObservationOnly"));
+        assert!(
+            html.contains("sourceObservationOnly") || VIEWER_JS.contains("sourceObservationOnly")
+        );
         assert!(!html.contains("fetch("), "the page must not need a server");
         let embedded = embedded_model(&html).expect("embedded model");
         assert_eq!(embedded, model);
@@ -1516,13 +1611,19 @@ mod tests {
         let mut value: Value = serde_json::from_slice(&original).expect("parse");
         value["schemaVersion"] = json!("engineering-context-v999");
         fs::write(&broken, serde_json::to_vec_pretty(&value).expect("json")).expect("write");
-        assert!(load_context_package(&dir).is_err(), "unknown version must be refused");
+        assert!(
+            load_context_package(&dir).is_err(),
+            "unknown version must be refused"
+        );
 
         fs::write(&broken, &original).expect("restore");
         let marker = dir.join("COMPLETE.json");
         fs::write(&marker, br#"{"status":"complete","schemaVersion":"x","contextSha256":"00","manifestSha256":"00"}"#)
             .expect("marker");
-        assert!(load_context_package(&dir).is_err(), "a broken hash chain must be refused");
+        assert!(
+            load_context_package(&dir).is_err(),
+            "a broken hash chain must be refused"
+        );
     }
 
     #[test]
@@ -1568,13 +1669,22 @@ mod tests {
         let mut limitations = model.clone();
         limitations["limitations"] = json!([]);
         assert_eq!(
-            compare_stage("entityAndRoadParity", &fresh, &limitations, &["limitations"]).state,
+            compare_stage(
+                "entityAndRoadParity",
+                &fresh,
+                &limitations,
+                &["limitations"]
+            )
+            .state,
             "fail"
         );
 
         let mut sources = model.clone();
         sources["sources"]["context"]["sha256"] = json!("00");
-        assert_ne!(sources["sources"]["context"]["sha256"], model["sources"]["context"]["sha256"]);
+        assert_ne!(
+            sources["sources"]["context"]["sha256"],
+            model["sources"]["context"]["sha256"]
+        );
     }
 
     #[test]
@@ -1629,10 +1739,12 @@ mod tests {
             ]
         );
         assert!(stages.iter().all(|stage| stage["state"] == json!("pass")));
-        assert!(report_value["notEvaluatedStages"]
-            .as_array()
-            .expect("notEvaluated")
-            .is_empty());
+        assert!(
+            report_value["notEvaluatedStages"]
+                .as_array()
+                .expect("notEvaluated")
+                .is_empty()
+        );
     }
 
     #[test]

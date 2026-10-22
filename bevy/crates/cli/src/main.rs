@@ -16,10 +16,10 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
-use glyphweave_core::intent::{draft_from_text, IntentDraft, WorldIntent};
-use glyphweave_core::migration::{migrate_legacy_json, MigrationMode};
-use glyphweave_core::rules::{load_descriptor, load_dir, ObjectRegistry};
-use glyphweave_core::storage::archive::{read_entries, ArchiveLimits};
+use glyphweave_core::intent::{IntentDraft, WorldIntent, draft_from_text};
+use glyphweave_core::migration::{MigrationMode, migrate_legacy_json};
+use glyphweave_core::rules::{ObjectRegistry, load_descriptor, load_dir};
+use glyphweave_core::storage::archive::{ArchiveLimits, read_entries};
 use glyphweave_core::storage::bitpack::unpack_indices;
 use glyphweave_core::storage::canonical::chunk_id;
 use glyphweave_core::storage::codec::{
@@ -27,14 +27,14 @@ use glyphweave_core::storage::codec::{
 };
 use glyphweave_core::storage::model::{Manifest, RegionManifest};
 use glyphweave_core::voxel::{
-    ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord, CHUNK_VOLUME,
+    CHUNK_VOLUME, ChunkCoord, LocalVoxelCoord, RegionChunkCoord, RegionCoord, VoxelCoord,
 };
 use glyphweave_core::worldgen::{
-    analyze_landuse_areas, apply_patch, audit_baked_scene, audit_entity_inventory, bake_world,
-    build_access_graph, footprint_intersects_water, validate_access_surfaces, water_geometry,
-    water_kind, world_manifest_revision, write_demo_manifest, EntityChangeApproval,
-    EntityChangeKind, EntityInstance, EntityInventoryMode, LandUseProfile, SceneIndex, WorldIndex,
-    WorldManifest, WorldPatch,
+    EntityChangeApproval, EntityChangeKind, EntityInstance, EntityInventoryMode, LandUseProfile,
+    SceneIndex, WorldIndex, WorldManifest, WorldPatch, analyze_landuse_areas, apply_patch,
+    audit_baked_scene, audit_entity_inventory, bake_world, build_access_graph,
+    footprint_intersects_water, validate_access_surfaces, water_geometry, water_kind,
+    world_manifest_revision, write_demo_manifest,
 };
 
 type CliResult<T> = Result<T, Box<dyn Error>>;
@@ -1498,9 +1498,9 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
             .parent()
             .expect("a scene index has a scene directory")
             .to_path_buf();
-        let market_artifacts = (|| -> Option<glyphweave_core::worldgen::market_catchment::Artifacts> {
-            Some(
-                glyphweave_core::worldgen::market_catchment::Artifacts {
+        let market_artifacts =
+            (|| -> Option<glyphweave_core::worldgen::market_catchment::Artifacts> {
+                Some(glyphweave_core::worldgen::market_catchment::Artifacts {
                     plan: serde_json::from_slice(
                         &fs::read(scene_dir.join("market-catchment-plan.json")).ok()?,
                     )
@@ -1513,9 +1513,8 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                         &fs::read(scene_dir.join("market-deficit.json")).ok()?,
                     )
                     .ok()?,
-                },
-            )
-        })();
+                })
+            })();
         let market_audit = if let Some(artifacts) = &market_artifacts {
             match glyphweave_core::worldgen::market_catchment::audit_artifacts(artifacts) {
                 Ok(()) => serde_json::json!({
@@ -1537,7 +1536,10 @@ fn quality_report_command(args: &[String]) -> CliResult<()> {
                 }),
                 Err(message) => {
                     market_artifacts_failed = true;
-                    warnings.push(format!("{}: market artifacts are inconsistent: {message}", scene.scene_id));
+                    warnings.push(format!(
+                        "{}: market artifacts are inconsistent: {message}",
+                        scene.scene_id
+                    ));
                     serde_json::json!({"status": "fail", "detail": message})
                 }
             }

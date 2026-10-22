@@ -197,9 +197,11 @@ mod tests {
 
     #[test]
     fn unknown_profile_fails_closed() {
-        assert!(validate_style(&serde_json::json!({
-            "communityProfile": {"version": 1, "profile": "unknown"}
-        }))
-        .is_err());
+        assert!(
+            validate_style(&serde_json::json!({
+                "communityProfile": {"version": 1, "profile": "unknown"}
+            }))
+            .is_err()
+        );
     }
 }

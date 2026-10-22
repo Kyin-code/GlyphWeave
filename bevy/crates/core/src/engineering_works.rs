@@ -79,9 +79,7 @@ pub fn policy_from_style(style: &serde_json::Value) -> Result<Option<WorksPolicy
     let Some(value) = style.get("terrainWorks") else {
         return Ok(None);
     };
-    let object = value
-        .as_object()
-        .ok_or("terrainWorks must be an object")?;
+    let object = value.as_object().ok_or("terrainWorks must be an object")?;
     let mut policy = WorksPolicy::default();
     for (key, target) in [
         ("retainingWalls", &mut policy.retaining_walls),
@@ -90,14 +88,21 @@ pub fn policy_from_style(style: &serde_json::Value) -> Result<Option<WorksPolicy
         if let Some(value) = object.get(key) {
             *target = match value.as_str() {
                 Some("auto") => true,
-                Some(other) => return Err(format!("terrainWorks.{key} has unsupported value {other}")),
+                Some(other) => {
+                    return Err(format!("terrainWorks.{key} has unsupported value {other}"));
+                }
                 None => return Err(format!("terrainWorks.{key} must be a string")),
             };
         }
     }
     for (key, target, min, max) in [
         ("minFillMm", &mut policy.min_fill_mm, 0, 6_000),
-        ("maxWallHeightMm", &mut policy.max_wall_height_mm, 300, 6_000),
+        (
+            "maxWallHeightMm",
+            &mut policy.max_wall_height_mm,
+            300,
+            6_000,
+        ),
     ] {
         if let Some(value) = object.get(key) {
             let value = value
@@ -173,9 +178,18 @@ pub fn plan(
             let thickness = 0.4_f32;
             let sides: [[[f32; 2]; 2]; 4] = [
                 [[(cx - hw) as f32, cz as f32], [(cx + hw) as f32, cz as f32]],
-                [[(cx + hw) as f32, cz as f32], [(cx + hw) as f32, (cz + hd) as f32]],
-                [[(cx + hw) as f32, (cz + hd) as f32], [(cx - hw) as f32, (cz + hd) as f32]],
-                [[(cx - hw) as f32, (cz + hd) as f32], [(cx - hw) as f32, cz as f32]],
+                [
+                    [(cx + hw) as f32, cz as f32],
+                    [(cx + hw) as f32, (cz + hd) as f32],
+                ],
+                [
+                    [(cx + hw) as f32, (cz + hd) as f32],
+                    [(cx - hw) as f32, (cz + hd) as f32],
+                ],
+                [
+                    [(cx - hw) as f32, (cz + hd) as f32],
+                    [(cx - hw) as f32, cz as f32],
+                ],
             ];
             let side_indices: &[usize] = if operation.kind == "roadbed" {
                 if hw >= hd { &[0, 2] } else { &[1, 3] }
@@ -283,8 +297,12 @@ mod tests {
                 0,
                 64,
                 64,
-                &height_payload::encode_millimetres(64, 64, vec![f64::from(value) / 1000.; 64 * 64])
-                    .unwrap(),
+                &height_payload::encode_millimetres(
+                    64,
+                    64,
+                    vec![f64::from(value) / 1000.; 64 * 64],
+                )
+                .unwrap(),
             )
             .unwrap();
         terrain
@@ -318,8 +336,14 @@ mod tests {
     fn a_raised_pad_gets_four_walls_with_volume() {
         let natural = terrain(0);
         let final_terrain = terrain(2000);
-        let plan = plan(&[operation("building_or_parcel_pad")], &natural, &final_terrain, &[], Some(policy()))
-            .unwrap();
+        let plan = plan(
+            &[operation("building_or_parcel_pad")],
+            &natural,
+            &final_terrain,
+            &[],
+            Some(policy()),
+        )
+        .unwrap();
         assert_eq!(plan.status, "pass");
         assert_eq!(plan.retaining_walls.len(), 4);
         assert!(plan.retaining_walls.iter().all(|wall| wall.height_m == 2.));
@@ -330,10 +354,20 @@ mod tests {
     fn a_fill_above_the_declared_wall_cap_is_a_named_failure() {
         let natural = terrain(0);
         let final_terrain = terrain(7000);
-        let plan = plan(&[operation("building_or_parcel_pad")], &natural, &final_terrain, &[], Some(policy()))
-            .unwrap();
+        let plan = plan(
+            &[operation("building_or_parcel_pad")],
+            &natural,
+            &final_terrain,
+            &[],
+            Some(policy()),
+        )
+        .unwrap();
         assert_eq!(plan.status, "fail");
-        assert!(plan.failures.iter().any(|failure| failure.contains("exceeds maximum")));
+        assert!(
+            plan.failures
+                .iter()
+                .any(|failure| failure.contains("exceeds maximum"))
+        );
         assert!(plan.retaining_walls.is_empty());
     }
 
@@ -341,10 +375,12 @@ mod tests {
     fn absent_policy_is_a_no_op() {
         assert!(plan(&[], &terrain(0), &terrain(1000), &[], None).is_none());
         assert!(policy_from_style(&serde_json::json!({})).unwrap().is_none());
-        assert!(policy_from_style(&serde_json::json!({
-            "terrainWorks": {"retainingWalls": "auto", "maxWallHeightMm": 9000}
-        }))
-        .is_err());
+        assert!(
+            policy_from_style(&serde_json::json!({
+                "terrainWorks": {"retainingWalls": "auto", "maxWallHeightMm": 9000}
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -353,8 +389,7 @@ mod tests {
         let final_terrain = terrain(2000);
         let ops = [operation("building_or_parcel_pad")];
         let policy = policy();
-        let mut published =
-            plan(&ops, &natural, &final_terrain, &[], Some(policy)).unwrap();
+        let mut published = plan(&ops, &natural, &final_terrain, &[], Some(policy)).unwrap();
         verify(
             &published,
             &ops,

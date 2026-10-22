@@ -41,8 +41,7 @@ fn run_quality(dir: &TestDir) -> std::process::Output {
 fn residual_policy_is_bound_to_the_frozen_manifest() {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/b03-land-execution.manifest.json");
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(rules());
     let dir = TestDir::new("residual-source");
     bake_world(&manifest, &dir.0).unwrap();

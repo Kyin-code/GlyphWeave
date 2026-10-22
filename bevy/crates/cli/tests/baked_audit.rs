@@ -1281,7 +1281,9 @@ fn zoned_bake_preserves_reserved_samples_and_rejects_forged_evidence() {
     assert!((realized + unresolved - 512. * 512.).abs() < 1e-6);
     let developed = ledger["byPurpose"]["urban"]["realizedM2"].as_f64().unwrap()
         + ledger["byPurpose"]["rural"]["realizedM2"].as_f64().unwrap()
-        + ledger["byPurpose"]["nature"]["realizedM2"].as_f64().unwrap();
+        + ledger["byPurpose"]["nature"]["realizedM2"]
+            .as_f64()
+            .unwrap();
     assert!((developed - q["landUseBudget"]["assignedM2"].as_f64().unwrap()).abs() < 1e-6);
     assert!(
         ledger["byPurpose"]["nature"]["realizedM2"]
@@ -2263,143 +2265,387 @@ fn opt_in_bake_trace_preserves_authoritative_outputs_and_reports_stages() {
 
 #[test]
 fn preview_export_is_derived_only_and_preserves_all_authority_bytes() {
-    fn snapshot(root: &std::path::Path, path: &std::path::Path, out: &mut std::collections::BTreeMap<PathBuf, blake3::Hash>) {
+    fn snapshot(
+        root: &std::path::Path,
+        path: &std::path::Path,
+        out: &mut std::collections::BTreeMap<PathBuf, blake3::Hash>,
+    ) {
         for entry in fs::read_dir(path).unwrap() {
-            let path=entry.unwrap().path();
-            let name=path.file_name().unwrap().to_string_lossy();
-            if name=="preview" || name=="render-chunks" || name=="preview-scene.json" { continue; }
-            if path.is_dir() { snapshot(root,&path,out); }
-            else { out.insert(path.strip_prefix(root).unwrap().to_owned(),blake3::hash(&fs::read(path).unwrap())); }
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy();
+            if name == "preview" || name == "render-chunks" || name == "preview-scene.json" {
+                continue;
+            }
+            if path.is_dir() {
+                snapshot(root, &path, out);
+            } else {
+                out.insert(
+                    path.strip_prefix(root).unwrap().to_owned(),
+                    blake3::hash(&fs::read(path).unwrap()),
+                );
+            }
         }
     }
-    let dir=TestDir::new("preview-export");
-    let m=manifest(7);
-    bake_world(&m,&dir.0).unwrap();
-    let mut before=std::collections::BTreeMap::new();
-    snapshot(&dir.0,&dir.0,&mut before);
-    assert!(before.len()>10);
+    let dir = TestDir::new("preview-export");
+    let m = manifest(7);
+    bake_world(&m, &dir.0).unwrap();
+    let mut before = std::collections::BTreeMap::new();
+    snapshot(&dir.0, &dir.0, &mut before);
+    assert!(before.len() > 10);
     for _ in 0..2 {
-        let result=Command::new(env!("CARGO_BIN_EXE_glyphweave")).arg("export-preview-stream").arg(&dir.0).output().unwrap();
-        assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
-        let mut after=std::collections::BTreeMap::new();snapshot(&dir.0,&dir.0,&mut after);
-        assert_eq!(before,after);
+        let result = Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+            .arg("export-preview-stream")
+            .arg(&dir.0)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let mut after = std::collections::BTreeMap::new();
+        snapshot(&dir.0, &dir.0, &mut after);
+        assert_eq!(before, after);
     }
-    let original=read(&dir,"scenes/scene-0/scene.json");
-    let projected=read(&dir,"scenes/scene-0/preview-scene.json");
-    assert_eq!(projected["entities"],original["entities"]);
-    assert_eq!(projected["accessSurfaces"],original["accessSurfaces"]);
-    let mut patches=std::collections::BTreeMap::new();
-    let mut plants=std::collections::BTreeMap::new();
+    let original = read(&dir, "scenes/scene-0/scene.json");
+    let projected = read(&dir, "scenes/scene-0/preview-scene.json");
+    assert_eq!(projected["entities"], original["entities"]);
+    assert_eq!(projected["accessSurfaces"], original["accessSurfaces"]);
+    let mut patches = std::collections::BTreeMap::new();
+    let mut plants = std::collections::BTreeMap::new();
     for d in projected["renderStream"]["chunks"].as_array().unwrap() {
-        let data=read(&dir,&format!("scenes/scene-0/{}",d["file"].as_str().unwrap()));
-        for patch in data["patches"].as_array().unwrap() { patches.insert(patch["id"].as_str().unwrap().to_owned(),patch.clone()); }
-        for plant in data["plants"].as_array().unwrap() { assert!(plants.insert(plant["id"].as_str().unwrap().to_owned(),plant.clone()).is_none()); }
+        let data = read(
+            &dir,
+            &format!("scenes/scene-0/{}", d["file"].as_str().unwrap()),
+        );
+        for patch in data["patches"].as_array().unwrap() {
+            patches.insert(patch["id"].as_str().unwrap().to_owned(), patch.clone());
+        }
+        for plant in data["plants"].as_array().unwrap() {
+            assert!(
+                plants
+                    .insert(plant["id"].as_str().unwrap().to_owned(), plant.clone())
+                    .is_none()
+            );
+        }
     }
-    let surfaces=&original["landcoverSurfaces"];
+    let surfaces = &original["landcoverSurfaces"];
     assert!(!patches.is_empty());
-    assert_eq!(patches.len(),surfaces["patches"].as_array().unwrap().len());
-    assert_eq!(plants.len(),surfaces["ecology"]["plants"].as_array().unwrap().len());
-    for patch in surfaces["patches"].as_array().unwrap() { assert_eq!(&patches[patch["id"].as_str().unwrap()],patch); }
-    for plant in surfaces["ecology"]["plants"].as_array().unwrap() { assert_eq!(&plants[plant["id"].as_str().unwrap()],plant); }
+    assert_eq!(patches.len(), surfaces["patches"].as_array().unwrap().len());
+    assert_eq!(
+        plants.len(),
+        surfaces["ecology"]["plants"].as_array().unwrap().len()
+    );
+    for patch in surfaces["patches"].as_array().unwrap() {
+        assert_eq!(&patches[patch["id"].as_str().unwrap()], patch);
+    }
+    for plant in surfaces["ecology"]["plants"].as_array().unwrap() {
+        assert_eq!(&plants[plant["id"].as_str().unwrap()], plant);
+    }
 }
 
 #[test]
 fn road_corridor_cli_keeps_design_separate_and_rejects_forgery() {
-    use glyphweave_core::{baked_terrain::BakedTerrain,height_payload::encode_millimetres,natural::NaturalTerrainSnapshot};
-    let dir=TestDir::new("corridor-cli");let world=dir.0.join("world");
+    use glyphweave_core::{
+        baked_terrain::BakedTerrain, height_payload::encode_millimetres,
+        natural::NaturalTerrainSnapshot,
+    };
+    let dir = TestDir::new("corridor-cli");
+    let world = dir.0.join("world");
     fs::create_dir_all(world.join("scenes/scene-0")).unwrap();
-    let m=manifest(7);let s=&m.scenes[0];
-    let bytes=encode_millimetres(512,512,(0..512).flat_map(|_|(0..512).map(|x|x as f64*0.04))).unwrap();
-    let mut terrain=BakedTerrain::new(s).unwrap();terrain.insert_chunk(0,0,512,512,&bytes).unwrap();
-    let mut natural=NaturalTerrainSnapshot::default();natural.heightfield_hash=terrain.content_hash().unwrap();
-    let scene=serde_json::json!({"sceneId":"scene-0","widthM":512,"depthM":512,"originX":0,"originZ":0,"chunkSizeM":512,"chunkCountX":1,"chunkCountZ":1,"entities":[],"landmarks":[],"naturalTerrain":natural,
+    let m = manifest(7);
+    let s = &m.scenes[0];
+    let bytes = encode_millimetres(
+        512,
+        512,
+        (0..512).flat_map(|_| (0..512).map(|x| x as f64 * 0.04)),
+    )
+    .unwrap();
+    let mut terrain = BakedTerrain::new(s).unwrap();
+    terrain.insert_chunk(0, 0, 512, 512, &bytes).unwrap();
+    let mut natural = NaturalTerrainSnapshot::default();
+    natural.heightfield_hash = terrain.content_hash().unwrap();
+    let scene = serde_json::json!({"sceneId":"scene-0","widthM":512,"depthM":512,"originX":0,"originZ":0,"chunkSizeM":512,"chunkCountX":1,"chunkCountZ":1,"entities":[],"landmarks":[],"naturalTerrain":natural,
         "landUseZones":[{"id":"rural","kind":"rural","worldX":0,"worldZ":0,"widthM":512,"depthM":512,"source":"test"}],
         "chunks":[{"chunkX":0,"chunkZ":0,"worldX":0,"worldZ":0,"validWidthM":512,"validDepthM":512,"heightFile":"final.bin","naturalHeightFile":"natural.bin","surfaceFile":"surface","lod2File":"lod","hash":"test"}]});
-    fs::write(world.join("scenes/scene-0/natural.bin"),&bytes).unwrap();
-    fs::write(world.join("scenes/scene-0/scene.json"),serde_json::to_vec(&scene).unwrap()).unwrap();
-    fs::write(world.join("glyphweave.manifest.json"),serde_json::to_vec(&m).unwrap()).unwrap();
+    fs::write(world.join("scenes/scene-0/natural.bin"), &bytes).unwrap();
+    fs::write(
+        world.join("scenes/scene-0/scene.json"),
+        serde_json::to_vec(&scene).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        world.join("glyphweave.manifest.json"),
+        serde_json::to_vec(&m).unwrap(),
+    )
+    .unwrap();
     fs::write(world.join("world.json"),serde_json::to_vec(&serde_json::json!({"format":"glyphweave-world","version":1,"name":"study","seed":7,"renderMode":"2.5d","revision":"test","scenes":["scenes/scene-0/scene.json"]})).unwrap()).unwrap();
-    let request=dir.0.join("request.json");let output=dir.0.join("design.json");
+    let request = dir.0.join("request.json");
+    let output = dir.0.join("design.json");
     fs::write(&request,br#"{"sceneId":"scene-0","start":[32,128],"end":[288,128],"roadWidthM":8,"shoulderWidthM":3,"maxFillMm":6000,"maxRiseMmPerM":80,"startLevelMm":null,"endLevelMm":null,"junctionLengthM":8}"#).unwrap();
-    let run=|verb:&str,out:&std::path::Path|Command::new(env!("CARGO_BIN_EXE_glyphweave")).arg(verb).arg(&world).arg(&request).arg(out).output().unwrap();
-    let result=run("design-road-corridor",&output);assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
-    assert!(run("verify-road-corridor",&output).status.success());
-    assert_eq!(fs::read(world.join("scenes/scene-0/natural.bin")).unwrap(),bytes);
-    assert_eq!(serde_json::from_slice::<Value>(&fs::read(world.join("scenes/scene-0/scene.json")).unwrap()).unwrap(),scene);
-    assert!(!run("design-road-corridor",&output).status.success(),"must not overwrite existing study");
-    assert!(!run("design-road-corridor",&world.join("unsafe.json")).status.success());assert!(!world.join("unsafe.json").exists());
-    let original:Value=serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
-    assert_eq!(original["status"],"design_only_not_applied");
+    let run = |verb: &str, out: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+            .arg(verb)
+            .arg(&world)
+            .arg(&request)
+            .arg(out)
+            .output()
+            .unwrap()
+    };
+    let result = run("design-road-corridor", &output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(run("verify-road-corridor", &output).status.success());
+    assert_eq!(
+        fs::read(world.join("scenes/scene-0/natural.bin")).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(
+            &fs::read(world.join("scenes/scene-0/scene.json")).unwrap()
+        )
+        .unwrap(),
+        scene
+    );
+    assert!(
+        !run("design-road-corridor", &output).status.success(),
+        "must not overwrite existing study"
+    );
+    assert!(
+        !run("design-road-corridor", &world.join("unsafe.json"))
+            .status
+            .success()
+    );
+    assert!(!world.join("unsafe.json").exists());
+    let original: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+    assert_eq!(original["status"], "design_only_not_applied");
     for mode in 0..3 {
-        let mut forged=original.clone();match mode {0=>forged["profileMm"][10]=serde_json::json!(99999),1=>forged["roadMesh"]["vertices"][5][1]=serde_json::json!(99),_=>forged["proposedFillVolumeM3"]=serde_json::json!(999)};
-        fs::write(&output,serde_json::to_vec(&forged).unwrap()).unwrap();assert!(!run("verify-road-corridor",&output).status.success());
+        let mut forged = original.clone();
+        match mode {
+            0 => forged["profileMm"][10] = serde_json::json!(99999),
+            1 => forged["roadMesh"]["vertices"][5][1] = serde_json::json!(99),
+            _ => forged["proposedFillVolumeM3"] = serde_json::json!(999),
+        };
+        fs::write(&output, serde_json::to_vec(&forged).unwrap()).unwrap();
+        assert!(!run("verify-road-corridor", &output).status.success());
     }
-    fs::write(&output,serde_json::to_vec(&original).unwrap()).unwrap();
-    let mut corrupt=bytes.clone();let last=corrupt.len()-1;corrupt[last]^=1;fs::write(world.join("scenes/scene-0/natural.bin"),corrupt).unwrap();
-    assert!(!run("verify-road-corridor",&output).status.success(),"full source hash must bind samples outside corridor too");
+    fs::write(&output, serde_json::to_vec(&original).unwrap()).unwrap();
+    let mut corrupt = bytes.clone();
+    let last = corrupt.len() - 1;
+    corrupt[last] ^= 1;
+    fs::write(world.join("scenes/scene-0/natural.bin"), corrupt).unwrap();
+    assert!(
+        !run("verify-road-corridor", &output).status.success(),
+        "full source hash must bind samples outside corridor too"
+    );
 }
 
 #[test]
 fn graded_extensions_are_applied_and_independently_checked_not_just_designs() {
-    use glyphweave_core::{baked_terrain::BakedTerrain,worldgen::{SceneIndex,road_network,water_geometry,water_kind,services}};
-    let dir=TestDir::new("graded-applied");
-    let input=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../examples/graded-road-extensions.manifest.json");
-    let mut m:WorldManifest=serde_json::from_slice(&fs::read(input).unwrap()).unwrap();m.style["rulesDir"]=serde_json::json!(rules());
-    bake_world(&m,&dir.0).unwrap();let s=&m.scenes[0];
-    let original=read(&dir,"scenes/scene-0/scene.json");
-    let scene:SceneIndex=serde_json::from_value(original.clone()).unwrap();let plan=scene.road_network_plan.as_ref().unwrap();
-    assert_eq!(plan.extensions.len(),1);assert_eq!(plan.edges.len(),32);
-    assert_eq!(read(&dir,"scenes/scene-0/road-network-audit.json")["status"],"pass");
-    let road=scene.entities.iter().find(|e|e.entity_id==plan.extensions[0].entity_id).unwrap();
-    let profile=road.grounding.road_profile.as_ref().unwrap();assert_ne!(profile.elevations_mm[0],*profile.elevations_mm.last().unwrap());
-    let engineering=read(&dir,"scenes/scene-0/engineered-terrain.json");assert_eq!(engineering["version"],2);
-    assert!(engineering["operations"].as_array().unwrap().iter().any(|o|o["entityId"]==road.entity_id&&o["roadProfile"].is_object()));
-    let ledger=read(&dir,"scenes/scene-0/land-use-ledger.json");assert_eq!(ledger["byPurpose"]["urban"]["physical"]["roadsM2"],256.0);
-    let c=&scene.chunks[0];let folder=dir.0.join("scenes/scene-0");let nb=fs::read(folder.join(c.natural_height_file.as_ref().unwrap())).unwrap();let fb=fs::read(folder.join(&c.height_file)).unwrap();
-    let mut natural=BakedTerrain::new(s).unwrap();natural.insert_chunk(c.world_x,c.world_z,c.valid_width_m,c.valid_depth_m,&nb).unwrap();
-    let mut terrain=BakedTerrain::new(s).unwrap();terrain.insert_chunk(c.world_x,c.world_z,c.valid_width_m,c.valid_depth_m,&fb).unwrap();
-    let water=water_geometry(water_kind(&m.style),&m.landmarks,s,&m.style);let program=services::from_style(&m.style).unwrap();
-    let verify=|t:&BakedTerrain|road_network::verify_with_style(plan,s,&natural,t,water,&scene.entities,Some(&scene.land_use_zones),program.as_ref(),&m.style).unwrap();
-    assert_eq!(verify(&terrain).status,"pass");
-    for x in 217..=231 {for z in 92..=164 {let terrain_height=f64::from(terrain.height(x,z).unwrap());let profile_height=profile.height_at(f64::from(x),f64::from(z)).unwrap();assert!((terrain_height-profile_height).abs()<0.00005,"road profile mismatch at {x},{z}: terrain={terrain_height}, profile={profile_height}");}}
+    use glyphweave_core::{
+        baked_terrain::BakedTerrain,
+        worldgen::{SceneIndex, road_network, services, water_geometry, water_kind},
+    };
+    let dir = TestDir::new("graded-applied");
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/graded-road-extensions.manifest.json");
+    let mut m: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    m.style["rulesDir"] = serde_json::json!(rules());
+    bake_world(&m, &dir.0).unwrap();
+    let s = &m.scenes[0];
+    let original = read(&dir, "scenes/scene-0/scene.json");
+    let scene: SceneIndex = serde_json::from_value(original.clone()).unwrap();
+    let plan = scene.road_network_plan.as_ref().unwrap();
+    assert_eq!(plan.extensions.len(), 1);
+    assert_eq!(plan.edges.len(), 32);
+    assert_eq!(
+        read(&dir, "scenes/scene-0/road-network-audit.json")["status"],
+        "pass"
+    );
+    let road = scene
+        .entities
+        .iter()
+        .find(|e| e.entity_id == plan.extensions[0].entity_id)
+        .unwrap();
+    let profile = road.grounding.road_profile.as_ref().unwrap();
+    assert_ne!(
+        profile.elevations_mm[0],
+        *profile.elevations_mm.last().unwrap()
+    );
+    let engineering = read(&dir, "scenes/scene-0/engineered-terrain.json");
+    assert_eq!(engineering["version"], 2);
+    assert!(
+        engineering["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["entityId"] == road.entity_id && o["roadProfile"].is_object())
+    );
+    let ledger = read(&dir, "scenes/scene-0/land-use-ledger.json");
+    assert_eq!(ledger["byPurpose"]["urban"]["physical"]["roadsM2"], 256.0);
+    let c = &scene.chunks[0];
+    let folder = dir.0.join("scenes/scene-0");
+    let nb = fs::read(folder.join(c.natural_height_file.as_ref().unwrap())).unwrap();
+    let fb = fs::read(folder.join(&c.height_file)).unwrap();
+    let mut natural = BakedTerrain::new(s).unwrap();
+    natural
+        .insert_chunk(c.world_x, c.world_z, c.valid_width_m, c.valid_depth_m, &nb)
+        .unwrap();
+    let mut terrain = BakedTerrain::new(s).unwrap();
+    terrain
+        .insert_chunk(c.world_x, c.world_z, c.valid_width_m, c.valid_depth_m, &fb)
+        .unwrap();
+    let water = water_geometry(water_kind(&m.style), &m.landmarks, s, &m.style);
+    let program = services::from_style(&m.style).unwrap();
+    let verify = |t: &BakedTerrain| {
+        road_network::verify_with_style(
+            plan,
+            s,
+            &natural,
+            t,
+            water,
+            &scene.entities,
+            Some(&scene.land_use_zones),
+            program.as_ref(),
+            &m.style,
+        )
+        .unwrap()
+    };
+    assert_eq!(verify(&terrain).status, "pass");
+    for x in 217..=231 {
+        for z in 92..=164 {
+            let terrain_height = f64::from(terrain.height(x, z).unwrap());
+            let profile_height = profile.height_at(f64::from(x), f64::from(z)).unwrap();
+            assert!(
+                (terrain_height - profile_height).abs() < 0.00005,
+                "road profile mismatch at {x},{z}: terrain={terrain_height}, profile={profile_height}"
+            );
+        }
+    }
     // Corrupt only the outer shoulder by one millimetre. Generic 0.26m legacy
     // road tolerance must not hide corruption in the new precise contract.
-    let mut bad=fb.clone();let offset=16+4*(128*512+231);let value=i32::from_le_bytes(bad[offset..offset+4].try_into().unwrap())+1;bad[offset..offset+4].copy_from_slice(&value.to_le_bytes());
-    let mut altered=BakedTerrain::new(s).unwrap();altered.insert_chunk(0,0,512,512,&bad).unwrap();let failed=verify(&altered);assert_eq!(failed.status,"fail");assert!(failed.max_design_height_error_m>0.0009);
-    let run=||Command::new(env!("CARGO_BIN_EXE_glyphweave")).arg("quality-report").arg(&dir.0).output().unwrap();
-    assert!(run().status.success());assert_eq!(read(&dir,"quality-report.json")["scenes"][0]["roadNetworkAudit"]["status"],"pass");
-    let mut forged=original.clone();forged["roadNetworkPlan"]["extensions"][0]["design"]["profileMm"][20]=serde_json::json!(9999);
-    fs::write(folder.join("scene.json"),serde_json::to_vec(&forged).unwrap()).unwrap();fs::write(folder.join("road-network-plan.json"),serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap()).unwrap();
-    assert!(!run().status.success(),"forging both copies must not bypass manifest-bound reconstruction");
+    let mut bad = fb.clone();
+    let offset = 16 + 4 * (128 * 512 + 231);
+    let value = i32::from_le_bytes(bad[offset..offset + 4].try_into().unwrap()) + 1;
+    bad[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    let mut altered = BakedTerrain::new(s).unwrap();
+    altered.insert_chunk(0, 0, 512, 512, &bad).unwrap();
+    let failed = verify(&altered);
+    assert_eq!(failed.status, "fail");
+    assert!(failed.max_design_height_error_m > 0.0009);
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+            .arg("quality-report")
+            .arg(&dir.0)
+            .output()
+            .unwrap()
+    };
+    assert!(run().status.success());
+    assert_eq!(
+        read(&dir, "quality-report.json")["scenes"][0]["roadNetworkAudit"]["status"],
+        "pass"
+    );
+    let mut forged = original.clone();
+    forged["roadNetworkPlan"]["extensions"][0]["design"]["profileMm"][20] = serde_json::json!(9999);
+    fs::write(
+        folder.join("scene.json"),
+        serde_json::to_vec(&forged).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        folder.join("road-network-plan.json"),
+        serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        !run().status.success(),
+        "forging both copies must not bypass manifest-bound reconstruction"
+    );
 }
 
 #[test]
 fn automatic_road_bake_rebuilds_choices_and_keeps_budget_shortfalls() {
-    let input=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../examples/automatic-road-growth.manifest.json");
-    let mut m:WorldManifest=serde_json::from_slice(&fs::read(input).unwrap()).unwrap();m.style["rulesDir"]=serde_json::json!(rules());
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/automatic-road-growth.manifest.json");
+    let mut m: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    m.style["rulesDir"] = serde_json::json!(rules());
     assert!(m.style.get("roadExtensions").is_none());
-    let dir=TestDir::new("automatic-road-bake");bake_world(&m,&dir.0).unwrap();
-    let scene=read(&dir,"scenes/scene-0/scene.json");let a=&scene["roadNetworkPlan"]["automaticExtensions"];
-    assert!(a["acceptedSegments"].as_u64().unwrap()>0);assert_eq!(a["unservedTargets"],0);
-    assert!(a["targets"].as_array().unwrap().iter().any(|t|t["purpose"]=="urban"&&t["beforeHasRoad"]==false&&t["afterHasRoad"]==true));
-    assert_eq!(read(&dir,"scenes/scene-0/road-network-audit.json")["status"],"pass");
-    assert_eq!(read(&dir,"scenes/scene-0/service-program-audit.json")["realizedWithAccess"],4);
-    assert!(scene["roadNetworkPlan"]["extensions"].as_array().unwrap().iter().any(|e|e["design"]["request"]["endLevelMm"].as_i64().unwrap()%1000!=0));
-    let run=|command:&str,d:&TestDir|Command::new(env!("CARGO_BIN_EXE_glyphweave")).arg(command).arg(&d.0).output().unwrap();
-    assert!(run("scale-audit",&dir).status.success());assert!(run("quality-report",&dir).status.success());
-    assert_eq!(read(&dir,"quality-report.json")["scenes"][0]["automaticRoads"],*a);
+    let dir = TestDir::new("automatic-road-bake");
+    bake_world(&m, &dir.0).unwrap();
+    let scene = read(&dir, "scenes/scene-0/scene.json");
+    let a = &scene["roadNetworkPlan"]["automaticExtensions"];
+    assert!(a["acceptedSegments"].as_u64().unwrap() > 0);
+    assert_eq!(a["unservedTargets"], 0);
+    assert!(
+        a["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["purpose"] == "urban"
+                && t["beforeHasRoad"] == false
+                && t["afterHasRoad"] == true)
+    );
+    assert_eq!(
+        read(&dir, "scenes/scene-0/road-network-audit.json")["status"],
+        "pass"
+    );
+    assert_eq!(
+        read(&dir, "scenes/scene-0/service-program-audit.json")["realizedWithAccess"],
+        4
+    );
+    assert!(
+        scene["roadNetworkPlan"]["extensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["design"]["request"]["endLevelMm"].as_i64().unwrap() % 1000 != 0)
+    );
+    let run = |command: &str, d: &TestDir| {
+        Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+            .arg(command)
+            .arg(&d.0)
+            .output()
+            .unwrap()
+    };
+    assert!(run("scale-audit", &dir).status.success());
+    assert!(run("quality-report", &dir).status.success());
+    assert_eq!(
+        read(&dir, "quality-report.json")["scenes"][0]["automaticRoads"],
+        *a
+    );
     // Copy-consistent forged outcomes must still be rejected against the input.
-    let mut forged=scene.clone();forged["roadNetworkPlan"]["automaticExtensions"]["acceptedSegments"]=serde_json::json!(0);
-    fs::write(dir.0.join("scenes/scene-0/scene.json"),serde_json::to_vec(&forged).unwrap()).unwrap();
-    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap()).unwrap();
-    assert!(!run("quality-report",&dir).status.success());
+    let mut forged = scene.clone();
+    forged["roadNetworkPlan"]["automaticExtensions"]["acceptedSegments"] = serde_json::json!(0);
+    fs::write(
+        dir.0.join("scenes/scene-0/scene.json"),
+        serde_json::to_vec(&forged).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        dir.0.join("scenes/scene-0/road-network-plan.json"),
+        serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap(),
+    )
+    .unwrap();
+    assert!(!run("quality-report", &dir).status.success());
     // A smaller explicit budget is a negative test, not a way to pass a gate.
-    m.style["automaticRoadExtensions"]["scenes"][0]["maxNewSegments"]=serde_json::json!(1);
-    let limited=TestDir::new("automatic-road-budget");bake_world(&m,&limited.0).unwrap();
-    let a=read(&limited,"scenes/scene-0/road-network-plan.json")["automaticExtensions"].clone();
-    assert_eq!(a["acceptedSegments"],1);assert_eq!(a["stopReason"],"segment_budget_exhausted");assert!(a["unservedTargets"].as_u64().unwrap()>0);
-    assert!(!run("world-quality-gate",&limited).status.success());
-    assert!(read(&limited,"world-quality-gate.json")["failures"].as_array().unwrap().iter().any(|s|s.as_str().unwrap().contains("automatic road targets")));
+    m.style["automaticRoadExtensions"]["scenes"][0]["maxNewSegments"] = serde_json::json!(1);
+    let limited = TestDir::new("automatic-road-budget");
+    bake_world(&m, &limited.0).unwrap();
+    let a = read(&limited, "scenes/scene-0/road-network-plan.json")["automaticExtensions"].clone();
+    assert_eq!(a["acceptedSegments"], 1);
+    assert_eq!(a["stopReason"], "segment_budget_exhausted");
+    assert!(a["unservedTargets"].as_u64().unwrap() > 0);
+    assert!(!run("world-quality-gate", &limited).status.success());
+    assert!(
+        read(&limited, "world-quality-gate.json")["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s.as_str().unwrap().contains("automatic road targets"))
+    );
 }
 
 #[test]
@@ -2413,24 +2659,56 @@ fn local_height_frontage_bakes_real_city_buildings_and_rejects_forged_plans() {
     let scene_path = dir.0.join("scenes/scene-0/scene.json");
     let scene_bytes = fs::read(&scene_path).unwrap();
     let scene: Value = serde_json::from_slice(&scene_bytes).unwrap();
-    let generated: Vec<_> = scene["entities"].as_array().unwrap().iter()
-        .filter(|e| e["entityId"].as_str().unwrap().starts_with("generated.frontage."))
+    let generated: Vec<_> = scene["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| {
+            e["entityId"]
+                .as_str()
+                .unwrap()
+                .starts_with("generated.frontage.")
+        })
         .collect();
-    assert_eq!(generated.len(), 5, "8 requested buildings must retain the 3-home shortfall");
-    assert!(generated.iter().any(|e| e["grounding"]["bottomOffsetM"].as_f64().unwrap() != 0.));
+    assert_eq!(
+        generated.len(),
+        5,
+        "8 requested buildings must retain the 3-home shortfall"
+    );
+    assert!(
+        generated
+            .iter()
+            .any(|e| e["grounding"]["bottomOffsetM"].as_f64().unwrap() != 0.)
+    );
     for e in &generated {
         assert!(e["grounding"]["frontageRoadPoint"].is_array());
     }
-    let outcomes = scene["roadNetworkPlan"]["frontage"]["outcomes"].as_array().unwrap();
-    let homes = outcomes.iter().find(|o| o["request"]["id"] == "urban-homes").unwrap();
-    let shops = outcomes.iter().find(|o| o["request"]["id"] == "urban-shops").unwrap();
+    let outcomes = scene["roadNetworkPlan"]["frontage"]["outcomes"]
+        .as_array()
+        .unwrap();
+    let homes = outcomes
+        .iter()
+        .find(|o| o["request"]["id"] == "urban-homes")
+        .unwrap();
+    let shops = outcomes
+        .iter()
+        .find(|o| o["request"]["id"] == "urban-shops")
+        .unwrap();
     assert_eq!(homes["request"]["count"], 6);
-    assert_eq!(homes["unfilled"], 3, "the original residential deficit must not disappear");
+    assert_eq!(
+        homes["unfilled"], 3,
+        "the original residential deficit must not disappear"
+    );
     assert_eq!(shops["request"]["count"], 2);
     assert_eq!(shops["unfilled"], 0);
 
-    let run = |command: &str| Command::new(env!("CARGO_BIN_EXE_glyphweave"))
-        .arg(command).arg(&dir.0).output().unwrap();
+    let run = |command: &str| {
+        Command::new(env!("CARGO_BIN_EXE_glyphweave"))
+            .arg(command)
+            .arg(&dir.0)
+            .output()
+            .unwrap()
+    };
     // Remove any prior report before every quality run: a failed command may
     // leave no report, and an old report must never prove restored-scene success.
     let fresh_quality = || -> std::process::Output {
@@ -2441,44 +2719,84 @@ fn local_height_frontage_bakes_real_city_buildings_and_rejects_forged_plans() {
         run("quality-report")
     };
     let assert_contract = |q: &Value| {
-        assert!(q["accessGraph"].is_object(), "independent graph must be present");
-        assert_eq!(scene["accessGraph"], q["accessGraph"],
-            "persisted graph must equal the independent final-entity reconstruction");
-        assert_eq!(q["roadNetworkAudit"]["status"], "pass", "{}", q["roadNetworkAudit"]);
+        assert!(
+            q["accessGraph"].is_object(),
+            "independent graph must be present"
+        );
+        assert_eq!(
+            scene["accessGraph"], q["accessGraph"],
+            "persisted graph must equal the independent final-entity reconstruction"
+        );
+        assert_eq!(
+            q["roadNetworkAudit"]["status"], "pass",
+            "{}",
+            q["roadNetworkAudit"]
+        );
         assert_eq!(q["landProtectionAudit"]["changedHeightSamples"], 0);
         assert_eq!(q["serviceProgramAudit"]["requested"], 4);
         assert_eq!(q["serviceProgramAudit"]["realizedWithAccess"], 4);
         assert_eq!(q["frontageAudit"]["requested"], 8);
         assert_eq!(q["frontageAudit"]["planned"], 5);
         assert_eq!(q["frontageAudit"]["unfilled"], 3);
-        assert_eq!(q["frontageAudit"]["realizedWithAccess"].as_u64().unwrap(), generated.len() as u64);
-        assert!(q["landUseLedger"]["byPurpose"]["urban"]["physical"]["buildingsM2"]
-            .as_f64().unwrap() > 0.);
+        assert_eq!(
+            q["frontageAudit"]["realizedWithAccess"].as_u64().unwrap(),
+            generated.len() as u64
+        );
+        assert!(
+            q["landUseLedger"]["byPurpose"]["urban"]["physical"]["buildingsM2"]
+                .as_f64()
+                .unwrap()
+                > 0.
+        );
     };
     let quality = fresh_quality();
-    assert!(quality.status.success(), "{}", String::from_utf8_lossy(&quality.stderr));
+    assert!(
+        quality.status.success(),
+        "{}",
+        String::from_utf8_lossy(&quality.stderr)
+    );
     let baseline_report = read(&dir, "quality-report.json");
     let baseline = &baseline_report["scenes"][0];
     assert_contract(baseline);
     let baseline_gate_run = run("world-quality-gate");
-    assert_eq!(baseline_gate_run.status.code(), Some(1), "{}",
-        String::from_utf8_lossy(&baseline_gate_run.stderr));
+    assert_eq!(
+        baseline_gate_run.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&baseline_gate_run.stderr)
+    );
     let baseline_gate = read(&dir, "world-quality-gate.json");
     assert_eq!(baseline_gate["status"], "fail");
-    assert!(baseline_gate["failures"].as_array().unwrap().iter().any(|f|
-        f.as_str().unwrap().contains("local-height frontage demand or realization remains incomplete")));
+    assert!(
+        baseline_gate["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f
+                .as_str()
+                .unwrap()
+                .contains("local-height frontage demand or realization remains incomplete"))
+    );
 
     let entity_id = generated[0]["entityId"].as_str().unwrap();
-    let source = &scene["developmentPlan"]["buildings"].as_array().unwrap().iter()
-        .find(|b| b["entity"]["entityId"] == entity_id).unwrap()["entity"];
+    let source = &scene["developmentPlan"]["buildings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["entity"]["entityId"] == entity_id)
+        .unwrap()["entity"];
     // The CLI checks the independently rebuilt ownership budget before it
     // emits frontageAudit. development::same_entity includes anchors and
     // grounding (only derived bounds are ignored). These are its actual
     // diagnostic and source fields, not invented anchor-specific CLI errors.
     for field in ["anchor", "roadPoint"] {
         let mut changed = scene.clone();
-        let entity = changed["entities"].as_array_mut().unwrap().iter_mut()
-            .find(|e| e["entityId"] == entity_id).unwrap();
+        let entity = changed["entities"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|e| e["entityId"] == entity_id)
+            .unwrap();
         assert_eq!(entity["anchors"], source["anchors"]);
         assert_eq!(entity["grounding"], source["grounding"]);
         if field == "anchor" {
@@ -2487,9 +2805,14 @@ fn local_height_frontage_bakes_real_city_buildings_and_rejects_forged_plans() {
             assert_ne!(entity["anchors"], source["anchors"]);
             assert_eq!(entity["grounding"], source["grounding"]);
         } else {
-            let x = entity["grounding"]["frontageRoadPoint"][0].as_i64().unwrap();
+            let x = entity["grounding"]["frontageRoadPoint"][0]
+                .as_i64()
+                .unwrap();
             entity["grounding"]["frontageRoadPoint"][0] = serde_json::json!(x + 1);
-            assert_ne!(entity["grounding"]["frontageRoadPoint"], source["grounding"]["frontageRoadPoint"]);
+            assert_ne!(
+                entity["grounding"]["frontageRoadPoint"],
+                source["grounding"]["frontageRoadPoint"]
+            );
             assert_eq!(entity["anchors"], source["anchors"]);
         }
         let mut reverted = changed.clone();
@@ -2498,63 +2821,111 @@ fn local_height_frontage_bakes_real_city_buildings_and_rejects_forged_plans() {
         } else {
             "/grounding/frontageRoadPoint/0"
         };
-        let entity = reverted["entities"].as_array_mut().unwrap().iter_mut()
-            .find(|e| e["entityId"] == entity_id).unwrap();
+        let entity = reverted["entities"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|e| e["entityId"] == entity_id)
+            .unwrap();
         *entity.pointer_mut(original_coordinate).unwrap() =
             generated[0].pointer(original_coordinate).unwrap().clone();
-        assert_eq!(reverted, scene, "{field} must be the only changed source field");
+        assert_eq!(
+            reverted, scene,
+            "{field} must be the only changed source field"
+        );
         fs::write(&scene_path, serde_json::to_vec(&changed).unwrap()).unwrap();
         let rejected = fresh_quality();
         let diagnostic = String::from_utf8_lossy(&rejected.stderr);
-        assert_eq!(rejected.status.code(), Some(1),
-            "{entity_id} {field} mutation must be a CLI rejection, not a crash: {diagnostic}");
-        assert!(diagnostic.contains(
-            "glyphweave: persisted land-use budget differs from rebuilt entity and zone areas"),
-            "{entity_id} {field} must reject its changed source ownership: {diagnostic}");
+        assert_eq!(
+            rejected.status.code(),
+            Some(1),
+            "{entity_id} {field} mutation must be a CLI rejection, not a crash: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains(
+                "glyphweave: persisted land-use budget differs from rebuilt entity and zone areas"
+            ),
+            "{entity_id} {field} must reject its changed source ownership: {diagnostic}"
+        );
         assert!(!diagnostic.contains("panicked"), "{diagnostic}");
-        assert!(!dir.0.join("quality-report.json").exists(),
-            "source rejection must not reuse a previously successful report");
-        assert_eq!(read(&dir, "scenes/scene-0/scene.json"), changed,
-            "quality-report must not repair the {field} mutation");
+        assert!(
+            !dir.0.join("quality-report.json").exists(),
+            "source rejection must not reuse a previously successful report"
+        );
+        assert_eq!(
+            read(&dir, "scenes/scene-0/scene.json"),
+            changed,
+            "quality-report must not repair the {field} mutation"
+        );
 
         // Restore the exact baseline bytes, run a new independent audit, then
         // compare the new graph and all demand/realization/protection ledgers.
         fs::write(&scene_path, &scene_bytes).unwrap();
         let restored_quality = fresh_quality();
-        assert!(restored_quality.status.success(), "after restoring {field}: {}",
-            String::from_utf8_lossy(&restored_quality.stderr));
+        assert!(
+            restored_quality.status.success(),
+            "after restoring {field}: {}",
+            String::from_utf8_lossy(&restored_quality.stderr)
+        );
         let restored_report = read(&dir, "quality-report.json");
         let restored = &restored_report["scenes"][0];
         assert_contract(restored);
-        for key in ["accessGraph", "frontageAudit", "serviceProgramAudit",
-            "landProtectionAudit", "roadNetworkAudit", "landUseLedger"] {
-            assert_eq!(restored[key], baseline[key], "{key} changed after restoring {field}");
+        for key in [
+            "accessGraph",
+            "frontageAudit",
+            "serviceProgramAudit",
+            "landProtectionAudit",
+            "roadNetworkAudit",
+            "landUseLedger",
+        ] {
+            assert_eq!(
+                restored[key], baseline[key],
+                "{key} changed after restoring {field}"
+            );
         }
-        assert_eq!(fs::read(&scene_path).unwrap(), scene_bytes,
-            "restored {field} audit must not mutate the original scene");
+        assert_eq!(
+            fs::read(&scene_path).unwrap(),
+            scene_bytes,
+            "restored {field} audit must not mutate the original scene"
+        );
     }
     let restored_gate_run = run("world-quality-gate");
-    assert_eq!(restored_gate_run.status.code(), Some(1), "{}",
-        String::from_utf8_lossy(&restored_gate_run.stderr));
+    assert_eq!(
+        restored_gate_run.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&restored_gate_run.stderr)
+    );
     let restored_gate = read(&dir, "world-quality-gate.json");
     assert_eq!(restored_gate["status"], "fail");
-    assert_eq!(restored_gate["failures"], baseline_gate["failures"],
-        "restoration must not erase or change the original gate failures");
+    assert_eq!(
+        restored_gate["failures"], baseline_gate["failures"],
+        "restoration must not erase or change the original gate failures"
+    );
 
     // Copy-consistent metadata edits are not source evidence.
     let mut forged = scene.clone();
     forged["roadNetworkPlan"]["frontage"]["outcomes"][0]["unfilled"] = serde_json::json!(0);
     fs::write(&scene_path, serde_json::to_vec(&forged).unwrap()).unwrap();
-    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),
-        serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap()).unwrap();
+    fs::write(
+        dir.0.join("scenes/scene-0/road-network-plan.json"),
+        serde_json::to_vec(&forged["roadNetworkPlan"]).unwrap(),
+    )
+    .unwrap();
     let forged_quality = fresh_quality();
     assert_eq!(forged_quality.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&forged_quality.stderr)
-        .contains("road plan differs from natural raster reconstruction"),
-        "{}", String::from_utf8_lossy(&forged_quality.stderr));
+    assert!(
+        String::from_utf8_lossy(&forged_quality.stderr)
+            .contains("road plan differs from natural raster reconstruction"),
+        "{}",
+        String::from_utf8_lossy(&forged_quality.stderr)
+    );
     fs::write(&scene_path, &scene_bytes).unwrap();
-    fs::write(dir.0.join("scenes/scene-0/road-network-plan.json"),
-        serde_json::to_vec(&scene["roadNetworkPlan"]).unwrap()).unwrap();
+    fs::write(
+        dir.0.join("scenes/scene-0/road-network-plan.json"),
+        serde_json::to_vec(&scene["roadNetworkPlan"]).unwrap(),
+    )
+    .unwrap();
     // A single-millimetre support corruption must never be accepted.
     let e = generated[0];
     let x = e["worldX"].as_i64().unwrap() as usize;

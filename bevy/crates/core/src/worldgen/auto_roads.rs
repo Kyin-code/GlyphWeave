@@ -93,13 +93,11 @@ impl RoadHierarchy {
         } else {
             &["farm_access", "local", "collector"]
         };
-        roles
-            .iter()
-            .find_map(|role| {
-                self.tiers.iter().find(|tier| {
-                    tier.role == *role && tier.purposes.iter().any(|p| p == purpose)
-                })
-            })
+        roles.iter().find_map(|role| {
+            self.tiers
+                .iter()
+                .find(|tier| tier.role == *role && tier.purposes.iter().any(|p| p == purpose))
+        })
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -294,7 +292,9 @@ pub fn from_style(style: &serde_json::Value) -> Result<Option<Program>, TerrainE
         // source, and every request must be reachable through the authorized
         // hierarchy for its own purpose.
         let Some(frontage) = style.get("frontageProgram") else {
-            return Err(err("version 3 supply selection requires a frontage program"));
+            return Err(err(
+                "version 3 supply selection requires a frontage program",
+            ));
         };
         let requests = frontage
             .get("requests")
@@ -434,15 +434,9 @@ impl Candidate {
     }
     fn bounds(&self, margin: i64) -> [i64; 4] {
         let (mx, mz) = if self.start[1] == self.end[1] {
-            (
-                margin,
-                self.road_width_m as i64 / 2 + 3 + margin,
-            )
+            (margin, self.road_width_m as i64 / 2 + 3 + margin)
         } else {
-            (
-                self.road_width_m as i64 / 2 + 3 + margin,
-                margin,
-            )
+            (self.road_width_m as i64 / 2 + 3 + margin, margin)
         };
         [
             i64::from(self.start[0].min(self.end[0])) - mx,
@@ -461,15 +455,9 @@ fn clear(
     let x = ((i64::from(c.start[0]) + i64::from(c.end[0])) / 2) as i32;
     let z = ((i64::from(c.start[1]) + i64::from(c.end[1])) / 2) as i32;
     let (hw, hd) = if c.start[1] == c.end[1] {
-        (
-            c.length as i32 / 2 + 4,
-            c.road_width_m as i32 / 2 + 3,
-        )
+        (c.length as i32 / 2 + 4, c.road_width_m as i32 / 2 + 3)
     } else {
-        (
-            c.road_width_m as i32 / 2 + 3,
-            c.length as i32 / 2 + 4,
-        )
+        (c.road_width_m as i32 / 2 + 3, c.length as i32 / 2 + 4)
     };
     if ctx
         .mask
@@ -506,9 +494,9 @@ fn clear(
         if q[0] <= q[2] && q[1] <= q[3] {
             let junctions =
                 road_extensions::shared_junctions(plan, &road.entity_id, c.start, c.end);
-            let continuation = junctions.iter().any(|point| {
-                road_extensions::collinear_continuation(c.start, c.end, road, *point)
-            });
+            let continuation = junctions
+                .iter()
+                .any(|point| road_extensions::collinear_continuation(c.start, c.end, road, *point));
             let inside_junction = junctions.iter().any(|p| {
                 let radius = i64::from(c.road_width_m / 2 + 3).max(8);
                 q[0] >= i64::from(p[0]) - radius
@@ -613,16 +601,7 @@ pub(super) fn append_declared(
         }
         let clock = WallClock::start();
         return append_supply_aware(
-            plan,
-            scene,
-            t,
-            water,
-            zones,
-            style,
-            &program,
-            mode,
-            &clock,
-            source,
+            plan, scene, t, water, zones, style, &program, mode, &clock, source,
         );
     }
     append_legacy(plan, scene, t, water, zones, &program, profile_cut_mm)
@@ -927,13 +906,7 @@ fn append_legacy(
                         id: id.clone(),
                         role: role.clone(),
                     });
-                road_extensions::append_one_with_tier(
-                    plan,
-                    &ctx,
-                    &request,
-                    id.clone(),
-                    tier,
-                )
+                road_extensions::append_one_with_tier(plan, &ctx, &request, id.clone(), tier)
             })();
             match result {
                 Ok(()) => {
@@ -1007,7 +980,17 @@ impl SupplyChoice {
     /// least coverage first, then the largest real gain, then the cheapest
     /// authorized engineering, then stable graph identity. Distance is not part
     /// of this key.
-    fn order(&self) -> (usize, Reverse<usize>, Reverse<usize>, u8, u32, usize, [i32; 2]) {
+    fn order(
+        &self,
+    ) -> (
+        usize,
+        Reverse<usize>,
+        Reverse<usize>,
+        u8,
+        u32,
+        usize,
+        [i32; 2],
+    ) {
         (
             self.gains
                 .iter()
@@ -1092,7 +1075,16 @@ fn append_supply_aware(
     // the trusted baseline that entered this phase.
     let mut working = plan.clone();
     match run_supply_phase(
-        &mut working, scene, t, water, zones, style, program, mode, clock, source,
+        &mut working,
+        scene,
+        t,
+        water,
+        zones,
+        style,
+        program,
+        mode,
+        clock,
+        source,
     )? {
         SupplyPhase::Complete(report) => {
             audit_tier_provenance(&working, &report)?;
@@ -1217,7 +1209,8 @@ fn run_supply_phase(
     let mut report = Report {
         version: 1,
         model: "demand-led-realized-parcel-supply-v3".into(),
-        scope: "bounded-candidate-states-scored-by-realized-with-access-parcels-not-distance".into(),
+        scope: "bounded-candidate-states-scored-by-realized-with-access-parcels-not-distance"
+            .into(),
         program: program.clone(),
         stop_reason: String::new(),
         attempted_candidates: 0,
@@ -1261,14 +1254,8 @@ fn run_supply_phase(
         // Bounded sweep: states are visited in the documented deterministic
         // order until a batch of measured candidates exists, the frozen state
         // budget is spent, or the resource guard trips.
-        let mut states = supply_states(
-            plan,
-            scene,
-            program,
-            hierarchy,
-            &session,
-            &attempted_states,
-        )?;
+        let mut states =
+            supply_states(plan, scene, program, hierarchy, &session, &attempted_states)?;
         let states_was_nonempty = !states.is_empty();
         states.sort_by_key(|s| {
             (
@@ -1386,9 +1373,7 @@ fn run_supply_phase(
             // the committed plan itself stays roads-only so the bake re-derives
             // them from the same placement rules.
             let mut probe = staged.clone();
-            probe
-                .roadside_sites
-                .extend(session.occupied());
+            probe.roadside_sites.extend(session.occupied());
             let road = probe
                 .entities()
                 .into_iter()
@@ -1534,14 +1519,8 @@ fn run_supply_phase(
             // candidate, with the production frontage selection materialized so
             // the realization audits can see the planned parcels.
             let mut verification = staged.clone();
-            if let Err(error) = super::frontage::append(
-                &mut verification,
-                scene,
-                t,
-                water,
-                Some(zones),
-                style,
-            )
+            if let Err(error) =
+                super::frontage::append(&mut verification, scene, t, water, Some(zones), style)
             {
                 *report
                     .rejected_by_reason
@@ -1556,7 +1535,14 @@ fn run_supply_phase(
             }
             // The real realization chain on the candidate's own final raster.
             let realization = match super::frontage_supply::realize_candidate(
-                scene, t, water, zones, &verification, source, &trusted, style,
+                scene,
+                t,
+                water,
+                zones,
+                &verification,
+                source,
+                &trusted,
+                style,
             ) {
                 Ok(realization) => realization,
                 Err(reason) => {
@@ -1579,12 +1565,7 @@ fn run_supply_phase(
                 });
             }
             if let Err(reason) =
-                commit_decision(
-                    &session,
-                    &realization,
-                    &baseline_realization,
-                    &verification,
-                )
+                commit_decision(&session, &realization, &baseline_realization, &verification)
             {
                 *report.rejected_by_reason.entry(reason).or_default() += 1;
                 report.rejection_examples.push(RejectedExample {
@@ -1722,18 +1703,10 @@ fn supply_states(
                 "local" => 1,
                 _ => 2,
             };
-            if !tiers
-                .iter()
-                .any(|(_, id, role, width)| {
-                    *id == tier.id && *role == tier.role && *width == tier.width_m
-                })
-            {
-                tiers.push((
-                    rank,
-                    tier.id.clone(),
-                    tier.role.clone(),
-                    tier.width_m,
-                ));
+            if !tiers.iter().any(|(_, id, role, width)| {
+                *id == tier.id && *role == tier.role && *width == tier.width_m
+            }) {
+                tiers.push((rank, tier.id.clone(), tier.role.clone(), tier.width_m));
             }
         }
     }
@@ -1747,10 +1720,7 @@ fn supply_states(
         .filter_map(|edge| {
             let from = plan.nodes.iter().find(|n| n.id == edge.from)?;
             let to = plan.nodes.iter().find(|n| n.id == edge.to)?;
-            Some((
-                [from.world_x, from.world_z],
-                [to.world_x, to.world_z],
-            ))
+            Some(([from.world_x, from.world_z], [to.world_x, to.world_z]))
         })
         .collect();
     let mut states = vec![];
@@ -1897,10 +1867,7 @@ fn realized_increments(session: &SupplySession, realization: &Realization) -> Ve
 /// authored tier id/role/width and a reconstructable parent chain. This is a
 /// provenance audit, not a re-plan: it compares the published plan to the
 /// report's own hierarchy.
-pub fn audit_tier_provenance(
-    plan: &RoadNetworkPlan,
-    report: &Report,
-) -> Result<(), TerrainError> {
+pub fn audit_tier_provenance(plan: &RoadNetworkPlan, report: &Report) -> Result<(), TerrainError> {
     fn collect(report: &Report, out: &mut BTreeSet<String>) {
         out.extend(report.generated_road_ids.iter().cloned());
         if let Some(base) = &report.base_road_program {
@@ -1919,11 +1886,9 @@ pub fn audit_tier_provenance(
         base_plan
             .edges
             .retain(|edge| edge.tier.is_none() || base_ids.contains(edge.id.as_str()));
-        base_plan
-            .extensions
-            .retain(|extension| {
-                extension.tier.is_none() || base_ids.contains(extension.entity_id.as_str())
-            });
+        base_plan.extensions.retain(|extension| {
+            extension.tier.is_none() || base_ids.contains(extension.entity_id.as_str())
+        });
         audit_tier_provenance(&base_plan, base)?;
     }
     let Some(hierarchy) = &report.program.hierarchy else {
@@ -1939,10 +1904,7 @@ pub fn audit_tier_provenance(
         .collect();
     for edge in &plan.edges {
         if edge.tier.is_some() && !generated.contains(edge.id.as_str()) {
-            return Err(err(format!(
-                "road_tier_on_non_generated_edge:{}",
-                edge.id
-            )));
+            return Err(err(format!("road_tier_on_non_generated_edge:{}", edge.id)));
         }
     }
     for id in &generated {
@@ -1983,9 +1945,7 @@ pub fn audit_tier_provenance(
         }
         for parent in &extension.parent_road_ids {
             if !plan.edges.iter().any(|edge| &edge.id == parent) {
-                return Err(err(format!(
-                    "road_tier_parent_unknown:{id}:{parent}"
-                )));
+                return Err(err(format!("road_tier_parent_unknown:{id}:{parent}")));
             }
         }
     }
@@ -2018,7 +1978,11 @@ pub(super) fn commit_decision(
         if serde_json::to_value(&entity).ok().as_ref() != Some(expected) {
             return Err(format!("realization_changed_existing_site:{id}"));
         }
-        if !realization.realized_ids.iter().any(|realized| realized == id) {
+        if !realization
+            .realized_ids
+            .iter()
+            .any(|realized| realized == id)
+        {
             return Err(format!("realization_lost_existing_access:{id}"));
         }
     }
@@ -2112,15 +2076,11 @@ pub(super) fn commit_decision(
     // entry is not evidence that its shortfall was resolved.
     for (entity_id, parcel) in &session.protected_owners {
         match realization.parcel_by_entity.get(entity_id) {
-            None => {
-                return Err(format!(
-                    "realization_baseline_asset_missing:{entity_id}"
-                ))
-            }
+            None => return Err(format!("realization_baseline_asset_missing:{entity_id}")),
             Some(current) if current != parcel => {
                 return Err(format!(
                     "realization_existing_owner_changed:{entity_id}:{parcel}->{current}"
-                ))
+                ));
             }
             Some(_) => {}
         }
@@ -2196,10 +2156,7 @@ pub(super) fn commit_decision(
         .filter(|failure| !baseline.road_failures.contains(failure))
         .collect();
     if !new_road_failures.is_empty() {
-        return Err(format!(
-            "realization_road_failed:{:?}",
-            new_road_failures
-        ));
+        return Err(format!("realization_road_failed:{:?}", new_road_failures));
     }
     if realization.node_status != "pass" {
         return Err(format!(
@@ -2661,7 +2618,9 @@ mod tests {
         supply_fixture_with_id("supply")
     }
 
-    fn supply_fixture_with_id(scene_id: &str) -> (
+    fn supply_fixture_with_id(
+        scene_id: &str,
+    ) -> (
         SceneSpec,
         BakedTerrain,
         WaterGeometry,
@@ -2689,8 +2648,14 @@ mod tests {
                 }
             }
         }
-        t.insert_chunk(0, 0, 256, 256, &encode_millimetres(256, 256, values).unwrap())
-            .unwrap();
+        t.insert_chunk(
+            0,
+            0,
+            256,
+            256,
+            &encode_millimetres(256, 256, values).unwrap(),
+        )
+        .unwrap();
         let water = super::super::water_geometry(
             super::super::WaterKind::None,
             &[],
@@ -2782,7 +2747,9 @@ mod tests {
     /// non-zero `seedOffset`, so the declared context is the only thing that can
     /// reproduce the surface. Returns the effective seed
     /// (`world.seed ^ scene.seedOffset`) as well.
-    fn authored_fixture(scene_id: &str) -> (
+    fn authored_fixture(
+        scene_id: &str,
+    ) -> (
         SceneSpec,
         BakedTerrain,
         WaterGeometry,
@@ -2813,10 +2780,8 @@ mod tests {
             &s,
             &serde_json::Value::Null,
         );
-        let natural = super::super::generate_chunk_encoded(
-            seed, 0, 0, 512, 512, w, &[], true, None,
-        )
-        .0;
+        let natural =
+            super::super::generate_chunk_encoded(seed, 0, 0, 512, 512, w, &[], true, None).0;
         let mut t = BakedTerrain::new(&s).unwrap();
         t.insert_chunk(0, 0, 512, 512, &natural).unwrap();
         let zones = vec![
@@ -3044,16 +3009,10 @@ mod tests {
             seed,
             precise: true,
         };
-        let (supply_final, label) =
-            super::super::frontage_supply::candidate_final_terrain(
-                &s,
-                &t,
-                w,
-                &zones,
-                &plan,
-                source,
-            )
-            .unwrap();
+        let (supply_final, label) = super::super::frontage_supply::candidate_final_terrain(
+            &s, &t, w, &zones, &plan, source,
+        )
+        .unwrap();
         assert_eq!(label, "production-encoder");
         let mut entities = plan.entities();
         entities.extend(plan.site_entities());
@@ -3111,21 +3070,13 @@ mod tests {
             NaturalSource::Undeclared,
         )
         .unwrap_err();
-        assert!(
-            error.0.contains("declared natural source"),
-            "{}",
-            error.0
-        );
+        assert!(error.0.contains("declared natural source"), "{}", error.0);
         // The legacy wrapper keeps its v1/v2 semantics but may not smuggle a v3
         // style through without a declaration either.
         let mut plan =
             super::super::road_network::plan_with_zones(&s, &t, w, Some(&zones)).unwrap();
         let error = append(&mut plan, &s, &t, w, &zones, &style).unwrap_err();
-        assert!(
-            error.0.contains("declared natural source"),
-            "{}",
-            error.0
-        );
+        assert!(error.0.contains("declared natural source"), "{}", error.0);
         println!(
             "C2-EVIDENCE {}",
             serde_json::json!({
@@ -3224,13 +3175,19 @@ mod tests {
         ) * 1000.)
             .round() as i32;
         assert_eq!(
-            supplied_final.height_millimetres(edited.0, edited.1).unwrap(),
+            supplied_final
+                .height_millimetres(edited.0, edited.1)
+                .unwrap(),
             expected,
             "a supplied raster must be consumed exactly as handed over"
         );
         assert_ne!(
-            supplied_final.height_millimetres(edited.0, edited.1).unwrap(),
-            authored_final.height_millimetres(edited.0, edited.1).unwrap(),
+            supplied_final
+                .height_millimetres(edited.0, edited.1)
+                .unwrap(),
+            authored_final
+                .height_millimetres(edited.0, edited.1)
+                .unwrap(),
             "the edit must survive instead of being regenerated away"
         );
         println!(
@@ -3263,7 +3220,9 @@ mod tests {
         steal_fixture_with_id("steal")
     }
 
-    fn steal_fixture_with_id(scene_id: &str) -> (
+    fn steal_fixture_with_id(
+        scene_id: &str,
+    ) -> (
         SceneSpec,
         BakedTerrain,
         WaterGeometry,
@@ -3403,14 +3362,28 @@ mod tests {
         )
         .unwrap();
         let roles: BTreeSet<&str> = states.iter().map(|s| s.tier_role.as_str()).collect();
-        assert!(roles.contains("collector"), "collector must be a candidate: {roles:?}");
-        assert!(roles.contains("local"), "local must be a candidate: {roles:?}");
+        assert!(
+            roles.contains("collector"),
+            "collector must be a candidate: {roles:?}"
+        );
+        assert!(
+            roles.contains("local"),
+            "local must be a candidate: {roles:?}"
+        );
         assert_eq!(
-            states.iter().find(|s| s.tier_role == "collector").unwrap().width_m,
+            states
+                .iter()
+                .find(|s| s.tier_role == "collector")
+                .unwrap()
+                .width_m,
             16
         );
         assert_eq!(
-            states.iter().find(|s| s.tier_role == "local").unwrap().width_m,
+            states
+                .iter()
+                .find(|s| s.tier_role == "local")
+                .unwrap()
+                .width_m,
             12
         );
     }
@@ -3446,16 +3419,7 @@ mod tests {
         // identities away: either every baseline identity survives, or the
         // candidate was rolled back and the ledger says why.
         let mut led = p.clone();
-        append_declared(
-            &mut led,
-            &s,
-            &t,
-            w,
-            &z,
-            &v3,
-            NaturalSource::SuppliedRaster,
-        )
-        .unwrap();
+        append_declared(&mut led, &s, &t, w, &z, &v3, NaturalSource::SuppliedRaster).unwrap();
         let report = led.automatic_extensions.as_ref().unwrap();
         let mut after = led.clone();
         super::super::frontage::append(&mut after, &s, &t, w, Some(&z), &v3).unwrap();
@@ -3497,11 +3461,7 @@ mod tests {
             fn millis(&self) -> u64 {
                 let now = self.ticks.get();
                 self.ticks.set(now + 1);
-                if now >= self.trip_at {
-                    180_001
-                } else {
-                    now
-                }
+                if now >= self.trip_at { 180_001 } else { now }
             }
         }
         let (s, t, w, z, p, style) = supply_fixture();
@@ -3549,17 +3509,14 @@ mod tests {
                         "trip_at={trip_at}: {}",
                         error.0
                     );
-                    let diagnostic = &error.0[error
-                        .0
-                        .find('{')
-                        .expect("structured diagnostic")..];
+                    let diagnostic = &error.0[error.0.find('{').expect("structured diagnostic")..];
                     let diagnostic: serde_json::Value =
                         serde_json::from_str(diagnostic).expect("diagnostic json");
                     if diagnostic["acceptedRoadsDiscarded"].as_u64().unwrap_or(0) > 0 {
                         discarded_after_commit += 1;
                     }
-                    examined_states =
-                        examined_states.max(diagnostic["candidateStatesExamined"].as_u64().unwrap_or(0) as usize);
+                    examined_states = examined_states
+                        .max(diagnostic["candidateStatesExamined"].as_u64().unwrap_or(0) as usize);
                     let mut without_report = plan.clone();
                     without_report.automatic_extensions = None;
                     let mut expected: RoadNetworkPlan =
@@ -3574,13 +3531,22 @@ mod tests {
                 }
             }
         }
-        assert!(outcomes.get("complete").copied().unwrap_or(0) > 0, "{outcomes:?}");
-        assert!(outcomes.get("aborted").copied().unwrap_or(0) > 0, "{outcomes:?}");
+        assert!(
+            outcomes.get("complete").copied().unwrap_or(0) > 0,
+            "{outcomes:?}"
+        );
+        assert!(
+            outcomes.get("aborted").copied().unwrap_or(0) > 0,
+            "{outcomes:?}"
+        );
         assert!(
             discarded_after_commit > 0,
             "the sweep must include a wall-clock stop after a real success"
         );
-        assert!(examined_states > 0, "the sweep must include a mid-work stop");
+        assert!(
+            examined_states > 0,
+            "the sweep must include a mid-work stop"
+        );
     }
 
     #[test]
@@ -3634,7 +3600,8 @@ mod tests {
             .cloned()
             .chain(std::iter::once(extra.clone()))
             .collect();
-        regression.realized_by_request = vec![("homes".into(), home_ids.len()), ("shops".into(), 1)];
+        regression.realized_by_request =
+            vec![("homes".into(), home_ids.len()), ("shops".into(), 1)];
         regression.realized_ids_by_request =
             vec![("homes".into(), regression.realized_ids.clone())];
         regression.planned = home_ids.len();
@@ -3646,15 +3613,18 @@ mod tests {
         );
         // (2) Same totals, different identities.
         let mut swapped = baseline.clone();
-        swapped.realized_ids = vec![format!("{}.clone", home_ids[0]), format!("{}.clone", home_ids[1])];
-        swapped.realized_ids_by_request =
-            vec![("homes".into(), swapped.realized_ids.clone())];
+        swapped.realized_ids = vec![
+            format!("{}.clone", home_ids[0]),
+            format!("{}.clone", home_ids[1]),
+        ];
+        swapped.realized_ids_by_request = vec![("homes".into(), swapped.realized_ids.clone())];
         assert!(commit_decision(&session, &swapped, &baseline, &base_plan).is_err());
         // (3) Planning credit without realization, and a lost yard.
         let mut unrealized = baseline.clone();
         unrealized.planned = home_ids.len() + 2;
         unrealized.realized_with_access = home_ids.len() + 1;
-        unrealized.realized_by_request = vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
+        unrealized.realized_by_request =
+            vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
         unrealized.realized_ids = home_ids
             .iter()
             .cloned()
@@ -3676,19 +3646,23 @@ mod tests {
         yard.realized_ids_by_request = vec![("homes".into(), yard.realized_ids.clone())];
         yard.planned = home_ids.len() + 1;
         yard.realized_with_access = home_ids.len() + 1;
-        yard.parcel_by_entity.insert(extra.clone(), "parcel-of-new".into());
-        yard.yard_unresolved_by_parcel.insert("parcel-of-new".into(), 13.);
+        yard.parcel_by_entity
+            .insert(extra.clone(), "parcel-of-new".into());
+        yard.yard_unresolved_by_parcel
+            .insert("parcel-of-new".into(), 13.);
         let error = commit_decision(&session, &yard, &baseline, &base_plan).unwrap_err();
         assert!(error.contains("new_parcel_yard_unresolved"), "{error}");
         // (5) A pure addition with a resolved yard passes.
         let mut enlarged = baseline.clone();
-        enlarged.realized_by_request = vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
+        enlarged.realized_by_request =
+            vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
         enlarged.realized_ids = yard.realized_ids.clone();
-        enlarged.realized_ids_by_request =
-            vec![("homes".into(), enlarged.realized_ids.clone())];
+        enlarged.realized_ids_by_request = vec![("homes".into(), enlarged.realized_ids.clone())];
         enlarged.planned = home_ids.len() + 1;
         enlarged.realized_with_access = home_ids.len() + 1;
-        enlarged.parcel_by_entity.insert(extra.clone(), "parcel-of-new".into());
+        enlarged
+            .parcel_by_entity
+            .insert(extra.clone(), "parcel-of-new".into());
         assert!(commit_decision(&session, &enlarged, &baseline, &base_plan).is_ok());
         // (6) Per-parcel, not per-total: one old parcel is repaired while
         //     another old parcel grows by the same amount, leaving the total
@@ -3704,19 +3678,19 @@ mod tests {
             .cloned()
             .chain(std::iter::once(extra.clone()))
             .collect();
-        shifted.realized_by_request = vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
-        shifted.realized_ids_by_request =
-            vec![("homes".into(), shifted.realized_ids.clone())];
+        shifted.realized_by_request =
+            vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
+        shifted.realized_ids_by_request = vec![("homes".into(), shifted.realized_ids.clone())];
         shifted.planned = home_ids.len() + 1;
         shifted.realized_with_access = home_ids.len() + 1;
-        shifted.parcel_by_entity.insert(extra.clone(), "parcel-of-new".into());
+        shifted
+            .parcel_by_entity
+            .insert(extra.clone(), "parcel-of-new".into());
         // Baseline carries no old shortfall in this fixture, so the "growing"
         // side of the move has to come from a parcel whose protected allowance
         // is zero.
         let moved = protected[0].1.clone();
-        shifted
-            .yard_unresolved_by_parcel
-            .insert(moved.clone(), 4.0);
+        shifted.yard_unresolved_by_parcel.insert(moved.clone(), 4.0);
         shifted.yard_unresolved_m2 = 4.0;
         let error = commit_decision(&session, &shifted, &baseline, &base_plan).unwrap_err();
         assert!(error.contains("existing_parcel_yard_grew"), "{error}");
@@ -3727,15 +3701,17 @@ mod tests {
             .cloned()
             .chain(std::iter::once(extra.clone()))
             .collect();
-        reowned.realized_by_request = vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
-        reowned.realized_ids_by_request =
-            vec![("homes".into(), reowned.realized_ids.clone())];
+        reowned.realized_by_request =
+            vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
+        reowned.realized_ids_by_request = vec![("homes".into(), reowned.realized_ids.clone())];
         reowned.planned = home_ids.len() + 1;
         reowned.realized_with_access = home_ids.len() + 1;
         reowned
             .parcel_by_entity
             .insert(protected[0].0.clone(), "parcel-of-other".into());
-        reowned.parcel_by_entity.insert(extra.clone(), "parcel-of-new".into());
+        reowned
+            .parcel_by_entity
+            .insert(extra.clone(), "parcel-of-new".into());
         let error = commit_decision(&session, &reowned, &baseline, &base_plan).unwrap_err();
         assert!(error.contains("existing_owner_changed"), "{error}");
         // (8) A protected baseline asset may not vanish from the audit map: an
@@ -3746,13 +3722,15 @@ mod tests {
             .cloned()
             .chain(std::iter::once(extra.clone()))
             .collect();
-        vanished.realized_by_request = vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
-        vanished.realized_ids_by_request =
-            vec![("homes".into(), vanished.realized_ids.clone())];
+        vanished.realized_by_request =
+            vec![("homes".into(), home_ids.len() + 1), ("shops".into(), 0)];
+        vanished.realized_ids_by_request = vec![("homes".into(), vanished.realized_ids.clone())];
         vanished.planned = home_ids.len() + 1;
         vanished.realized_with_access = home_ids.len() + 1;
         vanished.parcel_by_entity.remove(&protected[0].0);
-        vanished.parcel_by_entity.insert(extra.clone(), "parcel-of-new".into());
+        vanished
+            .parcel_by_entity
+            .insert(extra.clone(), "parcel-of-new".into());
         let error = commit_decision(&session, &vanished, &baseline, &base_plan).unwrap_err();
         assert!(error.contains("baseline_asset_missing"), "{error}");
         // (9) A landcover audit that never ran leaves an empty per-parcel map,
@@ -3767,9 +3745,7 @@ mod tests {
         session
             .protected_owners
             .insert(extra.clone(), "parcel-of-new".into());
-        session
-            .protected_parcels
-            .insert("parcel-of-new".into(), 0.);
+        session.protected_parcels.insert("parcel-of-new".into(), 0.);
         assert!(commit_decision(&session, &enlarged, &baseline, &base_plan).is_ok());
         let mut grown = enlarged.clone();
         grown
@@ -3795,7 +3771,9 @@ mod tests {
             second,
         ]);
         // Both ids are legal for the production parser.
-        let program = from_style(&supply_style(&two_requests, 8)).unwrap().unwrap();
+        let program = from_style(&supply_style(&two_requests, 8))
+            .unwrap()
+            .unwrap();
         assert_eq!(program.scenes[0].scene_id, "steal");
         let mut plan = p.clone();
         append(&mut plan, &s, &t, w, &z, &style).unwrap();
@@ -3816,15 +3794,19 @@ mod tests {
             "the generated id contains the scene id: {}",
             site.id
         );
-        let mut session = SupplySession::for_scene(&supply_style(&two_requests, 8), "steal", &verified)
-            .unwrap();
+        let mut session =
+            SupplySession::for_scene(&supply_style(&two_requests, 8), "steal", &verified).unwrap();
         // A homes parcel attributed to the other legal request is refused.
         let mut wrong = empty_realization("steal");
         wrong.realized_ids = vec![site.id.clone()];
         wrong.realized_ids_by_request = vec![("scene-0".into(), vec![site.id.clone()])];
         let error = session.adopt(&verified, &wrong).unwrap_err();
         assert!(error.contains("belongs to homes"), "{error}");
-        assert_eq!(session.commitments.len(), 0, "a refused adoption changes nothing");
+        assert_eq!(
+            session.commitments.len(),
+            0,
+            "a refused adoption changes nothing"
+        );
         // The correct attribution lands exactly once, in its own request only.
         let mut right = empty_realization("steal");
         right.realized_ids = vec![site.id.clone()];
@@ -3850,12 +3832,8 @@ mod tests {
             ("homes".into(), vec![site.id.clone()]),
             ("scene-0".into(), vec![site.id.clone()]),
         ];
-        let mut session2 = SupplySession::for_scene(
-            &supply_style(&two_requests, 8),
-            "steal",
-            &verified,
-        )
-        .unwrap();
+        let mut session2 =
+            SupplySession::for_scene(&supply_style(&two_requests, 8), "steal", &verified).unwrap();
         session2.adopt(&verified, &ambiguous).unwrap();
         assert_eq!(session2.commitments.len(), 1);
         assert_eq!(
@@ -3903,8 +3881,7 @@ mod tests {
         // gains two new parcels.
         let mut round_two = empty_realization("steal");
         round_two.realized_ids = vec![extra.clone(), format!("{extra}.b")];
-        round_two.realized_ids_by_request =
-            vec![("homes".into(), round_two.realized_ids.clone())];
+        round_two.realized_ids_by_request = vec![("homes".into(), round_two.realized_ids.clone())];
         round_two.realized_by_request = vec![("homes".into(), 2)];
         let error = commit_decision(&session, &round_two, &round_one, &verified).unwrap_err();
         assert!(error.contains(&home_ids[0]), "{error}");
@@ -3957,7 +3934,10 @@ mod tests {
             &clock,
             NaturalSource::SuppliedRaster,
         );
-        super::super::frontage_supply::TEST_CORRUPT_SCENE.lock().unwrap().take();
+        super::super::frontage_supply::TEST_CORRUPT_SCENE
+            .lock()
+            .unwrap()
+            .take();
         outcome.unwrap();
         let report = plan.automatic_extensions.as_ref().unwrap();
         assert_eq!(
@@ -4085,11 +4065,7 @@ mod tests {
         fn millis(&self) -> u64 {
             let now = self.ticks.get();
             self.ticks.set(now + 1);
-            if now >= self.trip_at {
-                180_001
-            } else {
-                now
-            }
+            if now >= self.trip_at { 180_001 } else { now }
         }
     }
 
@@ -4236,7 +4212,9 @@ mod tests {
         use super::super::frontage_supply::{Realization, SupplyContext, SupplySession};
         use super::super::road_alignment::{AlignmentContext, CorridorRequest};
         use super::super::zoning::ZoningMask;
-        use super::super::{LandUseProfile, plan_landuse_zones, terrain_height_metres, water_geometry, water_kind};
+        use super::super::{
+            LandUseProfile, plan_landuse_zones, terrain_height_metres, water_geometry, water_kind,
+        };
         use crate::settlement::morphology_compile;
 
         let started = std::time::Instant::now();
@@ -4244,9 +4222,8 @@ mod tests {
         let budget_ms: u64 = 180_000;
 
         // ---- frozen W1 stage: 35-edge roads-only baseline -------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
         let scene = SceneSpec {
@@ -4316,8 +4293,15 @@ mod tests {
         )
         .unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -4339,7 +4323,10 @@ mod tests {
             &style,
         )
         .unwrap();
-        assert_eq!(baseline.frontage_requested, 24, "the authored demand stays 24");
+        assert_eq!(
+            baseline.frontage_requested, 24,
+            "the authored demand stays 24"
+        );
         assert_eq!(baseline.final_source, "production-encoder");
         let mut session = SupplySession::for_scene(&style, &scene.scene_id, &verified).unwrap();
         session.adopt(&verified, &baseline).unwrap();
@@ -4362,24 +4349,22 @@ mod tests {
         let width_m = 12_u32;
         let fixed_root_mm = *node_levels.get(&a).expect("A is a fixed node");
         assert_eq!(fixed_root_mm, 8000, "the frozen fixed root");
-        let request_for = |start: [i32; 2], end: [i32; 2], start_level: Option<i32>| CorridorRequest {
-            scene_id: scene.scene_id.clone(),
-            start,
-            end,
-            road_width_m: width_m,
-            shoulder_width_m: 3,
-            max_fill_mm: 6000,
-            max_rise_mm_per_m: 80,
-            start_level_mm: start_level,
-            end_level_mm: None,
-            junction_length_m: 8,
-        };
+        let request_for =
+            |start: [i32; 2], end: [i32; 2], start_level: Option<i32>| CorridorRequest {
+                scene_id: scene.scene_id.clone(),
+                start,
+                end,
+                road_width_m: width_m,
+                shoulder_width_m: 3,
+                max_fill_mm: 6000,
+                max_rise_mm_per_m: 80,
+                start_level_mm: start_level,
+                end_level_mm: None,
+                junction_length_m: 8,
+            };
         let approach_base = request_for(a, b, Some(fixed_root_mm));
         let approach_min = ctx.infer_end(&approach_base);
-        let b_infer = approach_min
-            .as_ref()
-            .ok()
-            .and_then(|r| r.end_level_mm);
+        let b_infer = approach_min.as_ref().ok().and_then(|r| r.end_level_mm);
         // V5 window rectangles (16x18 parcels at stations 18/42/66/90 both sides)
         let mut window_rects: Vec<[i32; 4]> = vec![];
         for station in [18_i32, 42, 66, 90] {
@@ -4503,11 +4488,13 @@ mod tests {
             });
             let Some(level) = level else {
                 row["stage"] = serde_json::json!("derivation_refused");
-                row["reason"] = serde_json::json!(approach_min
-                    .as_ref()
-                    .err()
-                    .map(|e| e.0.clone())
-                    .unwrap_or_else(|| "no inferred end level".into()));
+                row["reason"] = serde_json::json!(
+                    approach_min
+                        .as_ref()
+                        .err()
+                        .map(|e| e.0.clone())
+                        .unwrap_or_else(|| "no inferred end level".into())
+                );
                 rows.push(row);
                 continue;
             };
@@ -4548,7 +4535,8 @@ mod tests {
                 }
             };
             row["cMm"] = serde_json::json!(street_request.end_level_mm);
-            row["cProvenance"] = serde_json::json!("production infer_end on the street pinned at B");
+            row["cProvenance"] =
+                serde_json::json!("production infer_end on the street pinned at B");
             // Production design of the street, used to record the shared-junction
             // cell comparison (the append below makes the actual decision).
             let approach_entity = staged
@@ -4724,7 +4712,8 @@ mod tests {
                     row["reason"] = serde_json::json!(reason);
                 }
                 Ok(realization) => {
-                    let decision = commit_decision(&session, &realization, &baseline, &verification);
+                    let decision =
+                        commit_decision(&session, &realization, &baseline, &verification);
                     let new_parcels: Vec<String> = realization
                         .parcel_by_entity
                         .iter()
@@ -4796,8 +4785,7 @@ mod tests {
         }
         // final publication gate: the deadline is re-checked one last time, so a
         // late expiry can never let a witness escape with incomplete = false
-        let (published_best, published_incomplete, expired_at) =
-            outcome.finish(&clock, budget_ms);
+        let (published_best, published_incomplete, expired_at) = outcome.finish(&clock, budget_ms);
         let baseline_plan_hash_after = {
             let mut hasher = blake3::Hasher::new();
             hasher.update(&serde_json::to_vec(&plan).unwrap());
@@ -4880,9 +4868,8 @@ mod tests {
         let sample_cap = 8_usize;
 
         // ---- frozen W1 stage (one rebuild, roads-only baseline) -------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
         let scene = SceneSpec {
@@ -4942,8 +4929,15 @@ mod tests {
             hasher.finalize().to_hex().to_string()
         };
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         assert_eq!(
             verified
                 .roadside_sites
@@ -5028,7 +5022,10 @@ mod tests {
         let table_text = format!("{}\n", serde_json::to_string_pretty(&table).unwrap());
         let table_reused = if table_path.exists() {
             let existing = std::fs::read_to_string(&table_path).unwrap();
-            assert_eq!(existing, table_text, "a pre-registered rule table already exists with different content; refusing to overwrite");
+            assert_eq!(
+                existing, table_text,
+                "a pre-registered rule table already exists with different content; refusing to overwrite"
+            );
             true
         } else {
             let mut file = std::fs::OpenOptions::new()
@@ -5084,16 +5081,26 @@ mod tests {
             let ab_design = ctx.design(&ab_request).expect("AB design");
             counts["candidateStage"]["appendCalls"] =
                 serde_json::json!(counts["candidateStage"]["appendCalls"].as_u64().unwrap() + 1);
-            super::super::road_extensions::append_one(&mut staged, &ctx, &ab_request, ab_id.clone())
-                .unwrap_or_else(|e| panic!("G5 AB append must still pass for {state}: {}", e.0));
+            super::super::road_extensions::append_one(
+                &mut staged,
+                &ctx,
+                &ab_request,
+                ab_id.clone(),
+            )
+            .unwrap_or_else(|e| panic!("G5 AB append must still pass for {state}: {}", e.0));
             let bc_request = request_for(b, c, Some(b_level), Some(c_level));
             counts["candidateStage"]["designCalls"] =
                 serde_json::json!(counts["candidateStage"]["designCalls"].as_u64().unwrap() + 1);
             let bc_design = ctx.design(&bc_request).expect("BC design");
             counts["candidateStage"]["appendCalls"] =
                 serde_json::json!(counts["candidateStage"]["appendCalls"].as_u64().unwrap() + 1);
-            super::super::road_extensions::append_one(&mut staged, &ctx, &bc_request, bc_id.clone())
-                .unwrap_or_else(|e| panic!("G5 BC append must still pass for {state}: {}", e.0));
+            super::super::road_extensions::append_one(
+                &mut staged,
+                &ctx,
+                &bc_request,
+                bc_id.clone(),
+            )
+            .unwrap_or_else(|e| panic!("G5 BC append must still pass for {state}: {}", e.0));
             // The persisted profiles are the staged roads' own arrays, so they are
             // the same objects production would carry, never a re-derived summary.
             let staged_ab = staged
@@ -5149,8 +5156,8 @@ mod tests {
             assert_eq!(bc_expected_len, 113);
             let ab_profile_hash = hash_json(&ab_profile_mm);
             let bc_profile_hash = hash_json(&bc_profile_mm);
-            profile_persisted &= ab_profile_mm.len() == ab_expected_len
-                && bc_profile_mm.len() == bc_expected_len;
+            profile_persisted &=
+                ab_profile_mm.len() == ab_expected_len && bc_profile_mm.len() == bc_expected_len;
             profiles.push(serde_json::json!({
                 "state": state,
                 "provenance": provenance,
@@ -5185,8 +5192,7 @@ mod tests {
                 // the exact production request the shared budget drives the
                 // measurement with; the candidate site must be rebuilt from it
                 let request = trial.budgets[index].request.clone();
-                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id)
-                else {
+                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id) else {
                     break;
                 };
                 let (road_w, road_d) = super::super::spatial_half_extents(
@@ -5204,12 +5210,7 @@ mod tests {
                     counts["candidateStage"]["measureCalls"].as_u64().unwrap() + 1
                 );
                 let measured = supply
-                    .measure_road_for_request(
-                        &probe,
-                        &road,
-                        &mut trial.budgets[index],
-                        sample_cap,
-                    )
+                    .measure_road_for_request(&probe, &road, &mut trial.budgets[index], sample_cap)
                     .unwrap();
                 let trace = &measured.trace;
                 let rejected_total: u32 = trace.rejected.values().sum();
@@ -5235,7 +5236,10 @@ mod tests {
                     ("attempted", serde_json::json!(trace.attempted)),
                     ("accepted", serde_json::json!(trace.accepted)),
                     ("acceptedIds", serde_json::json!(trace.accepted_ids)),
-                    ("geometryExhausted", serde_json::json!(trace.geometry_exhausted)),
+                    (
+                        "geometryExhausted",
+                        serde_json::json!(trace.geometry_exhausted),
+                    ),
                     ("samplesStored", serde_json::json!(trace.samples.len())),
                     (
                         "rejectionDetailsStored",
@@ -5284,7 +5288,8 @@ mod tests {
                         (Some(d), Some(n)) => Some(i64::from(d) - i64::from(n)),
                         _ => None,
                     };
-                    let zone_cap_mm = at.map(|p| (mask.fill_capacity_at(p[0], p[1]) * 1000.) as i64);
+                    let zone_cap_mm =
+                        at.map(|p| (mask.fill_capacity_at(p[0], p[1]) * 1000.) as i64);
                     let production_first_point_deficit_mm = match (design_mm, natural_mm) {
                         (Some(d), Some(n)) if i64::from(n) > i64::from(d) => {
                             Some(i64::from(n) - i64::from(d))
@@ -5317,7 +5322,9 @@ mod tests {
                     });
                     let scan_agrees = geometry.as_ref().map_or(false, |(_, agrees)| *agrees);
                     let geometry_ok = bound.is_ok()
-                        && geometry.as_ref().map_or(false, |(scan, _)| scan.samples > 0)
+                        && geometry
+                            .as_ref()
+                            .map_or(false, |(scan, _)| scan.samples > 0)
                         && bound
                             .as_ref()
                             .map_or(false, |b| b.support_range != road_bounds)
@@ -5576,57 +5583,72 @@ mod tests {
             "the corrected diagnosis must bind every attempt to the real candidate building and persist raw evidence; schema={schema}"
         );
         let payload = json_map(vec![
-                ("format", serde_json::json!("glyphweave.b01-g6-r1-diagnostic-repair.run")),
-                ("version", serde_json::json!(1)),
-                (
-                    "replacesEntry",
-                    serde_json::json!(
-                        "v5_frontage_rejection_diagnosis (B01-G6), whose 32 rows described the BC road instead of the candidate building"
-                    ),
+            (
+                "format",
+                serde_json::json!("glyphweave.b01-g6-r1-diagnostic-repair.run"),
+            ),
+            ("version", serde_json::json!(1)),
+            (
+                "replacesEntry",
+                serde_json::json!(
+                    "v5_frontage_rejection_diagnosis (B01-G6), whose 32 rows described the BC road instead of the candidate building"
                 ),
-                ("tableHashAlgorithm", serde_json::json!("blake3")),
-                ("tableHash", serde_json::json!(table_hash)),
-                ("tablePreExisting", serde_json::json!(table_reused)),
-                (
-                    "frozen",
-                    serde_json::json!({
-                        "manifest": "bevy/work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-                        "seed": world_seed, "declaredSource": "AuthoredSeed", "precise": true,
-                        "baselineEdges": 35, "baselineNodes": 27, "fixedRootMm": fixed_root_mm,
-                    }),
-                ),
-                ("crossCheckedInferMinimum", serde_json::json!(cross_checked_minimum)),
-                ("recordedR1CMm", serde_json::json!(-382)),
-                ("sampleCap", serde_json::json!(sample_cap)),
-                ("baselinePlanHashBefore", serde_json::json!(baseline_plan_hash)),
-                ("baselinePlanHashAfter", serde_json::json!(baseline_plan_hash_after)),
-                ("callCounts", counts),
-                ("schema", schema),
-                (
-                    "h1Retraction",
-                    serde_json::json!({
-                        "retracted": "the B01-G6 claim that lifting the street platform by >=696mm clears the 28 natural_above_design_level rejections",
-                        "why": "696mm was only the largest deficit at the first violating point production stops on; each row's supportNoCutMaxDeficitMm is the deficit at the highest natural point of the whole building+2m support rectangle and is larger",
-                        "alsoRetracted": "raising B is not equivalent to lifting every BC pad: road_alignment::solve is a per-point lower-bound slope envelope, so a higher B only lifts the part it actually dominates",
-                        "workedExampleNoNewRun": "at B=3000 with junctionLengthM=9 the station-42 design is 1105mm; a B of 3696 would propagate only 3696-80*(42-9)=1056mm of lower bound to that station, which is below the existing 1105mm, so no +696 lift can be inferred there",
-                        "status": "no new B/C value was evaluated; H1 is not approved and is not executed in this round",
-                    }),
-                ),
-                ("seconds", serde_json::json!(started.elapsed().as_secs_f64())),
-                ("incomplete", serde_json::json!(published_incomplete || !all_complete)),
-                ("expiredAt", serde_json::json!(expired_at)),
-                ("attemptRows", serde_json::json!(rows.len())),
-                ("reasonTotals", serde_json::json!(reason_totals)),
-                ("perRequest", serde_json::json!(per_request)),
-                ("profiles", serde_json::json!(profiles)),
-                ("rawTraces", serde_json::json!(raw_traces)),
-                ("rows", serde_json::json!(rows)),
+            ),
+            ("tableHashAlgorithm", serde_json::json!("blake3")),
+            ("tableHash", serde_json::json!(table_hash)),
+            ("tablePreExisting", serde_json::json!(table_reused)),
+            (
+                "frozen",
+                serde_json::json!({
+                    "manifest": "bevy/work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
+                    "seed": world_seed, "declaredSource": "AuthoredSeed", "precise": true,
+                    "baselineEdges": 35, "baselineNodes": 27, "fixedRootMm": fixed_root_mm,
+                }),
+            ),
+            (
+                "crossCheckedInferMinimum",
+                serde_json::json!(cross_checked_minimum),
+            ),
+            ("recordedR1CMm", serde_json::json!(-382)),
+            ("sampleCap", serde_json::json!(sample_cap)),
+            (
+                "baselinePlanHashBefore",
+                serde_json::json!(baseline_plan_hash),
+            ),
+            (
+                "baselinePlanHashAfter",
+                serde_json::json!(baseline_plan_hash_after),
+            ),
+            ("callCounts", counts),
+            ("schema", schema),
+            (
+                "h1Retraction",
+                serde_json::json!({
+                    "retracted": "the B01-G6 claim that lifting the street platform by >=696mm clears the 28 natural_above_design_level rejections",
+                    "why": "696mm was only the largest deficit at the first violating point production stops on; each row's supportNoCutMaxDeficitMm is the deficit at the highest natural point of the whole building+2m support rectangle and is larger",
+                    "alsoRetracted": "raising B is not equivalent to lifting every BC pad: road_alignment::solve is a per-point lower-bound slope envelope, so a higher B only lifts the part it actually dominates",
+                    "workedExampleNoNewRun": "at B=3000 with junctionLengthM=9 the station-42 design is 1105mm; a B of 3696 would propagate only 3696-80*(42-9)=1056mm of lower bound to that station, which is below the existing 1105mm, so no +696 lift can be inferred there",
+                    "status": "no new B/C value was evaluated; H1 is not approved and is not executed in this round",
+                }),
+            ),
+            (
+                "seconds",
+                serde_json::json!(started.elapsed().as_secs_f64()),
+            ),
+            (
+                "incomplete",
+                serde_json::json!(published_incomplete || !all_complete),
+            ),
+            ("expiredAt", serde_json::json!(expired_at)),
+            ("attemptRows", serde_json::json!(rows.len())),
+            ("reasonTotals", serde_json::json!(reason_totals)),
+            ("perRequest", serde_json::json!(per_request)),
+            ("profiles", serde_json::json!(profiles)),
+            ("rawTraces", serde_json::json!(raw_traces)),
+            ("rows", serde_json::json!(rows)),
         ]);
         assert_no_tagged_result(&payload, "$");
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload).unwrap()
-        );
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
     }
 
     /// Test-only: the accepted measurement path extends the plan with the sites
@@ -5854,7 +5876,10 @@ mod tests {
             1149 - (147 + 696) > 0,
             "a uniform +696mm lift would still leave the support extreme short"
         );
-        assert!(147 + 1002 == 1149, "1002 is a geometry statistic, not a lift certificate");
+        assert!(
+            147 + 1002 == 1149,
+            "1002 is a geometry statistic, not a lift certificate"
+        );
         let (first, max) = no_cut_deficits_mm(&[147, 147], 147);
         assert_eq!((first, max), (None, Some(0)));
     }
@@ -5975,7 +6000,10 @@ mod tests {
     /// `max` is the deficit at the highest natural point of the whole support
     /// rectangle. They are only equal when the first illegal point happens to be
     /// the extreme, so `first + lift` is never a sufficiency proof.
-    fn no_cut_deficits_mm(naturals_in_scan_order: &[i32], design_mm: i64) -> (Option<i64>, Option<i64>) {
+    fn no_cut_deficits_mm(
+        naturals_in_scan_order: &[i32],
+        design_mm: i64,
+    ) -> (Option<i64>, Option<i64>) {
         let first = naturals_in_scan_order
             .iter()
             .find(|h| i64::from(**h) > design_mm)
@@ -6028,7 +6056,8 @@ mod tests {
                     scan.first_no_cut_at = Some([x as i32, z as i32]);
                     scan.first_no_cut_natural_mm = Some(h);
                 }
-                let zone_cap_mm = (mask.fill_capacity_at(x as i32, z as i32) * 1000.).round() as i64;
+                let zone_cap_mm =
+                    (mask.fill_capacity_at(x as i32, z as i32) * 1000.).round() as i64;
                 let upper = i64::from(h) + roadbed_cap_mm.min(zone_cap_mm);
                 if scan.fill_upper_mm.map_or(true, |current| upper < current) {
                     scan.fill_upper_mm = Some(upper);
@@ -6075,9 +6104,8 @@ mod tests {
         });
 
         // ---- frozen W1 stage: 35-edge roads-only baseline -------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
         let scene = SceneSpec {
@@ -6151,8 +6179,15 @@ mod tests {
         .unwrap();
         preparation["frontageAppendCalls"] = serde_json::json!(1);
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -6216,11 +6251,7 @@ mod tests {
             ));
         }
         if !c_candidates.iter().any(|(_, v, _)| *v == b_level) {
-            c_candidates.push((
-                "R2".into(),
-                b_level,
-                "chosenC = B = 3000mm".into(),
-            ));
+            c_candidates.push(("R2".into(), b_level, "chosenC = B = 3000mm".into()));
         }
 
         let table = serde_json::json!({
@@ -6409,12 +6440,12 @@ mod tests {
                 if trial.budgets[index].satisfied() || !trial.budgets[index].budget_left() {
                     continue;
                 }
-                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id)
-                else {
+                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id) else {
                     break;
                 };
-                counts["candidateStage"]["measureCalls"] =
-                    serde_json::json!(counts["candidateStage"]["measureCalls"].as_u64().unwrap() + 1);
+                counts["candidateStage"]["measureCalls"] = serde_json::json!(
+                    counts["candidateStage"]["measureCalls"].as_u64().unwrap() + 1
+                );
                 match supply.measure_road_for_request(
                     &probe,
                     &road,
@@ -6463,8 +6494,12 @@ mod tests {
                     rows.push(row);
                     continue;
                 }
-                counts["candidateStage"]["baselineRealizeCalls"] =
-                    serde_json::json!(counts["candidateStage"]["baselineRealizeCalls"].as_u64().unwrap() + 1);
+                counts["candidateStage"]["baselineRealizeCalls"] = serde_json::json!(
+                    counts["candidateStage"]["baselineRealizeCalls"]
+                        .as_u64()
+                        .unwrap()
+                        + 1
+                );
                 let realized = super::super::frontage_supply::realize_candidate(
                     &scene,
                     &terrain,
@@ -6494,8 +6529,12 @@ mod tests {
                 continue;
             }
             candidate_realizations += 1;
-            counts["candidateStage"]["candidateRealizeCalls"] =
-                serde_json::json!(counts["candidateStage"]["candidateRealizeCalls"].as_u64().unwrap() + 1);
+            counts["candidateStage"]["candidateRealizeCalls"] = serde_json::json!(
+                counts["candidateStage"]["candidateRealizeCalls"]
+                    .as_u64()
+                    .unwrap()
+                    + 1
+            );
             let mut verification = staged.clone();
             let realize_result = (|| -> Result<Realization, String> {
                 super::super::frontage::append(
@@ -6527,8 +6566,12 @@ mod tests {
                     row["reason"] = serde_json::json!(reason);
                 }
                 Ok(realization) => {
-                    let decision =
-                        commit_decision(&session, &realization, baseline_realization, &verification);
+                    let decision = commit_decision(
+                        &session,
+                        &realization,
+                        baseline_realization,
+                        &verification,
+                    );
                     let new_parcels: Vec<String> = realization
                         .parcel_by_entity
                         .iter()
@@ -6657,9 +6700,8 @@ mod tests {
         let mut outcome = BundleOutcome::new();
 
         // ---- frozen W1 stage: 35-edge roads-only baseline -------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
         let scene = SceneSpec {
@@ -6727,8 +6769,15 @@ mod tests {
         )
         .unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -6792,7 +6841,10 @@ mod tests {
 
         // ---- pre-registered rule table (written before any evaluation) ------
         let b_candidates: Vec<(i32, &str)> = vec![
-            (3000, "inspector-proven approach: public design/verify/append pass at B=3000mm"),
+            (
+                3000,
+                "inspector-proven approach: public design/verify/append pass at B=3000mm",
+            ),
             (
                 2640,
                 "necessary descent lower bound 8000-80*(84-8-9)=2640mm from the B support-overlap 9m match",
@@ -6864,7 +6916,8 @@ mod tests {
                 break;
             }
             // derive the C candidates for this B, recording the rule provenance
-            counts["inferEndCalls"] = serde_json::json!(counts["inferEndCalls"].as_u64().unwrap() + 1);
+            counts["inferEndCalls"] =
+                serde_json::json!(counts["inferEndCalls"].as_u64().unwrap() + 1);
             let bc_free = request_for(b, c, Some(*b_level), None);
             let returned_minimum = ctx.infer_end(&bc_free).ok().and_then(|r| r.end_level_mm);
             let reach_hi = *b_level + 80 * (bc_len - 8);
@@ -6877,7 +6930,11 @@ mod tests {
                     format!("production infer_end returnedMinimum={minimum}mm"),
                 ));
             }
-            c_candidates.push(("R2".into(), *b_level, "chosenC = B (same-level control)".into()));
+            c_candidates.push((
+                "R2".into(),
+                *b_level,
+                "chosenC = B (same-level control)".into(),
+            ));
             if rule3 >= pad_nat_max && !c_candidates.iter().any(|(_, v, _)| *v == rule3) {
                 c_candidates.push((
                     "R3".into(),
@@ -6975,10 +7032,12 @@ mod tests {
                         joint_support_diagnostic(approach_profile, &street_profile, rect);
                     diagnostic["junctionRadiusM"] = serde_json::json!(9);
                     diagnostic["platformM"] = serde_json::json!(8);
-                    diagnostic["abEndStation75Mm"] =
-                        serde_json::json!(height_mm(approach_profile.height_at(288., 171.).unwrap_or_default()));
-                    diagnostic["bcStation9Mm"] =
-                        serde_json::json!(height_mm(street_profile.height_at(279., 180.).unwrap_or_default()));
+                    diagnostic["abEndStation75Mm"] = serde_json::json!(height_mm(
+                        approach_profile.height_at(288., 171.).unwrap_or_default()
+                    ));
+                    diagnostic["bcStation9Mm"] = serde_json::json!(height_mm(
+                        street_profile.height_at(279., 180.).unwrap_or_default()
+                    ));
                     row["sharedJunction"] = diagnostic;
                 }
                 counts["appendCalls"] =
@@ -7005,10 +7064,7 @@ mod tests {
                     if trial.budgets[index].satisfied() || !trial.budgets[index].budget_left() {
                         continue;
                     }
-                    let Some(road) = probe
-                        .entities()
-                        .into_iter()
-                        .find(|e| e.entity_id == bc_id)
+                    let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id)
                     else {
                         break;
                     };
@@ -7129,8 +7185,12 @@ mod tests {
                         row["reason"] = serde_json::json!(reason);
                     }
                     Ok(realization) => {
-                        let decision =
-                            commit_decision(&session, &realization, baseline_realization, &verification);
+                        let decision = commit_decision(
+                            &session,
+                            &realization,
+                            baseline_realization,
+                            &verification,
+                        );
                         let new_parcels: Vec<String> = realization
                             .parcel_by_entity
                             .iter()
@@ -7260,10 +7320,16 @@ mod tests {
             max_fill_mm: 6000,
         };
         let diagnostic = joint_support_diagnostic(&approach, &street, [279, 171, 292, 184]);
-        assert_eq!(diagnostic["closedIntersectionCells"], serde_json::json!(196));
+        assert_eq!(
+            diagnostic["closedIntersectionCells"],
+            serde_json::json!(196)
+        );
         assert_eq!(diagnostic["comparedCells"], serde_json::json!(196));
         assert_eq!(diagnostic["missingValues"], serde_json::json!(0));
-        assert_eq!(diagnostic["diagnostic_incomplete"], serde_json::json!(false));
+        assert_eq!(
+            diagnostic["diagnostic_incomplete"],
+            serde_json::json!(false)
+        );
         assert_eq!(diagnostic["mismatchedCells"], serde_json::json!(27));
         // the four columns beyond the street's own start must be included
         let cells = diagnostic["mismatchCells"].as_array().unwrap();
@@ -7311,7 +7377,10 @@ mod tests {
         assert!(!outcome.check(&clock, 180_000, "after-design-and-measure"));
         let (best, incomplete, _) = outcome.finish(&clock, 180_000);
         assert!(best.is_none());
-        assert!(incomplete, "a late expiry must not be reported as a clean run");
+        assert!(
+            incomplete,
+            "a late expiry must not be reported as a clean run"
+        );
     }
 
     /// B01-G3-R1: a witness already staged must be cleared when the deadline
@@ -7409,18 +7478,18 @@ mod tests {
             "generated.g3.guard.second".into(),
         )
         .expect_err("a mismatched shared node height must be refused");
-        assert!(
-            error.0.contains("junction height mismatch"),
-            "{}",
-            error.0
-        );
+        assert!(error.0.contains("junction height mismatch"), "{}", error.0);
         // the refused bundle leaves the baseline copy untouched
         assert_eq!(
             staged.edges.len(),
             baseline_edges + 1,
             "only the staged first segment exists in the state-local copy"
         );
-        assert_eq!(plan.edges.len(), baseline_edges, "the baseline is untouched");
+        assert_eq!(
+            plan.edges.len(),
+            baseline_edges,
+            "the baseline is untouched"
+        );
     }
 
     #[test]
@@ -7440,11 +7509,7 @@ mod tests {
         let mut legacy_frontage = legacy.clone();
         super::super::frontage::append(&mut legacy_frontage, &s, &t, w, Some(&z), &style).unwrap();
         assert_eq!(
-            legacy_frontage
-                .frontage
-                .as_ref()
-                .unwrap()
-                .outcomes[0]
+            legacy_frontage.frontage.as_ref().unwrap().outcomes[0]
                 .site_ids
                 .len(),
             0,
@@ -7471,7 +7536,10 @@ mod tests {
             report.rejected_by_reason, report.rejection_examples, report.sweep
         );
         let base = report.base_road_program.as_ref().expect("append baseline");
-        assert_eq!(base.generated_road_ids, vec!["generated.road-auto.supply.0"]);
+        assert_eq!(
+            base.generated_road_ids,
+            vec!["generated.road-auto.supply.0"]
+        );
         assert!(
             !report
                 .generated_road_ids
@@ -7582,9 +7650,11 @@ mod tests {
             "{:?}",
             report.sweep
         );
-        assert!(report
-            .rejected_by_reason
-            .contains_key("no_real_parcel_supply"));
+        assert!(
+            report
+                .rejected_by_reason
+                .contains_key("no_real_parcel_supply")
+        );
         // (b) ground that cannot be met inside the fill cap earns no credit: a
         // pit under both offsets of the only supply corridor.
         let mut pit_values = vec![-2.123_f64; 256 * 256];
@@ -7656,16 +7726,7 @@ mod tests {
         let mut sunk = p.clone();
         sunk.level_m = Some(-10);
         let before = serde_json::to_value(&sunk).unwrap();
-        append_declared(
-            &mut sunk,
-            &s,
-            &t,
-            w,
-            &z,
-            &v3,
-            NaturalSource::SuppliedRaster,
-        )
-        .unwrap();
+        append_declared(&mut sunk, &s, &t, w, &z, &v3, NaturalSource::SuppliedRaster).unwrap();
         let report = sunk.automatic_extensions.as_ref().unwrap();
         assert_eq!(report.accepted_segments, 0);
         assert!(report.attempted_candidates > 0);
@@ -7774,7 +7835,12 @@ mod tests {
         let report = tiny.automatic_extensions.as_ref().unwrap();
         assert_eq!(report.attempted_candidates, 1);
         assert_eq!(report.stop_reason, "candidate_state_budget_exhausted");
-        assert!(report.supply.iter().all(|road| road.verified_gains.len() == 1));
+        assert!(
+            report
+                .supply
+                .iter()
+                .all(|road| road.verified_gains.len() == 1)
+        );
         // The authored demand is never resized or extended by the strategy.
         let requests = &supply_style(&style, 32)["frontageProgram"]["requests"];
         assert_eq!(requests[0]["count"], serde_json::json!(2));
@@ -7847,7 +7913,9 @@ mod tests {
                 .write(true)
                 .create_new(true)
                 .open(&reservation_path)
-                .expect("B01-G8 already has a run reservation: refusing to run a second natural pass");
+                .expect(
+                    "B01-G8 already has a run reservation: refusing to run a second natural pass",
+                );
             std::io::Write::write_all(&mut file, reservation_text.as_bytes()).unwrap();
         }
         let reservation_hash = {
@@ -7857,9 +7925,8 @@ mod tests {
         };
 
         // ---- frozen W1 stage: 35-edge roads-only baseline --------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest_bytes = std::fs::read(&manifest_path).unwrap();
         let manifest_sha256 = {
             let mut hasher = blake3::Hasher::new();
@@ -7927,14 +7994,19 @@ mod tests {
         let base =
             super::super::road_network::plan_with_zones(&scene, &terrain, water, Some(&zones))
                 .unwrap();
-        let trusted = super::super::road_parcel_feasibility::trusted_base_contract(
-            &base,
-            &natural_hash,
+        let trusted =
+            super::super::road_parcel_feasibility::trusted_base_contract(&base, &natural_hash)
+                .unwrap();
+        let mut verified = plan.clone();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
         )
         .unwrap();
-        let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -8125,9 +8197,12 @@ mod tests {
             };
             counts["candidateStage"]["appendCalls"] =
                 serde_json::json!(counts["candidateStage"]["appendCalls"].as_u64().unwrap() + 1);
-            if let Err(error) =
-                super::super::road_extensions::append_one(&mut staged, &ctx, &ab_request, ab_id.clone())
-            {
+            if let Err(error) = super::super::road_extensions::append_one(
+                &mut staged,
+                &ctx,
+                &ab_request,
+                ab_id.clone(),
+            ) {
                 record["stage"] = serde_json::json!("ab_append_refused");
                 record["reason"] = serde_json::json!(error.0);
                 record["abDesign"] = serde_json::json!(ab_design);
@@ -8150,9 +8225,12 @@ mod tests {
             };
             counts["candidateStage"]["appendCalls"] =
                 serde_json::json!(counts["candidateStage"]["appendCalls"].as_u64().unwrap() + 1);
-            if let Err(error) =
-                super::super::road_extensions::append_one(&mut staged, &ctx, &bc_request, bc_id.clone())
-            {
+            if let Err(error) = super::super::road_extensions::append_one(
+                &mut staged,
+                &ctx,
+                &bc_request,
+                bc_id.clone(),
+            ) {
                 record["stage"] = serde_json::json!("bc_append_refused");
                 record["reason"] = serde_json::json!(error.0);
                 record["abDesign"] = serde_json::json!(ab_design);
@@ -8253,8 +8331,7 @@ mod tests {
             ));
             junction["abProfileHashBlake3"] = serde_json::json!(hash_json(&ab_profile_mm));
             junction["bcProfileHashBlake3"] = serde_json::json!(hash_json(&bc_profile_mm));
-            junction["expectedProfilePoints"] =
-                serde_json::json!({"ab": expected_profile_len(&ab_request), "bc": expected_profile_len(&bc_request)});
+            junction["expectedProfilePoints"] = serde_json::json!({"ab": expected_profile_len(&ab_request), "bc": expected_profile_len(&bc_request)});
             record["abDesign"] = serde_json::json!(ab_design);
             record["bcDesign"] = serde_json::json!(bc_design);
             record["abProfileMm"] = serde_json::json!(ab_profile_mm);
@@ -8271,15 +8348,13 @@ mod tests {
             let mut state_measure_calls = 0_u32;
             let mut state_attempts = 0_u32;
             for index in 0..trial.budgets.len() {
-                if stop || trial.budgets[index].satisfied() || !trial.budgets[index].budget_left()
-                {
+                if stop || trial.budgets[index].satisfied() || !trial.budgets[index].budget_left() {
                     continue;
                 }
                 let request_id = trial.budgets[index].request.id.clone();
                 let request_kind = trial.budgets[index].request.kind.clone();
                 let request = trial.budgets[index].request.clone();
-                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id)
-                else {
+                let Some(road) = probe.entities().into_iter().find(|e| e.entity_id == bc_id) else {
                     break;
                 };
                 let (road_w, road_d) = super::super::spatial_half_extents(
@@ -8325,10 +8400,16 @@ mod tests {
                     ("attempted", serde_json::json!(trace.attempted)),
                     ("accepted", serde_json::json!(trace.accepted)),
                     ("acceptedIds", serde_json::json!(trace.accepted_ids)),
-                    ("geometryExhausted", serde_json::json!(trace.geometry_exhausted)),
+                    (
+                        "geometryExhausted",
+                        serde_json::json!(trace.geometry_exhausted),
+                    ),
                     ("countsMatch", serde_json::json!(counts_match)),
                     ("roadSupportRangeAt2m", serde_json::json!(road_bounds)),
-                    ("protocol", serde_json::json!("verbatim production frontage_supply::RoadSupply")),
+                    (
+                        "protocol",
+                        serde_json::json!("verbatim production frontage_supply::RoadSupply"),
+                    ),
                     ("trace", serde_json::to_value(trace).unwrap()),
                 ]));
                 let mut detail_iter = trace.rejection_details.iter();
@@ -8359,7 +8440,8 @@ mod tests {
                         (Some(d), Some(n)) => Some(i64::from(d) - i64::from(n)),
                         _ => None,
                     };
-                    let zone_cap_mm = at.map(|p| (mask.fill_capacity_at(p[0], p[1]) * 1000.) as i64);
+                    let zone_cap_mm =
+                        at.map(|p| (mask.fill_capacity_at(p[0], p[1]) * 1000.) as i64);
                     let bound = bind_candidate_site(&road, &request, &scene.scene_id, sample);
                     let binding_error = bound.as_ref().err().cloned();
                     let geometry = bound.as_ref().ok().map(|candidate| {
@@ -8386,8 +8468,12 @@ mod tests {
                     });
                     let scan_agrees = geometry.as_ref().map_or(false, |(_, agrees)| *agrees);
                     let geometry_ok = bound.is_ok()
-                        && geometry.as_ref().map_or(false, |(scan, _)| scan.samples > 0)
-                        && bound.as_ref().map_or(false, |c| c.support_range != road_bounds)
+                        && geometry
+                            .as_ref()
+                            .map_or(false, |(scan, _)| scan.samples > 0)
+                        && bound
+                            .as_ref()
+                            .map_or(false, |c| c.support_range != road_bounds)
                         && bound.as_ref().map_or(false, |c| {
                             (c.site.width_m, c.site.depth_m) == (request.width_m, request.depth_m)
                         })
@@ -8474,13 +8560,18 @@ mod tests {
                         ),
                         ("roadbedFillCapMm", serde_json::json!(roadbed_fill_cap_mm)),
                         ("zoneFillCapacityMm", serde_json::json!(zone_cap_mm)),
-                        ("designLevelMmFromSample", serde_json::json!(sample.design_level_mm)),
+                        (
+                            "designLevelMmFromSample",
+                            serde_json::json!(sample.design_level_mm),
+                        ),
                         (
                             "designLevelMmFromSite",
-                            serde_json::json!(bound
-                                .as_ref()
-                                .ok()
-                                .and_then(|c| c.site.support_level_mm.map(i64::from))),
+                            serde_json::json!(
+                                bound
+                                    .as_ref()
+                                    .ok()
+                                    .and_then(|c| c.site.support_level_mm.map(i64::from))
+                            ),
                         ),
                         (
                             "naturalMinMaxFromParcel",
@@ -8533,7 +8624,10 @@ mod tests {
                     continue;
                 }
                 counts["candidateStage"]["baselineRealizeCalls"] = serde_json::json!(
-                    counts["candidateStage"]["baselineRealizeCalls"].as_u64().unwrap() + 1
+                    counts["candidateStage"]["baselineRealizeCalls"]
+                        .as_u64()
+                        .unwrap()
+                        + 1
                 );
                 let baseline_result = super::super::frontage_supply::realize_candidate(
                     &scene,
@@ -8574,7 +8668,10 @@ mod tests {
             }
             candidate_realizations += 1;
             counts["candidateStage"]["candidateRealizeCalls"] = serde_json::json!(
-                counts["candidateStage"]["candidateRealizeCalls"].as_u64().unwrap() + 1
+                counts["candidateStage"]["candidateRealizeCalls"]
+                    .as_u64()
+                    .unwrap()
+                    + 1
             );
             let mut verification = staged.clone();
             let realize_result = (|| -> Result<Realization, String> {
@@ -8611,10 +8708,17 @@ mod tests {
                 }
                 Ok(realization) => {
                     counts["candidateStage"]["commitDecisions"] = serde_json::json!(
-                        counts["candidateStage"]["commitDecisions"].as_u64().unwrap() + 1
+                        counts["candidateStage"]["commitDecisions"]
+                            .as_u64()
+                            .unwrap()
+                            + 1
                     );
-                    let decision =
-                        commit_decision(&session, &realization, baseline_realization, &verification);
+                    let decision = commit_decision(
+                        &session,
+                        &realization,
+                        baseline_realization,
+                        &verification,
+                    );
                     let new_parcels: Vec<String> = realization
                         .parcel_by_entity
                         .iter()
@@ -8688,10 +8792,7 @@ mod tests {
                             "unresolvedAreaM2",
                             serde_json::json!(realization.unresolved_area_m2),
                         ),
-                        (
-                            "roadFailures",
-                            serde_json::json!(realization.road_failures),
-                        ),
+                        ("roadFailures", serde_json::json!(realization.road_failures)),
                         (
                             "frontageFailures",
                             serde_json::json!(realization.frontage_failures),
@@ -8709,24 +8810,20 @@ mod tests {
                             "plannedBuildings",
                             serde_json::json!(realization.planned_buildings),
                         ),
+                        ("realizationSeconds", serde_json::json!(realization.seconds)),
                         (
-                            "realizationSeconds",
-                            serde_json::json!(realization.seconds),
+                            "accessStatus",
+                            serde_json::json!(
+                                "see requiredUnconnected/requiredUnconnectedIds: the access audit is reported by its unconnected obligations, not a separate status string"
+                            ),
                         ),
-                        ("accessStatus", serde_json::json!("see requiredUnconnected/requiredUnconnectedIds: the access audit is reported by its unconnected obligations, not a separate status string")),
                         ("parcels", serde_json::json!(realization.parcels)),
                         (
                             "buildingsRealized",
                             serde_json::json!(realization.buildings_realized),
                         ),
-                        (
-                            "identitiesKept",
-                            serde_json::json!(identities_kept),
-                        ),
-                        (
-                            "oldYardNotWorsened",
-                            serde_json::json!(old_yard_protected),
-                        ),
+                        ("identitiesKept", serde_json::json!(identities_kept)),
+                        ("oldYardNotWorsened", serde_json::json!(old_yard_protected)),
                     ]);
                     record["stage"] = serde_json::json!(match &decision {
                         Ok(()) => "realized",
@@ -8901,7 +8998,10 @@ mod tests {
                                    "maxFillMm": 6000, "maxRiseMmPerM": 80,
                                    "endPlatformRange": platform}),
             ),
-            ("inferEndReturnedMinimum", serde_json::json!(returned_minimum)),
+            (
+                "inferEndReturnedMinimum",
+                serde_json::json!(returned_minimum),
+            ),
             ("statesEvaluated", serde_json::json!(state_records.len())),
             ("callCounts", counts),
             ("schema", schema),
@@ -8913,11 +9013,23 @@ mod tests {
                 "candidateRealizations",
                 serde_json::json!(candidate_realizations),
             ),
-            ("seconds", serde_json::json!(started.elapsed().as_secs_f64())),
-            ("incomplete", serde_json::json!(published_incomplete || !all_complete)),
+            (
+                "seconds",
+                serde_json::json!(started.elapsed().as_secs_f64()),
+            ),
+            (
+                "incomplete",
+                serde_json::json!(published_incomplete || !all_complete),
+            ),
             ("expiredAt", serde_json::json!(expired_at)),
-            ("baselinePlanHashBefore", serde_json::json!(baseline_plan_hash)),
-            ("baselinePlanHashAfter", serde_json::json!(baseline_plan_hash_after)),
+            (
+                "baselinePlanHashBefore",
+                serde_json::json!(baseline_plan_hash),
+            ),
+            (
+                "baselinePlanHashAfter",
+                serde_json::json!(baseline_plan_hash_after),
+            ),
             ("stateRecords", serde_json::json!(state_records)),
             ("rawTraces", serde_json::json!(raw_traces)),
             ("rows", serde_json::json!(rows)),
@@ -8953,7 +9065,10 @@ mod tests {
         let bc = len_of([288, 180], [176, 180]);
         assert_eq!(ab, 85);
         assert_eq!(bc, 113);
-        assert_ne!(ab, bc, "the two segments must not share one hardcoded length");
+        assert_ne!(
+            ab, bc,
+            "the two segments must not share one hardcoded length"
+        );
 
         // 2) synthetic profiles of exactly those lengths carry integer mm and
         //    contain no tagged Result shape
@@ -8978,9 +9093,18 @@ mod tests {
             ("state", serde_json::json!("ST18-R1")),
             ("station", serde_json::json!(18)),
             ("side", serde_json::json!(-1)),
-            ("candidateCentre", serde_json::json!(Some([270_i32, 157_i32]))),
-            ("buildingFootprintM", serde_json::json!(Some([12.0_f32, 10.0_f32]))),
-            ("supportCheckRange", serde_json::json!(Some([262_i64, 150, 278, 164]))),
+            (
+                "candidateCentre",
+                serde_json::json!(Some([270_i32, 157_i32])),
+            ),
+            (
+                "buildingFootprintM",
+                serde_json::json!(Some([12.0_f32, 10.0_f32])),
+            ),
+            (
+                "supportCheckRange",
+                serde_json::json!(Some([262_i64, 150, 278, 164])),
+            ),
             ("designMm", serde_json::json!(Some(2390_i32))),
             ("naturalMm", serde_json::json!(Some(2307_i32))),
             ("requiredFillMm", serde_json::json!(Some(-83_i64))),
@@ -9013,7 +9137,10 @@ mod tests {
         let refused = json_map(vec![
             ("state", serde_json::json!("ST18-R1")),
             ("stage", serde_json::json!("ab_append_refused")),
-            ("reason", serde_json::json!("extension overlaps fixed geometry")),
+            (
+                "reason",
+                serde_json::json!("extension overlaps fixed geometry"),
+            ),
         ]);
         assert_no_tagged_result(&refused, "$.stateRecords[0]");
         let payload = json_map(vec![
@@ -9026,7 +9153,10 @@ mod tests {
             ("rows", serde_json::json!(vec![success_row.clone()])),
             ("profileHashes", profile_hashes),
             ("schema", serde_json::json!({"traceCountComplete": true})),
-            ("budget", serde_json::json!({"measureCalls": 0, "stationAttempts": 0})),
+            (
+                "budget",
+                serde_json::json!({"measureCalls": 0, "stationAttempts": 0}),
+            ),
         ]);
         assert_no_tagged_result(&payload, "$");
         for key in [
@@ -9038,7 +9168,10 @@ mod tests {
             "schema",
             "budget",
         ] {
-            assert!(!payload[key].is_null(), "required key {key} must be present");
+            assert!(
+                !payload[key].is_null(),
+                "required key {key} must be present"
+            );
         }
         let serialised = serde_json::to_string(&payload).unwrap();
         assert!(serialised.contains("glyphweave.b01-g8-st18-first-increment.run"));
@@ -9050,7 +9183,9 @@ mod tests {
             trip_at: 0,
         };
         let mut outcome = BundleOutcome::new();
-        assert!(outcome.stage_witness(&clock, 120_000, serde_json::json!({"staged": true})) == false);
+        assert!(
+            outcome.stage_witness(&clock, 120_000, serde_json::json!({"staged": true})) == false
+        );
         let (best, incomplete, expired_at) = outcome.finish(&clock, 120_000);
         assert!(best.is_none(), "an expired run must publish no best");
         assert!(incomplete, "an expired run must be incomplete");
@@ -9345,7 +9480,11 @@ mod tests {
                 CarveTag {
                     owner_entity_id: entity.entity_id.clone(),
                     owner_kind: entity.kind.clone(),
-                    component: if is_road { "road_pad".into() } else { "pad".into() },
+                    component: if is_road {
+                        "road_pad".into()
+                    } else {
+                        "pad".into()
+                    },
                 },
             ));
             if is_building {
@@ -9420,7 +9559,10 @@ mod tests {
                     ("cz", serde_json::json!(carve.cz)),
                     ("halfWM", serde_json::json!(carve.half_w)),
                     ("halfDM", serde_json::json!(carve.half_d)),
-                    ("targetHMm", serde_json::json!((carve.target_h_m * 1000.).round() as i64)),
+                    (
+                        "targetHMm",
+                        serde_json::json!((carve.target_h_m * 1000.).round() as i64),
+                    ),
                     ("blendM", serde_json::json!(carve.blend_m)),
                     ("priority", serde_json::json!(carve.priority)),
                 ])
@@ -9485,8 +9627,14 @@ mod tests {
                     ("priority", owners[index]["priority"].clone()),
                     ("hasProfile", owners[index]["hasProfile"].clone()),
                     ("targetHMm", owners[index]["targetHMm"].clone()),
-                    ("valueBeforeMm", serde_json::json!((previous * 1000.).round() as i64)),
-                    ("valueAfterMm", serde_json::json!((value * 1000.).round() as i64)),
+                    (
+                        "valueBeforeMm",
+                        serde_json::json!((previous * 1000.).round() as i64),
+                    ),
+                    (
+                        "valueAfterMm",
+                        serde_json::json!((value * 1000.).round() as i64),
+                    ),
                 ]));
                 previous = value;
             }
@@ -9530,11 +9678,7 @@ mod tests {
                 if zone_protected {
                     natural_mm.unwrap_or_default() as i64
                 } else {
-                    (value_m
-                        .max(natural_m)
-                        .min(natural_m + zone_capacity_m)
-                        * 1000.)
-                        .round() as i64
+                    (value_m.max(natural_m).min(natural_m + zone_capacity_m) * 1000.).round() as i64
                 }
             })
         };
@@ -9560,7 +9704,10 @@ mod tests {
                     ("outsideM", serde_json::json!(outside)),
                     ("fullCover", serde_json::json!(full)),
                     ("inBlendRing", serde_json::json!(outside < carve.blend_m)),
-                    ("profileTargetMm", serde_json::json!((target * 1000.).round() as i64)),
+                    (
+                        "profileTargetMm",
+                        serde_json::json!((target * 1000.).round() as i64),
+                    ),
                     (
                         "limitMm",
                         serde_json::json!(if limit.is_finite() {
@@ -9621,7 +9768,10 @@ mod tests {
                     ("outsideZM", serde_json::json!(outside_z)),
                     ("outsideM", serde_json::json!(outside)),
                     ("fullCover", serde_json::json!(full)),
-                    ("profileTargetMm", serde_json::json!((target * 1000.).round() as i64)),
+                    (
+                        "profileTargetMm",
+                        serde_json::json!((target * 1000.).round() as i64),
+                    ),
                     (
                         "limitMm",
                         serde_json::json!(if limit.is_finite() {
@@ -9677,16 +9827,20 @@ mod tests {
                 ),
                 (
                     "afterEqualsOverride",
-                    serde_json::json!(
-                        (after_m - natural_m.max(candidate_target_mm)).abs() <= 1e-9
-                    ),
+                    serde_json::json!((after_m - natural_m.max(candidate_target_mm)).abs() <= 1e-9),
                 ),
                 (
                     "afterEqualsNatural",
                     serde_json::json!((after_m - natural_m).abs() <= 1e-9),
                 ),
-                ("productionMirrorBeforeMm", serde_json::json!(mirror_mm(before_m))),
-                ("productionMirrorAfterMm", serde_json::json!(mirror_mm(after_m))),
+                (
+                    "productionMirrorBeforeMm",
+                    serde_json::json!(mirror_mm(before_m)),
+                ),
+                (
+                    "productionMirrorAfterMm",
+                    serde_json::json!(mirror_mm(after_m)),
+                ),
             ]));
         }
         let elapsed = base_start.elapsed().as_secs_f64();
@@ -9703,7 +9857,10 @@ mod tests {
                     -1
                 }),
             ),
-            ("productionMirrorBeforeMm", serde_json::json!(mirror_mm(before_m))),
+            (
+                "productionMirrorBeforeMm",
+                serde_json::json!(mirror_mm(before_m)),
+            ),
             (
                 "beforeMm",
                 serde_json::json!((before_m * 1000.).round() as i64),
@@ -9728,11 +9885,7 @@ mod tests {
     /// Test-only: which already-present entities' support bands contain a cell,
     /// with the exact margins `preflight` scans (roads +3m, frontage buildings
     /// +2m, everything else +1m).
-    fn protection_scope_at(
-        entities: &[EntityInstance],
-        x: i32,
-        z: i32,
-    ) -> serde_json::Value {
+    fn protection_scope_at(entities: &[EntityInstance], x: i32, z: i32) -> serde_json::Value {
         let mut hits: Vec<serde_json::Value> = vec![];
         for entity in entities {
             let margin = if entity.kind == "road" {
@@ -9829,9 +9982,8 @@ mod tests {
         let reservation_hash = hash_json(&reservation_text);
 
         // ---- frozen baseline rebuild (once) ---------------------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest_bytes = std::fs::read(&manifest_path).unwrap();
         let manifest_sha256 = {
             let mut hasher = blake3::Hasher::new();
@@ -9894,8 +10046,15 @@ mod tests {
         let ctx = AlignmentContext::new(&scene, &terrain, water, &zones).unwrap();
         let mask = ZoningMask::new(&scene, &zones).unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -10050,7 +10209,10 @@ mod tests {
             .zip(base_carves.iter())
             .find(|(owner, _)| owner["ownerEntityId"] == serde_json::json!(bc_id))
             .map(|(owner, carve)| (owner, carve.blend_m));
-        let road_blend_m = road_owner.as_ref().map(|(_, blend)| *blend).unwrap_or_default();
+        let road_blend_m = road_owner
+            .as_ref()
+            .map(|(_, blend)| *blend)
+            .unwrap_or_default();
 
         let mut cells: Vec<serde_json::Value> = vec![];
         for (label, x, z) in [
@@ -10073,7 +10235,10 @@ mod tests {
                     "outsidePavement",
                     serde_json::json!(lateral > pavement_transverse),
                 ),
-                ("outsideFlatTop", serde_json::json!(lateral > flat_transverse)),
+                (
+                    "outsideFlatTop",
+                    serde_json::json!(lateral > flat_transverse),
+                ),
                 (
                     "onFlatTopBoundary",
                     serde_json::json!(lateral == flat_transverse),
@@ -10120,10 +10285,17 @@ mod tests {
             let side = row["side"].as_i64().unwrap() as i32;
             let before_expected = row["rawDetail"]["beforeMm"].as_i64().unwrap();
             let after_expected = row["rawDetail"]["afterMm"].as_i64().unwrap();
-            let candidate_label = if side < 0 { "homes-north" } else { "homes-south" };
+            let candidate_label = if side < 0 {
+                "homes-north"
+            } else {
+                "homes-south"
+            };
             let cell = cells
                 .iter()
-                .find(|cell| cell["cell"][0] == serde_json::json!(x) && cell["cell"][1] == serde_json::json!(z))
+                .find(|cell| {
+                    cell["cell"][0] == serde_json::json!(x)
+                        && cell["cell"][1] == serde_json::json!(z)
+                })
                 .expect("the conflict cell is one of the four sampled cells");
             let candidate = cell["candidates"]
                 .as_array()
@@ -10173,7 +10345,10 @@ mod tests {
         let call_counts = json_map(vec![
             ("planRebuilds", serde_json::json!(1)),
             ("planTerrainCarvesCalls", serde_json::json!(4)),
-            ("applyTerrainCarvesCalls", serde_json::json!("prefix and single-carve probes; counted inside the records")),
+            (
+                "applyTerrainCarvesCalls",
+                serde_json::json!("prefix and single-carve probes; counted inside the records"),
+            ),
             ("candidateSiteCalls", serde_json::json!(2)),
             ("frontageAppendCalls", serde_json::json!(1)),
             ("appendOneCalls", serde_json::json!(2)),
@@ -10219,18 +10394,36 @@ mod tests {
                     ("bcProfileMatchesPointwise", serde_json::json!(bc_matches)),
                     ("abProfilePoints", serde_json::json!(ab_profile_mm.len())),
                     ("bcProfilePoints", serde_json::json!(bc_profile_mm.len())),
-                    ("abProfileHashBlake3", serde_json::json!(hash_json(&ab_profile_mm))),
-                    ("bcProfileHashBlake3", serde_json::json!(hash_json(&bc_profile_mm))),
-                    ("homesShopsGeometryIdentical", serde_json::json!(same_geometry)),
-                    ("baselinePlanHashBlake3", serde_json::json!(baseline_plan_hash)),
+                    (
+                        "abProfileHashBlake3",
+                        serde_json::json!(hash_json(&ab_profile_mm)),
+                    ),
+                    (
+                        "bcProfileHashBlake3",
+                        serde_json::json!(hash_json(&bc_profile_mm)),
+                    ),
+                    (
+                        "homesShopsGeometryIdentical",
+                        serde_json::json!(same_geometry),
+                    ),
+                    (
+                        "baselinePlanHashBlake3",
+                        serde_json::json!(baseline_plan_hash),
+                    ),
                 ]),
             ),
             ("g8Equivalence", serde_json::json!(equivalence)),
             (
                 "candidateSites",
                 json_map(vec![
-                    ("northCentre", serde_json::json!([north_site.world_x, north_site.world_z])),
-                    ("southCentre", serde_json::json!([south_site.world_x, south_site.world_z])),
+                    (
+                        "northCentre",
+                        serde_json::json!([north_site.world_x, north_site.world_z]),
+                    ),
+                    (
+                        "southCentre",
+                        serde_json::json!([south_site.world_x, south_site.world_z]),
+                    ),
                     (
                         "northDesignMm",
                         serde_json::json!(north_site.support_level_mm),
@@ -10239,15 +10432,24 @@ mod tests {
                         "southDesignMm",
                         serde_json::json!(south_site.support_level_mm),
                     ),
-                    ("northCarves", serde_json::json!(carve_owner_summary(&north_entities, &north_carves))),
-                    ("southCarves", serde_json::json!(carve_owner_summary(&south_entities, &south_carves))),
+                    (
+                        "northCarves",
+                        serde_json::json!(carve_owner_summary(&north_entities, &north_carves)),
+                    ),
+                    (
+                        "southCarves",
+                        serde_json::json!(carve_owner_summary(&south_entities, &south_carves)),
+                    ),
                     ("roadCarveBlendM", serde_json::json!(road_blend_m)),
                 ]),
             ),
             ("cells", serde_json::json!(cells)),
             ("schema", schema),
             ("callCounts", call_counts),
-            ("seconds", serde_json::json!(started.elapsed().as_secs_f64())),
+            (
+                "seconds",
+                serde_json::json!(started.elapsed().as_secs_f64()),
+            ),
             (
                 "budget",
                 serde_json::json!({"diagnosticHarnesses": 1, "runtimeBudgetSeconds": 90,
@@ -10635,7 +10837,9 @@ mod tests {
         value
             .get(key)
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_else(|| panic!("evidence field {key} is missing or is not a string: {value}"))
+            .unwrap_or_else(|| {
+                panic!("evidence field {key} is missing or is not a string: {value}")
+            })
             .to_string()
     }
 
@@ -10682,7 +10886,10 @@ mod tests {
                 ("priority", serde_json::json!(carves[index].priority)),
                 ("outsideM", serde_json::json!(outside)),
                 ("blendM", serde_json::json!(carves[index].blend_m)),
-                ("targetMm", serde_json::json!((target * 1000.).round() as i64)),
+                (
+                    "targetMm",
+                    serde_json::json!((target * 1000.).round() as i64),
+                ),
             ])
         };
         let base = natural_m.clamp(-32.0, 256.0);
@@ -10787,10 +10994,7 @@ mod tests {
                 serde_json::json!((base * 1000.).round() as i64),
             ),
             ("gradedInfluence", serde_json::json!(graded_influence)),
-            (
-                "fullTargetBranchActive",
-                serde_json::json!(branch_active),
-            ),
+            ("fullTargetBranchActive", serde_json::json!(branch_active)),
             (
                 "fullTopPriority",
                 if full_priority == i32::MIN {
@@ -10835,10 +11039,7 @@ mod tests {
                 "coverAppliedDuringLoop",
                 serde_json::json!(relations(&cover_applied)),
             ),
-            (
-                "overrideLoweredValue",
-                serde_json::json!(override_lowered),
-            ),
+            ("overrideLoweredValue", serde_json::json!(override_lowered)),
             (
                 "blendErasedSources",
                 serde_json::json!(relations(
@@ -10898,10 +11099,7 @@ mod tests {
             ("cell", serde_json::json!([x, z])),
             ("naturalMm", serde_json::json!(height_mm(natural_m))),
             ("valueMm", serde_json::json!(height_mm(value))),
-            (
-                "frontageClampedMm",
-                serde_json::json!(height_mm(clamped)),
-            ),
+            ("frontageClampedMm", serde_json::json!(height_mm(clamped))),
             ("protectedAt", serde_json::json!(protected)),
             (
                 "zoneFillCapMm",
@@ -11111,9 +11309,10 @@ mod tests {
             197.0,
         )
         .expect("south replacement");
-        // production push order is pad, apron, connection (stable sort by priority)
-        assert_eq!(north_index, 2);
-        assert_eq!(south_index, 2);
+        // Production pushes pad, connection and the 2m door landing. The two
+        // priority-2 components keep that stable order under the final sort.
+        assert_eq!(north_index, 1);
+        assert_eq!(south_index, 1);
         for (list, source, index) in [
             (&replaced_north, &north_carves, north_index),
             (&replaced_south, &south_carves, south_index),
@@ -11130,7 +11329,10 @@ mod tests {
         }
         assert_eq!(replaced_north[north_index].cz, 168.0);
         assert_eq!(replaced_south[south_index].cz, 192.0);
-        assert_ne!(replaced_north[north_index].cz, replaced_south[south_index].cz);
+        assert_ne!(
+            replaced_north[north_index].cz,
+            replaced_south[south_index].cz
+        );
 
         // --- the four diagnosis pairs: the candidate-free baseline against the
         // --- same baseline plus the candidate whose connection is the fixed G-1b
@@ -11208,8 +11410,14 @@ mod tests {
             plain_baseline_hash,
             "the shared plain baseline must be unchanged by either candidate"
         );
-        assert_eq!(plain_n_after.len(), plain_carves.len() + replaced_north.len());
-        assert_eq!(gated_s_after.len(), gated_carves.len() + replaced_south.len());
+        assert_eq!(
+            plain_n_after.len(),
+            plain_carves.len() + replaced_north.len()
+        );
+        assert_eq!(
+            gated_s_after.len(),
+            gated_carves.len() + replaced_south.len()
+        );
 
         // --- the two probe masks: a reserved half (binding cap) and the open control ---
         let (strict_scene, strict_zones) = g1b_synthetic_zone_pair();
@@ -11338,11 +11546,7 @@ mod tests {
                             .all(|(_, _, priority, target)| *priority == 10 && *target == 2390),
                     "{label}: the 16m road pad keeps the final branch"
                 );
-                assert_eq!(
-                    g1b_mm(&after["decision"], "fullTopPriority"),
-                    10,
-                    "{label}"
-                );
+                assert_eq!(g1b_mm(&after["decision"], "fullTopPriority"), 10, "{label}");
                 assert!(
                     gated_sources
                         .iter()
@@ -11422,9 +11626,16 @@ mod tests {
                 ),
             ]));
         };
-        let plain_n_before_probe =
-            g1b_probe(&strict_scene, 1.0, 270, 171, &plain_carves, &plain_tags, &strict)
-                .expect("plain north before");
+        let plain_n_before_probe = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            171,
+            &plain_carves,
+            &plain_tags,
+            &strict,
+        )
+        .expect("plain north before");
         let plain_n_after_probe = g1b_probe(
             &strict_scene,
             1.0,
@@ -11435,9 +11646,16 @@ mod tests {
             &strict,
         )
         .expect("plain north after");
-        let plain_s_before_probe =
-            g1b_probe(&strict_scene, 1.0, 270, 188, &plain_carves, &plain_tags, &strict)
-                .expect("plain south before");
+        let plain_s_before_probe = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            188,
+            &plain_carves,
+            &plain_tags,
+            &strict,
+        )
+        .expect("plain south before");
         let plain_s_after_probe = g1b_probe(
             &strict_scene,
             1.0,
@@ -11448,9 +11666,16 @@ mod tests {
             &strict,
         )
         .expect("plain south after");
-        let gated_n_before_probe =
-            g1b_probe(&strict_scene, 1.0, 270, 171, &gated_carves, &gated_tags, &strict)
-                .expect("gated north before");
+        let gated_n_before_probe = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            171,
+            &gated_carves,
+            &gated_tags,
+            &strict,
+        )
+        .expect("gated north before");
         let gated_n_after_probe = g1b_probe(
             &strict_scene,
             1.0,
@@ -11461,9 +11686,16 @@ mod tests {
             &strict,
         )
         .expect("gated north after");
-        let gated_s_before_probe =
-            g1b_probe(&strict_scene, 1.0, 270, 188, &gated_carves, &gated_tags, &strict)
-                .expect("gated south before");
+        let gated_s_before_probe = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            188,
+            &gated_carves,
+            &gated_tags,
+            &strict,
+        )
+        .expect("gated south before");
         let gated_s_after_probe = g1b_probe(
             &strict_scene,
             1.0,
@@ -11545,11 +11777,24 @@ mod tests {
         );
 
         // --- item 1 (open): with no cap the support sample must follow the raw value ---
-        let open_before =
-            g1b_probe(&open_scene, 1.0, 270, 188, &plain_carves, &plain_tags, &open)
-                .expect("open before");
+        let open_before = g1b_probe(
+            &open_scene,
+            1.0,
+            270,
+            188,
+            &plain_carves,
+            &plain_tags,
+            &open,
+        )
+        .expect("open before");
         let open_after = g1b_probe(
-            &open_scene, 1.0, 270, 188, &plain_s_after, &plain_s_after_tags, &open,
+            &open_scene,
+            1.0,
+            270,
+            188,
+            &plain_s_after,
+            &plain_s_after_tags,
+            &open,
         )
         .expect("open after");
         assert!(
@@ -11602,9 +11847,16 @@ mod tests {
             ring_outside > 0.0 && ring_outside < ring_fill.blend_m && !ring_covered,
             "the ring-only fill must reach (270,188) through its blend ring only"
         );
-        let ring_before =
-            g1b_probe(&strict_scene, 1.0, 270, 188, &ring_carves, &ring_tags, &strict)
-                .expect("ring before");
+        let ring_before = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            188,
+            &ring_carves,
+            &ring_tags,
+            &strict,
+        )
+        .expect("ring before");
         assert_eq!(
             g1b_text(&ring_before["decision"], "valueSource"),
             "terrain_max_without_full_branch"
@@ -11615,7 +11867,10 @@ mod tests {
                 .contains(&"legacy_ring_fill".to_string()),
             "the ring fill must actually raise the value before the candidate"
         );
-        g1b_assert_ring_entries(&ring_before_decision["blendAppliedDuringLoop"], "ring_before");
+        g1b_assert_ring_entries(
+            &ring_before_decision["blendAppliedDuringLoop"],
+            "ring_before",
+        );
         g1b_assert_ring_entries(&ring_before_decision["blendPotential"], "ring_before");
         g1b_is_subset(
             &g1b_indices(&ring_before_decision["blendAppliedDuringLoop"]),
@@ -11626,9 +11881,16 @@ mod tests {
         ring_after.extend(replaced_south.iter().cloned());
         let mut ring_after_tags = ring_tags.clone();
         ring_after_tags.extend(south_tags.iter().cloned());
-        let ring_after_probe =
-            g1b_probe(&strict_scene, 1.0, 270, 188, &ring_after, &ring_after_tags, &strict)
-                .expect("ring after");
+        let ring_after_probe = g1b_probe(
+            &strict_scene,
+            1.0,
+            270,
+            188,
+            &ring_after,
+            &ring_after_tags,
+            &strict,
+        )
+        .expect("ring after");
         let ring_after_decision = &ring_after_probe["decision"];
         assert_eq!(
             g1b_text(ring_after_decision, "valueSource"),
@@ -11643,9 +11905,14 @@ mod tests {
             "an erased blend source must be named, not inferred from the lowering"
         );
         g1b_is_subset(&ring_erased, &ring_applied, "ring_after erased");
-        g1b_assert_ring_entries(&ring_after_decision["blendErasedSources"], "ring_after erased");
-        assert!(g1b_owners(&ring_after_decision["blendErasedSources"])
-            .contains(&"g1b.old.support.ring".to_string()));
+        g1b_assert_ring_entries(
+            &ring_after_decision["blendErasedSources"],
+            "ring_after erased",
+        );
+        assert!(
+            g1b_owners(&ring_after_decision["blendErasedSources"])
+                .contains(&"g1b.old.support.ring".to_string())
+        );
         assert!(
             g1b_mm(&ring_after_probe, "valueMm") < g1b_mm(&ring_before, "valueMm"),
             "the candidate's full cover must overwrite the ring fill"
@@ -11715,9 +11982,16 @@ mod tests {
             "a truncated comparison list must be refused"
         );
         // --- item 3: a sample that does not exist is refused, never invented ---
-        let outside_scene =
-            g1b_probe(&strict_scene, 1.0, 999, 999, &gated_carves, &gated_tags, &strict)
-                .expect_err("a cell outside the declared scene must be refused");
+        let outside_scene = g1b_probe(
+            &strict_scene,
+            1.0,
+            999,
+            999,
+            &gated_carves,
+            &gated_tags,
+            &strict,
+        )
+        .expect_err("a cell outside the declared scene must be refused");
         assert!(
             outside_scene.contains("outside the declared scene"),
             "{outside_scene}"
@@ -11761,10 +12035,12 @@ mod tests {
         ]);
         assert_no_tagged_result(&refusal, "$.inputSafetyRefusal");
         assert_eq!(refusal["status"], serde_json::json!("refused"));
-        assert!(refusal["reason"]
-            .as_str()
-            .expect("reason")
-            .contains("no connection carve"));
+        assert!(
+            refusal["reason"]
+                .as_str()
+                .expect("reason")
+                .contains("no connection carve")
+        );
 
         // --- execution reliability: a one-shot reservation in an independent
         // --- temp directory, never in the future natural evidence path
@@ -11783,7 +12059,10 @@ mod tests {
             .write(true)
             .create_new(true)
             .open(&reservation);
-        assert!(first.is_ok(), "the first reservation must succeed: {first:?}");
+        assert!(
+            first.is_ok(),
+            "the first reservation must succeed: {first:?}"
+        );
         drop(first);
         std::fs::write(&reservation, reservation_bytes).expect("write reservation");
         assert_eq!(
@@ -12111,7 +12390,10 @@ mod tests {
                     ("duplicateConnectionIndex", serde_json::json!(ambiguous)),
                     ("duplicateThroughComposite", serde_json::json!(composite)),
                     ("swappedTagPairing", serde_json::json!(mismatch)),
-                    ("collateralComponentChange", serde_json::json!(collateral_error)),
+                    (
+                        "collateralComponentChange",
+                        serde_json::json!(collateral_error),
+                    ),
                     (
                         "nonConnectionComponentsCompared",
                         json_map(vec![
@@ -12605,8 +12887,7 @@ mod tests {
     #[test]
     fn g1b_preflight_same_priority_different_target() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (road_carves, road_tags) = g1b_graded_road();
         let (low, low_tag) = g1b_cover_at("g1b.low", "pad", 2, 2.39);
         let (high, high_tag) = g1b_cover_at("g1b.high", "pad", 2, 3.00);
@@ -12616,8 +12897,7 @@ mod tests {
         let mut tags = road_tags.clone();
         tags.push(low_tag);
         tags.push(high_tag);
-        let probe =
-            g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("probe");
+        let probe = g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("probe");
         let decision = &probe["decision"];
         assert!(g1b_flag(decision, "fullTargetBranchActive"));
         assert_eq!(g1b_mm(decision, "fullTargetMm"), 3000);
@@ -12644,8 +12924,7 @@ mod tests {
     #[test]
     fn g1b_preflight_true_tie() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (road_carves, road_tags) = g1b_graded_road();
         let (left, left_tag) = g1b_cover_at("g1b.tie.left", "pad", 2, 2.39);
         let (right, right_tag) = g1b_cover_at("g1b.tie.right", "pad", 2, 2.39);
@@ -12655,23 +12934,28 @@ mod tests {
         let mut tags = road_tags.clone();
         tags.push(left_tag);
         tags.push(right_tag);
-        let probe =
-            g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("probe");
+        let probe = g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("probe");
         let decision = &probe["decision"];
         assert_eq!(g1b_mm(decision, "fullTargetMm"), 2390);
         assert_eq!(g1b_mm(&probe, "valueMm"), 2390);
         let sources = g1b_decided_sources(decision);
         assert_eq!(sources.len(), 2, "a true tie has two sources: {sources:?}");
-        assert!(sources
-            .iter()
-            .any(|(owner, _, _, _)| owner == "g1b.tie.left"));
-        assert!(sources
-            .iter()
-            .any(|(owner, _, _, _)| owner == "g1b.tie.right"));
-        assert!(decision["fullTargetLowerTiedAtTopPriority"]
-            .as_array()
-            .expect("lower ties")
-            .is_empty());
+        assert!(
+            sources
+                .iter()
+                .any(|(owner, _, _, _)| owner == "g1b.tie.left")
+        );
+        assert!(
+            sources
+                .iter()
+                .any(|(owner, _, _, _)| owner == "g1b.tie.right")
+        );
+        assert!(
+            decision["fullTargetLowerTiedAtTopPriority"]
+                .as_array()
+                .expect("lower ties")
+                .is_empty()
+        );
         println!(
             "{}",
             serde_json::to_string_pretty(&probe).expect("probe json")
@@ -12684,8 +12968,7 @@ mod tests {
     #[test]
     fn g1b_preflight_natural_lower_bound() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (low_cover, low_tag) = g1b_cover_at("g1b.under.natural", "pad", 2, 1.0);
         let branch_off = g1b_probe(
             &scene,
@@ -12698,7 +12981,10 @@ mod tests {
         )
         .expect("branch off probe");
         assert!(!g1b_flag(&branch_off["decision"], "fullTargetBranchActive"));
-        assert_eq!(g1b_text(&branch_off["decision"], "valueSource"), "natural_lower_bound");
+        assert_eq!(
+            g1b_text(&branch_off["decision"], "valueSource"),
+            "natural_lower_bound"
+        );
         assert_eq!(g1b_mm(&branch_off, "valueMm"), 3000);
         assert!(g1b_flag(&branch_off, "naturalFloorActive"));
 
@@ -12718,10 +13004,7 @@ mod tests {
         assert!(g1b_decided_sources(&branch_on["decision"]).is_empty());
         assert_eq!(g1b_mm(&branch_on, "valueMm"), 3000);
         assert_eq!(g1b_mm(&branch_on, "frontageClampedMm"), 3000);
-        let payload = json_map(vec![
-            ("branchOff", branch_off),
-            ("branchOn", branch_on),
-        ]);
+        let payload = json_map(vec![("branchOff", branch_off), ("branchOn", branch_on)]);
         assert_no_tagged_result(&payload, "$");
         println!("{}", serde_json::to_string_pretty(&payload).unwrap());
     }
@@ -12733,15 +13016,14 @@ mod tests {
     #[test]
     fn g1b_preflight_full_branch_inactive() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (cover, cover_tag) = g1b_cover_at("g1b.cover", "connection", 2, 2.39);
         let ring = g1b_ring_only_high_fill();
         let ring_tag = g1b_ring_only_high_fill_tag();
         let carves = vec![ring.clone(), cover.clone()];
         let tags = vec![ring_tag.clone(), cover_tag.clone()];
-        let branch_off = g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask)
-            .expect("branch off probe");
+        let branch_off =
+            g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("branch off probe");
         assert!(!g1b_flag(&branch_off["decision"], "fullTargetBranchActive"));
         assert_eq!(
             g1b_text(&branch_off["decision"], "valueSource"),
@@ -12773,15 +13055,13 @@ mod tests {
                 .contains(&"legacy_ring_fill".to_string())
         );
         assert!(
-            !g1b_owners(&off_decision["blendAppliedDuringLoop"])
-                .contains(&"g1b.cover".to_string()),
+            !g1b_owners(&off_decision["blendAppliedDuringLoop"]).contains(&"g1b.cover".to_string()),
             "the fully covering carve must not be listed as blend fill"
         );
         // the cover cannot be claimed as a raise either: the ring fill was already
         // higher, so it neither raised the value nor belongs in a blend list
         assert!(
-            !g1b_owners(&off_decision["coverAppliedDuringLoop"])
-                .contains(&"g1b.cover".to_string()),
+            !g1b_owners(&off_decision["coverAppliedDuringLoop"]).contains(&"g1b.cover".to_string()),
             "a cover that raised nothing must not be reported as a cover raise"
         );
         assert!(g1b_indices(&off_decision["coverAppliedDuringLoop"]).is_empty());
@@ -12806,10 +13086,7 @@ mod tests {
             g1b_text(&branch_on["decision"], "valueSource"),
             "full_target_branch"
         );
-        assert!(g1b_flag(
-            &branch_on["decision"],
-            "blendErasedByOverride"
-        ));
+        assert!(g1b_flag(&branch_on["decision"], "blendErasedByOverride"));
         assert_eq!(g1b_mm(&branch_on, "valueMm"), 2390);
         assert!(
             g1b_mm(&branch_on, "valueMm") < g1b_mm(&branch_off, "valueMm"),
@@ -12830,20 +13107,22 @@ mod tests {
     #[test]
     fn g1b_preflight_missing_sample_boundary() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (road_carves, road_tags) = g1b_graded_road();
-        let outside_x =
-            g1b_probe(&scene, 1.0, 352, 180, &road_carves, &road_tags, &mask)
-                .expect_err("the exclusive x edge is outside");
-        assert!(outside_x.contains("outside the declared scene"), "{outside_x}");
-        let outside_z =
-            g1b_probe(&scene, 1.0, 270, 240, &road_carves, &road_tags, &mask)
-                .expect_err("the exclusive z edge is outside");
-        assert!(outside_z.contains("outside the declared scene"), "{outside_z}");
-        let last_cell =
-            g1b_probe(&scene, 1.0, 351, 239, &road_carves, &road_tags, &mask)
-                .expect("the last declared cell is a real sample");
+        let outside_x = g1b_probe(&scene, 1.0, 352, 180, &road_carves, &road_tags, &mask)
+            .expect_err("the exclusive x edge is outside");
+        assert!(
+            outside_x.contains("outside the declared scene"),
+            "{outside_x}"
+        );
+        let outside_z = g1b_probe(&scene, 1.0, 270, 240, &road_carves, &road_tags, &mask)
+            .expect_err("the exclusive z edge is outside");
+        assert!(
+            outside_z.contains("outside the declared scene"),
+            "{outside_z}"
+        );
+        let last_cell = g1b_probe(&scene, 1.0, 351, 239, &road_carves, &road_tags, &mask)
+            .expect("the last declared cell is a real sample");
         assert_eq!(g1b_mm(&last_cell, "naturalMm"), 1000);
 
         let nan = g1b_probe(&scene, f64::NAN, 270, 188, &road_carves, &road_tags, &mask)
@@ -12859,10 +13138,7 @@ mod tests {
             &mask,
         )
         .expect_err("an infinite natural sample must be refused");
-        assert!(
-            infinite.contains("illegal natural sample"),
-            "{infinite}"
-        );
+        assert!(infinite.contains("illegal natural sample"), "{infinite}");
         let mut nan_target = road_carves.clone();
         nan_target[0].target_h_m = f64::NAN;
         let bad_target = g1b_probe(&scene, 1.0, 270, 188, &nan_target, &road_tags, &mask)
@@ -12883,7 +13159,10 @@ mod tests {
         let empty = g1b_probe(&scene, 1.0, 270, 188, &[], &[], &mask)
             .expect("an empty carve list is still a real sample");
         assert_eq!(g1b_mm(&empty, "valueMm"), 1000);
-        assert_eq!(g1b_text(&empty["decision"], "valueSource"), "natural_lower_bound");
+        assert_eq!(
+            g1b_text(&empty["decision"], "valueSource"),
+            "natural_lower_bound"
+        );
         let payload = json_map(vec![
             ("outsideScene", serde_json::json!(outside_x)),
             ("outsideSceneZ", serde_json::json!(outside_z)),
@@ -12911,8 +13190,10 @@ mod tests {
         };
         let (north_control_outside, _, north_control_full) = relation(north_connection, 268, 171);
         let (south_control_outside, _, south_control_full) = relation(south_connection, 268, 188);
-        let (north_necessary_outside, _, north_necessary_full) = relation(north_connection, 270, 171);
-        let (south_necessary_outside, _, south_necessary_full) = relation(south_connection, 270, 188);
+        let (north_necessary_outside, _, north_necessary_full) =
+            relation(north_connection, 270, 171);
+        let (south_necessary_outside, _, south_necessary_full) =
+            relation(south_connection, 270, 188);
         assert!(
             north_control_outside > 0.0 && !north_control_full,
             "north control (268,171) outside={north_control_outside}"
@@ -13001,14 +13282,10 @@ mod tests {
             ring_outside > 0.0 && ring_outside < ring.blend_m && !ring_covered,
             "the ring-only fill must be a ring contributor, never a cover"
         );
-        let before = g1b_probe(&strict_scene, 1.0, 270, 188, &carves, &tags, &strict)
-            .expect("ring before");
-        let (after_carves, after_tags) = g1b_plus(
-            &carves,
-            &tags,
-            &fixture.replaced_south,
-            &fixture.south_tags,
-        );
+        let before =
+            g1b_probe(&strict_scene, 1.0, 270, 188, &carves, &tags, &strict).expect("ring before");
+        let (after_carves, after_tags) =
+            g1b_plus(&carves, &tags, &fixture.replaced_south, &fixture.south_tags);
         let after = g1b_probe(
             &strict_scene,
             1.0,
@@ -13049,8 +13326,10 @@ mod tests {
             "the erased ring source must be a subset of the ring items that raised the value"
         );
         g1b_assert_ring_entries(&after_decision["blendErasedSources"], "ring erased");
-        assert!(g1b_owners(&after_decision["blendErasedSources"])
-            .contains(&"g1b.old.support.ring".to_string()));
+        assert!(
+            g1b_owners(&after_decision["blendErasedSources"])
+                .contains(&"g1b.old.support.ring".to_string())
+        );
         assert!(
             g1b_mm(&after, "valueMm") < g1b_mm(&before, "valueMm"),
             "the candidate's full cover must overwrite the ring fill"
@@ -13137,8 +13416,7 @@ mod tests {
     #[test]
     fn g1b_preflight_cover_raise_is_not_blend() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (road_carves, road_tags) = g1b_graded_road();
         let (platform, platform_tag) = g1b_cover_at("g1b.platform", "pad", 1, 8.0);
         let (blocker, blocker_tag) = g1b_cover_at("g1b.blocker", "pad", 2, 2.39);
@@ -13151,8 +13429,8 @@ mod tests {
 
         // sub-case 1: the graded road pad contributes a ring raise that the
         // override does not remove, so a blend list is non-empty
-        let raised = g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask)
-            .expect("platform probe");
+        let raised =
+            g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("platform probe");
         let raised_decision = &raised["decision"];
         assert!(
             g1b_flag(raised_decision, "overrideLoweredValue"),
@@ -13189,8 +13467,8 @@ mod tests {
 
         // sub-case 2: natural is above the road profile, so no ring fill happens
         // at all; the platform is still lowered and still is not a blend erasure
-        let bare = g1b_probe(&scene, 3.0, 270, 188, &carves, &tags, &mask)
-            .expect("bare platform probe");
+        let bare =
+            g1b_probe(&scene, 3.0, 270, 188, &carves, &tags, &mask).expect("bare platform probe");
         let bare_decision = &bare["decision"];
         assert!(g1b_flag(bare_decision, "overrideLoweredValue"));
         assert_eq!(g1b_mm(bare_decision, "terrainAfterLoopMm"), 8000);
@@ -13205,10 +13483,7 @@ mod tests {
             g1b_owners(&bare_decision["coverAppliedDuringLoop"])
                 .contains(&"g1b.platform".to_string())
         );
-        let payload = json_map(vec![
-            ("raisedRingCase", raised),
-            ("barePlatformCase", bare),
-        ]);
+        let payload = json_map(vec![("raisedRingCase", raised), ("barePlatformCase", bare)]);
         assert_no_tagged_result(&payload, "$");
         println!("{}", serde_json::to_string_pretty(&payload).unwrap());
     }
@@ -13219,16 +13494,14 @@ mod tests {
     #[test]
     fn g1b_preflight_ring_source_erased() {
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let (road_carves, road_tags) = g1b_graded_road();
         let ring = g1b_ring_only_high_fill();
         let ring_tag = g1b_ring_only_high_fill_tag();
         let (blocker, blocker_tag) = g1b_cover_at("g1b.blocker", "connection", 2, 2.39);
         let carves = vec![road_carves[0].clone(), ring.clone(), blocker.clone()];
         let tags = vec![road_tags[0].clone(), ring_tag.clone(), blocker_tag.clone()];
-        let probe =
-            g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("ring probe");
+        let probe = g1b_probe(&scene, 1.0, 270, 188, &carves, &tags, &mask).expect("ring probe");
         let decision = &probe["decision"];
         assert!(g1b_flag(decision, "overrideLoweredValue"));
         assert!(
@@ -13244,11 +13517,12 @@ mod tests {
         g1b_assert_ring_entries(&decision["blendPotential"], "ring potential");
         g1b_assert_ring_entries(&decision["blendAppliedDuringLoop"], "ring applied");
         g1b_assert_ring_entries(&decision["blendErasedSources"], "ring erased");
-        assert!(g1b_owners(&decision["blendErasedSources"])
-            .contains(&"g1b.old.support.ring".to_string()));
         assert!(
-            !g1b_owners(&decision["blendAppliedDuringLoop"])
-                .contains(&"g1b.blocker".to_string()),
+            g1b_owners(&decision["blendErasedSources"])
+                .contains(&"g1b.old.support.ring".to_string())
+        );
+        assert!(
+            !g1b_owners(&decision["blendAppliedDuringLoop"]).contains(&"g1b.blocker".to_string()),
             "the deciding cover did not raise anything and must not be in a blend list"
         );
         assert!(g1b_owners(&decision["coverAppliedDuringLoop"]).is_empty());
@@ -13326,12 +13600,18 @@ mod tests {
             ("cell", serde_json::json!([x, z])),
             ("candidate", serde_json::json!(candidate_label)),
             ("naturalMm", serde_json::json!(natural_mm)),
-            ("naturalSource", serde_json::json!("rebuilt raster (terrain_height_metres, no carves)")),
+            (
+                "naturalSource",
+                serde_json::json!("rebuilt raster (terrain_height_metres, no carves)"),
+            ),
             ("rawBeforeMm", serde_json::json!(height_mm(before_raw))),
             ("rawAfterMm", serde_json::json!(height_mm(after_raw))),
             ("frontageBeforeMm", serde_json::json!(before_mm)),
             ("frontageAfterMm", serde_json::json!(after_mm)),
-            ("rawChanged", serde_json::json!(height_mm(before_raw) != height_mm(after_raw))),
+            (
+                "rawChanged",
+                serde_json::json!(height_mm(before_raw) != height_mm(after_raw)),
+            ),
             (
                 "supportSampleChanged",
                 serde_json::json!(before_mm != after_mm),
@@ -13358,7 +13638,10 @@ mod tests {
                     ("cz", serde_json::json!(production_connection.cz)),
                     ("halfWM", serde_json::json!(production_connection.half_w)),
                     ("halfDM", serde_json::json!(production_connection.half_d)),
-                    ("priority", serde_json::json!(production_connection.priority)),
+                    (
+                        "priority",
+                        serde_json::json!(production_connection.priority),
+                    ),
                     (
                         "targetMm",
                         serde_json::json!(height_mm(production_connection.target_h_m)),
@@ -13370,10 +13653,22 @@ mod tests {
                 json_map(vec![
                     ("cx", serde_json::json!(replaced[connection_index].cx)),
                     ("cz", serde_json::json!(replaced[connection_index].cz)),
-                    ("halfWM", serde_json::json!(replaced[connection_index].half_w)),
-                    ("halfDM", serde_json::json!(replaced[connection_index].half_d)),
-                    ("blendM", serde_json::json!(replaced[connection_index].blend_m)),
-                    ("priority", serde_json::json!(replaced[connection_index].priority)),
+                    (
+                        "halfWM",
+                        serde_json::json!(replaced[connection_index].half_w),
+                    ),
+                    (
+                        "halfDM",
+                        serde_json::json!(replaced[connection_index].half_d),
+                    ),
+                    (
+                        "blendM",
+                        serde_json::json!(replaced[connection_index].blend_m),
+                    ),
+                    (
+                        "priority",
+                        serde_json::json!(replaced[connection_index].priority),
+                    ),
                     (
                         "targetMm",
                         serde_json::json!(height_mm(replaced[connection_index].target_h_m)),
@@ -13385,14 +13680,20 @@ mod tests {
             (
                 "identity",
                 json_map(vec![
-                    ("connectionIndexInCandidate", serde_json::json!(connection_index)),
+                    (
+                        "connectionIndexInCandidate",
+                        serde_json::json!(connection_index),
+                    ),
                     (
                         "connectionIndexInCombined",
                         serde_json::json!(base_carves.len() + connection_index),
                     ),
                     ("baselineCarves", serde_json::json!(base_carves.len())),
                     ("combinedCarves", serde_json::json!(combined.len())),
-                    ("nonConnectionComponentsCompared", serde_json::json!(compared)),
+                    (
+                        "nonConnectionComponentsCompared",
+                        serde_json::json!(compared),
+                    ),
                     ("onlyConnectionReplaced", serde_json::json!(true)),
                     (
                         "connectionOwner",
@@ -13440,8 +13741,8 @@ mod tests {
 
         // reservation first: create_new freezes the rule and the source version
         // before any natural action
-        let source_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/worldgen/auto_roads.rs");
+        let source_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/worldgen/auto_roads.rs");
         let source_bytes = std::fs::read(&source_path).expect("the executing source file");
         let source_blake3 = {
             let mut hasher = blake3::Hasher::new();
@@ -13476,10 +13777,7 @@ mod tests {
                     ),
                     ("replacedComponent", serde_json::json!("connection")),
                     ("padAndApron", serde_json::json!("untouched")),
-                    (
-                        "syntheticLegacyPlatformIncluded",
-                        serde_json::json!(false),
-                    ),
+                    ("syntheticLegacyPlatformIncluded", serde_json::json!(false)),
                 ]),
             ),
             (
@@ -13503,7 +13801,9 @@ mod tests {
             ),
             (
                 "note",
-                serde_json::json!("one run only; any failure stops the round and no re-run is attempted"),
+                serde_json::json!(
+                    "one run only; any failure stops the round and no re-run is attempted"
+                ),
             ),
         ]);
         let reservation_text = format!(
@@ -13521,9 +13821,8 @@ mod tests {
         let reservation_hash = hash_json(&reservation_text);
 
         // ---- frozen baseline rebuild (once) ---------------------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest_bytes = std::fs::read(&manifest_path).expect("frozen manifest");
         let manifest_blake3 = {
             let mut hasher = blake3::Hasher::new();
@@ -13586,8 +13885,15 @@ mod tests {
         let ctx = AlignmentContext::new(&scene, &terrain, water, &zones).unwrap();
         let mask = ZoningMask::new(&scene, &zones).unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -13802,11 +14108,11 @@ mod tests {
                     ("baselineNodes", serde_json::json!(plan.nodes.len())),
                     ("baselineObligations", serde_json::json!(obligations)),
                     ("fixedRootMm", serde_json::json!(fixed_root_mm)),
-                    ("baselinePlanHashBlake3", serde_json::json!(baseline_plan_hash)),
                     (
-                        "baselineCarves",
-                        serde_json::json!(base_carves.len()),
+                        "baselinePlanHashBlake3",
+                        serde_json::json!(baseline_plan_hash),
                     ),
+                    ("baselineCarves", serde_json::json!(base_carves.len())),
                     ("baselineEntities", serde_json::json!(base_entities.len())),
                 ]),
             ),
@@ -13844,8 +14150,14 @@ mod tests {
                     ("bcProfileMatchesPointwise", serde_json::json!(bc_matches)),
                     ("abProfilePoints", serde_json::json!(ab_profile_mm.len())),
                     ("bcProfilePoints", serde_json::json!(bc_profile_mm.len())),
-                    ("abProfileHashBlake3", serde_json::json!(hash_json(&ab_profile_mm))),
-                    ("bcProfileHashBlake3", serde_json::json!(hash_json(&bc_profile_mm))),
+                    (
+                        "abProfileHashBlake3",
+                        serde_json::json!(hash_json(&ab_profile_mm)),
+                    ),
+                    (
+                        "bcProfileHashBlake3",
+                        serde_json::json!(hash_json(&bc_profile_mm)),
+                    ),
                 ]),
             ),
             (
@@ -13859,8 +14171,14 @@ mod tests {
                         "southCentre",
                         serde_json::json!([south_site.world_x, south_site.world_z]),
                     ),
-                    ("northDesignMm", serde_json::json!(north_site.support_level_mm)),
-                    ("southDesignMm", serde_json::json!(south_site.support_level_mm)),
+                    (
+                        "northDesignMm",
+                        serde_json::json!(north_site.support_level_mm),
+                    ),
+                    (
+                        "southDesignMm",
+                        serde_json::json!(south_site.support_level_mm),
+                    ),
                     (
                         "northCarves",
                         serde_json::json!(carve_owner_summary(&north_entities, &north_carves)),
@@ -14145,8 +14463,8 @@ mod tests {
                 values.push(value as f64 / 1000.);
             }
         }
-        let encoded = encode_millimetres(local.width_m, local.depth_m, values)
-            .map_err(|error| error.0)?;
+        let encoded =
+            encode_millimetres(local.width_m, local.depth_m, values).map_err(|error| error.0)?;
         let mut raster = BakedTerrain::new(local).map_err(|error| error.0)?;
         raster
             .insert_chunk(
@@ -14294,10 +14612,15 @@ mod tests {
             ("requireComplete", serde_json::json!(true)),
             ("testOnlyCounterfactualSurface", serde_json::json!(true)),
             ("productionCandidateFinalTerrainCalls", serde_json::json!(0)),
-            ("seconds", serde_json::json!(started.elapsed().as_secs_f64())),
+            (
+                "seconds",
+                serde_json::json!(started.elapsed().as_secs_f64()),
+            ),
         ]);
         if mismatches != 0 {
-            return Err(format!("counterfactual surface read-back mismatch: {record}"));
+            return Err(format!(
+                "counterfactual surface read-back mismatch: {record}"
+            ));
         }
         Ok((surface, record))
     }
@@ -14387,8 +14710,7 @@ mod tests {
         purpose: &str,
     ) -> Result<serde_json::Value, String> {
         let entity = site.entity();
-        let parcel =
-            super::super::frontage::parcel_boundary(site).map_err(|error| error.0)?;
+        let parcel = super::super::frontage::parcel_boundary(site).map_err(|error| error.0)?;
         // the site carries the insets its request declared, so the purpose coverage is measured over
         // the same buildable core the placement path uses
         let envelope = super::super::frontage::envelope_reason(
@@ -14465,13 +14787,10 @@ mod tests {
                 .iter()
                 .find(|candidate| candidate.id == old.entity_id)
                 .map(|candidate| {
-                    super::super::frontage::parcel_boundary(candidate)
-                        .map_err(|error| error.0)
+                    super::super::frontage::parcel_boundary(candidate).map_err(|error| error.0)
                 })
                 .transpose()?
-                .unwrap_or_else(|| {
-                    g11_bounds(old, if old.kind == "road" { 4 } else { 2 })
-                });
+                .unwrap_or_else(|| g11_bounds(old, if old.kind == "road" { 4 } else { 2 }));
             if g11_overlap(parcel, old_bounds) {
                 overlap_entity = Some(old.entity_id.clone());
                 break;
@@ -14488,18 +14807,12 @@ mod tests {
             ("envelope", serde_json::json!(envelope)),
             ("waterParcel", serde_json::json!(water_parcel)),
             ("waterCorridor", serde_json::json!(water_corridor)),
-            (
-                "connectionReservedZoning",
-                serde_json::json!(reserved),
-            ),
+            ("connectionReservedZoning", serde_json::json!(reserved)),
             (
                 "naturalSupportLimit",
                 support_limit.unwrap_or(serde_json::Value::Null),
             ),
-            (
-                "occupiedOverlapEntity",
-                serde_json::json!(overlap_entity),
-            ),
+            ("occupiedOverlapEntity", serde_json::json!(overlap_entity)),
             (
                 "status",
                 serde_json::json!(if passed { "pass" } else { "blocked" }),
@@ -14515,8 +14828,7 @@ mod tests {
         site: &super::super::road_network::RoadsideSite,
         original: &super::super::TerrainCarve,
     ) -> Result<super::super::TerrainCarve, String> {
-        let parcel =
-            super::super::frontage::parcel_boundary(site).map_err(|error| error.0)?;
+        let parcel = super::super::frontage::parcel_boundary(site).map_err(|error| error.0)?;
         g1c_clip(parcel, original)
     }
 
@@ -14657,8 +14969,7 @@ mod tests {
     fn g1b_preflight_natural_cell_plumbing() {
         let fixture = g1b_fixture();
         let (scene, zones) = g1b_synthetic_open_zones();
-        let mask =
-            super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
+        let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let values: Vec<f64> = (0..scene.depth_m as i32)
             .flat_map(|z| (0..scene.width_m as i32).map(move |x| (x, z)))
             .map(|_| 1.0)
@@ -14750,10 +15061,8 @@ mod tests {
                 .expect("south site");
         let north_connection = &fixture.north_carves[fixture.north_index];
         let south_connection = &fixture.south_carves[fixture.south_index];
-        let north_clip =
-            g1c_clipped_connection(&north_site, north_connection).expect("north clip");
-        let south_clip =
-            g1c_clipped_connection(&south_site, south_connection).expect("south clip");
+        let north_clip = g1c_clipped_connection(&north_site, north_connection).expect("north clip");
+        let south_clip = g1c_clipped_connection(&south_site, south_connection).expect("south clip");
         for (clip, site, original) in [
             (&north_clip, &north_site, north_connection),
             (&south_clip, &south_site, south_connection),
@@ -14834,20 +15143,12 @@ mod tests {
         let task_north = g1c_clip(task_parcel_north, north_connection).expect("task north");
         let task_south = g1c_clip(task_parcel_south, south_connection).expect("task south");
         assert_eq!(
-            [
-                task_north.cz,
-                task_north.half_w,
-                task_north.half_d
-            ],
+            [task_north.cz, task_north.half_w, task_north.half_d],
             [163.5, 2.0, 2.5],
             "the rule table's north expectation follows from a 4/2/4 parcel"
         );
         assert_eq!(
-            [
-                task_south.cz,
-                task_south.half_w,
-                task_south.half_d
-            ],
+            [task_south.cz, task_south.half_w, task_south.half_d],
             [196.5, 2.0, 2.5],
             "the rule table's south expectation follows from a 4/2/4 parcel"
         );
@@ -14998,9 +15299,8 @@ mod tests {
             "the connection-only enumeration must be a strict subset"
         );
         let low = g11_flat_raster(&scene, 1000);
-        let scan =
-            g11_support_invariance(&low, &mask, &base_carves, &candidate_carves, &domain)
-                .expect("domain scan");
+        let scan = g11_support_invariance(&low, &mask, &base_carves, &candidate_carves, &domain)
+            .expect("domain scan");
         assert_eq!(
             g1b_text(&scan, "status"),
             "existing_support_changed",
@@ -15014,7 +15314,10 @@ mod tests {
             .iter()
             .map(|violation| {
                 let at = violation["at"].as_array().expect("violation cell");
-                (at[0].as_i64().unwrap() as i32, at[1].as_i64().unwrap() as i32)
+                (
+                    at[0].as_i64().unwrap() as i32,
+                    at[1].as_i64().unwrap() as i32,
+                )
             })
             .filter(|cell| !connection_only.contains(cell))
             .collect();
@@ -15054,8 +15357,7 @@ mod tests {
         let south_site =
             super::super::frontage::candidate_site(&fixture.road_a, &request, "scene-0", 18, 1)
                 .expect("south site");
-        let base_carves =
-            super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
+        let base_carves = super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
         let candidate_carves =
             super::super::plan_terrain_carves(std::slice::from_ref(&fixture.south));
         let entity = south_site.entity();
@@ -15093,12 +15395,16 @@ mod tests {
         assert_eq!(g1b_mm(&record, "mismatches"), 0);
         assert!(g1b_mm(&record["localRaster"], "cells") > 255);
         let apron_only = vec![candidate_carves[1].clone()];
-        let failed = g11_pad_check(&terrain, &mask, &south_site, &base_carves, &apron_only, &local)
-            .expect("pad check without the pad");
-        assert_eq!(
-            g1b_text(&failed, "status"),
-            "engineered_platform_not_flat"
-        );
+        let failed = g11_pad_check(
+            &terrain,
+            &mask,
+            &south_site,
+            &base_carves,
+            &apron_only,
+            &local,
+        )
+        .expect("pad check without the pad");
+        assert_eq!(g1b_text(&failed, "status"), "engineered_platform_not_flat");
         assert!(g1b_mm(&failed, "mismatches") > 0);
         let payload = json_map(vec![("pad", record), ("padMissing", failed)]);
         assert_no_tagged_result(&payload, "$");
@@ -15114,8 +15420,7 @@ mod tests {
         let (scene, zones) = g1b_synthetic_open_zones();
         let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let fixture = g1b_fixture();
-        let base_carves =
-            super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
+        let base_carves = super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
         let candidate_carves =
             super::super::plan_terrain_carves(std::slice::from_ref(&fixture.south));
         let mut combined = base_carves.clone();
@@ -15178,8 +15483,7 @@ mod tests {
         let (scene, zones) = g1b_synthetic_open_zones();
         let mask = super::super::zoning::ZoningMask::new(&scene, &zones).expect("open mask");
         let fixture = g1b_fixture();
-        let base_carves =
-            super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
+        let base_carves = super::super::plan_terrain_carves(std::slice::from_ref(&fixture.road_a));
         let candidate_carves =
             super::super::plan_terrain_carves(std::slice::from_ref(&fixture.south));
         let mut combined = base_carves.clone();
@@ -15290,8 +15594,7 @@ mod tests {
             let clipped = g1c_clipped_connection(site, original)?;
             let mut proposed = candidate_carves.clone();
             proposed[connection_index] = clipped.clone();
-            let compared =
-                g1b_only_index_changed(&candidate_carves, &proposed, connection_index)?;
+            let compared = g1b_only_index_changed(&candidate_carves, &proposed, connection_index)?;
             (
                 proposed,
                 json_map(vec![
@@ -15323,10 +15626,7 @@ mod tests {
                             ("halfD", serde_json::json!(clipped.half_d)),
                             ("blendM", serde_json::json!(clipped.blend_m)),
                             ("priority", serde_json::json!(clipped.priority)),
-                            (
-                                "targetMm",
-                                serde_json::json!(height_mm(clipped.target_h_m)),
-                            ),
+                            ("targetMm", serde_json::json!(height_mm(clipped.target_h_m))),
                         ]),
                     ),
                     (
@@ -15360,12 +15660,8 @@ mod tests {
             let (frontage_before, protected, cap) =
                 g11_sample_mm(terrain, mask, base_carves, *x, *z)?;
             let (frontage_after, _, _) = g11_sample_mm(terrain, mask, &combined, *x, *z)?;
-            let raw_before = super::super::apply_terrain_carves(
-                natural_mm as f64 / 1000.,
-                *x,
-                *z,
-                base_carves,
-            );
+            let raw_before =
+                super::super::apply_terrain_carves(natural_mm as f64 / 1000., *x, *z, base_carves);
             let raw_after =
                 super::super::apply_terrain_carves(natural_mm as f64 / 1000., *x, *z, &combined);
             cell_records.push(json_map(vec![
@@ -15425,14 +15721,7 @@ mod tests {
             origin_z: z0,
             seed_offset: 0,
         };
-        let pad = g11_pad_check(
-            terrain,
-            mask,
-            site,
-            base_carves,
-            &proposed,
-            &pad_local,
-        )?;
+        let pad = g11_pad_check(terrain, mask, site, base_carves, &proposed, &pad_local)?;
         let prechecks_pass = g1b_text(&prechecks, "status") == "pass";
         let support_pass = g1b_text(&support, "status") == "pass";
         let pad_pass = g1b_text(&pad, "status") == "pass";
@@ -15455,13 +15744,8 @@ mod tests {
                 access = not_run("batch budget exhausted before the access stage");
             } else {
                 if baseline_surface.is_none() {
-                    let (surface, record) = g11_counterfactual_surface(
-                        scene,
-                        terrain,
-                        mask,
-                        base_carves,
-                        &domain,
-                    )?;
+                    let (surface, record) =
+                        g11_counterfactual_surface(scene, terrain, mask, base_carves, &domain)?;
                     counters.baseline_surfaces += 1;
                     counters.surface_cells += g1b_mm(&record, "cells");
                     counters.surface_seconds += record["seconds"].as_f64().unwrap_or_default();
@@ -15495,16 +15779,19 @@ mod tests {
             (
                 "geometry",
                 json_map(vec![
-                    ("candidateCentre", serde_json::json!([entity.world_x, entity.world_z])),
+                    (
+                        "candidateCentre",
+                        serde_json::json!([entity.world_x, entity.world_z]),
+                    ),
                     ("designMm", serde_json::json!(site.support_level_mm)),
                     ("roadId", serde_json::json!(site.road_id)),
-                    ("frontageRoadPoint", serde_json::json!(site.frontage_road_point)),
+                    (
+                        "frontageRoadPoint",
+                        serde_json::json!(site.frontage_road_point),
+                    ),
                 ]),
             ),
-            (
-                "d1Prechecks",
-                prechecks,
-            ),
+            ("d1Prechecks", prechecks),
             (
                 "d1Support",
                 json_map(vec![
@@ -15573,8 +15860,8 @@ mod tests {
             3443,
             "the frozen rule table must not change after the offline freeze"
         );
-        let source_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/worldgen/auto_roads.rs");
+        let source_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/worldgen/auto_roads.rs");
         let source_bytes = std::fs::read(&source_path).expect("the executing source file");
         let source_blake3 = {
             let mut hasher = blake3::Hasher::new();
@@ -15615,7 +15902,10 @@ mod tests {
                 "stateOrder",
                 serde_json::json!(["G-1c-north", "G-1c-south", "G-1d-north", "G-1d-south"]),
             ),
-            ("cells", serde_json::json!([[270, 171], [268, 171], [270, 188], [268, 188]])),
+            (
+                "cells",
+                serde_json::json!([[270, 171], [268, 171], [270, 188], [268, 188]]),
+            ),
             (
                 "stageGates",
                 serde_json::json!({"D1": "complete support domain + 255-cell pad + mandatory pre-checks",
@@ -15631,7 +15921,9 @@ mod tests {
             ),
             (
                 "note",
-                serde_json::json!("one run only; any implementation or input error stops the batch and publishes incomplete; no re-run"),
+                serde_json::json!(
+                    "one run only; any implementation or input error stops the batch and publishes incomplete; no re-run"
+                ),
             ),
         ]);
         let reservation_text = format!(
@@ -15649,9 +15941,8 @@ mod tests {
         let reservation_hash = hash_json(&reservation_text);
 
         // ---- frozen baseline rebuild (once) ----------------------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest_bytes = std::fs::read(&manifest_path).expect("frozen manifest");
         let manifest_blake3 = {
             let mut hasher = blake3::Hasher::new();
@@ -15714,8 +16005,15 @@ mod tests {
         let ctx = AlignmentContext::new(&scene, &terrain, water, &zones).unwrap();
         let mask = ZoningMask::new(&scene, &zones).unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -15844,10 +16142,34 @@ mod tests {
         let mut counters = G11Counters::default();
         let mut baseline_surface: Option<BakedTerrain> = None;
         for (state_id, site, entity, anchor_z, rule) in [
-            ("G-1c-north", &north_site, &north_entity, north_anchor_z, "G-1c"),
-            ("G-1c-south", &south_site, &south_entity, south_anchor_z, "G-1c"),
-            ("G-1d-north", &north_site, &north_entity, north_anchor_z, "G-1d"),
-            ("G-1d-south", &south_site, &south_entity, south_anchor_z, "G-1d"),
+            (
+                "G-1c-north",
+                &north_site,
+                &north_entity,
+                north_anchor_z,
+                "G-1c",
+            ),
+            (
+                "G-1c-south",
+                &south_site,
+                &south_entity,
+                south_anchor_z,
+                "G-1c",
+            ),
+            (
+                "G-1d-north",
+                &north_site,
+                &north_entity,
+                north_anchor_z,
+                "G-1d",
+            ),
+            (
+                "G-1d-south",
+                &south_site,
+                &south_entity,
+                south_anchor_z,
+                "G-1d",
+            ),
         ] {
             let remaining_ms = batch_budget_ms.saturating_sub(started.elapsed().as_millis() as u64);
             if remaining_ms == 0 || technical_error.is_some() {
@@ -15915,14 +16237,14 @@ mod tests {
             ),
             ("fixedState", serde_json::json!("ST18-R1")),
             ("reservationHashBlake3", serde_json::json!(reservation_hash)),
-            ("ruleTableBlake3RawBytes", serde_json::json!(rule_table_blake3)),
+            (
+                "ruleTableBlake3RawBytes",
+                serde_json::json!(rule_table_blake3),
+            ),
             ("sourceBlake3RawBytes", serde_json::json!(source_blake3)),
             ("sourceBytes", serde_json::json!(source_bytes.len())),
             ("manifestBlake3", serde_json::json!(manifest_blake3)),
-            (
-                "technicalError",
-                serde_json::json!(technical_error.clone()),
-            ),
+            ("technicalError", serde_json::json!(technical_error.clone())),
             ("states", serde_json::json!(states)),
             (
                 "frozen",
@@ -15934,12 +16256,18 @@ mod tests {
                     ("fixedRootMm", serde_json::json!(fixed_root_mm)),
                     ("baselineCarves", serde_json::json!(base_carves.len())),
                     ("baselineEntities", serde_json::json!(base_entities.len())),
-                    ("baselinePlanHashBlake3", serde_json::json!(baseline_plan_hash)),
-                    ("geometry", serde_json::json!({"A": a, "B": b, "C": c, "widthM": width_m,
+                    (
+                        "baselinePlanHashBlake3",
+                        serde_json::json!(baseline_plan_hash),
+                    ),
+                    (
+                        "geometry",
+                        serde_json::json!({"A": a, "B": b, "C": c, "widthM": width_m,
                                                     "bLevelMm": b_level, "cLevelMm": c_level,
                                                     "junctionLengthM": junction_length_m,
                                                     "shoulderM": 3, "maxFillMm": 6000,
-                                                    "maxRiseMmPerM": 80})),
+                                                    "maxRiseMmPerM": 80}),
+                    ),
                 ]),
             ),
             (
@@ -16091,7 +16419,9 @@ mod tests {
             .write(true)
             .create_new(true)
             .open(&path)
-            .map_err(|error| format!("{file_name}: refusing to overwrite a saved surface: {error}"))?;
+            .map_err(|error| {
+                format!("{file_name}: refusing to overwrite a saved surface: {error}")
+            })?;
         std::io::Write::write_all(&mut file, &bytes).map_err(|error| error.to_string())?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(&bytes);
@@ -16146,10 +16476,10 @@ mod tests {
             std::fs::read(g11_dir.join("rule-table.json")).expect("the frozen G11 rule table");
         let schema_bytes = std::fs::read(evidence_dir.join("observation-schema.json"))
             .expect("the offline-frozen observation schema");
-        let source_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/worldgen/auto_roads.rs");
-        let access_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/worldgen/access.rs");
+        let source_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/worldgen/auto_roads.rs");
+        let access_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/worldgen/access.rs");
         let source_bytes = std::fs::read(&source_path).expect("the executing source file");
         let access_bytes = std::fs::read(&access_path).expect("the observer-bearing access file");
         let reservation = json_map(vec![
@@ -16160,7 +16490,9 @@ mod tests {
             ("version", serde_json::json!(1)),
             (
                 "fixedState",
-                serde_json::json!("ST18-R1 (A=8000mm, B=3110mm, C=-382mm), the four G11 fixed states"),
+                serde_json::json!(
+                    "ST18-R1 (A=8000mm, B=3110mm, C=-382mm), the four G11 fixed states"
+                ),
             ),
             (
                 "stateOrder",
@@ -16193,14 +16525,20 @@ mod tests {
                         "autoRoads",
                         json_map(vec![
                             ("bytes", serde_json::json!(source_bytes.len())),
-                            ("blake3RawBytes", serde_json::json!(blake3_of(&source_bytes))),
+                            (
+                                "blake3RawBytes",
+                                serde_json::json!(blake3_of(&source_bytes)),
+                            ),
                         ]),
                     ),
                     (
                         "access",
                         json_map(vec![
                             ("bytes", serde_json::json!(access_bytes.len())),
-                            ("blake3RawBytes", serde_json::json!(blake3_of(&access_bytes))),
+                            (
+                                "blake3RawBytes",
+                                serde_json::json!(blake3_of(&access_bytes)),
+                            ),
                         ]),
                     ),
                 ]),
@@ -16215,7 +16553,9 @@ mod tests {
             ),
             (
                 "note",
-                serde_json::json!("one run only; the observer is passive and must not change any production result"),
+                serde_json::json!(
+                    "one run only; the observer is passive and must not change any production result"
+                ),
             ),
         ]);
         let reservation_text = format!(
@@ -16233,9 +16573,8 @@ mod tests {
         let reservation_hash = hash_json(&reservation_text);
 
         // ---- frozen baseline rebuild (once) ----------------------------------
-        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json",
-        );
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json");
         let manifest_bytes = std::fs::read(&manifest_path).expect("frozen manifest");
         let manifest_blake3 = blake3_of(&manifest_bytes);
         let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).unwrap();
@@ -16293,8 +16632,15 @@ mod tests {
         let ctx = AlignmentContext::new(&scene, &terrain, water, &zones).unwrap();
         let mask = ZoningMask::new(&scene, &zones).unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -16417,10 +16763,34 @@ mod tests {
         let mut surfaces_saved: Vec<serde_json::Value> = vec![];
         let mut surface_bytes_total = 0_i64;
         for (state_id, rule, site, entity, _anchor_z) in [
-            ("G-1c-north", "G-1c", &north_site, &north_entity, north_anchor_z),
-            ("G-1c-south", "G-1c", &south_site, &south_entity, south_anchor_z),
-            ("G-1d-north", "G-1d", &north_site, &north_entity, north_anchor_z),
-            ("G-1d-south", "G-1d", &south_site, &south_entity, south_anchor_z),
+            (
+                "G-1c-north",
+                "G-1c",
+                &north_site,
+                &north_entity,
+                north_anchor_z,
+            ),
+            (
+                "G-1c-south",
+                "G-1c",
+                &south_site,
+                &south_entity,
+                south_anchor_z,
+            ),
+            (
+                "G-1d-north",
+                "G-1d",
+                &north_site,
+                &north_entity,
+                north_anchor_z,
+            ),
+            (
+                "G-1d-south",
+                "G-1d",
+                &south_site,
+                &south_entity,
+                south_anchor_z,
+            ),
         ] {
             if technical_error.is_some()
                 || (batch_started.elapsed().as_millis() as u64) >= batch_budget_ms
@@ -16451,8 +16821,7 @@ mod tests {
                         let clipped = g1c_clipped_connection(site, original)?;
                         let mut proposed = candidate_carves.clone();
                         proposed[index] = clipped.clone();
-                        let compared =
-                            g1b_only_index_changed(&candidate_carves, &proposed, index)?;
+                        let compared = g1b_only_index_changed(&candidate_carves, &proposed, index)?;
                         Ok((
                             proposed,
                             json_map(vec![
@@ -16539,20 +16908,14 @@ mod tests {
                 origin_z: z0,
                 seed_offset: 0,
             };
-            let pad = match g11_pad_check(
-                &terrain,
-                &mask,
-                site,
-                &base_carves,
-                &proposed,
-                &pad_local,
-            ) {
-                Ok(value) => value,
-                Err(error) => {
-                    technical_error = Some(format!("{state_id}: pad check {error}"));
-                    continue;
-                }
-            };
+            let pad =
+                match g11_pad_check(&terrain, &mask, site, &base_carves, &proposed, &pad_local) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        technical_error = Some(format!("{state_id}: pad check {error}"));
+                        continue;
+                    }
+                };
             let mut cell_records: Vec<serde_json::Value> = vec![];
             let mut cell_error: Option<String> = None;
             for (x, z) in cells {
@@ -16633,19 +16996,14 @@ mod tests {
                 }
                 baseline_surface = Some(surface);
             }
-            let (surface, surface_record) = match g11_counterfactual_surface(
-                &scene,
-                &terrain,
-                &mask,
-                &combined,
-                &domain,
-            ) {
-                Ok(value) => value,
-                Err(error) => {
-                    technical_error = Some(format!("{state_id}: candidate surface {error}"));
-                    break;
-                }
-            };
+            let (surface, surface_record) =
+                match g11_counterfactual_surface(&scene, &terrain, &mask, &combined, &domain) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        technical_error = Some(format!("{state_id}: candidate surface {error}"));
+                        break;
+                    }
+                };
             counters.candidate_surfaces += 1;
             counters.surface_cells += g1b_mm(&surface_record, "cells");
             counters.surface_seconds += surface_record["seconds"].as_f64().unwrap_or_default();
@@ -16670,8 +17028,7 @@ mod tests {
             };
             let mut access_entities = base_entities.clone();
             access_entities.push(entity.clone());
-            let plain =
-                super::super::access::build_access_graph(&access_entities, &surface, water);
+            let plain = super::super::access::build_access_graph(&access_entities, &surface, water);
             let target = entity.entity_id.clone();
             let graph_started = std::time::Instant::now();
             let (observed, trace) = super::super::access::observation::observe(&target, || {
@@ -16704,7 +17061,8 @@ mod tests {
                 .and_then(|links| links.first())
                 .map(|link| link["status"].clone())
                 .unwrap_or(serde_json::Value::Null);
-            let reproduces_g11 = g11_status.is_null() || g11_status == serde_json::json!(link.status);
+            let reproduces_g11 =
+                g11_status.is_null() || g11_status == serde_json::json!(link.status);
             if !reproduces_g11 {
                 technical_error = Some(format!(
                     "{state_id}: production status {} does not reproduce the G11 record {}",
@@ -16763,29 +17121,36 @@ mod tests {
                         ("distanceM", serde_json::json!(link.distance_m)),
                         (
                             "anchors",
-                            serde_json::json!(observed
-                                .links
-                                .iter()
-                                .filter(|link| link.entity_id == target)
-                                .map(|link| link.anchor_id.clone())
-                                .collect::<Vec<_>>()),
+                            serde_json::json!(
+                                observed
+                                    .links
+                                    .iter()
+                                    .filter(|link| link.entity_id == target)
+                                    .map(|link| link.anchor_id.clone())
+                                    .collect::<Vec<_>>()
+                            ),
                         ),
                         (
                             "paths",
-                            serde_json::json!(observed
-                                .links
-                                .iter()
-                                .filter(|link| link.entity_id == target)
-                                .map(|link| link
-                                    .path
+                            serde_json::json!(
+                                observed
+                                    .links
                                     .iter()
-                                    .map(|p| serde_json::json!([p.x, p.z]))
-                                    .collect::<Vec<_>>())
-                                .collect::<Vec<_>>()),
+                                    .filter(|link| link.entity_id == target)
+                                    .map(|link| link
+                                        .path
+                                        .iter()
+                                        .map(|p| serde_json::json!([p.x, p.z]))
+                                        .collect::<Vec<_>>())
+                                    .collect::<Vec<_>>()
+                            ),
                         ),
                         ("observerEquivalence", serde_json::json!(equivalent)),
                         ("graphLinksPlain", serde_json::json!(plain.links.len())),
-                        ("graphLinksObserved", serde_json::json!(observed.links.len())),
+                        (
+                            "graphLinksObserved",
+                            serde_json::json!(observed.links.len()),
+                        ),
                         ("graphSeconds", serde_json::json!(graph_seconds)),
                     ]),
                 ),
@@ -16925,10 +17290,7 @@ mod tests {
                         "surfaceSeconds",
                         serde_json::json!(counters.surface_seconds),
                     ),
-                    (
-                        "surfaceBytesSaved",
-                        serde_json::json!(surface_bytes_total),
-                    ),
+                    ("surfaceBytesSaved", serde_json::json!(surface_bytes_total)),
                     ("measureCalls", serde_json::json!(0)),
                     ("candidateFinalTerrainCalls", serde_json::json!(0)),
                     ("baselineRealizations", serde_json::json!(0)),
@@ -16999,10 +17361,7 @@ mod tests {
                 "autoRoads",
                 json_map(vec![
                     ("bytes", serde_json::json!(auto_roads.len())),
-                    (
-                        "blake3RawBytes",
-                        serde_json::json!(blake3_of(&auto_roads)),
-                    ),
+                    ("blake3RawBytes", serde_json::json!(blake3_of(&auto_roads))),
                 ]),
             ),
             (
@@ -17024,14 +17383,8 @@ mod tests {
             );
             let mut extended = record.clone();
             if let Some(object) = extended.as_object_mut() {
-                object.insert(
-                    "executedAccessBlake3RawBytes".into(),
-                    executed_access,
-                );
-                object.insert(
-                    "executedAutoRoadsBlake3RawBytes".into(),
-                    executed_auto,
-                );
+                object.insert("executedAccessBlake3RawBytes".into(), executed_access);
+                object.insert("executedAutoRoadsBlake3RawBytes".into(), executed_auto);
             }
             assert_no_tagged_result(&extended, "$");
             println!("{}", serde_json::to_string_pretty(&extended).unwrap());
@@ -17091,10 +17444,10 @@ mod tests {
     #[test]
     fn g13_preflight_offline_surface_rewalk() {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let g12_dir = manifest_dir
-            .join("../../work/collaboration/ds-b01-g12-access-cause-decision-bundle");
-        let out_dir = manifest_dir
-            .join("../../work/collaboration/ds-b01-g13-offline-access-proof-bundle");
+        let g12_dir =
+            manifest_dir.join("../../work/collaboration/ds-b01-g12-access-cause-decision-bundle");
+        let out_dir =
+            manifest_dir.join("../../work/collaboration/ds-b01-g13-offline-access-proof-bundle");
         std::fs::create_dir_all(&out_dir).unwrap();
         let g12_run: serde_json::Value =
             serde_json::from_slice(&std::fs::read(g12_dir.join("run.json")).expect("G12 run"))
@@ -17160,7 +17513,9 @@ mod tests {
                 ),
             ]));
         }
-        let baseline = surfaces.get("surface-baseline.bin").expect("baseline surface");
+        let baseline = surfaces
+            .get("surface-baseline.bin")
+            .expect("baseline surface");
         let bc_marker = "generated.road-supply.g9.ST18-R1.bc";
         let mut states: Vec<serde_json::Value> = vec![];
         for state in payload["states"].as_array().expect("states") {
@@ -17235,8 +17590,8 @@ mod tests {
             // recorded grade samples: the G12 record stored the whole segment in
             // `from`/`to`; re-walking recovers the true failing sample pair
             let mut grade_rewalks: Vec<serde_json::Value> = vec![];
-            if let Some(samples) = state["observation"]["samples"]["segment_reject.grade"]
-                .as_array()
+            if let Some(samples) =
+                state["observation"]["samples"]["segment_reject.grade"].as_array()
             {
                 for sample in samples {
                     let a = (
@@ -17254,14 +17609,13 @@ mod tests {
                         .expect("lines")
                         .iter()
                         .find(|line| line["lateralM"].as_f64() == recorded_lateral);
-                    let first = line
-                        .and_then(|line| {
-                            if line["firstFailure"].is_null() {
-                                None
-                            } else {
-                                Some(line.clone())
-                            }
-                        });
+                    let first = line.and_then(|line| {
+                        if line["firstFailure"].is_null() {
+                            None
+                        } else {
+                            Some(line.clone())
+                        }
+                    });
                     let recovered = line.and_then(|line| {
                         let failure = &line["firstFailure"];
                         if failure.is_null() {
@@ -17273,10 +17627,7 @@ mod tests {
                         Some(json_map(vec![
                             ("sampleFrom", samples[from_index]["at"].clone()),
                             ("sampleTo", samples[to_index]["at"].clone()),
-                            (
-                                "heightFromM",
-                                samples[from_index]["heightM"].clone(),
-                            ),
+                            ("heightFromM", samples[from_index]["heightM"].clone()),
                             ("heightToM", samples[to_index]["heightM"].clone()),
                             ("deltaM", samples[to_index]["deltaM"].clone()),
                             ("limitM", samples[to_index]["limitM"].clone()),
@@ -17295,11 +17646,11 @@ mod tests {
                         ("g12StepM", sample["stepM"].clone()),
                         ("g12LateralM", sample["lateralM"].clone()),
                         ("g12Context", sample["context"].clone()),
+                        ("recovered", recovered.unwrap_or(serde_json::Value::Null)),
                         (
-                            "recovered",
-                            recovered.unwrap_or(serde_json::Value::Null),
+                            "matchesRecordedHeights",
+                            serde_json::json!(matches_recorded),
                         ),
-                        ("matchesRecordedHeights", serde_json::json!(matches_recorded)),
                         (
                             "segmentEndWasNotTheSample",
                             serde_json::json!(
@@ -17387,7 +17738,10 @@ mod tests {
                             "saved GWHM surfaces and the G12 run record; no rebuild, no terrain synthesis, no natural call"
                         ),
                     ),
-                    ("scene", serde_json::json!({"widthM": scene.width_m, "depthM": scene.depth_m, "originX": scene.origin_x, "originZ": scene.origin_z})),
+                    (
+                        "scene",
+                        serde_json::json!({"widthM": scene.width_m, "depthM": scene.depth_m, "originX": scene.origin_x, "originZ": scene.origin_z}),
+                    ),
                     ("sampleStepM", serde_json::json!(0.5)),
                     ("lateralBandsM", serde_json::json!([-0.75, 0.0, 0.75])),
                     ("gradeLimit", serde_json::json!(0.25)),
@@ -17417,10 +17771,17 @@ mod tests {
             }
             Err(error) => panic!("offline rewalk report: {error}"),
         }
-        println!("{}", serde_json::to_string_pretty(&json_map(vec![
-            ("report", serde_json::json!("offline-rewalk-step8c.json")),
-            ("states", serde_json::json!(report["states"].as_array().map_or(0, Vec::len))),
-        ])).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json_map(vec![
+                ("report", serde_json::json!("offline-rewalk-step8c.json")),
+                (
+                    "states",
+                    serde_json::json!(report["states"].as_array().map_or(0, Vec::len))
+                ),
+            ]))
+            .unwrap()
+        );
     }
 
     /// Test-only: load one saved GWHM surface, verifying magic, version, dimensions,
@@ -17437,7 +17798,11 @@ mod tests {
         let width = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
         let depth = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
         assert_eq!(version, 1, "{file}: version");
-        assert_eq!((width, depth), (scene.width_m, scene.depth_m), "{file}: dimensions");
+        assert_eq!(
+            (width, depth),
+            (scene.width_m, scene.depth_m),
+            "{file}: dimensions"
+        );
         assert_eq!(
             bytes.len(),
             16 + width as usize * depth as usize * 4,
@@ -17467,16 +17832,19 @@ mod tests {
     #[test]
     fn g14_preflight_bc_crossing_screen() {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let g12_dir = manifest_dir
-            .join("../../work/collaboration/ds-b01-g12-access-cause-decision-bundle");
-        let out_dir = manifest_dir
-            .join("../../work/collaboration/ds-b01-g14-offline-bc-crossing-decision");
+        let g12_dir =
+            manifest_dir.join("../../work/collaboration/ds-b01-g12-access-cause-decision-bundle");
+        let out_dir =
+            manifest_dir.join("../../work/collaboration/ds-b01-g14-offline-bc-crossing-decision");
         std::fs::create_dir_all(&out_dir).unwrap();
         let g12_run: serde_json::Value =
             serde_json::from_slice(&std::fs::read(g12_dir.join("run.json")).expect("G12 run"))
                 .unwrap();
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12_run["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12_run["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -17602,7 +17970,10 @@ mod tests {
                                 }
                                 if first_failure.is_none() {
                                     first_failure = Some(json_map(vec![
-                                        ("sampleFrom", serde_json::json!([previous_p.0, previous_p.1])),
+                                        (
+                                            "sampleFrom",
+                                            serde_json::json!([previous_p.0, previous_p.1]),
+                                        ),
                                         ("sampleTo", serde_json::json!([p.0, p.1])),
                                         ("heightFromM", serde_json::json!(previous_h)),
                                         ("heightToM", serde_json::json!(h)),
@@ -17644,7 +18015,11 @@ mod tests {
                 let target = closest_bc((a.0, a.1));
                 let expected_target = (
                     f64::from(x),
-                    f64::from(if side == "north" { north_z_end } else { south_z_end }),
+                    f64::from(if side == "north" {
+                        north_z_end
+                    } else {
+                        south_z_end
+                    }),
                 );
                 let target_matches = target == expected_target;
                 let boundary_case = x == station_start
@@ -17667,12 +18042,18 @@ mod tests {
                     ("segmentFrom", serde_json::json!([a.0, a.1])),
                     ("segmentTo", serde_json::json!([b.0, b.1])),
                     ("targetCandidate", serde_json::json!([target.0, target.1])),
-                    ("targetMatchesProductionClosest", serde_json::json!(target_matches)),
+                    (
+                        "targetMatchesProductionClosest",
+                        serde_json::json!(target_matches),
+                    ),
                     ("boundaryCase", serde_json::json!(boundary_case)),
                     ("neighboursInsideBand", serde_json::json!(station_band_ok)),
                     ("complete", serde_json::json!(!station_incomplete)),
                     ("maxSlope", serde_json::json!(station_max_slope)),
-                    ("firstFailure", station_failure.unwrap_or(serde_json::Value::Null)),
+                    (
+                        "firstFailure",
+                        station_failure.unwrap_or(serde_json::Value::Null),
+                    ),
                     (
                         "relevantProtectionCells",
                         serde_json::json!(relevant_cells.iter().collect::<Vec<_>>()),
@@ -17697,7 +18078,12 @@ mod tests {
         ] {
             candidate_surfaces.push((
                 file,
-                g14_load_surface(&g12_dir, file, &scene, hashes.get(file).expect("candidate hash")),
+                g14_load_surface(
+                    &g12_dir,
+                    file,
+                    &scene,
+                    hashes.get(file).expect("candidate hash"),
+                ),
             ));
         }
         let mut candidate_cross_checks: Vec<serde_json::Value> = vec![];
@@ -17785,7 +18171,11 @@ mod tests {
             let Some(row) = best else { continue };
             let x = row["x"].as_i64().expect("x") as i32;
             let exit = exit_for(side);
-            let (entry_z, crossing_z) = if side == "north" { (171.0, 174.0) } else { (189.0, 186.0) };
+            let (entry_z, crossing_z) = if side == "north" {
+                (171.0, 174.0)
+            } else {
+                (189.0, 186.0)
+            };
             let entry = (f64::from(x), entry_z);
             let crossing = (f64::from(x), crossing_z);
             let exit_h = super::super::access::height(
@@ -17856,10 +18246,7 @@ mod tests {
                     "approachFirstFailure",
                     approach_first_failure.unwrap_or(serde_json::Value::Null),
                 ),
-                (
-                    "heightDifferenceM",
-                    serde_json::json!(plateau_h - exit_h),
-                ),
+                ("heightDifferenceM", serde_json::json!(plateau_h - exit_h)),
                 (
                     "requiredHorizontalByGradeM",
                     serde_json::json!(required_by_height_m),
@@ -17873,28 +18260,25 @@ mod tests {
                     "withinMaxLength120",
                     serde_json::json!(planar_bound <= 120.0),
                 ),
-                (
-                    "proposedConnectionRectangle",
-                    {
-                        let cx = (exit.0 + entry.0) * 0.5;
-                        let cz = (exit.1 + entry.1) * 0.5;
-                        json_map(vec![
-                            ("cx", serde_json::json!(cx)),
-                            ("cz", serde_json::json!(cz)),
-                            (
-                                "halfW",
-                                serde_json::json!((exit.0 - entry.0).abs() * 0.5 + 2.0),
-                            ),
-                            (
-                                "halfD",
-                                serde_json::json!((exit.1 - entry.1).abs() * 0.5 + 2.0),
-                            ),
-                            ("targetMm", serde_json::json!(height_mm(plateau_h))),
-                            ("priority", serde_json::json!(2)),
-                            ("blendM", serde_json::json!(2.0)),
-                        ])
-                    },
-                ),
+                ("proposedConnectionRectangle", {
+                    let cx = (exit.0 + entry.0) * 0.5;
+                    let cz = (exit.1 + entry.1) * 0.5;
+                    json_map(vec![
+                        ("cx", serde_json::json!(cx)),
+                        ("cz", serde_json::json!(cz)),
+                        (
+                            "halfW",
+                            serde_json::json!((exit.0 - entry.0).abs() * 0.5 + 2.0),
+                        ),
+                        (
+                            "halfD",
+                            serde_json::json!((exit.1 - entry.1).abs() * 0.5 + 2.0),
+                        ),
+                        ("targetMm", serde_json::json!(height_mm(plateau_h))),
+                        ("priority", serde_json::json!(2)),
+                        ("blendM", serde_json::json!(2.0)),
+                    ])
+                }),
                 (
                     "unknownsRequiringProvenance",
                     serde_json::json!([
@@ -17920,7 +18304,10 @@ mod tests {
                     ),
                     ("protectionBand", serde_json::json!(band)),
                     ("pavementBounds", serde_json::json!(pavement)),
-                    ("stationSet", serde_json::json!([station_start, station_end])),
+                    (
+                        "stationSet",
+                        serde_json::json!([station_start, station_end]),
+                    ),
                     ("stepLimitM", serde_json::json!(0.5)),
                     ("lateralBandsM", serde_json::json!([-0.75, 0.0, 0.75])),
                     ("gradeLimit", serde_json::json!(0.25)),
@@ -18062,10 +18449,7 @@ mod tests {
         let tags = verify_carve_identity(&entities, &carves)
             .expect("the honest walk must bind every carve by full signature");
         assert_eq!(tags.len(), carves.len());
-        for expected in [
-            ("g10.road.a", "road_pad"),
-            ("g10.road.b", "road_pad"),
-        ] {
+        for expected in [("g10.road.a", "road_pad"), ("g10.road.b", "road_pad")] {
             assert!(
                 tags.iter()
                     .any(|tag| tag.owner_entity_id == expected.0 && tag.component == expected.1),
@@ -18073,8 +18457,10 @@ mod tests {
                 expected.0
             );
         }
-        assert!(tags.iter().any(|tag| tag.owner_entity_id == site_a.entity_id
-            && tag.component == "pad"));
+        assert!(
+            tags.iter()
+                .any(|tag| tag.owner_entity_id == site_a.entity_id && tag.component == "pad")
+        );
         assert!(tags.iter().any(|tag| tag.owner_entity_id == site_b.entity_id
             && tag.component == "connection"));
 
@@ -18215,12 +18601,18 @@ mod tests {
         // the failure path serialises too
         let failure = json_map(vec![
             ("stage", serde_json::json!("refused_g8_profile_mismatch")),
-            ("reason", serde_json::json!("staged profile differs from the saved G8 run")),
+            (
+                "reason",
+                serde_json::json!("staged profile differs from the saved G8 run"),
+            ),
             ("cell", serde_json::Value::Null),
         ]);
         assert_no_tagged_result(&failure, "$.failure");
         let payload = json_map(vec![
-            ("format", serde_json::json!("glyphweave.b01-g9-local-support-provenance.run")),
+            (
+                "format",
+                serde_json::json!("glyphweave.b01-g9-local-support-provenance.run"),
+            ),
             ("cells", serde_json::json!(Vec::<serde_json::Value>::new())),
             ("failure", failure),
             (
@@ -18231,7 +18623,11 @@ mod tests {
             ),
         ]);
         assert_no_tagged_result(&payload, "$");
-        assert!(serde_json::to_string(&payload).unwrap().contains("b01-g9-local-support-provenance"));
+        assert!(
+            serde_json::to_string(&payload)
+                .unwrap()
+                .contains("b01-g9-local-support-provenance")
+        );
     }
 
     // ==== B01-G15: side-entry constructability and road binding (offline) =====
@@ -18246,22 +18642,16 @@ mod tests {
         "../../work/collaboration/ds-b01-g15-side-entry-constructability-bundle";
     const G15_MANIFEST: &str =
         "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json";
-    const G15_ARCHIVED_SCENE: &str =
-        "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/scene.json";
-    const G15_ARCHIVED_PLAN: &str =
-        "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/road-network-plan.json";
-    const G15_ARCHIVED_NATURAL: &str =
-        "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/chunk-0-0.natural.height.bin";
-    const G15_ARCHIVED_MANIFEST: &str =
-        "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/glyphweave.manifest.json";
+    const G15_ARCHIVED_SCENE: &str = "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/scene.json";
+    const G15_ARCHIVED_PLAN: &str = "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/road-network-plan.json";
+    const G15_ARCHIVED_NATURAL: &str = "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/scenes/scene-0/chunk-0-0.natural.height.bin";
+    const G15_ARCHIVED_MANIFEST: &str = "../../work/collaboration/ds-b04-c1-r2-b02-w1/gen-w1-collector-local/glyphweave.manifest.json";
     const G15_INSPECTOR_PROOF: &str =
         "../../work/collaboration/inspector-b01-g14-20260919/ab-pad-constraint-proof.json";
-    const G15_G9_RUN: &str =
-        "../../work/collaboration/ds-b01-g9-local-support-provenance/run.json";
+    const G15_G9_RUN: &str = "../../work/collaboration/ds-b01-g9-local-support-provenance/run.json";
     const G15_G11_RUN: &str =
         "../../work/collaboration/ds-b01-g11-connection-decision-bundle/run.json";
-    const G15_G12_DIR: &str =
-        "../../work/collaboration/ds-b01-g12-access-cause-decision-bundle";
+    const G15_G12_DIR: &str = "../../work/collaboration/ds-b01-g12-access-cause-decision-bundle";
 
     /// B01-G15 window: every protection-domain statement of this bundle is
     /// evaluated on this local rectangle. It contains the north candidate pad,
@@ -18287,10 +18677,7 @@ mod tests {
         if std::env::var("GLYPHWEAVE_WRITE_HISTORICAL_EVIDENCE").is_ok() {
             return g15_file(historical_relative);
         }
-        let bundle = historical_relative
-            .rsplit('/')
-            .next()
-            .unwrap_or("bundle");
+        let bundle = historical_relative.rsplit('/').next().unwrap_or("bundle");
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-evidence")
             .join(bundle)
@@ -18479,16 +18866,16 @@ mod tests {
                 ("kind", serde_json::json!(kind)),
                 ("marginM", serde_json::json!(margin)),
                 ("rect", serde_json::json!(rect)),
-                ("provenance", serde_json::json!("ruleRecoveredFromArchivedGeometry")),
+                (
+                    "provenance",
+                    serde_json::json!("ruleRecoveredFromArchivedGeometry"),
+                ),
             ]));
         }
         rows
     }
 
-    fn g15_domain_hits(
-        cell: (i64, i64),
-        domains: &[serde_json::Value],
-    ) -> Vec<serde_json::Value> {
+    fn g15_domain_hits(cell: (i64, i64), domains: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let mut hits: Vec<serde_json::Value> = vec![];
         for domain in domains {
             let rect = domain["rect"].as_array().expect("rect");
@@ -18531,8 +18918,7 @@ mod tests {
         assert_eq!(frozen["baselineNodes"].as_u64(), Some(27));
         assert_eq!(frozen["baselineObligations"].as_u64(), Some(21));
         assert_eq!(frozen["baselineEntities"].as_u64(), Some(58));
-        let g9: serde_json::Value =
-            serde_json::from_slice(&g15_read(G15_G9_RUN)).expect("G9 run");
+        let g9: serde_json::Value = serde_json::from_slice(&g15_read(G15_G9_RUN)).expect("G9 run");
         let proof: serde_json::Value =
             serde_json::from_slice(&g15_read(G15_INSPECTOR_PROOF)).expect("inspector proof");
 
@@ -18577,7 +18963,9 @@ mod tests {
             .as_array()
             .expect("G9 cells")
             .iter()
-            .find(|cell| cell["cell"][0].as_i64() == Some(268) && cell["cell"][1].as_i64() == Some(171))
+            .find(|cell| {
+                cell["cell"][0].as_i64() == Some(268) && cell["cell"][1].as_i64() == Some(171)
+            })
             .expect("the north-conflict cell record");
         let scope = g9_scope["protectionScope"].as_array().expect("scope");
         assert!(
@@ -18615,7 +19003,10 @@ mod tests {
         let g12: serde_json::Value =
             serde_json::from_slice(&g15_read(&g15_g12_file("run.json"))).expect("G12 run");
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -18671,7 +19062,10 @@ mod tests {
                 ("kind", serde_json::json!(kind)),
                 ("marginM", serde_json::json!(margin)),
                 ("rect", serde_json::json!(rect)),
-                ("provenance", serde_json::json!("ruleRecoveredFromFrozenGeometry")),
+                (
+                    "provenance",
+                    serde_json::json!("ruleRecoveredFromFrozenGeometry"),
+                ),
             ]));
         }
         let payload = json_map(vec![
@@ -18704,7 +19098,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("frozenManifest", g15_input(G15_MANIFEST)),
-                    ("archivedPublishedManifest", g15_input(G15_ARCHIVED_MANIFEST)),
+                    (
+                        "archivedPublishedManifest",
+                        g15_input(G15_ARCHIVED_MANIFEST),
+                    ),
                     ("archivedScene", g15_input(G15_ARCHIVED_SCENE)),
                     ("archivedPlan", g15_input(G15_ARCHIVED_PLAN)),
                     ("archivedNatural", g15_input(G15_ARCHIVED_NATURAL)),
@@ -18722,10 +19119,16 @@ mod tests {
                     ("archivedPlanRoadsideSites", serde_json::json!(sites)),
                     ("g11BaselineEdges", frozen["baselineEdges"].clone()),
                     ("g11BaselineNodes", frozen["baselineNodes"].clone()),
-                    ("g11BaselineObligations", frozen["baselineObligations"].clone()),
+                    (
+                        "g11BaselineObligations",
+                        frozen["baselineObligations"].clone(),
+                    ),
                     ("g11BaselineEntities", frozen["baselineEntities"].clone()),
                     ("inspectorMatchesRuleRecovery", serde_json::json!(true)),
-                    ("g9ProtectionScopeMatchesRuleRecovery", serde_json::json!(true)),
+                    (
+                        "g9ProtectionScopeMatchesRuleRecovery",
+                        serde_json::json!(true),
+                    ),
                     (
                         "publishedAndFrozenStylesSemanticallyEqual",
                         serde_json::json!(deep_equal),
@@ -18741,7 +19144,10 @@ mod tests {
                 ]),
             ),
             ("domainsTouchingWindow", serde_json::json!(rows)),
-            ("archivedDomainCount", serde_json::json!(archived_window.len())),
+            (
+                "archivedDomainCount",
+                serde_json::json!(archived_window.len()),
+            ),
             (
                 "declaredGaps",
                 serde_json::json!([
@@ -18768,7 +19174,10 @@ mod tests {
         let g12: serde_json::Value =
             serde_json::from_slice(&g15_read(&g15_g12_file("run.json"))).expect("G12 run");
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -18804,9 +19213,25 @@ mod tests {
         // The two blocks the draft states with real numbers, plus the inspector's
         // reconstruction of the block that must start at the pad's east edge.
         let blocks: [(&str, f64, f64, f64, f64, i64, f64); 3] = [
-            ("draftFirstBlockCentredAtPadEastEdge", 278.5, 163.0, 1.5, 1.0, 3110, 0.5),
+            (
+                "draftFirstBlockCentredAtPadEastEdge",
+                278.5,
+                163.0,
+                1.5,
+                1.0,
+                3110,
+                0.5,
+            ),
             ("draftFinalPlatform", 282.0, 170.25, 1.5, 0.75, 3110, 0.5),
-            ("inspectorReconstructionOfFirstRectangle", 278.5, 163.0, 1.5, 1.0, 3110, 0.5),
+            (
+                "inspectorReconstructionOfFirstRectangle",
+                278.5,
+                163.0,
+                1.5,
+                1.0,
+                3110,
+                0.5,
+            ),
         ];
         let mut block_rows: Vec<serde_json::Value> = vec![];
         let mut changed_cells = 0_u64;
@@ -18924,13 +19349,20 @@ mod tests {
             ("cellsWithChangePossible", serde_json::json!(changed_cells)),
             (
                 "status",
-                serde_json::json!(if changed_cells == 0 { "pass" } else { "negated" }),
+                serde_json::json!(if changed_cells == 0 {
+                    "pass"
+                } else {
+                    "negated"
+                }),
             ),
             (
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -18952,7 +19384,10 @@ mod tests {
         let g12: serde_json::Value =
             serde_json::from_slice(&g15_read(&g15_g12_file("run.json"))).expect("G12 run");
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -18990,9 +19425,15 @@ mod tests {
                 ("z", serde_json::json!(z)),
                 ("padCell278Mm", serde_json::json!(pad_side)),
                 ("abCell279Mm", serde_json::json!(ab_side)),
-                ("baselineCell279Mm", serde_json::json!(mm(&baseline, 279, z))),
+                (
+                    "baselineCell279Mm",
+                    serde_json::json!(mm(&baseline, 279, z)),
+                ),
                 ("deltaMm", serde_json::json!((ab_side - pad_side).abs())),
-                ("exceedsSampledLimit", serde_json::json!((ab_side - pad_side).abs() > limit_mm)),
+                (
+                    "exceedsSampledLimit",
+                    serde_json::json!((ab_side - pad_side).abs() > limit_mm),
+                ),
             ]));
         }
         let z163_delta = (mm(&north_candidate, 279, 163) - mm(&north_candidate, 278, 163)).abs();
@@ -19141,13 +19582,10 @@ mod tests {
                         "insideAnyWindowDomain",
                         serde_json::json!(
                             g15_domain_hits((i64::from(x), i64::from(z)), &window_domains)
-                            .is_empty()
+                                .is_empty()
                         ),
                     ),
-                    (
-                        "baselineMm",
-                        serde_json::json!(mm(&baseline, x, z)),
-                    ),
+                    ("baselineMm", serde_json::json!(mm(&baseline, x, z))),
                     (
                         "archivedNaturalMm",
                         serde_json::json!(natural.at(x, z).expect("archived natural sample")),
@@ -19171,8 +19609,14 @@ mod tests {
             (
                 "padEastWall",
                 json_map(vec![
-                    ("startAt278x163Mm", serde_json::json!(mm(&north_candidate, 278, 163))),
-                    ("abAt279x163Mm", serde_json::json!(mm(&north_candidate, 279, 163))),
+                    (
+                        "startAt278x163Mm",
+                        serde_json::json!(mm(&north_candidate, 278, 163)),
+                    ),
+                    (
+                        "abAt279x163Mm",
+                        serde_json::json!(mm(&north_candidate, 279, 163)),
+                    ),
                     ("stepMm", serde_json::json!(z163_delta)),
                     (
                         "minDeltaMmInsidePadZRange150To164",
@@ -19181,10 +19625,7 @@ mod tests {
                     ("rows", serde_json::json!(pad_east_wall)),
                 ]),
             ),
-            (
-                "fixedCollars",
-                serde_json::json!(collar_rows),
-            ),
+            ("fixedCollars", serde_json::json!(collar_rows)),
             (
                 "rowCollar",
                 json_map(vec![
@@ -19197,7 +19638,10 @@ mod tests {
                 "bcNorthWall",
                 json_map(vec![
                     ("stations", serde_json::json!(bc_wall_stations)),
-                    ("stationsExceedingLimit", serde_json::json!(bc_wall_failures)),
+                    (
+                        "stationsExceedingLimit",
+                        serde_json::json!(bc_wall_failures),
+                    ),
                     (
                         "clearStations",
                         serde_json::json!([281, 282, 283, 284, 285, 286, 287, 288]),
@@ -19209,7 +19653,10 @@ mod tests {
             (
                 "verdict",
                 json_map(vec![
-                    ("window", serde_json::json!("north x=281..288 level crossing")),
+                    (
+                        "window",
+                        serde_json::json!("north x=281..288 level crossing"),
+                    ),
                     (
                         "blocker",
                         serde_json::json!(
@@ -19229,10 +19676,7 @@ mod tests {
                                 "shortestRouteThroughThatEntranceM",
                                 serde_json::json!(138.85),
                             ),
-                            (
-                                "accessBudgetM",
-                                serde_json::json!(120.0),
-                            ),
+                            ("accessBudgetM", serde_json::json!(120.0)),
                             (
                                 "conclusion",
                                 serde_json::json!(
@@ -19253,7 +19697,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -19279,7 +19726,10 @@ mod tests {
         let g12: serde_json::Value =
             serde_json::from_slice(&g15_read(&g15_g12_file("run.json"))).expect("G12 run");
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -19308,12 +19758,32 @@ mod tests {
 
         // (label, cx, cz, halfW, halfD, targetMm, blendM, priority, disturbance)
         let construct: [(&str, f64, f64, f64, f64, i64, f64, i32, u8); 7] = [
-            ("T1-padLevelTerrace", 260.0, 162.0, 1.5, 7.0, 2390, 2.0, 2, 160),
+            (
+                "T1-padLevelTerrace",
+                260.0,
+                162.0,
+                1.5,
+                7.0,
+                2390,
+                2.0,
+                2,
+                160,
+            ),
             ("T2-terrace", 257.0, 162.0, 1.0, 7.0, 2160, 2.0, 2, 160),
             ("T3-terrace", 254.0, 162.0, 1.0, 7.0, 1930, 2.0, 2, 160),
             ("T4-terrace", 251.0, 162.0, 1.0, 7.0, 1700, 2.0, 2, 160),
             ("T5-terrace", 248.0, 162.0, 1.0, 7.0, 1470, 2.0, 2, 160),
-            ("W1-naturalRestore", 210.0, 162.0, 38.0, 7.0, -10000, 2.0, 2, 160),
+            (
+                "W1-naturalRestore",
+                210.0,
+                162.0,
+                38.0,
+                7.0,
+                -10000,
+                2.0,
+                2,
+                160,
+            ),
             ("W2-westBend", 171.0, 165.0, 1.0, 9.0, -500, 2.0, 2, 160),
         ];
         let mut rows: Vec<serde_json::Value> = vec![];
@@ -19345,7 +19815,8 @@ mod tests {
                     if hits.is_empty() {
                         continue;
                     }
-                    let fully_covered = (x as f64 - cx).abs() <= half_w && (z as f64 - cz).abs() <= half_d;
+                    let fully_covered =
+                        (x as f64 - cx).abs() <= half_w && (z as f64 - cz).abs() <= half_d;
                     let reference_mm = north_candidate
                         .height_millimetres(x as i32, z as i32)
                         .map(i64::from)
@@ -19392,7 +19863,10 @@ mod tests {
                         ("priority", serde_json::json!(priority)),
                         ("profile", serde_json::json!("none")),
                         ("disturbance", serde_json::json!(disturbance)),
-                        ("component", serde_json::json!("appended test-only connection sequence")),
+                        (
+                            "component",
+                            serde_json::json!("appended test-only connection sequence"),
+                        ),
                     ]),
                 ),
                 ("influenceBox", serde_json::json!(influence)),
@@ -19434,10 +19908,17 @@ mod tests {
                 ),
             ),
             ("blocks", serde_json::json!(rows)),
-            ("cellsWithChangePossible", serde_json::json!(total_change_cells)),
+            (
+                "cellsWithChangePossible",
+                serde_json::json!(total_change_cells),
+            ),
             (
                 "status",
-                serde_json::json!(if total_change_cells == 0 { "pass" } else { "negated" }),
+                serde_json::json!(if total_change_cells == 0 {
+                    "pass"
+                } else {
+                    "negated"
+                }),
             ),
             (
                 "remainingNaturalVerification",
@@ -19575,15 +20056,9 @@ mod tests {
             // the sampled segment spans the terrace centres, so only the internal
             // terrace boundaries are measured; the outer blend tails into the
             // surrounding natural are not part of a terrace run
-            let last = carves
-                .iter()
-                .map(|carve| carve.cx)
-                .fold(0.0_f64, f64::max);
+            let last = carves.iter().map(|carve| carve.cx).fold(0.0_f64, f64::max);
             let a = super::super::access::AccessPoint { x: 10.0, z: 16.0 };
-            let b = super::super::access::AccessPoint {
-                x: last,
-                z: 16.0,
-            };
+            let b = super::super::access::AccessPoint { x: last, z: 16.0 };
             let profile = super::super::access::observation::sample_profile(&terrain, a, b);
             let mut clear = true;
             let mut worst = 0.0_f64;
@@ -19627,10 +20102,7 @@ mod tests {
                     "maxPassingTopTargetMm",
                     serde_json::json!(best_step * terraces as i64),
                 ),
-                (
-                    "worstSampleDeltaMAtMaxStep",
-                    serde_json::json!(worst),
-                ),
+                ("worstSampleDeltaMAtMaxStep", serde_json::json!(worst)),
                 (
                     "theoreticalBoundaryBoundMm",
                     serde_json::json!(250 * (terraces as i64 - 1)),
@@ -19750,11 +20222,15 @@ mod tests {
             ("ladder", serde_json::json!(rows)),
             (
                 "overlapRule",
-                serde_json::json!("equal priority takes the maximum inside the overlap, so overlapping terraces do not smooth the boundary"),
+                serde_json::json!(
+                    "equal priority takes the maximum inside the overlap, so overlapping terraces do not smooth the boundary"
+                ),
             ),
             (
                 "priorityRule",
-                serde_json::json!("a higher-priority full cover keeps the cell, so a priority-2 candidate can never lower a cell a priority-10 road already owns"),
+                serde_json::json!(
+                    "a higher-priority full cover keeps the cell, so a priority-2 candidate can never lower a cell a priority-10 road already owns"
+                ),
             ),
             (
                 "terraceOnlyBound",
@@ -19786,19 +20262,27 @@ mod tests {
         let rule = json_map(vec![
             (
                 "goalEligibility",
-                serde_json::json!("every road sized by its own entity: the pavement rectangle is the axis-aligned box world_x/z +/- width/2, depth/2 rotated by rotationYDeg; a goal is eligible only when distance(start, closest(road, start)) <= MAX_LENGTH = 120"),
+                serde_json::json!(
+                    "every road sized by its own entity: the pavement rectangle is the axis-aligned box world_x/z +/- width/2, depth/2 rotated by rotationYDeg; a goal is eligible only when distance(start, closest(road, start)) <= MAX_LENGTH = 120"
+                ),
             ),
             (
                 "goalOrder",
-                serde_json::json!("goals are sorted by (distance from start, entity_id); the direct attempt returns the first road whose straight segment is clear"),
+                serde_json::json!(
+                    "goals are sorted by (distance from start, entity_id); the direct attempt returns the first road whose straight segment is clear"
+                ),
             ),
             (
                 "searchGoal",
-                serde_json::json!("the search returns the first goal in the same sorted order whose closest distance from the expanded node is <= STEP*1.5 = 3m and whose segment is clear"),
+                serde_json::json!(
+                    "the search returns the first goal in the same sorted order whose closest distance from the expanded node is <= STEP*1.5 = 3m and whose segment is clear"
+                ),
             ),
             (
                 "frontageBinding",
-                serde_json::json!("frontage::preflight accepts a site only when some link is connected with link.road_id == site.road_id; otherwise a connected link yields access_to_different_road"),
+                serde_json::json!(
+                    "frontage::preflight accepts a site only when some link is connected with link.road_id == site.road_id; otherwise a connected link yields access_to_different_road"
+                ),
             ),
         ]);
         // ST18 geometry: the x=282 crossing window lies inside the AB pavement
@@ -19830,7 +20314,10 @@ mod tests {
         let first_bc_node_z = 162.85 + 2.0 * 5.0;
         assert!(first_ab_node_z < 171.0 && first_bc_node_z >= 171.0);
         let node_d_bc = 174.0 - first_ab_node_z;
-        assert!(node_d_bc > 3.0, "BC is not yet within STEP*1.5 at the first AB node");
+        assert!(
+            node_d_bc > 3.0,
+            "BC is not yet within STEP*1.5 at the first AB node"
+        );
 
         // synthetic fixture: a candidate can connect AB while the frontage demands BC
         let scene = super::super::SceneSpec {
@@ -19971,8 +20458,19 @@ mod tests {
             (
                 "fixture",
                 json_map(vec![
-                    ("scene", serde_json::json!("64x64 flat synthetic raster, no frozen sample used")),
-                    ("entities", serde_json::json!(["road.bc 20,10 40x4", "road.ab 30,30 4x52", "candidate.home 20,0 8x6 with frontage point 20,10", "blocking.wall 14,6 28x2"])),
+                    (
+                        "scene",
+                        serde_json::json!("64x64 flat synthetic raster, no frozen sample used"),
+                    ),
+                    (
+                        "entities",
+                        serde_json::json!([
+                            "road.bc 20,10 40x4",
+                            "road.ab 30,30 4x52",
+                            "candidate.home 20,0 8x6 with frontage point 20,10",
+                            "blocking.wall 14,6 28x2"
+                        ]),
+                    ),
                     ("connectedRoads", serde_json::json!(connected_roads)),
                     ("frontageRoad", serde_json::json!(frontage_road)),
                     ("connectsFrontageRoad", serde_json::json!(connects_frontage)),
@@ -20003,8 +20501,7 @@ mod tests {
     // rebuild, zero route on the frozen raster, zero terrain or carve synthesis,
     // zero measure, zero realize, zero bake.
 
-    const G15R1_BUNDLE: &str =
-        "../../work/collaboration/ds-b01-g15r1-original-target-decision";
+    const G15R1_BUNDLE: &str = "../../work/collaboration/ds-b01-g15r1-original-target-decision";
 
     fn g15r1_write_new(name: &str, value: &serde_json::Value) -> serde_json::Value {
         let dir = evidence_dir(G15R1_BUNDLE);
@@ -20035,7 +20532,10 @@ mod tests {
         let g12: serde_json::Value =
             serde_json::from_slice(&g15_read(&g15_g12_file("run.json"))).expect("G12 run");
         let mut hashes: BTreeMap<String, String> = BTreeMap::new();
-        for saved in g12["payload"]["surfacesSaved"].as_array().expect("surfaces") {
+        for saved in g12["payload"]["surfacesSaved"]
+            .as_array()
+            .expect("surfaces")
+        {
             hashes.insert(
                 saved["file"].as_str().unwrap().to_string(),
                 saved["blake3RawBytes"].as_str().unwrap().to_string(),
@@ -20149,26 +20649,29 @@ mod tests {
                 ])
             };
         let mut cases: Vec<serde_json::Value> = vec![];
-        let mut case = |label: &str,
-                        cell_delta_mm: i64,
-                        a: (f64, f64),
-                        b: (f64, f64),
-                        expected: &str| {
-            let terrain = step_raster(8, cell_delta_mm);
-            let result = evaluate(&terrain, a, b);
-            assert_eq!(
-                result["verdict"].as_str().unwrap(),
-                expected,
-                "{label}: the production predicate must agree with the arithmetic"
-            );
-            cases.push(json_map(vec![
-                ("case", serde_json::json!(label)),
-                ("cellDeltaMm", serde_json::json!(cell_delta_mm)),
-                ("segment", serde_json::json!([a.0, a.1, b.0, b.1])),
-                ("result", result),
-            ]));
-        };
-        case("cellDelta132mmOver1mGap", 132, (7.0, 4.0), (8.0, 4.0), "pass");
+        let mut case =
+            |label: &str, cell_delta_mm: i64, a: (f64, f64), b: (f64, f64), expected: &str| {
+                let terrain = step_raster(8, cell_delta_mm);
+                let result = evaluate(&terrain, a, b);
+                assert_eq!(
+                    result["verdict"].as_str().unwrap(),
+                    expected,
+                    "{label}: the production predicate must agree with the arithmetic"
+                );
+                cases.push(json_map(vec![
+                    ("case", serde_json::json!(label)),
+                    ("cellDeltaMm", serde_json::json!(cell_delta_mm)),
+                    ("segment", serde_json::json!([a.0, a.1, b.0, b.1])),
+                    ("result", result),
+                ]));
+            };
+        case(
+            "cellDelta132mmOver1mGap",
+            132,
+            (7.0, 4.0),
+            (8.0, 4.0),
+            "pass",
+        );
         case(
             "sampledDelta132mmOver0.5mStep_needs264mmCellDelta",
             264,
@@ -20176,9 +20679,27 @@ mod tests {
             (8.0, 4.0),
             "fail",
         );
-        case("cellDelta200mmOver1mGap", 200, (7.0, 4.0), (8.0, 4.0), "pass");
-        case("cellDelta250mmOver1mGap_isExactLimit", 250, (7.0, 4.0), (8.0, 4.0), "pass");
-        case("cellDelta260mmOver1mGap", 260, (7.0, 4.0), (8.0, 4.0), "fail");
+        case(
+            "cellDelta200mmOver1mGap",
+            200,
+            (7.0, 4.0),
+            (8.0, 4.0),
+            "pass",
+        );
+        case(
+            "cellDelta250mmOver1mGap_isExactLimit",
+            250,
+            (7.0, 4.0),
+            (8.0, 4.0),
+            "pass",
+        );
+        case(
+            "cellDelta260mmOver1mGap",
+            260,
+            (7.0, 4.0),
+            (8.0, 4.0),
+            "fail",
+        );
         case(
             "cellDelta250mmOver1.2mSegment_stepShrinksTo0.4m",
             250,
@@ -20254,7 +20775,10 @@ mod tests {
                     ("zRange", serde_json::json!([z0, z1])),
                     ("rowsChecked", serde_json::json!(rows.len())),
                     ("rowsPassable", serde_json::json!(passable)),
-                    ("rowsImpassable", serde_json::json!(rows.len() as u64 - passable)),
+                    (
+                        "rowsImpassable",
+                        serde_json::json!(rows.len() as u64 - passable),
+                    ),
                     (
                         "firstImpassableRow",
                         first_impassable
@@ -20320,8 +20844,7 @@ mod tests {
                 x: f64::from(x),
                 z: 174.0,
             };
-            let profile =
-                super::super::access::observation::sample_profile(&baseline, a, b);
+            let profile = super::super::access::observation::sample_profile(&baseline, a, b);
             let mut lines: Vec<serde_json::Value> = vec![];
             let mut any_failure = false;
             for line in profile["lines"].as_array().expect("lines") {
@@ -20350,7 +20873,11 @@ mod tests {
                 ("segmentLengthM", profile["segmentLengthM"].clone()),
                 (
                     "verdict",
-                    serde_json::json!(if any_failure { "grade_failure" } else { "clear" }),
+                    serde_json::json!(if any_failure {
+                        "grade_failure"
+                    } else {
+                        "clear"
+                    }),
                 ),
                 ("bands", serde_json::json!(lines)),
             ]));
@@ -20379,10 +20906,7 @@ mod tests {
                             ("distanceM", serde_json::json!(1.0)),
                             ("deltaMm", serde_json::json!(pad_edge_delta)),
                             ("grade", serde_json::json!(pad_edge_delta as f64 / 1000.)),
-                            (
-                                "verdict",
-                                serde_json::json!("impassableAtThisDistance"),
-                            ),
+                            ("verdict", serde_json::json!("impassableAtThisDistance")),
                         ]),
                     ),
                     ("westCollar", west),
@@ -20425,7 +20949,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -20500,8 +21027,7 @@ mod tests {
         let mut west_first_impassable: Option<i32> = None;
         let mut west_passable = 0_u64;
         for z in 93..=172 {
-            let grade =
-                (mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs() as f64 / 1000.;
+            let grade = (mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs() as f64 / 1000.;
             if grade <= 0.25 {
                 west_passable += 1;
             } else if west_first_impassable.is_none() {
@@ -20529,34 +21055,50 @@ mod tests {
         let rows: Vec<serde_json::Value> = vec![
             json_map(vec![
                 ("id", serde_json::json!("T1-draft-first-block")),
-                ("item", serde_json::json!("G-1e draft first block, start at the pad's east edge")),
+                (
+                    "item",
+                    serde_json::json!("G-1e draft first block, start at the pad's east edge"),
+                ),
                 (
                     "evidence",
                     json_map(vec![
                         ("cells", serde_json::json!(draft_first_changes)),
-                        ("source", serde_json::json!("saved G-1c-north candidate surface")),
+                        (
+                            "source",
+                            serde_json::json!("saved G-1c-north candidate surface"),
+                        ),
                     ]),
                 ),
                 ("status", serde_json::json!("negated_draft_block")),
                 (
                     "note",
-                    serde_json::json!("full cover of pad cells at target 3110 breaks the 2390 pad and rewrites the AB support behind it; the draft's intermediate levels still carry no coordinates"),
+                    serde_json::json!(
+                        "full cover of pad cells at target 3110 breaks the 2390 pad and rewrites the AB support behind it; the draft's intermediate levels still carry no coordinates"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("T2-draft-final-platform")),
-                ("item", serde_json::json!("G-1e draft final platform (280.5..283.5, 169.5..171.0)")),
+                (
+                    "item",
+                    serde_json::json!("G-1e draft final platform (280.5..283.5, 169.5..171.0)"),
+                ),
                 (
                     "evidence",
                     json_map(vec![
                         ("cells", serde_json::json!(platform_changes)),
-                        ("source", serde_json::json!("saved G-1c-north candidate surface")),
+                        (
+                            "source",
+                            serde_json::json!("saved G-1c-north candidate surface"),
+                        ),
                     ]),
                 ),
                 ("status", serde_json::json!("negated_draft_block")),
                 (
                     "note",
-                    serde_json::json!("the z=170 platform row sits at 3030mm and cannot be written to 3110mm without changing AB support"),
+                    serde_json::json!(
+                        "the z=170 platform row sits at 3030mm and cannot be written to 3110mm without changing AB support"
+                    ),
                 ),
             ]),
             json_map(vec![
@@ -20577,12 +21119,17 @@ mod tests {
                 ),
                 (
                     "note",
-                    serde_json::json!("both cells are fixed by their own contracts, so the local grade is a hard barrier"),
+                    serde_json::json!(
+                        "both cells are fixed by their own contracts, so the local grade is a hard barrier"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("B2-west-collar")),
-                ("item", serde_json::json!("west collar x=280 -> x=281, z=93..172")),
+                (
+                    "item",
+                    serde_json::json!("west collar x=280 -> x=281, z=93..172"),
+                ),
                 (
                     "evidence",
                     json_map(vec![
@@ -20601,12 +21148,17 @@ mod tests {
                 ),
                 (
                     "note",
-                    serde_json::json!("the G15 packet called every row above 125mm impassable; 132mm over 1m is a 0.132 grade and passes, so the recorded collar does not close the window"),
+                    serde_json::json!(
+                        "the G15 packet called every row above 125mm impassable; 132mm over 1m is a 0.132 grade and passes, so the recorded collar does not close the window"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("B3-bc-north-rows")),
-                ("item", serde_json::json!("BC band north rows z=172 -> z=173, x=176..288")),
+                (
+                    "item",
+                    serde_json::json!("BC band north rows z=172 -> z=173, x=176..288"),
+                ),
                 (
                     "evidence",
                     json_map(vec![
@@ -20615,28 +21167,35 @@ mod tests {
                         ("rowsChecked", serde_json::json!(113)),
                     ]),
                 ),
-                (
-                    "status",
-                    serde_json::json!("proven_level_window_x281to288"),
-                ),
+                ("status", serde_json::json!("proven_level_window_x281to288")),
                 (
                     "note",
-                    serde_json::json!("the eight level stations are inside the BC protection band as well, so they can be walked but not changed"),
+                    serde_json::json!(
+                        "the eight level stations are inside the BC protection band as well, so they can be walked but not changed"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("U1-unique-entrance")),
-                ("item", serde_json::json!("\"the north junction is the only free-side entrance\"")),
+                (
+                    "item",
+                    serde_json::json!("\"the north junction is the only free-side entrance\""),
+                ),
                 ("evidence", serde_json::Value::Null),
                 ("status", serde_json::json!("retracted_unproven")),
                 (
                     "note",
-                    serde_json::json!("this round re-verified only the recorded collar rows; no complete enclosure proof was produced, so the claim is withdrawn"),
+                    serde_json::json!(
+                        "this round re-verified only the recorded collar rows; no complete enclosure proof was produced, so the claim is withdrawn"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("U2-shortest-route")),
-                ("item", serde_json::json!("\"the shortest route through the entrance is 138.85m\"")),
+                (
+                    "item",
+                    serde_json::json!("\"the shortest route through the entrance is 138.85m\""),
+                ),
                 (
                     "evidence",
                     json_map(vec![
@@ -20650,22 +21209,34 @@ mod tests {
                 ("status", serde_json::json!("retracted_unproven")),
                 (
                     "note",
-                    serde_json::json!("138.85m is the length of one recorded route; no legitimate lower bound over all routes was proven, so it cannot carry a blocker"),
+                    serde_json::json!(
+                        "138.85m is the length of one recorded route; no legitimate lower bound over all routes was proven, so it cannot carry a blocker"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("U3-astar-first-hit")),
-                ("item", serde_json::json!("\"the real A* must first hit z=164.85 and bind AB\"")),
+                (
+                    "item",
+                    serde_json::json!("\"the real A* must first hit z=164.85 and bind AB\""),
+                ),
                 ("evidence", serde_json::Value::Null),
                 ("status", serde_json::json!("retracted_unproven")),
                 (
                     "note",
-                    serde_json::json!("the search order, tie-breaking and expansion budget were not exercised on the frozen raster in this or the previous packet, so the claim is withdrawn"),
+                    serde_json::json!(
+                        "the search order, tie-breaking and expansion budget were not exercised on the frozen raster in this or the previous packet, so the claim is withdrawn"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("U4-archived-natural-same-origin")),
-                ("item", serde_json::json!("\"the archived natural is a frozen-natural lower bound / a reliable hand-over surface\"")),
+                (
+                    "item",
+                    serde_json::json!(
+                        "\"the archived natural is a frozen-natural lower bound / a reliable hand-over surface\""
+                    ),
+                ),
                 (
                     "evidence",
                     json_map(vec![
@@ -20677,14 +21248,18 @@ mod tests {
                 ("status", serde_json::json!("retracted_unproven")),
                 (
                     "note",
-                    serde_json::json!("zero violations only bounds the discrepancy in one direction; the frozen and archived naturals were not shown to be the same surface"),
+                    serde_json::json!(
+                        "zero violations only bounds the discrepancy in one direction; the frozen and archived naturals were not shown to be the same surface"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("O1-original-target-reachability")),
                 (
                     "item",
-                    serde_json::json!("reachability of the fixed north x=282 window inside the 120m access budget"),
+                    serde_json::json!(
+                        "reachability of the fixed north x=282 window inside the 120m access budget"
+                    ),
                 ),
                 (
                     "evidence",
@@ -20699,16 +21274,26 @@ mod tests {
                 ("status", serde_json::json!("unproven")),
                 (
                     "note",
-                    serde_json::json!("the draft is statically negated, but neither reachability nor unreachability of the original target is proven by the saved-surface evidence available offline"),
+                    serde_json::json!(
+                        "the draft is statically negated, but neither reachability nor unreachability of the original target is proven by the saved-surface evidence available offline"
+                    ),
                 ),
             ]),
             json_map(vec![
                 ("id", serde_json::json!("O2-west-construct")),
-                ("item", serde_json::json!("the seven-rectangle west deviation recorded in G15 step10d")),
+                (
+                    "item",
+                    serde_json::json!("the seven-rectangle west deviation recorded in G15 step10d"),
+                ),
                 (
                     "evidence",
                     json_map(vec![
-                        ("recordedIn", serde_json::json!("ds-b01-g15-side-entry-constructability-bundle/step10d-replacement-construct.json")),
+                        (
+                            "recordedIn",
+                            serde_json::json!(
+                                "ds-b01-g15-side-entry-constructability-bundle/step10d-replacement-construct.json"
+                            ),
+                        ),
                         ("movesTheTarget", serde_json::json!(true)),
                         ("refinedThisRound", serde_json::json!(false)),
                         ("budgetRequested", serde_json::json!(false)),
@@ -20720,7 +21305,9 @@ mod tests {
                 ),
                 (
                     "note",
-                    serde_json::json!("it is not a resolution of the original target and is not offered as an accepted alternative"),
+                    serde_json::json!(
+                        "it is not a resolution of the original target and is not offered as an accepted alternative"
+                    ),
                 ),
             ]),
         ];
@@ -20732,7 +21319,9 @@ mod tests {
             ("version", serde_json::json!(1)),
             (
                 "originalTarget",
-                serde_json::json!("north ST18-R1 home side entry, x=281..288 level crossing, fixed by the G14/G15 task books"),
+                serde_json::json!(
+                    "north ST18-R1 home side entry, x=281..288 level crossing, fixed by the G14/G15 task books"
+                ),
             ),
             (
                 "overallVerdict",
@@ -20762,7 +21351,9 @@ mod tests {
                         ),
                         (
                             "wouldNotClaim",
-                            serde_json::json!("neither reachability nor unreachability beyond what that single run reports"),
+                            serde_json::json!(
+                                "neither reachability nor unreachability beyond what that single run reports"
+                            ),
                         ),
                     ]),
                     json_map(vec![
@@ -20775,7 +21366,9 @@ mod tests {
                         ),
                         (
                             "wouldNotClaim",
-                            serde_json::json!("it must not inherit the original target's blocker or the recorded construct as evidence"),
+                            serde_json::json!(
+                                "it must not inherit the original target's blocker or the recorded construct as evidence"
+                            ),
                         ),
                     ]),
                 ]),
@@ -20784,7 +21377,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -20809,35 +21405,57 @@ mod tests {
     #[test]
     fn g15r1_preflight_west_construct_isolation() {
         let construct: [(&str, f64, f64, f64, f64, i64, f64, i32, u8); 7] = [
-            ("T1-padLevelTerrace", 260.0, 162.0, 1.5, 7.0, 2390, 2.0, 2, 160),
+            (
+                "T1-padLevelTerrace",
+                260.0,
+                162.0,
+                1.5,
+                7.0,
+                2390,
+                2.0,
+                2,
+                160,
+            ),
             ("T2-terrace", 257.0, 162.0, 1.0, 7.0, 2160, 2.0, 2, 160),
             ("T3-terrace", 254.0, 162.0, 1.0, 7.0, 1930, 2.0, 2, 160),
             ("T4-terrace", 251.0, 162.0, 1.0, 7.0, 1700, 2.0, 2, 160),
             ("T5-terrace", 248.0, 162.0, 1.0, 7.0, 1470, 2.0, 2, 160),
-            ("W1-naturalRestore", 210.0, 162.0, 38.0, 7.0, -10000, 2.0, 2, 160),
+            (
+                "W1-naturalRestore",
+                210.0,
+                162.0,
+                38.0,
+                7.0,
+                -10000,
+                2.0,
+                2,
+                160,
+            ),
             ("W2-westBend", 171.0, 165.0, 1.0, 9.0, -500, 2.0, 2, 160),
         ];
         let blocks: Vec<serde_json::Value> = construct
             .iter()
-            .map(|(label, cx, cz, half_w, half_d, target, blend, priority, disturbance)| {
-                json_map(vec![
-                    ("block", serde_json::json!(label)),
-                    (
-                        "geometry",
-                        json_map(vec![
-                            ("cx", serde_json::json!(cx)),
-                            ("cz", serde_json::json!(cz)),
-                            ("halfW", serde_json::json!(half_w)),
-                            ("halfD", serde_json::json!(half_d)),
-                            ("targetMm", serde_json::json!(target)),
-                            ("blendM", serde_json::json!(blend)),
-                            ("priority", serde_json::json!(priority)),
-                            ("profile", serde_json::json!("none")),
-                            ("disturbance", serde_json::json!(disturbance)),
-                        ]),
-                    ),
-                ])
-            })
+            .map(
+                |(label, cx, cz, half_w, half_d, target, blend, priority, disturbance)| {
+                    json_map(vec![
+                        ("block", serde_json::json!(label)),
+                        (
+                            "geometry",
+                            json_map(vec![
+                                ("cx", serde_json::json!(cx)),
+                                ("cz", serde_json::json!(cz)),
+                                ("halfW", serde_json::json!(half_w)),
+                                ("halfD", serde_json::json!(half_d)),
+                                ("targetMm", serde_json::json!(target)),
+                                ("blendM", serde_json::json!(blend)),
+                                ("priority", serde_json::json!(priority)),
+                                ("profile", serde_json::json!("none")),
+                                ("disturbance", serde_json::json!(disturbance)),
+                            ]),
+                        ),
+                    ])
+                },
+            )
             .collect();
         let payload = json_map(vec![
             (
@@ -20847,7 +21465,9 @@ mod tests {
             ("version", serde_json::json!(1)),
             (
                 "recordedAt",
-                serde_json::json!("ds-b01-g15-side-entry-constructability-bundle/step10d-replacement-construct.json"),
+                serde_json::json!(
+                    "ds-b01-g15-side-entry-constructability-bundle/step10d-replacement-construct.json"
+                ),
             ),
             (
                 "classification",
@@ -20896,8 +21516,7 @@ mod tests {
     // Zero natural harness, zero plan rebuild, zero route on the frozen raster,
     // zero terrain or carve synthesis, zero measure, zero realize, zero bake.
 
-    const G15R2_BUNDLE: &str =
-        "../../work/collaboration/ds-b01-g15r2-original-target-candidate";
+    const G15R2_BUNDLE: &str = "../../work/collaboration/ds-b01-g15r2-original-target-candidate";
 
     fn g15r2_write_new(name: &str, value: &serde_json::Value) -> serde_json::Value {
         let dir = evidence_dir(G15R2_BUNDLE);
@@ -20974,7 +21593,10 @@ mod tests {
                 covered_by_ab += 1;
             }
         }
-        assert_eq!(covered_by_ab, 3, "all three platform cells sit under AB's p10 top");
+        assert_eq!(
+            covered_by_ab, 3,
+            "all three platform cells sit under AB's p10 top"
+        );
         for (x, z) in platform_row {
             assert_eq!(
                 mm(&baseline, x, z),
@@ -20994,8 +21616,14 @@ mod tests {
                 json_map(vec![
                     ("transverseHalfM", serde_json::json!(ab_flat_w)),
                     ("alongHalfM", serde_json::json!(ab_flat_d)),
-                    ("worldXRange", serde_json::json!([288 - ab_flat_w, 288 + ab_flat_w])),
-                    ("worldZRange", serde_json::json!([138 - ab_flat_d, 138 + ab_flat_d])),
+                    (
+                        "worldXRange",
+                        serde_json::json!([288 - ab_flat_w, 288 + ab_flat_w]),
+                    ),
+                    (
+                        "worldZRange",
+                        serde_json::json!([138 - ab_flat_d, 138 + ab_flat_d]),
+                    ),
                     ("priority", serde_json::json!(10)),
                 ]),
             ),
@@ -21028,7 +21656,8 @@ mod tests {
         let mut first_band_failure: Option<i32> = None;
         let mut centre_only_passable: Vec<i32> = vec![];
         for z in 93..=172 {
-            let centre_grade = (mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs() as f64 / 1000.;
+            let centre_grade =
+                (mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs() as f64 / 1000.;
             let a = super::super::access::AccessPoint {
                 x: 279.0,
                 z: f64::from(z),
@@ -21073,7 +21702,10 @@ mod tests {
             }
             collar_rows.push(json_map(vec![
                 ("z", serde_json::json!(z)),
-                ("centreCellDeltaMm", serde_json::json!((mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs())),
+                (
+                    "centreCellDeltaMm",
+                    serde_json::json!((mm(&candidate, 281, z) - mm(&candidate, 280, z)).abs()),
+                ),
                 ("centreDistanceM", serde_json::json!(1.0)),
                 ("centreGrade", serde_json::json!(centre_grade)),
                 (
@@ -21088,7 +21720,11 @@ mod tests {
                 ("bands", serde_json::json!(bands)),
                 (
                     "threeBandVerdict",
-                    serde_json::json!(if band_failure { "grade_failure" } else { "clear" }),
+                    serde_json::json!(if band_failure {
+                        "grade_failure"
+                    } else {
+                        "clear"
+                    }),
                 ),
             ]));
         }
@@ -21182,14 +21818,15 @@ mod tests {
         let payload = json_map(vec![
             (
                 "format",
-                serde_json::json!("glyphweave.b01-g15r2-original-target-candidate.field-corrections"),
+                serde_json::json!(
+                    "glyphweave.b01-g15r2-original-target-candidate.field-corrections"
+                ),
             ),
             ("version", serde_json::json!(1)),
-            ("corrections", json_map(vec![
-                ("T2", t2),
-                ("B2B3", b2),
-                ("B4", b4),
-            ])),
+            (
+                "corrections",
+                json_map(vec![("T2", t2), ("B2B3", b2), ("B4", b4)]),
+            ),
             (
                 "unchangedStatuses",
                 serde_json::json!([
@@ -21202,7 +21839,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -21331,8 +21971,7 @@ mod tests {
             for z in influence[1]..=influence[3] {
                 for x in influence[0]..=influence[2] {
                     let hits = g15_domain_hits((x, z), &domains);
-                    let outside =
-                        super::super::carve_outside_m(carve, x as f64, z as f64);
+                    let outside = super::super::carve_outside_m(carve, x as f64, z as f64);
                     let fully_covered = outside <= 0.0;
                     if hits.is_empty() {
                         if fully_covered {
@@ -21373,7 +22012,10 @@ mod tests {
             change_cells, 0,
             "no must-keep cell may change: a hit here means the hypothesis is already dead"
         );
-        assert!(inert_cells > 0, "the outside-ring rule must have been exercised");
+        assert!(
+            inert_cells > 0,
+            "the outside-ring rule must have been exercised"
+        );
 
         // the design profile's three-band grades, on a synthetic raster that holds
         // the design values only (no frozen sample is written or synthesised)
@@ -21499,7 +22141,9 @@ mod tests {
             ("version", serde_json::json!(1)),
             (
                 "target",
-                serde_json::json!("original target: north ST18-R1 side entry through the x=281..288 level crossing, selected x=282"),
+                serde_json::json!(
+                    "original target: north ST18-R1 side entry through the x=281..288 level crossing, selected x=282"
+                ),
             ),
             (
                 "differenceFromTestedStates",
@@ -21532,9 +22176,18 @@ mod tests {
                     (
                         "padAbBcPriorities",
                         json_map(vec![
-                            ("cellsFullyCoveredInFreeCells", serde_json::json!(covered_free_cells)),
-                            ("cellsInsideBlendRingRuledOutBySavedValue", serde_json::json!(inert_cells)),
-                            ("mustKeepCellsWithChangePossible", serde_json::json!(change_cells)),
+                            (
+                                "cellsFullyCoveredInFreeCells",
+                                serde_json::json!(covered_free_cells),
+                            ),
+                            (
+                                "cellsInsideBlendRingRuledOutBySavedValue",
+                                serde_json::json!(inert_cells),
+                            ),
+                            (
+                                "mustKeepCellsWithChangePossible",
+                                serde_json::json!(change_cells),
+                            ),
                             ("changeDetails", serde_json::json!(details)),
                             (
                                 "rule",
@@ -21555,7 +22208,14 @@ mod tests {
                             ),
                             ("rampSegment", serde_json::json!([274, 149, 274, 108])),
                             ("bands", serde_json::json!(ramp_bands)),
-                            ("verdict", serde_json::json!(if ramp_clear { "clear" } else { "grade_failure" })),
+                            (
+                                "verdict",
+                                serde_json::json!(if ramp_clear {
+                                    "clear"
+                                } else {
+                                    "grade_failure"
+                                }),
+                            ),
                             (
                                 "junctionToProtectedBand",
                                 json_map(vec![
@@ -21573,10 +22233,7 @@ mod tests {
                             ),
                         ]),
                     ),
-                    (
-                        "specifiedRoadId",
-                        road_binding,
-                    ),
+                    ("specifiedRoadId", road_binding),
                     (
                         "accessBudget",
                         json_map(vec![
@@ -21620,7 +22277,10 @@ mod tests {
                 "inputs",
                 json_map(vec![
                     ("g12Run", g15_input(&g15_g12_file("run.json"))),
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -21914,7 +22574,12 @@ mod tests {
                     ("designMm", serde_json::json!(2390)),
                     ("cells", serde_json::json!(pad_cells)),
                     ("deviatingCells", serde_json::json!(pad_deviations)),
-                    ("preflightRequirement", serde_json::json!("frontage::preflight requires every pad cell at the design level")),
+                    (
+                        "preflightRequirement",
+                        serde_json::json!(
+                            "frontage::preflight requires every pad cell at the design level"
+                        ),
+                    ),
                 ]),
             ),
             (
@@ -21948,10 +22613,16 @@ mod tests {
                     ("climbMm", serde_json::json!(north_climb_mm)),
                     ("maxLevelStepMm", serde_json::json!(G16_MAX_LEVEL_STEP_MM)),
                     ("requiredConstantLevels", serde_json::json!(north_levels)),
-                    ("authorizedRectangles", serde_json::json!(G16_AUTHORIZED_RECTANGLES)),
+                    (
+                        "authorizedRectangles",
+                        serde_json::json!(G16_AUTHORIZED_RECTANGLES),
+                    ),
                     ("freeRowsAvailable", serde_json::json!(north_free_rows)),
                     ("climbCapacityMm", serde_json::json!(north_capacity_mm)),
-                    ("spatiallyFeasible", serde_json::json!(north_capacity_mm >= north_climb_mm)),
+                    (
+                        "spatiallyFeasible",
+                        serde_json::json!(north_capacity_mm >= north_climb_mm),
+                    ),
                     (
                         "verdict",
                         serde_json::json!(if north_levels > G16_AUTHORIZED_RECTANGLES {
@@ -21998,7 +22669,10 @@ mod tests {
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -22032,14 +22706,22 @@ mod tests {
                 steps.push(("bcNorthDiagonalLeft".into(), (x, row(4)), (x - 2.0, row(5))));
             }
             if i < 4 {
-                steps.push(("bcNorthDiagonalRight".into(), (x, row(4)), (x + 2.0, row(5))));
+                steps.push((
+                    "bcNorthDiagonalRight".into(),
+                    (x, row(4)),
+                    (x + 2.0, row(5)),
+                ));
             }
         }
         // south: the plateau rows below the BC flat top
         for i in -48..=11 {
             let x = G16_START.0 + 2.0 * f64::from(i);
             steps.push(("bcSouthStraight".into(), (x, row(12)), (x, row(13))));
-            steps.push(("bcSouthDiagonalRight".into(), (x, row(12)), (x + 2.0, row(13))));
+            steps.push((
+                "bcSouthDiagonalRight".into(),
+                (x, row(12)),
+                (x + 2.0, row(13)),
+            ));
         }
         steps.push(("abSouthStraight".into(), (294.0, row(10)), (294.0, row(11))));
         steps.push(("abSouthDiagonal".into(), (292.0, row(10)), (294.0, row(11))));
@@ -22116,7 +22798,12 @@ mod tests {
             }
             collar_rows.push(json_map(vec![
                 ("z", serde_json::json!(z)),
-                ("westCellDeltaMm", serde_json::json!((mm(&candidate, 281, z as i32) - mm(&candidate, 280, z as i32)).abs())),
+                (
+                    "westCellDeltaMm",
+                    serde_json::json!(
+                        (mm(&candidate, 281, z as i32) - mm(&candidate, 280, z as i32)).abs()
+                    ),
+                ),
                 ("westClear", serde_json::json!(west.0)),
                 ("westMaxSampledDeltaM", serde_json::json!(west.1)),
                 ("westLimitM", serde_json::json!(west.2)),
@@ -22168,7 +22855,9 @@ mod tests {
         }
         assert!(!passable_crossings.is_empty(), "the gate exists");
         assert!(
-            passable_crossings.iter().all(|(_, b, _)| b.1 <= 108.85 + 1e-9),
+            passable_crossings
+                .iter()
+                .all(|(_, b, _)| b.1 <= 108.85 + 1e-9),
             "no crossing step reaches a platform node south of z=108.85"
         );
         let gate_south = passable_crossings
@@ -22228,12 +22917,11 @@ mod tests {
         );
 
         // 4. the platform leg itself is walkable, so the gate is the whole question
-        let platform_leg = g16_segment(
-            &candidate,
-            (282.0, 106.85),
-            (282.0, 172.85),
+        let platform_leg = g16_segment(&candidate, (282.0, 106.85), (282.0, 172.85));
+        assert!(
+            platform_leg.0,
+            "the AB platform column is walkable end to end"
         );
-        assert!(platform_leg.0, "the AB platform column is walkable end to end");
 
         // 5. the frozen rows read identically on both saved surfaces
         let mut frozen_identical = 0_u64;
@@ -22297,10 +22985,12 @@ mod tests {
                     ("southernmostPassableTarget", serde_json::json!(gate_south)),
                     (
                         "passable",
-                        serde_json::json!(passable_crossings
-                            .iter()
-                            .map(|(a, b, l)| serde_json::json!([a.0, a.1, b.0, b.1, l]))
-                            .collect::<Vec<_>>()),
+                        serde_json::json!(
+                            passable_crossings
+                                .iter()
+                                .map(|(a, b, l)| serde_json::json!([a.0, a.1, b.0, b.1, l]))
+                                .collect::<Vec<_>>()
+                        ),
                     ),
                     ("steps", serde_json::json!(crossing_steps)),
                 ]),
@@ -22336,13 +23026,19 @@ mod tests {
                 json_map(vec![
                     ("rectangle", serde_json::json!(G16_BC_PROTECTION)),
                     ("cells", serde_json::json!(protection_cells)),
-                    ("identicalOnBothSurfaces", serde_json::json!(frozen_identical)),
+                    (
+                        "identicalOnBothSurfaces",
+                        serde_json::json!(frozen_identical),
+                    ),
                 ]),
             ),
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -22440,10 +23136,7 @@ mod tests {
                 let clear = g16_segment(&candidate, p, end).0;
                 let on_wall_row = p.1 <= 172.85 + 1e-9;
                 if on_wall_row && p.0 <= 280.0 + 1e-9 {
-                    assert!(
-                        !clear,
-                        "no plateau-side node clears the BC wall: {p:?}"
-                    );
+                    assert!(!clear, "no plateau-side node clears the BC wall: {p:?}");
                     wall_nodes_blocked += 1;
                 } else if clear {
                     cleared_nodes.push(serde_json::json!([p.0, p.1, d_bc]));
@@ -22471,7 +23164,10 @@ mod tests {
         let gate_node = (282.0, 106.85);
         let gate_ab = g16_distance(gate_node, g16_closest(G16_AB_PAVEMENT, gate_node));
         let gate_bc = g16_distance(gate_node, g16_closest(G16_BC_PAVEMENT, gate_node));
-        assert!(gate_ab <= G16_GOAL_RADIUS_M, "the AB radius fires at the gate");
+        assert!(
+            gate_ab <= G16_GOAL_RADIUS_M,
+            "the AB radius fires at the gate"
+        );
         assert!(
             gate_bc > G16_GOAL_RADIUS_M,
             "BC is far out of range at the gate, so the loop falls through to AB"
@@ -22490,7 +23186,10 @@ mod tests {
                     ("row171Mm", serde_json::json!(mm(&candidate, 270, 171))),
                     ("row172Mm", serde_json::json!(mm(&candidate, 270, 172))),
                     ("row173Mm", serde_json::json!(mm(&candidate, 270, 173))),
-                    ("bcPavementAt270Mm", serde_json::json!(mm(&candidate, 270, 180))),
+                    (
+                        "bcPavementAt270Mm",
+                        serde_json::json!(mm(&candidate, 270, 180)),
+                    ),
                 ])
             })
             .collect();
@@ -22512,7 +23211,10 @@ mod tests {
                 json_map(vec![
                     ("bcDistanceFromStartM", serde_json::json!(start_bc)),
                     ("abDistanceFromStartM", serde_json::json!(start_ab)),
-                    ("sortKey", serde_json::json!("(closest distance from start, entity_id)")),
+                    (
+                        "sortKey",
+                        serde_json::json!("(closest distance from start, entity_id)"),
+                    ),
                     (
                         "reading",
                         serde_json::json!(
@@ -22525,7 +23227,10 @@ mod tests {
             (
                 "wall",
                 json_map(vec![
-                    ("plateauSideNodesInsideRadius", serde_json::json!(wall_nodes_blocked)),
+                    (
+                        "plateauSideNodesInsideRadius",
+                        serde_json::json!(wall_nodes_blocked),
+                    ),
                     ("plateauSideNodesCleared", serde_json::json!(0)),
                     ("rows", serde_json::json!(wall_rows)),
                     (
@@ -22586,7 +23291,10 @@ mod tests {
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -22687,15 +23395,12 @@ mod tests {
                 "waypoints",
                 json_map(vec![
                     ("startM", serde_json::json!([G16_START.0, G16_START.1])),
-                    ("startSource", serde_json::json!("exit_point: facade z=162 plus HALF_WIDTH+0.1")),
                     (
-                        "gate",
-                        serde_json::json!([280.0, 106.85]),
+                        "startSource",
+                        serde_json::json!("exit_point: facade z=162 plus HALF_WIDTH+0.1"),
                     ),
-                    (
-                        "goal",
-                        serde_json::json!([282.0, 172.85]),
-                    ),
+                    ("gate", serde_json::json!([280.0, 106.85])),
+                    ("goal", serde_json::json!([282.0, 172.85])),
                     (
                         "gateProvenance",
                         serde_json::json!(
@@ -22768,7 +23473,10 @@ mod tests {
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -22880,14 +23588,20 @@ mod tests {
                                     "the collar and the whole trench perimeter were sampled with the production predicate; the accepted plateau crossings stop at z=110.85 on the lattice, and no straight crossing south of z=106.85 is accepted"
                                 ),
                             ),
-                            ("southernmostAcceptedGateRow", serde_json::json!(southernmost_gate)),
+                            (
+                                "southernmostAcceptedGateRow",
+                                serde_json::json!(southernmost_gate),
+                            ),
                             ("evidence", serde_json::json!("step13b")),
                         ]),
                     ),
                     (
                         "specifiedRoadId",
                         json_map(vec![
-                            ("status", serde_json::json!("not_satisfiable_through_this_window")),
+                            (
+                                "status",
+                                serde_json::json!("not_satisfiable_through_this_window"),
+                            ),
                             (
                                 "cause",
                                 serde_json::json!(
@@ -22913,16 +23627,19 @@ mod tests {
             (
                 "constructBudgetArithmetic",
                 json_map(vec![
-                    ("frozenCellAdjacentToGateMm", serde_json::json!(mm(&candidate, 279, 107))),
+                    (
+                        "frozenCellAdjacentToGateMm",
+                        serde_json::json!(mm(&candidate, 279, 107)),
+                    ),
                     ("padDesignMm", serde_json::json!(2390)),
                     ("climbMm", serde_json::json!(climb_mm)),
                     ("maxLevelStepMm", serde_json::json!(G16_MAX_LEVEL_STEP_MM)),
                     ("requiredConstantLevels", serde_json::json!(levels)),
-                    ("authorizedRectangles", serde_json::json!(G16_AUTHORIZED_RECTANGLES)),
                     (
-                        "verdict",
-                        serde_json::json!("construct_budget_exceeded"),
+                        "authorizedRectangles",
+                        serde_json::json!(G16_AUTHORIZED_RECTANGLES),
                     ),
+                    ("verdict", serde_json::json!("construct_budget_exceeded")),
                 ]),
             ),
             (
@@ -23013,7 +23730,10 @@ mod tests {
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
@@ -23055,8 +23775,7 @@ mod tests {
     // from any whole-target conclusion. This round adds no candidate, no fixture and
     // no route, and it closes the proof attempt rather than widening the enumeration.
 
-    const G16A_BUNDLE: &str =
-        "../../work/collaboration/ds-b01-g16a-boundary-certificate-audit";
+    const G16A_BUNDLE: &str = "../../work/collaboration/ds-b01-g16a-boundary-certificate-audit";
 
     fn g16a_write_new(name: &str, value: &serde_json::Value) -> serde_json::Value {
         let dir = evidence_dir(G16A_BUNDLE);
@@ -23166,10 +23885,12 @@ mod tests {
                         ("limitM", serde_json::json!(limit)),
                         (
                             "fixedCells",
-                            serde_json::json!(cells
-                                .iter()
-                                .map(|cell| serde_json::json!([cell.0, cell.1]))
-                                .collect::<Vec<_>>()),
+                            serde_json::json!(
+                                cells
+                                    .iter()
+                                    .map(|cell| serde_json::json!([cell.0, cell.1]))
+                                    .collect::<Vec<_>>()
+                            ),
                         ),
                     ]));
                 }
@@ -23245,9 +23966,7 @@ mod tests {
         let bc_flat = [232 - bc_w, 180 - bc_d, 232 + bc_w, 180 + bc_d];
         assert_eq!(ab_flat, [281, 92, 295, 184]);
         assert_eq!(bc_flat, [172, 173, 292, 187]);
-        let on_floor = |x: i32, z: i32| {
-            g16a_in_rect(ab_flat, x, z) || g16a_in_rect(bc_flat, x, z)
-        };
+        let on_floor = |x: i32, z: i32| g16a_in_rect(ab_flat, x, z) || g16a_in_rect(bc_flat, x, z);
 
         // every eight-neighbour lattice step from a non-floor node into the floor
         let mut steps: BTreeMap<((i64, i64), (i64, i64)), ((f64, f64), (f64, f64))> =
@@ -23278,7 +23997,10 @@ mod tests {
                 }
             }
         }
-        assert!(steps.len() > 300, "the fence graph is enumerated, not sampled");
+        assert!(
+            steps.len() > 300,
+            "the fence graph is enumerated, not sampled"
+        );
 
         let mut entries: Vec<serde_json::Value> = vec![];
         let mut accepted_entries: Vec<serde_json::Value> = vec![];
@@ -23340,7 +24062,10 @@ mod tests {
             entries.len(),
             certificate_entries.len() + accepted_entries.len() + variable_entries.len()
         );
-        assert!(certificate_entries.len() > 0, "the walls do carry certificates");
+        assert!(
+            certificate_entries.len() > 0,
+            "the walls do carry certificates"
+        );
         for entry in &entries {
             if entry["class"] == "fixed_pair_certificate" {
                 for cell in entry["certificate"]["fixedCells"].as_array().unwrap() {
@@ -23361,7 +24086,10 @@ mod tests {
             (entry["from"][1].as_f64().unwrap() - 110.85).abs() < 0.01
                 && (entry["from"][0].as_f64().unwrap() - 280.0).abs() < 0.01
         });
-        assert!(gate_reappears, "the diagonal collar gate must classify as accepted");
+        assert!(
+            gate_reappears,
+            "the diagonal collar gate must classify as accepted"
+        );
 
         // per-boundary closure: a boundary is closed when no step on it is variable
         let mut closure: Vec<serde_json::Value> = vec![];
@@ -23420,7 +24148,10 @@ mod tests {
                 "graph",
                 json_map(vec![
                     ("steps", serde_json::json!(entries.len())),
-                    ("acceptedGateSteps", serde_json::json!(accepted_entries.len())),
+                    (
+                        "acceptedGateSteps",
+                        serde_json::json!(accepted_entries.len()),
+                    ),
                     (
                         "fixedPairCertificateSteps",
                         serde_json::json!(certificate_entries.len()),
@@ -23429,19 +24160,23 @@ mod tests {
                     ("fenceClosed", serde_json::json!(fence_closed)),
                     (
                         "closedBoundaries",
-                        serde_json::json!(closed_here
-                            .iter()
-                            .filter(|(_, closed)| **closed)
-                            .map(|(name, _)| name.clone())
-                            .collect::<Vec<_>>()),
+                        serde_json::json!(
+                            closed_here
+                                .iter()
+                                .filter(|(_, closed)| **closed)
+                                .map(|(name, _)| name.clone())
+                                .collect::<Vec<_>>()
+                        ),
                     ),
                     (
                         "openBoundaries",
-                        serde_json::json!(closed_here
-                            .iter()
-                            .filter(|(_, closed)| !**closed)
-                            .map(|(name, _)| name.clone())
-                            .collect::<Vec<_>>()),
+                        serde_json::json!(
+                            closed_here
+                                .iter()
+                                .filter(|(_, closed)| !**closed)
+                                .map(|(name, _)| name.clone())
+                                .collect::<Vec<_>>()
+                        ),
                     ),
                 ]),
             ),
@@ -23449,7 +24184,12 @@ mod tests {
             (
                 "acceptedGates",
                 json_map(vec![
-                    ("note", serde_json::json!("the only entries into the graded tops this fence graph leaves open")),
+                    (
+                        "note",
+                        serde_json::json!(
+                            "the only entries into the graded tops this fence graph leaves open"
+                        ),
+                    ),
                     ("steps", serde_json::json!(accepted_entries)),
                 ]),
             ),
@@ -23468,16 +24208,18 @@ mod tests {
             ("certificateSteps", serde_json::json!(certificate_entries)),
             (
                 "allStepsCompact",
-                serde_json::json!(entries
-                    .iter()
-                    .map(|entry| serde_json::json!([
-                        entry["from"].clone(),
-                        entry["to"].clone(),
-                        entry["boundary"].clone(),
-                        entry["latticeStep"].clone(),
-                        entry["class"].clone()
-                    ]))
-                    .collect::<Vec<_>>()),
+                serde_json::json!(
+                    entries
+                        .iter()
+                        .map(|entry| serde_json::json!([
+                            entry["from"].clone(),
+                            entry["to"].clone(),
+                            entry["boundary"].clone(),
+                            entry["latticeStep"].clone(),
+                            entry["class"].clone()
+                        ]))
+                        .collect::<Vec<_>>()
+                ),
             ),
             (
                 "reading",
@@ -23629,7 +24371,10 @@ mod tests {
             (
                 "arithmetic",
                 json_map(vec![
-                    ("argminGateFrom", serde_json::json!([argmin.0.0, argmin.0.1])),
+                    (
+                        "argminGateFrom",
+                        serde_json::json!([argmin.0.0, argmin.0.1]),
+                    ),
                     ("argminGateTo", serde_json::json!([argmin.1.0, argmin.1.1])),
                     ("goalNode", serde_json::json!([goal_node.0, goal_node.1])),
                     ("octileBoundM", serde_json::json!(octile_bound)),
@@ -23661,14 +24406,19 @@ mod tests {
             (
                 "inputs",
                 json_map(vec![
-                    ("baselineSurface", g15_input(&g15_g12_file("surface-baseline.bin"))),
+                    (
+                        "baselineSurface",
+                        g15_input(&g15_g12_file("surface-baseline.bin")),
+                    ),
                     (
                         "northCandidateSurface",
                         g15_input(&g15_g12_file("surface-G-1c-north.bin")),
                     ),
                     (
                         "g16Verdict",
-                        g15_input("../../work/collaboration/ds-b01-g16-specified-window-budget/step13e-candidate-verdict.json"),
+                        g15_input(
+                            "../../work/collaboration/ds-b01-g16-specified-window-budget/step13e-candidate-verdict.json",
+                        ),
                     ),
                 ]),
             ),
@@ -23693,8 +24443,7 @@ mod tests {
     // production access stage. No second candidate, no parameter change, no
     // second natural run, no contract change.
 
-    const G17_BUNDLE: &str =
-        "../../work/collaboration/ds-b01-g17-west-entry-engineering-bundle";
+    const G17_BUNDLE: &str = "../../work/collaboration/ds-b01-g17-west-entry-engineering-bundle";
     const G17_MANIFEST: &str =
         "../../work/collaboration/ds-b04-c1-r2-b02-w1/w1-collector-local.manifest.json";
     const G17_PUBLISHED: &str =
@@ -23761,8 +24510,8 @@ mod tests {
     }
 
     fn g17_source_bytes() -> Vec<u8> {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/worldgen/auto_roads.rs");
+        let path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/worldgen/auto_roads.rs");
         std::fs::read(&path).expect("the executing source file")
     }
 
@@ -23839,22 +24588,24 @@ mod tests {
 
     /// A comparable signature of a carve list (`TerrainCarve` is not `Serialize`).
     fn g17_carve_signature(carves: &[super::super::TerrainCarve]) -> String {
-        hash_json(&serde_json::json!(carves
-            .iter()
-            .map(|carve| {
-                json_map(vec![
-                    ("cx", serde_json::json!(carve.cx)),
-                    ("cz", serde_json::json!(carve.cz)),
-                    ("halfW", serde_json::json!(carve.half_w)),
-                    ("halfD", serde_json::json!(carve.half_d)),
-                    ("targetMm", serde_json::json!(height_mm(carve.target_h_m))),
-                    ("blendM", serde_json::json!(carve.blend_m)),
-                    ("priority", serde_json::json!(carve.priority)),
-                    ("disturbance", serde_json::json!(carve.disturbance)),
-                    ("hasProfile", serde_json::json!(carve.profile.is_some())),
-                ])
-            })
-            .collect::<Vec<_>>()))
+        hash_json(&serde_json::json!(
+            carves
+                .iter()
+                .map(|carve| {
+                    json_map(vec![
+                        ("cx", serde_json::json!(carve.cx)),
+                        ("cz", serde_json::json!(carve.cz)),
+                        ("halfW", serde_json::json!(carve.half_w)),
+                        ("halfD", serde_json::json!(carve.half_d)),
+                        ("targetMm", serde_json::json!(height_mm(carve.target_h_m))),
+                        ("blendM", serde_json::json!(carve.blend_m)),
+                        ("priority", serde_json::json!(carve.priority)),
+                        ("disturbance", serde_json::json!(carve.disturbance)),
+                        ("hasProfile", serde_json::json!(carve.profile.is_some())),
+                    ])
+                })
+                .collect::<Vec<_>>()
+        ))
     }
     fn g17_probe_scene() -> SceneSpec {
         SceneSpec {
@@ -23901,23 +24652,18 @@ mod tests {
     /// No natural input is read and no surface is synthesised onto a saved one.
     #[test]
     fn g17_preflight_artificial_acceptance() {
-
         let fixture = g1b_fixture();
         let base_entities = vec![fixture.road_a.clone()];
         let base_carves = super::super::plan_terrain_carves(&base_entities);
         let base_before = g17_carve_signature(&base_carves);
 
         // ---- 1. unique connection removal, exact seven blocks, no re-sort ------
-        let candidate_carves = super::super::plan_terrain_carves(std::slice::from_ref(
-            &fixture.north,
-        ));
+        let candidate_carves =
+            super::super::plan_terrain_carves(std::slice::from_ref(&fixture.north));
         let tags = tag_carves(std::slice::from_ref(&fixture.north), &candidate_carves);
-        let connection_index = g1b_connection_index(
-            &candidate_carves,
-            &tags,
-            &fixture.north.entity_id,
-        )
-        .expect("exactly one production connection");
+        let connection_index =
+            g1b_connection_index(&candidate_carves, &tags, &fixture.north.entity_id)
+                .expect("exactly one production connection");
         let (mut proposed, removed) =
             g1d_without_connection(&candidate_carves, &tags, &fixture.north.entity_id)
                 .expect("G-1d removal");
@@ -24019,10 +24765,7 @@ mod tests {
             .clone();
         let apply = |carves: &[super::super::TerrainCarve]| {
             height_mm(super::super::apply_terrain_carves(
-                natural_m,
-                probe.0,
-                probe.1,
-                carves,
+                natural_m, probe.0, probe.1, carves,
             ))
         };
         let without_w1 = apply(&[old_fill.clone()]);
@@ -24132,14 +24875,9 @@ mod tests {
             1.0 + f64::from(x % 7) * 0.01 + f64::from(z % 5) * 0.01
         });
         let (_, mask) = g17_frozen_mask();
-        let reopen_status = g11_support_invariance(
-            &terrain,
-            &mask,
-            &base_carves,
-            &reopened,
-            &domain,
-        )
-        .expect("the reopened connection violates the support rule");
+        let reopen_status =
+            g11_support_invariance(&terrain, &mask, &base_carves, &reopened, &domain)
+                .expect("the reopened connection violates the support rule");
         assert_eq!(
             g1b_text(&reopen_status, "status"),
             "existing_support_changed",
@@ -24310,7 +25048,8 @@ mod tests {
         // ---- 5. one batch clock drives the publish gate ------------------------
         let payload = || json_map(vec![("status", serde_json::json!("batch"))]);
         let fresh = WallClock::start();
-        let (published, incomplete, expired_at) = g1b_publish(&fresh, G17_BATCH_BUDGET_MS, payload());
+        let (published, incomplete, expired_at) =
+            g1b_publish(&fresh, G17_BATCH_BUDGET_MS, payload());
         assert!(published.is_some() && !incomplete && expired_at.is_none());
         let spent = ExpireClock {
             ticks: std::cell::Cell::new(0),
@@ -24350,7 +25089,12 @@ mod tests {
         let bind = g11_access_check(
             &bind_entities,
             &bind_terrain,
-            super::super::water_geometry(super::super::WaterKind::None, &[], &bind_scene, &serde_json::json!({})),
+            super::super::water_geometry(
+                super::super::WaterKind::None,
+                &[],
+                &bind_scene,
+                &serde_json::json!({}),
+            ),
             &candidate.entity_id,
             &site_road.entity_id,
         );
@@ -24379,11 +25123,17 @@ mod tests {
             (
                 "connectionIdentity",
                 json_map(vec![
-                    ("rule", serde_json::json!("G-1d base plus the seven authorised rectangles")),
+                    (
+                        "rule",
+                        serde_json::json!("G-1d base plus the seven authorised rectangles"),
+                    ),
                     ("connectionIndex", serde_json::json!(connection_index)),
                     ("removedIndex", serde_json::json!(removed)),
                     ("otherComponentsCompared", serde_json::json!(compared)),
-                    ("candidateComponentsBeforeRemoval", serde_json::json!(candidate_carves.len())),
+                    (
+                        "candidateComponentsBeforeRemoval",
+                        serde_json::json!(candidate_carves.len()),
+                    ),
                     ("proposedComponents", serde_json::json!(proposed.len())),
                     ("blocks", g17_blocks_json()),
                     ("baselineUnchanged", serde_json::json!(true)),
@@ -24396,11 +25146,20 @@ mod tests {
                     ("probeCell", serde_json::json!([probe.0, probe.1])),
                     ("naturalMm", serde_json::json!(height_mm(natural_m))),
                     ("oldFillOnlyMm", serde_json::json!(without_w1)),
-                    ("w1WithoutGradedInfluenceMm", serde_json::json!(w1_no_graded)),
+                    (
+                        "w1WithoutGradedInfluenceMm",
+                        serde_json::json!(w1_no_graded),
+                    ),
                     ("w1WithGradedInfluenceMm", serde_json::json!(w1_with_graded)),
                     ("w1UnderHigherPriorityMm", serde_json::json!(w1_under_p10)),
-                    ("samePriorityOverlapHighMm", serde_json::json!(peer_overlap_high)),
-                    ("samePriorityOverlapLowMm", serde_json::json!(peer_overlap_low)),
+                    (
+                        "samePriorityOverlapHighMm",
+                        serde_json::json!(peer_overlap_high),
+                    ),
+                    (
+                        "samePriorityOverlapLowMm",
+                        serde_json::json!(peer_overlap_low),
+                    ),
                     (
                         "reading",
                         serde_json::json!(
@@ -24415,10 +25174,16 @@ mod tests {
                     ("existingEntities", serde_json::json!(base_entities.len())),
                     ("domainCells", serde_json::json!(domain.len())),
                     ("productionPairChecks", serde_json::json!(pair_checks)),
-                    ("reopenedConnectionStatus", serde_json::json!(g1b_text(&reopen_status, "status"))),
+                    (
+                        "reopenedConnectionStatus",
+                        serde_json::json!(g1b_text(&reopen_status, "status")),
+                    ),
                     ("padCells", serde_json::json!(g1b_mm(&pad, "padCells"))),
                     ("padStatus", serde_json::json!(g1b_text(&pad, "status"))),
-                    ("padMismatches", serde_json::json!(g1b_mm(&pad, "mismatches"))),
+                    (
+                        "padMismatches",
+                        serde_json::json!(g1b_mm(&pad, "mismatches")),
+                    ),
                     (
                         "distanceUnitFixture",
                         json_map(vec![
@@ -24435,14 +25200,26 @@ mod tests {
             (
                 "fixedContractGates",
                 json_map(vec![
-                    ("frozenZoneScan", json_map(vec![
-                        ("scene", serde_json::json!([frozen_scene.width_m, frozen_scene.depth_m])),
-                        ("protectedCells", serde_json::json!(frozen_protected)),
-                        ("cellsWithFiniteCapacity", serde_json::json!(frozen_capped)),
-                    ])),
+                    (
+                        "frozenZoneScan",
+                        json_map(vec![
+                            (
+                                "scene",
+                                serde_json::json!([frozen_scene.width_m, frozen_scene.depth_m]),
+                            ),
+                            ("protectedCells", serde_json::json!(frozen_protected)),
+                            ("cellsWithFiniteCapacity", serde_json::json!(frozen_capped)),
+                        ]),
+                    ),
                     ("syntheticProtectedCell", serde_json::json!([220, 160])),
-                    ("syntheticProtectedBeforeMm", serde_json::json!(sy_protected_before)),
-                    ("syntheticProtectedAfterMm", serde_json::json!(sy_protected_after)),
+                    (
+                        "syntheticProtectedBeforeMm",
+                        serde_json::json!(sy_protected_before),
+                    ),
+                    (
+                        "syntheticProtectedAfterMm",
+                        serde_json::json!(sy_protected_after),
+                    ),
                     (
                         "syntheticProtectedUnmoved",
                         serde_json::json!(sy_protected_before == sy_protected_after),
@@ -24473,7 +25250,10 @@ mod tests {
                 json_map(vec![
                     ("budgetMs", serde_json::json!(G17_BATCH_BUDGET_MS)),
                     ("freshPublishes", serde_json::json!(true)),
-                    ("spentRefusesAt", serde_json::json!("before-staging-witness")),
+                    (
+                        "spentRefusesAt",
+                        serde_json::json!("before-staging-witness"),
+                    ),
                     ("lateRefusesAt", serde_json::json!("before-output")),
                     ("lateRecord", incomplete_record),
                 ]),
@@ -24522,7 +25302,9 @@ mod tests {
             ("version", serde_json::json!(1)),
             (
                 "fixedState",
-                serde_json::json!("ST18-R1 (A=(288,96)@8000mm, B=(288,180)@3110mm, C=(176,180)@-382mm)"),
+                serde_json::json!(
+                    "ST18-R1 (A=(288,96)@8000mm, B=(288,180)@3110mm, C=(176,180)@-382mm)"
+                ),
             ),
             (
                 "geometry",
@@ -24540,7 +25322,10 @@ mod tests {
                             "the production pad, apron and connection of the north homes site at station 18 side -1, with the single production connection removed (G-1d); pad and every apron keep their fields"
                         ),
                     ),
-                    ("appendOrder", serde_json::json!(["T1", "T2", "T3", "T4", "T5", "W1", "W2"])),
+                    (
+                        "appendOrder",
+                        serde_json::json!(["T1", "T2", "T3", "T4", "T5", "W1", "W2"]),
+                    ),
                     ("blocks", g17_blocks_json()),
                     (
                         "provenance",
@@ -24559,8 +25344,14 @@ mod tests {
             (
                 "target",
                 json_map(vec![
-                    ("roadIdRequired", serde_json::json!("generated.road-supply.g9.ST18-R1.bc")),
-                    ("intent", serde_json::json!("west end of BC near x=170..176")),
+                    (
+                        "roadIdRequired",
+                        serde_json::json!("generated.road-supply.g9.ST18-R1.bc"),
+                    ),
+                    (
+                        "intent",
+                        serde_json::json!("west end of BC near x=170..176"),
+                    ),
                     (
                         "notAccepted",
                         serde_json::json!(
@@ -24625,7 +25416,10 @@ mod tests {
                 g15_input(&format!("{G17_G12_DIR}/surface-G-1d-north.bin")),
             ),
             ("archivedNatural", g15_input(G17_ARCHIVED_NATURAL)),
-            ("publishedScene", g15_input(&format!("{G17_PUBLISHED}/scene.json"))),
+            (
+                "publishedScene",
+                g15_input(&format!("{G17_PUBLISHED}/scene.json")),
+            ),
             (
                 "publishedPlan",
                 g15_input(&format!("{G17_PUBLISHED}/road-network-plan.json")),
@@ -24657,14 +25451,20 @@ mod tests {
             ("fixedState", serde_json::json!("ST18-R1")),
             ("candidate", serde_json::json!("G-W1")),
             ("ruleTableBlake3", table_written["blake3RawBytes"].clone()),
-            ("executingSourceBlake3", source_written["blake3RawBytes"].clone()),
+            (
+                "executingSourceBlake3",
+                source_written["blake3RawBytes"].clone(),
+            ),
             (
                 "stageOrder",
                 serde_json::json!(["authenticity", "D1", "D2", "serialise", "publish"]),
             ),
-            ("budget", serde_json::json!({"naturalHarnesses": 1, "planRebuilds": 1,
+            (
+                "budget",
+                serde_json::json!({"naturalHarnesses": 1, "planRebuilds": 1,
                                           "counterfactualSurfaces": 3, "buildAccessGraphCalls": 4,
-                                          "naturalSeconds": 180})),
+                                          "naturalSeconds": 180}),
+            ),
             (
                 "note",
                 serde_json::json!(
@@ -24743,8 +25543,7 @@ mod tests {
         let rule_table_blake3 = g15_digest(&rule_table_bytes);
         let reservation_bytes =
             std::fs::read(dir.join("run-reservation.json")).expect("the frozen reservation");
-        let reservation: serde_json::Value =
-            serde_json::from_slice(&reservation_bytes).unwrap();
+        let reservation: serde_json::Value = serde_json::from_slice(&reservation_bytes).unwrap();
         let source_bytes = g17_source_bytes();
         let source_blake3 = g15_digest(&source_bytes);
         assert_eq!(
@@ -24759,10 +25558,16 @@ mod tests {
         let marker = g17_write_new(
             "natural-batch-started.json",
             &json_map(vec![
-                ("batchClockStartedAtMarkerMs", serde_json::json!(clock.millis())),
+                (
+                    "batchClockStartedAtMarkerMs",
+                    serde_json::json!(clock.millis()),
+                ),
                 ("executingSourceBlake3", serde_json::json!(source_blake3)),
                 ("ruleTableBlake3", serde_json::json!(rule_table_blake3)),
-                ("note", serde_json::json!("one natural batch only; a second run is refused")),
+                (
+                    "note",
+                    serde_json::json!("one natural batch only; a second run is refused"),
+                ),
             ]),
         );
 
@@ -24824,8 +25629,15 @@ mod tests {
         assert_eq!(plan.nodes.len(), 27);
         let ctx = AlignmentContext::new(&scene, &terrain, water, &zones).unwrap();
         let mut verified = plan.clone();
-        super::super::frontage::append(&mut verified, &scene, &terrain, water, Some(&zones), &style)
-            .unwrap();
+        super::super::frontage::append(
+            &mut verified,
+            &scene,
+            &terrain,
+            water,
+            Some(&zones),
+            &style,
+        )
+        .unwrap();
         let obligations = verified
             .roadside_sites
             .iter()
@@ -24894,8 +25706,7 @@ mod tests {
             .unwrap()
             .elevations_mm
             .clone();
-        let g8: serde_json::Value =
-            serde_json::from_slice(&g15_read(G17_G8_RUN)).expect("G8 run");
+        let g8: serde_json::Value = serde_json::from_slice(&g15_read(G17_G8_RUN)).expect("G8 run");
         let g8_state = g8["stateRecords"]
             .as_array()
             .unwrap()
@@ -24966,8 +25777,8 @@ mod tests {
                 }
             }
         }
-        let archived_same_origin = archived_exact
-            == u64::from(scene.width_m) * u64::from(scene.depth_m);
+        let archived_same_origin =
+            archived_exact == u64::from(scene.width_m) * u64::from(scene.depth_m);
 
         // the baseline surface, compared cell for cell with the saved G12 baseline
         let g12_run: serde_json::Value =
@@ -24983,16 +25794,13 @@ mod tests {
             &g12_dir,
             "surface-baseline.bin",
             &scene,
-            g12_hashes.get("surface-baseline.bin").expect("baseline hash"),
+            g12_hashes
+                .get("surface-baseline.bin")
+                .expect("baseline hash"),
         );
-        let (baseline_surface, baseline_record) = g11_counterfactual_surface(
-            &scene,
-            &terrain,
-            &mask,
-            &base_carves,
-            &[],
-        )
-        .expect("the baseline surface");
+        let (baseline_surface, baseline_record) =
+            g11_counterfactual_surface(&scene, &terrain, &mask, &base_carves, &[])
+                .expect("the baseline surface");
         let mut baseline_mismatches = 0_u64;
         let mut baseline_first: Option<serde_json::Value> = None;
         for z in scene.origin_z..scene.origin_z + scene.depth_m as i32 {
@@ -25044,10 +25852,7 @@ mod tests {
                 "archivedNatural",
                 json_map(vec![
                     ("file", natural_saved["file"].clone()),
-                    (
-                        "exactMatches",
-                        serde_json::json!(archived_exact),
-                    ),
+                    ("exactMatches", serde_json::json!(archived_exact)),
                     ("cellsAboveArchived", serde_json::json!(archived_above)),
                     ("cellsBelowArchived", serde_json::json!(archived_below)),
                     ("maxAbsDiffMm", serde_json::json!(max_abs_diff)),
@@ -25064,7 +25869,10 @@ mod tests {
             (
                 "g12BaselineComparison",
                 json_map(vec![
-                    ("g12BaselineBlake3", serde_json::json!(g12_hashes.get("surface-baseline.bin"))),
+                    (
+                        "g12BaselineBlake3",
+                        serde_json::json!(g12_hashes.get("surface-baseline.bin")),
+                    ),
                     ("mismatchedCells", serde_json::json!(baseline_mismatches)),
                     ("firstMismatch", serde_json::json!(baseline_first)),
                     ("fourPointCrossCheck", serde_json::json!(four_cells)),
@@ -25094,17 +25902,14 @@ mod tests {
             let candidate_carves =
                 super::super::plan_terrain_carves(std::slice::from_ref(&north_entity));
             let tags = tag_carves(std::slice::from_ref(&north_entity), &candidate_carves);
-            let connection_index = match g1b_connection_index(
-                &candidate_carves,
-                &tags,
-                &north_entity.entity_id,
-            ) {
-                Ok(index) => index,
-                Err(error) => {
-                    technical_error = Some(error);
-                    0
-                }
-            };
+            let connection_index =
+                match g1b_connection_index(&candidate_carves, &tags, &north_entity.entity_id) {
+                    Ok(index) => index,
+                    Err(error) => {
+                        technical_error = Some(error);
+                        0
+                    }
+                };
             let (proposed, rule_record_json) =
                 match g1d_without_connection(&candidate_carves, &tags, &north_entity.entity_id) {
                     Ok((mut removed, index)) => {
@@ -25112,7 +25917,12 @@ mod tests {
                         (
                             removed,
                             json_map(vec![
-                                ("rule", serde_json::json!("G-1d base plus the seven authorised rectangles")),
+                                (
+                                    "rule",
+                                    serde_json::json!(
+                                        "G-1d base plus the seven authorised rectangles"
+                                    ),
+                                ),
                                 ("connectionIndex", serde_json::json!(connection_index)),
                                 ("removedIndex", serde_json::json!(index)),
                                 ("blocks", g17_blocks_json()),
@@ -25122,7 +25932,10 @@ mod tests {
                     }
                     Err(error) => {
                         technical_error = Some(error);
-                        (vec![], json_map(vec![("status", serde_json::json!("failed"))]))
+                        (
+                            vec![],
+                            json_map(vec![("status", serde_json::json!("failed"))]),
+                        )
                     }
                 };
             rule_record = rule_record_json;
@@ -25174,10 +25987,13 @@ mod tests {
                 let prechecks_pass = g1b_text(&prechecks, "status") == "pass";
                 let support_pass = g1b_text(&support, "status") == "pass";
                 let pad_pass = g1b_text(&pad, "status") == "pass";
-                let d1_pass = prechecks_pass && support_pass && pad_pass
-                    && technical_error.is_none();
+                let d1_pass =
+                    prechecks_pass && support_pass && pad_pass && technical_error.is_none();
                 d1 = json_map(vec![
-                    ("status", serde_json::json!(if d1_pass { "pass" } else { "rejected" })),
+                    (
+                        "status",
+                        serde_json::json!(if d1_pass { "pass" } else { "rejected" }),
+                    ),
                     ("prechecks", prechecks),
                     (
                         "support",
@@ -25186,11 +26002,14 @@ mod tests {
                             ("domainCells", serde_json::json!(domain.len())),
                             ("productionPairChecks", serde_json::json!(domain_probe.1)),
                             ("checkedCells", support["checkedCells"].clone()),
-                            ("firstViolation", json_map(vec![
-                                ("at", support["at"].clone()),
-                                ("beforeMm", support["beforeMm"].clone()),
-                                ("afterMm", support["afterMm"].clone()),
-                            ])),
+                            (
+                                "firstViolation",
+                                json_map(vec![
+                                    ("at", support["at"].clone()),
+                                    ("beforeMm", support["beforeMm"].clone()),
+                                    ("afterMm", support["afterMm"].clone()),
+                                ]),
+                            ),
                         ]),
                     ),
                     (
@@ -25202,22 +26021,28 @@ mod tests {
                             ("firstMismatch", pad["firstMismatch"].clone()),
                         ]),
                     ),
-                    ("firstObservedFailure", serde_json::json!(if !prechecks_pass {
-                        "contract_precheck"
-                    } else if !support_pass {
-                        "existing_support_changed"
-                    } else if !pad_pass {
-                        "engineered_platform_not_flat"
-                    } else {
-                        "none"
-                    })),
+                    (
+                        "firstObservedFailure",
+                        serde_json::json!(if !prechecks_pass {
+                            "contract_precheck"
+                        } else if !support_pass {
+                            "existing_support_changed"
+                        } else if !pad_pass {
+                            "engineered_platform_not_flat"
+                        } else {
+                            "none"
+                        }),
+                    ),
                 ]);
                 // ---- D2 ------------------------------------------------------
                 if d1_pass {
                     if (clock.millis() as u64) >= budget_ms {
                         access = json_map(vec![
                             ("status", serde_json::json!("not_run")),
-                            ("reason", serde_json::json!("batch budget exhausted before the access stage")),
+                            (
+                                "reason",
+                                serde_json::json!("batch budget exhausted before the access stage"),
+                            ),
                         ]);
                     } else {
                         let combined = {
@@ -25225,7 +26050,9 @@ mod tests {
                             all.extend(proposed.iter().cloned());
                             all
                         };
-                        match g11_counterfactual_surface(&scene, &terrain, &mask, &combined, &domain) {
+                        match g11_counterfactual_surface(
+                            &scene, &terrain, &mask, &combined, &domain,
+                        ) {
                             Ok((surface, record)) => {
                                 counters.candidate_surfaces += 1;
                                 counters.surface_cells += g1b_mm(&record, "cells");
@@ -25254,9 +26081,8 @@ mod tests {
                                 counters.graph_calls += 2;
                                 counters.graph_links_total +=
                                     plain.links.len() as i64 + observed.links.len() as i64;
-                                let equivalent =
-                                    serde_json::to_value(&plain).unwrap()
-                                        == serde_json::to_value(&observed).unwrap();
+                                let equivalent = serde_json::to_value(&plain).unwrap()
+                                    == serde_json::to_value(&observed).unwrap();
                                 let link = observed
                                     .links
                                     .iter()
@@ -25281,15 +26107,22 @@ mod tests {
                                     ("linkStatus", serde_json::json!(link.status)),
                                     (
                                         "path",
-                                        serde_json::json!(link
-                                            .path
-                                            .iter()
-                                            .map(|p| serde_json::json!([p.x, p.z]))
-                                            .collect::<Vec<_>>()),
+                                        serde_json::json!(
+                                            link.path
+                                                .iter()
+                                                .map(|p| serde_json::json!([p.x, p.z]))
+                                                .collect::<Vec<_>>()
+                                        ),
                                     ),
                                     ("graphLinksTotal", serde_json::json!(observed.links.len())),
-                                    ("graphConnectedEntities", serde_json::json!(observed.connected_entities)),
-                                    ("graphDisconnectedEntities", serde_json::json!(observed.disconnected_entities)),
+                                    (
+                                        "graphConnectedEntities",
+                                        serde_json::json!(observed.connected_entities),
+                                    ),
+                                    (
+                                        "graphDisconnectedEntities",
+                                        serde_json::json!(observed.disconnected_entities),
+                                    ),
                                     ("observation", g17_trace_json(&trace, 8)),
                                     (
                                         "thresholds",
@@ -25344,64 +26177,117 @@ mod tests {
             ("candidate", serde_json::json!("G-W1")),
             ("technicalError", serde_json::json!(technical_error.clone())),
             ("batchStartedMarker", marker),
-            ("ruleTableBlake3RawBytes", serde_json::json!(rule_table_blake3)),
-            ("reservationBlake3RawBytes", serde_json::json!(g15_digest(&reservation_bytes))),
-            ("executingSourceBlake3RawBytes", serde_json::json!(source_blake3)),
-            ("executingSourceBytes", serde_json::json!(source_bytes.len())),
+            (
+                "ruleTableBlake3RawBytes",
+                serde_json::json!(rule_table_blake3),
+            ),
+            (
+                "reservationBlake3RawBytes",
+                serde_json::json!(g15_digest(&reservation_bytes)),
+            ),
+            (
+                "executingSourceBlake3RawBytes",
+                serde_json::json!(source_blake3),
+            ),
+            (
+                "executingSourceBytes",
+                serde_json::json!(source_bytes.len()),
+            ),
             ("manifestBlake3RawBytes", serde_json::json!(manifest_blake3)),
-            ("authenticity", serde_json::json!(g15_input("../../work/collaboration/ds-b01-g17-west-entry-engineering-bundle/authenticity.json"))),
+            (
+                "authenticity",
+                serde_json::json!(g15_input(
+                    "../../work/collaboration/ds-b01-g17-west-entry-engineering-bundle/authenticity.json"
+                )),
+            ),
             ("ruleRecord", rule_record),
-            ("d1", json_map(vec![
-                ("status", d1["status"].clone()),
-                ("firstObservedFailure", d1["firstObservedFailure"].clone()),
-                ("domainCells", d1["support"]["domainCells"].clone()),
-                ("productionPairChecks", d1["support"]["productionPairChecks"].clone()),
-                ("padCells", d1["pad"]["padCells"].clone()),
-            ])),
-            ("access", json_map(vec![
-                ("status", access["status"].clone()),
-                ("connected", access["connected"].clone()),
-                ("roadId", access["roadId"].clone()),
-                ("distanceM", access["distanceM"].clone()),
-                ("observerEquivalence", access["observerEquivalence"].clone()),
-            ])),
-            ("surfaces", json_map(vec![
-                ("naturalMm", natural_saved),
-                ("baseline", baseline_record),
-                ("candidate", candidate_saved),
-            ])),
-            ("frozen", json_map(vec![
-                ("seed", serde_json::json!(world_seed)),
-                ("baselineEdges", serde_json::json!(plan.edges.len())),
-                ("baselineNodes", serde_json::json!(plan.nodes.len())),
-                ("baselineObligations", serde_json::json!(obligations)),
-                ("baselineCarves", serde_json::json!(base_carves.len())),
-                ("baselineEntities", serde_json::json!(base_entities.len())),
-                ("geometry", serde_json::json!({"A": a, "B": b, "C": c, "widthM": 12,
+            (
+                "d1",
+                json_map(vec![
+                    ("status", d1["status"].clone()),
+                    ("firstObservedFailure", d1["firstObservedFailure"].clone()),
+                    ("domainCells", d1["support"]["domainCells"].clone()),
+                    (
+                        "productionPairChecks",
+                        d1["support"]["productionPairChecks"].clone(),
+                    ),
+                    ("padCells", d1["pad"]["padCells"].clone()),
+                ]),
+            ),
+            (
+                "access",
+                json_map(vec![
+                    ("status", access["status"].clone()),
+                    ("connected", access["connected"].clone()),
+                    ("roadId", access["roadId"].clone()),
+                    ("distanceM", access["distanceM"].clone()),
+                    ("observerEquivalence", access["observerEquivalence"].clone()),
+                ]),
+            ),
+            (
+                "surfaces",
+                json_map(vec![
+                    ("naturalMm", natural_saved),
+                    ("baseline", baseline_record),
+                    ("candidate", candidate_saved),
+                ]),
+            ),
+            (
+                "frozen",
+                json_map(vec![
+                    ("seed", serde_json::json!(world_seed)),
+                    ("baselineEdges", serde_json::json!(plan.edges.len())),
+                    ("baselineNodes", serde_json::json!(plan.nodes.len())),
+                    ("baselineObligations", serde_json::json!(obligations)),
+                    ("baselineCarves", serde_json::json!(base_carves.len())),
+                    ("baselineEntities", serde_json::json!(base_entities.len())),
+                    (
+                        "geometry",
+                        serde_json::json!({"A": a, "B": b, "C": c, "widthM": 12,
                                                 "junctionLengthM": 9, "shoulderM": 3,
-                                                "maxRiseMmPerM": 80, "maxFillMm": 6000})),
-            ])),
-            ("callCounts", json_map(vec![
-                ("naturalHarnesses", serde_json::json!(1)),
-                ("planRebuilds", serde_json::json!(1)),
-                ("newCandidates", serde_json::json!(1)),
-                ("baselineCounterfactualSurfaces", serde_json::json!(1)),
-                ("candidateCounterfactualSurfaces", serde_json::json!(counters.candidate_surfaces)),
-                ("c0CrossCheckSurfaces", serde_json::json!(0)),
-                ("buildAccessGraphCalls", serde_json::json!(counters.graph_calls)),
-                ("surfaceCellsBuilt", serde_json::json!(counters.surface_cells)),
-                ("graphLinksTotal", serde_json::json!(counters.graph_links_total)),
-                ("measureCalls", serde_json::json!(0)),
-                ("candidateFinalTerrainCalls", serde_json::json!(0)),
-                ("realizations", serde_json::json!(0)),
-                ("bakes", serde_json::json!(0)),
-                ("fullFieldSearches", serde_json::json!(0)),
-            ])),
-            ("timing", json_map(vec![
-                ("rebuildMs", serde_json::json!(build_seconds)),
-                ("totalSeconds", serde_json::json!(seconds)),
-                ("budgetSeconds", serde_json::json!(budget_ms / 1000)),
-            ])),
+                                                "maxRiseMmPerM": 80, "maxFillMm": 6000}),
+                    ),
+                ]),
+            ),
+            (
+                "callCounts",
+                json_map(vec![
+                    ("naturalHarnesses", serde_json::json!(1)),
+                    ("planRebuilds", serde_json::json!(1)),
+                    ("newCandidates", serde_json::json!(1)),
+                    ("baselineCounterfactualSurfaces", serde_json::json!(1)),
+                    (
+                        "candidateCounterfactualSurfaces",
+                        serde_json::json!(counters.candidate_surfaces),
+                    ),
+                    ("c0CrossCheckSurfaces", serde_json::json!(0)),
+                    (
+                        "buildAccessGraphCalls",
+                        serde_json::json!(counters.graph_calls),
+                    ),
+                    (
+                        "surfaceCellsBuilt",
+                        serde_json::json!(counters.surface_cells),
+                    ),
+                    (
+                        "graphLinksTotal",
+                        serde_json::json!(counters.graph_links_total),
+                    ),
+                    ("measureCalls", serde_json::json!(0)),
+                    ("candidateFinalTerrainCalls", serde_json::json!(0)),
+                    ("realizations", serde_json::json!(0)),
+                    ("bakes", serde_json::json!(0)),
+                    ("fullFieldSearches", serde_json::json!(0)),
+                ]),
+            ),
+            (
+                "timing",
+                json_map(vec![
+                    ("rebuildMs", serde_json::json!(build_seconds)),
+                    ("totalSeconds", serde_json::json!(seconds)),
+                    ("budgetSeconds", serde_json::json!(budget_ms / 1000)),
+                ]),
+            ),
             (
                 "note",
                 serde_json::json!(
@@ -25413,16 +26299,22 @@ mod tests {
         let (published, incomplete, expired_at) = g1b_publish(&clock, budget_ms, payload.clone());
         if incomplete {
             let diagnostic = json_map(vec![
-                ("format", serde_json::json!("glyphweave.b01-g17-west-entry-engineering-bundle.run")),
+                (
+                    "format",
+                    serde_json::json!("glyphweave.b01-g17-west-entry-engineering-bundle.run"),
+                ),
                 ("status", serde_json::json!("incomplete")),
                 ("witness", serde_json::Value::Null),
                 ("expiredAt", serde_json::json!(expired_at)),
                 ("diagnosticKept", serde_json::json!(true)),
-                ("stage", serde_json::json!(if access["status"] == serde_json::json!("not_run") {
-                    "before-d2"
-                } else {
-                    "before-output"
-                })),
+                (
+                    "stage",
+                    serde_json::json!(if access["status"] == serde_json::json!("not_run") {
+                        "before-d2"
+                    } else {
+                        "before-output"
+                    }),
+                ),
                 ("partial", payload),
             ]);
             let written = g17_write_new("run.json", &diagnostic);

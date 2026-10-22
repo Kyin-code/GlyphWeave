@@ -15,8 +15,8 @@ use crate::baked_terrain::BakedTerrain;
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
 use super::{
-    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SpatialAnchor,
-    WaterGeometry,
+    EntityInstance, OrientedFootprint, SpatialAnchor, WaterGeometry, oriented_footprints_overlap,
+    urban_slice,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1066,10 +1066,8 @@ fn assess_markets(
         // conservation contract by posting that remainder to the same market
         // instead of emitting a contradictory near-zero deficit.
         if remaining > 0.0 && remaining <= 1e-6 {
-            if let Some((market_index, _)) = markets
-                .iter()
-                .enumerate()
-                .find(|(market_index, market)| {
+            if let Some((market_index, _)) =
+                markets.iter().enumerate().find(|(market_index, market)| {
                     let minutes = all_times[*market_index][demand_nodes[demand_index]]
                         + point.access_walk_m / program.walk_speed_mps / 60.0;
                     minutes <= market.max_travel_minutes
@@ -1289,11 +1287,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
         let anchor_x = center_x + dx * edge_t;
         let anchor_z = center_z + dz * edge_t;
         let direction = if dx.abs() > dz.abs() {
-            if dx > 0.0 {
-                "east"
-            } else {
-                "west"
-            }
+            if dx > 0.0 { "east" } else { "west" }
         } else if dz > 0.0 {
             "south"
         } else {
@@ -1538,16 +1532,16 @@ fn market_site(
                                 depth_m: f64::from(road.depth_m),
                                 rotation_y_deg: f64::from(road.rotation_y_deg),
                             };
-                    oriented_footprints_overlap(&oriented, &influence, 2.0)
+                            oriented_footprints_overlap(&oriented, &influence, 2.0)
                         });
                 if !collides_with_planned_building && !collides_with_road {
                     return Some(MarketSite {
                         center_x,
                         center_z,
-                station_x: station.x,
-                station_z: station.z,
+                        station_x: station.x,
+                        station_z: station.z,
                         footprint,
-                rotation_y_deg: station.rotation_y_deg,
+                        rotation_y_deg: station.rotation_y_deg,
                     });
                 }
             }
@@ -1743,11 +1737,11 @@ impl PartialOrd for TimeEntry {
 mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
+    use crate::worldgen::SceneSpec;
     use crate::worldgen::route_evolution::{Anchor, Route, RoutePoint};
     use crate::worldgen::settlement_evolution::{
         Building, Capacity, Demand, Plan as SettlementPlan,
     };
-    use crate::worldgen::SceneSpec;
 
     fn route_plan() -> RoutePlan {
         let polyline = (0..=30)
@@ -1884,10 +1878,11 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
-        assert!(plan
-            .accessibility
-            .iter()
-            .all(|point| point.nearest_market_id.is_some()));
+        assert!(
+            plan.accessibility
+                .iter()
+                .all(|point| point.nearest_market_id.is_some())
+        );
         assert!(plan.markets.iter().all(|market| market.tier == "market"));
         assert_eq!(
             plan.markets
@@ -1942,10 +1937,12 @@ mod tests {
             let allocated: f64 = field.allocations.iter().map(|a| a.demand).sum();
             assert!((allocated - field.served_demand).abs() < 1e-9);
             assert!((field.served_demand + field.deficit - field.demand).abs() < 1e-9);
-            assert!(field
-                .bands
-                .iter()
-                .all(|band| band.capacity_per_demand >= 0.0));
+            assert!(
+                field
+                    .bands
+                    .iter()
+                    .all(|band| band.capacity_per_demand >= 0.0)
+            );
         }
         assert!(
             (artifacts.deficits.total_deficit
@@ -2012,10 +2009,11 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert!(tiers.contains("street-market"));
         assert!(tiers.contains("neighbourhood"));
-        assert!(plan
-            .markets
-            .iter()
-            .all(|market| market.load <= market.capacity + 1e-6));
+        assert!(
+            plan.markets
+                .iter()
+                .all(|market| market.load <= market.capacity + 1e-6)
+        );
         let settlement = settlement();
         for (index, market) in plan.markets.iter().enumerate() {
             for other in plan.markets.iter().skip(index + 1) {
@@ -2170,10 +2168,7 @@ mod tests {
         assert!(markets.iter().all(|entity| {
             entity.kind == "market"
                 && entity.anchors.len() == 3
-                && entity
-                    .anchors
-                    .iter()
-                    .any(|anchor| anchor.id == "front")
+                && entity.anchors.iter().any(|anchor| anchor.id == "front")
                 && entity.width_m > 0.0
                 && entity.depth_m > 0.0
         }));

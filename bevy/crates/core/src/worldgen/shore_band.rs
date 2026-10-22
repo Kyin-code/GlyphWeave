@@ -380,8 +380,7 @@ pub fn audit(
                 // Water membership is the structured footprint. A dry hollow
                 // below the scene datum outside that footprint is lowland, not
                 // a second implicit lake; the published surface raster agrees.
-                let blocked =
-                    water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5);
+                let blocked = water.contains_point(f64::from(x) + 0.5, f64::from(z) + 0.5);
                 if blocked {
                     wet += 1;
                 }
@@ -409,11 +408,8 @@ pub fn audit(
         if !crate::settlement::is_building(&entity.kind) {
             continue;
         }
-        let (half_w, half_d) = super::spatial_half_extents(
-            entity.width_m,
-            entity.depth_m,
-            entity.rotation_y_deg,
-        );
+        let (half_w, half_d) =
+            super::spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
         let cells: Vec<(i32, i32)> = cells_between(
             entity.world_x - half_w as i32,
             entity.world_z - half_d as i32,
@@ -461,15 +457,9 @@ pub fn audit(
 }
 
 /// The 1 m cells of a half-open rectangle: `x0..x0 + 2 * half_w`.
-fn cells_between(
-    x0: i32,
-    z0: i32,
-    half_w: i32,
-    half_d: i32,
-) -> impl Iterator<Item = (i32, i32)> {
-    (0..2 * half_d.max(0)).flat_map(move |dz| {
-        (0..2 * half_w.max(0)).map(move |dx| (x0 + dx, z0 + dz))
-    })
+fn cells_between(x0: i32, z0: i32, half_w: i32, half_d: i32) -> impl Iterator<Item = (i32, i32)> {
+    (0..2 * half_d.max(0))
+        .flat_map(move |dz| (0..2 * half_w.max(0)).map(move |dx| (x0 + dx, z0 + dz)))
 }
 
 /// Every band cell a patch's own triangles cover, judged at the cell centre.
@@ -643,12 +633,8 @@ mod tests {
 
     /// A 24 m channel down the middle of the scene, with the opt-in switch on.
     fn water(opt_in: bool) -> WaterGeometry {
-        let mut water = super::super::water_geometry(
-            WaterKind::River,
-            &[],
-            &scene(),
-            &serde_json::Value::Null,
-        );
+        let mut water =
+            super::super::water_geometry(WaterKind::River, &[], &scene(), &serde_json::Value::Null);
         water.center_x = 0.;
         water.center_z = 0.;
         water.half_width = 12.;
@@ -764,7 +750,11 @@ mod tests {
             id: format!("band.{x}.{z}"),
             source_cell_id: "cell".into(),
             parcel_id: "band".into(),
-            zone_kind: if x < 0 { "urban".into() } else { "rural".into() },
+            zone_kind: if x < 0 {
+                "urban".into()
+            } else {
+                "rural".into()
+            },
             material: Material::PublicOpenSpace,
             area_m2: 1.,
             vertices: vec![
@@ -1023,4 +1013,3 @@ mod tests {
         assert!(audit.failures.is_empty());
     }
 }
-

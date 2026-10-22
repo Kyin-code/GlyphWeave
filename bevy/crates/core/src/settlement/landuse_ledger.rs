@@ -173,21 +173,23 @@ pub fn residual_audit(
     for cell in &plan.cells {
         let (sub_use, ratio) = match cell.role {
             development::LandcoverRole::ManagedYard => ("managed_yard", 1.),
-            development::LandcoverRole::FutureDevelopment => (
-                "urban_public_open_space",
-                program.urban_open_space_ratio(),
-            ),
-            development::LandcoverRole::AgricultureCandidate => (
-                "rural_pasture",
-                program.rural_pasture_ratio(),
-            ),
+            development::LandcoverRole::FutureDevelopment => {
+                ("urban_public_open_space", program.urban_open_space_ratio())
+            }
+            development::LandcoverRole::AgricultureCandidate => {
+                ("rural_pasture", program.rural_pasture_ratio())
+            }
             development::LandcoverRole::ConservationCandidate => ("conservation", 1.),
             development::LandcoverRole::Unmanaged => ("unmanaged", 1.),
         };
         let candidate = cell.boundary.area() as f64;
         let target = (candidate * ratio).floor();
         let mut realized = 0.;
-        for patch in patches_by_source.get(cell.id.as_str()).into_iter().flatten() {
+        for patch in patches_by_source
+            .get(cell.id.as_str())
+            .into_iter()
+            .flatten()
+        {
             let counts = match (cell.role, patch.material) {
                 (
                     development::LandcoverRole::ManagedYard,
@@ -229,10 +231,16 @@ pub fn residual_audit(
         }
         let mut rejected_by_reason: BTreeMap<String, f64> = BTreeMap::new();
         let mut rejected = 0.;
-        for rejection in rejections_by_source.get(cell.id.as_str()).into_iter().flatten() {
+        for rejection in rejections_by_source
+            .get(cell.id.as_str())
+            .into_iter()
+            .flatten()
+        {
             let area = rejection.area_m2 as f64;
             rejected += area;
-            *rejected_by_reason.entry(rejection.reason.clone()).or_default() += area;
+            *rejected_by_reason
+                .entry(rejection.reason.clone())
+                .or_default() += area;
         }
         let unresolved = (candidate - realized).max(0.);
         let account = accounts
@@ -255,10 +263,17 @@ pub fn residual_audit(
         account.rejected_attempt_m2 += rejected.min(unresolved);
         account.unresolved_m2 += unresolved;
         for (reason, area) in rejected_by_reason {
-            if let Some(row) = account.rejections.iter_mut().find(|row| row.reason == reason) {
+            if let Some(row) = account
+                .rejections
+                .iter_mut()
+                .find(|row| row.reason == reason)
+            {
                 row.area_m2 += area;
             } else {
-                account.rejections.push(ResidualRejection { reason, area_m2: area });
+                account.rejections.push(ResidualRejection {
+                    reason,
+                    area_m2: area,
+                });
             }
         }
     }
@@ -668,10 +683,7 @@ pub fn analyze(scene: &SceneIndex, profile: &LandUseProfile) -> Result<LandUseLe
     // conservation identity below is computed on the AFTER state instead of being patched up after
     // the fact. Each record is re-derived from its own parcel, so a forged entry cannot move area.
     let conversions = planned_conversions(roads, &scene.land_use_zones)?;
-    let converted_m2 = conversions
-        .iter()
-        .map(|record| record.area_m2)
-        .sum::<i64>() as f64;
+    let converted_m2 = conversions.iter().map(|record| record.area_m2).sum::<i64>() as f64;
     let norm = (profile.urban_target() + profile.rural_target() + profile.nature_target()).max(1.);
     let targets = [
         profile.urban_target() / norm,
@@ -1011,7 +1023,10 @@ mod tests {
         let base_urban = &baseline.by_purpose["urban"];
         let base_rural = &baseline.by_purpose["rural"];
         // 484 m2 moved, once, into urban and out of rural, and nowhere else
-        assert_eq!(ledger.conversions.iter().map(|c| c.area_m2).sum::<i64>(), 484);
+        assert_eq!(
+            ledger.conversions.iter().map(|c| c.area_m2).sum::<i64>(),
+            484
+        );
         assert!((urban.realized_m2 - base_urban.realized_m2 - 484.).abs() < EPS);
         assert!((base_rural.realized_m2 - rural.realized_m2 - 484.).abs() < EPS);
         assert!((urban.realized_m2 - urban.physical.total() - 484.).abs() < EPS);
@@ -1215,7 +1230,10 @@ mod tests {
         // The audit covers the pad record exactly as it covers a frontage one.
         let audit = audit_conversions(plan, &zones, dry, Some(&ledger));
         assert_eq!(audit.status, "pass", "{audit:?}");
-        assert_eq!((audit.planned, audit.applied, audit.converted_m2), (1, 1, 484));
+        assert_eq!(
+            (audit.planned, audit.applied, audit.converted_m2),
+            (1, 1, 484)
+        );
         // A pad that earned a conversion but left the record out is named, not silently kept rural.
         let mut missing_record = scene.clone();
         missing_record
@@ -1239,12 +1257,7 @@ mod tests {
         );
         // A forged area is refused by BOTH layers: the ledger recomputes it, the audit compares it.
         let mut inflated = scene.clone();
-        inflated
-            .road_network_plan
-            .as_mut()
-            .unwrap()
-            .pad_conversions[0]
-            .area_m2 = 500;
+        inflated.road_network_plan.as_mut().unwrap().pad_conversions[0].area_m2 = 500;
         assert_eq!(
             analyze(&inflated, &profile).unwrap_err(),
             "ledger conversion parcel home declares 500 m2 but its buildable core is 484 m2"
@@ -1346,7 +1359,6 @@ mod tests {
         );
     }
 
-
     /// A pad the road plan REFUSED by name is not a parcel of this world any more. The ledger may not
     /// book it, the plan may not keep its record, and a plan that claims both a refusal and a pad is
     /// itself a failure - each named, so "planned, booked, deleted from the world" can never pass as
@@ -1377,16 +1389,16 @@ mod tests {
             &spec,
             &serde_json::Value::Null,
         );
-        let categories =
-            crate::worldgen::road_network::PAD_REFUSED_CATEGORIES.join(" or ");
+        let categories = crate::worldgen::road_network::PAD_REFUSED_CATEGORIES.join(" or ");
         let categories = categories.as_str();
         // The refusal the sweep writes when the pad cannot hold its declared top.
         let refusal = crate::worldgen::road_network::BaseProfileRejection {
             edge_id: "home".into(),
             category: crate::worldgen::road_network::PAD_FILL_CONFLICT_CATEGORY.into(),
-            reason: "pad home (24x24, declared top 0.000 m on road road2) cannot hold its flat top: \
+            reason:
+                "pad home (24x24, declared top 0.000 m on road road2) cannot hold its flat top: \
                      pad.other stands 4.970 m at (64, 188)"
-                .into(),
+                    .into(),
         };
         // 1. The honest ledger PLUS the refusal is a plan/ledger disagreement: the ledger books land
         //    for a pad the plan refused, and the plan still lists the pad.
@@ -1403,9 +1415,11 @@ mod tests {
         );
         assert_eq!(refused_audit.status, "fail", "{refused_audit:?}");
         assert_eq!(refused_audit.refused_pads, 1);
-        assert!(refused_audit.failures.iter().any(|failure| failure
-            == &format!("pad home is refused by the plan ({categories}) and still planned")),
-            "{refused_audit:?}");
+        assert!(
+            refused_audit.failures.iter().any(|failure| failure
+                == &format!("pad home is refused by the plan ({categories}) and still planned")),
+            "{refused_audit:?}"
+        );
         assert!(refused_audit.failures.iter().any(|failure| failure
             == &format!("conversion parcel home was refused by the plan ({categories}) yet the plan still books 484 m2")),
             "{refused_audit:?}");
@@ -1573,7 +1587,10 @@ mod tests {
             Some(&withdrawn),
         );
         assert_eq!(audit.status, "pass", "{audit:?}");
-        assert_eq!((audit.planned, audit.applied, audit.converted_m2), (0, 0, 0));
+        assert_eq!(
+            (audit.planned, audit.applied, audit.converted_m2),
+            (0, 0, 0)
+        );
         assert_eq!(audit.refused_pads, 1);
         // A record left in the FRONTAGE table - the Round 28 defect exactly - makes
         // the ledger fail by name, and the audit names the table that kept it.
@@ -1699,11 +1716,46 @@ mod tests {
             scene_id: "s".into(),
             scene_area_m2: 333,
             cells: vec![
-                cell("u-future", "u", "urban", development::LandcoverRole::FutureDevelopment, 10, 10),
-                cell("u-yard", "u", "urban", development::LandcoverRole::ManagedYard, 2, 2),
-                cell("r-agri", "r", "rural", development::LandcoverRole::AgricultureCandidate, 20, 10),
-                cell("n-cons", "n", "nature", development::LandcoverRole::ConservationCandidate, 5, 5),
-                cell("x-unassigned", "x", "unassigned", development::LandcoverRole::Unmanaged, 2, 2),
+                cell(
+                    "u-future",
+                    "u",
+                    "urban",
+                    development::LandcoverRole::FutureDevelopment,
+                    10,
+                    10,
+                ),
+                cell(
+                    "u-yard",
+                    "u",
+                    "urban",
+                    development::LandcoverRole::ManagedYard,
+                    2,
+                    2,
+                ),
+                cell(
+                    "r-agri",
+                    "r",
+                    "rural",
+                    development::LandcoverRole::AgricultureCandidate,
+                    20,
+                    10,
+                ),
+                cell(
+                    "n-cons",
+                    "n",
+                    "nature",
+                    development::LandcoverRole::ConservationCandidate,
+                    5,
+                    5,
+                ),
+                cell(
+                    "x-unassigned",
+                    "x",
+                    "unassigned",
+                    development::LandcoverRole::Unmanaged,
+                    2,
+                    2,
+                ),
             ],
             farm_pattern: None,
             residual_program: Some(super::super::residual_land::SceneResidualProgram {
@@ -1717,12 +1769,40 @@ mod tests {
             scene_id: "s".into(),
             final_heightfield_hash: "h".into(),
             patches: vec![
-                patch("u-open", "u-future", "urban", Material::PublicOpenSpace, 10, 1),
-                patch("u-yard-grass", "u-yard", "urban", Material::ManagedGrass, 3, 1),
+                patch(
+                    "u-open",
+                    "u-future",
+                    "urban",
+                    Material::PublicOpenSpace,
+                    10,
+                    1,
+                ),
+                patch(
+                    "u-yard-grass",
+                    "u-yard",
+                    "urban",
+                    Material::ManagedGrass,
+                    3,
+                    1,
+                ),
                 patch("r-soil", "r-agri", "rural", Material::CultivatedSoil, 10, 6),
-                patch("r-headland", "r-agri", "rural", Material::FieldHeadland, 10, 2),
+                patch(
+                    "r-headland",
+                    "r-agri",
+                    "rural",
+                    Material::FieldHeadland,
+                    10,
+                    2,
+                ),
                 patch("r-track", "r-agri", "rural", Material::FarmTrack, 10, 1),
-                patch("n-ground", "n-cons", "nature", Material::ConservationGround, 5, 5),
+                patch(
+                    "n-ground",
+                    "n-cons",
+                    "nature",
+                    Material::ConservationGround,
+                    5,
+                    5,
+                ),
             ],
             rejections: vec![landcover::SurfaceRejection {
                 source_cell_id: "u-yard".into(),
@@ -1763,7 +1843,11 @@ mod tests {
         );
         let yard = find("u", "managed_yard");
         assert_eq!(
-            (yard.realized_m2, yard.rejected_attempt_m2, yard.unresolved_m2),
+            (
+                yard.realized_m2,
+                yard.rejected_attempt_m2,
+                yard.unresolved_m2
+            ),
             (3., 1., 1.)
         );
         let rural = find("r", "rural_pasture");
@@ -1788,7 +1872,10 @@ mod tests {
         let ledger = analyze(&scene, &profile).unwrap();
         assert!(ledger.residual.is_none());
         let json = serde_json::to_value(&ledger).unwrap();
-        assert!(json.get("residual").is_none(), "legacy ledger grew a residual field");
+        assert!(
+            json.get("residual").is_none(),
+            "legacy ledger grew a residual field"
+        );
     }
 
     #[test]

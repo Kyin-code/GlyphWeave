@@ -33,8 +33,7 @@ fn read(path: PathBuf) -> Value {
 fn the_512m_joint_plains_slice_closes_housing_services_and_land_cover() {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/b01-joint-plains-complete-512.manifest.json");
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects")
     );

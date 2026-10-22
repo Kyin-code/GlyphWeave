@@ -101,9 +101,10 @@ fn effective_programs_are_recompiled_from_the_authored_manifest() {
     let manifest = control_manifest("compact-mixed-block");
     manifest.validate().expect("control manifest validates");
     let published = compile_manifest(&manifest);
-    let compiled = morphology_compile::audit_published(&published, &manifest.style, &manifest.scenes)
-        .unwrap()
-        .expect("profile publishes effective programs");
+    let compiled =
+        morphology_compile::audit_published(&published, &manifest.style, &manifest.scenes)
+            .unwrap()
+            .expect("profile publishes effective programs");
     assert_eq!(compiled.report.profile_id, "compact-mixed-block");
     let requests = &compiled.style["frontageProgram"]["requests"];
     // Authored demand and footprint survive exactly.
@@ -113,7 +114,10 @@ fn effective_programs_are_recompiled_from_the_authored_manifest() {
     assert_eq!(requests[0]["depthM"], json!(24));
     // The profile fills the unstated parcel policy and the road hierarchy.
     assert!(requests[0]["parcelInsets"].is_object());
-    assert_eq!(compiled.style["automaticRoadExtensions"]["version"], json!(2));
+    assert_eq!(
+        compiled.style["automaticRoadExtensions"]["version"],
+        json!(2)
+    );
     // Public space is not pasture: the profile fills the urban open-space share
     // and the pasture share stays unstated, so the residual-land consumer's
     // named default (0) applies to it.
@@ -121,13 +125,17 @@ fn effective_programs_are_recompiled_from_the_authored_manifest() {
         compiled.style["residualLandProgram"],
         json!({"version": 1, "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.10}}})
     );
-    assert!(compiled.report.notes.iter().any(|note| note
-        .contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")));
+    assert!(compiled.report.notes.iter().any(|note| {
+        note.contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")
+    }));
 
     // Tampering with the published document is rejected.
     let mut tampered = published.clone();
-    tampered["effectiveStyle"]["frontageProgram"]["requests"][0]["parcelInsets"]["sideM"] = json!(10);
-    assert!(morphology_compile::audit_published(&tampered, &manifest.style, &manifest.scenes).is_err());
+    tampered["effectiveStyle"]["frontageProgram"]["requests"][0]["parcelInsets"]["sideM"] =
+        json!(10);
+    assert!(
+        morphology_compile::audit_published(&tampered, &manifest.style, &manifest.scenes).is_err()
+    );
     // A document recompiled for another profile is rejected.
     let mut other = manifest.style.clone();
     other["morphologyProfile"] = json!("village-field");
@@ -181,7 +189,11 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     );
     let audit = &scene["landcoverAudit"];
     assert_eq!(audit["publicOpenSpaceAreaM2"], json!(16443.0));
-    assert_eq!(audit["pastureAreaM2"], json!(0.0), "no pasture share was stated");
+    assert_eq!(
+        audit["pastureAreaM2"],
+        json!(0.0),
+        "no pasture share was stated"
+    );
     assert_eq!(
         audit["residualDefaultedRatios"],
         json!(["ruralPastureRatio"]),
@@ -237,7 +249,8 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     }
     assert_eq!(published_open_space, audit["publicOpenSpaceAreaM2"]);
     assert_eq!(
-        audit["unresolvedAreaM2"], json!(208053.0),
+        audit["unresolvedAreaM2"],
+        json!(208053.0),
         "the public space moved area out of unresolved, it did not fake completion"
     );
     // The share is a per-cell target, not a claim: the realized area can never
@@ -271,16 +284,20 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
         .unwrap()
         .iter()
         .filter(|rejection| {
-            cells.get(rejection["sourceCellId"].as_str().unwrap()).map(String::as_str)
+            cells
+                .get(rejection["sourceCellId"].as_str().unwrap())
+                .map(String::as_str)
                 == Some("future_development")
         })
         .count();
     assert!(residual_refusals > 1_000, "{residual_refusals}");
-    assert!(surfaces["rejections"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|rejection| rejection["reason"] == json!("residual_grade_exceeds_25_percent")));
+    assert!(
+        surfaces["rejections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rejection| rejection["reason"] == json!("residual_grade_exceeds_25_percent"))
+    );
 
     // Tampering the published share, or deleting it, is refused.
     let effective_path = dir.0.join("effective-programs.json");
@@ -288,7 +305,11 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
     let mut changed = published.clone();
     changed["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]["urbanOpenSpaceRatio"] =
         json!(0.05);
-    fs::write(&effective_path, serde_json::to_vec_pretty(&changed).unwrap()).unwrap();
+    fs::write(
+        &effective_path,
+        serde_json::to_vec_pretty(&changed).unwrap(),
+    )
+    .unwrap();
     let rejected = report("validate-world");
     assert!(!rejected.status.success());
     assert!(
@@ -302,9 +323,17 @@ fn profile_public_space_share_realizes_ledger_accounted_urban_open_space() {
         .as_object_mut()
         .unwrap()
         .remove("urbanOpenSpaceRatio");
-    fs::write(&effective_path, serde_json::to_vec_pretty(&removed).unwrap()).unwrap();
+    fs::write(
+        &effective_path,
+        serde_json::to_vec_pretty(&removed).unwrap(),
+    )
+    .unwrap();
     assert!(!report("validate-world").status.success());
-    fs::write(&effective_path, serde_json::to_vec_pretty(&published).unwrap()).unwrap();
+    fs::write(
+        &effective_path,
+        serde_json::to_vec_pretty(&published).unwrap(),
+    )
+    .unwrap();
     let restored = report("validate-world");
     assert!(
         restored.status.success(),
@@ -360,7 +389,8 @@ fn the_real_binary_binds_and_rejects_a_tampered_effective_document() {
     // Tamper in place, prove the rejection, then restore and prove the pass.
     let path = dir.0.join("effective-programs.json");
     let mut tampered = published.clone();
-    tampered["effectiveStyle"]["frontageProgram"]["requests"][1]["parcelInsets"]["sideM"] = json!(10);
+    tampered["effectiveStyle"]["frontageProgram"]["requests"][1]["parcelInsets"]["sideM"] =
+        json!(10);
     fs::write(&path, serde_json::to_vec_pretty(&tampered).unwrap()).unwrap();
     let rejected = Command::new(glyphweave())
         .arg("validate-world")

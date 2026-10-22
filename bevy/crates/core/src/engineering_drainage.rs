@@ -57,8 +57,11 @@ fn mm(elevation: Option<f32>) -> Option<i64> {
 pub fn compare(natural: &DrainageGraph, engineered: &DrainageGraph) -> EngineeringDrainageImpact {
     let natural_audit = audit_drainage_graph(natural);
     let engineered_audit = audit_drainage_graph(engineered);
-    let natural_nodes: BTreeMap<&str, _> =
-        natural.nodes.iter().map(|node| (node.id.as_str(), node)).collect();
+    let natural_nodes: BTreeMap<&str, _> = natural
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
     let engineered_nodes: BTreeMap<&str, _> = engineered
         .nodes
         .iter()
@@ -138,12 +141,7 @@ pub fn compare(natural: &DrainageGraph, engineered: &DrainageGraph) -> Engineeri
     if engineered_audit.status != "pass" {
         failures.push("engineered drainage graph does not pass its own audit".into());
     }
-    let status = if failures.is_empty() {
-        "pass"
-    } else {
-        "fail"
-    }
-    .to_string();
+    let status = if failures.is_empty() { "pass" } else { "fail" }.to_string();
     EngineeringDrainageImpact {
         format: "glyphweave.engineering-drainage-impact".into(),
         version: 1,
@@ -207,7 +205,10 @@ mod tests {
         }
     }
 
-    fn valid_pair(engineered_to: &str, engineered_sink_elevation: f32) -> (DrainageGraph, DrainageGraph) {
+    fn valid_pair(
+        engineered_to: &str,
+        engineered_sink_elevation: f32,
+    ) -> (DrainageGraph, DrainageGraph) {
         let mut natural_a = node("a", "sampled_cell", 10.);
         natural_a.basin_id = "basin.b".into();
         let mut natural_b = node("b", "boundary_outlet", 8.);

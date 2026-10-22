@@ -361,12 +361,7 @@ fn append_with(
                             ) {
                                 reason = Some("water_intersection");
                             } else if enforce_shore_band
-                                && !water.clears_shore(
-                                    x as f64,
-                                    z as f64,
-                                    hw as f64,
-                                    hd as f64,
-                                )
+                                && !water.clears_shore(x as f64, z as f64, hw as f64, hd as f64)
                             {
                                 // The shoreline row may not stand in the public passage band. The
                                 // clearance is the frozen constant that DEFINES the band, so a pad
@@ -491,9 +486,7 @@ fn append_with(
                                     .find(|entity| entity.entity_id == road.id)
                                     .map_or(0., |entity| {
                                         super::road_network::road_rect_distance(
-                                            entity,
-                                            x as i32,
-                                            z as i32,
+                                            entity, x as i32, z as i32,
                                         )
                                     });
                                 let nearest_other = road_entities
@@ -501,9 +494,7 @@ fn append_with(
                                     .filter(|entity| entity.entity_id != road.id)
                                     .map(|entity| {
                                         super::road_network::road_rect_distance(
-                                            entity,
-                                            x as i32,
-                                            z as i32,
+                                            entity, x as i32, z as i32,
                                         )
                                     })
                                     .fold(f64::INFINITY, f64::min);
@@ -525,9 +516,7 @@ fn append_with(
                             let mut min = f32::INFINITY;
                             let mut max = f32::NEG_INFINITY;
                             let mut carved_max = f32::NEG_INFINITY;
-                            if reason.is_none()
-                                && entrance_rise_m > super::access::WALKABLE_GRADE
-                            {
+                            if reason.is_none() && entrance_rise_m > super::access::WALKABLE_GRADE {
                                 reason = Some("entrance_rise_exceeds_contract");
                             }
                             if reason.is_none() {
@@ -551,7 +540,8 @@ fn append_with(
                                             xx as i32,
                                             zz as i32,
                                             &road_carves,
-                                        ) as f32);
+                                        )
+                                            as f32);
                                         // A pad is realized by a fill-only carve, so its
                                         // declared flat top has to be the surface its own
                                         // window can actually hold: never below the natural
@@ -615,9 +605,9 @@ fn append_with(
                                     construction_cohort: None,
                                 }),
                                 purpose: None,
-                            
+
                                 entry_corridor: None,
-};
+                            };
                             // The checked entrance is judged BEFORE the purpose verdict, so a pad whose
                             // own street cannot be walked to never converts land, never books a service
                             // outcome and never publishes an entity. The verdict comes from the same

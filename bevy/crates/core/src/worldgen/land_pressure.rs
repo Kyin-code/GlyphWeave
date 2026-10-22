@@ -295,6 +295,7 @@ mod tests {
                 z: 0,
                 role: "junction".into(),
             }],
+            candidate_nodes: Vec::new(),
             routes: vec![Route {
                 id: "main".into(),
                 from: "a".into(),

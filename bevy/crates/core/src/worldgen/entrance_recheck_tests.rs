@@ -259,7 +259,10 @@ fn the_same_lot_is_accepted_when_no_later_fill_stands_over_its_door() {
     assert_eq!(plan.roadside_sites.len(), 1);
     assert_eq!(plan.roadside_sites[0].id, LOT);
     assert_eq!(
-        plan.joint_layout.as_ref().unwrap().replacement_residential_ids,
+        plan.joint_layout
+            .as_ref()
+            .unwrap()
+            .replacement_residential_ids,
         vec![LOT.to_string()]
     );
 }

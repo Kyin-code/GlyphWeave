@@ -75,22 +75,24 @@ fn waterfront_without_opt_in() -> WorldManifest {
         "levelPolicy": "horizontal-datum",
         "levelM": 0
     });
-    m.landmarks = vec![serde_json::from_value(serde_json::json!({
-        "entityId": "landmark.waterfront-river",
-        "name": "waterfront river",
-        "type": "river",
-        "purpose": "structured water the scene must live with",
-        "description": "north-south river through the middle of the town",
-        "sceneId": "scene-0",
-        "worldX": 256,
-        "worldZ": 256,
-        "worldY": 0,
-        "widthM": 16,
-        "depthM": 512,
-        "heightM": 1,
-        "assetId": "water.waterfront-river"
-    }))
-    .unwrap()];
+    m.landmarks = vec![
+        serde_json::from_value(serde_json::json!({
+            "entityId": "landmark.waterfront-river",
+            "name": "waterfront river",
+            "type": "river",
+            "purpose": "structured water the scene must live with",
+            "description": "north-south river through the middle of the town",
+            "sceneId": "scene-0",
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": 16,
+            "depthM": 512,
+            "heightM": 1,
+            "assetId": "water.waterfront-river"
+        }))
+        .unwrap(),
+    ];
     m
 }
 
@@ -132,7 +134,8 @@ fn a_waterless_world_is_byte_identical_across_the_waterfront_pad_rule() {
     let manifest = waterless_town();
     bake_world(&manifest, &dir.0).unwrap();
     let scene: Value =
-        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap())
+            .unwrap();
     assert!(
         scene["roadNetworkPlan"].is_object(),
         "a waterless strict world still plans its road network"
@@ -141,9 +144,9 @@ fn a_waterless_world_is_byte_identical_across_the_waterfront_pad_rule() {
     assert!(
         scene["roadNetworkPlan"]["roadsideSiteRejections"]
             .as_array()
-            .is_none_or(|rejections| rejections.iter().all(|rejection| {
-                rejection["category"] != "pad_touches_water_or_shore_band"
-            })),
+            .is_none_or(|rejections| rejections
+                .iter()
+                .all(|rejection| { rejection["category"] != "pad_touches_water_or_shore_band" })),
         "a waterless world cannot refuse a pad for touching water"
     );
     let digest = published_digest(&dir, &scene);
@@ -160,7 +163,8 @@ fn a_waterfront_world_without_the_opt_in_is_byte_identical() {
     let manifest = waterfront_without_opt_in();
     bake_world(&manifest, &dir.0).unwrap();
     let scene: Value =
-        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap())
+            .unwrap();
     // The gate has not moved: a structured water body still plans no road network
     // and publishes no plan (and therefore no crossing record).
     assert!(
@@ -174,11 +178,13 @@ fn a_waterfront_world_without_the_opt_in_is_byte_identical() {
     // The shoreline world itself still bakes: its entities are the authored
     // landmark set plus the water-compatible detail the legacy generator places.
     assert!(!scene["entities"].as_array().unwrap().is_empty());
-    assert!(scene["entities"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entity| entity["kind"] != "road"));
+    assert!(
+        scene["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entity| entity["kind"] != "road")
+    );
     let digest = published_digest(&dir, &scene);
     assert_eq!(
         digest, FROZEN_WATERFRONT_DIGEST,

@@ -461,7 +461,10 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
                     count.as_u64().unwrap_or(0) as u32;
             }
         }
-        let stop = outcome["stopReason"].as_str().unwrap_or("unspecified").to_owned();
+        let stop = outcome["stopReason"]
+            .as_str()
+            .unwrap_or("unspecified")
+            .to_owned();
         *frontage_stop_reasons.entry(stop).or_insert(0) += 1;
     }
     // Every record the PLAN claims, from both lists: the along-road frontage programme's parcels and
@@ -471,7 +474,10 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
     let mut plan_conversions = frontage["conversions"].as_array().map_or(0, Vec::len);
     plan_conversions += roads["padConversions"].as_array().map_or(0, Vec::len);
     // The ledger is the accounting document: it rows the applied conversions.
-    let ledger_conversions = ledger["conversions"].as_array().cloned().unwrap_or_default();
+    let ledger_conversions = ledger["conversions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let conversion_area_m2: i64 = ledger_conversions
         .iter()
         .map(|record| number(record, &["areaM2"]) as i64)
@@ -500,8 +506,7 @@ fn metrics(root: &Path, case: &Case, elapsed: Duration, declared_water: bool) ->
 
     let mut hasher = blake3::Hasher::new();
     for name in DIGEST_DOCUMENTS {
-        let bytes =
-            fs::read(root.join(name)).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let bytes = fs::read(root.join(name)).unwrap_or_else(|error| panic!("{name}: {error}"));
         hasher.update(name.as_bytes());
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
@@ -883,8 +888,7 @@ fn all_checks(matrix: &Matrix) -> Vec<Check> {
         .collect();
     checks.push(Check::invariant(
         "shared farm tracks are recorded when enabled and never when disabled",
-        shared_on.iter().any(|count| *count > 0)
-            && shared_off.iter().all(|count| *count == 0),
+        shared_on.iter().any(|count| *count > 0) && shared_off.iter().all(|count| *count == 0),
         format!("fields joining a realised track: on {shared_on:?} vs road-only {shared_off:?}"),
     ));
     let contour_on: Vec<usize> = SEEDS
@@ -897,8 +901,7 @@ fn all_checks(matrix: &Matrix) -> Vec<Check> {
         .collect();
     checks.push(Check::invariant(
         "contour-elongated fields are recorded when enabled and never when disabled",
-        contour_on.iter().any(|count| *count > 0)
-            && contour_off.iter().all(|count| *count == 0),
+        contour_on.iter().any(|count| *count > 0) && contour_off.iter().all(|count| *count == 0),
         format!("contour-shaped fields: on {contour_on:?} vs off {contour_off:?}"),
     ));
     let conversions: Vec<i64> = SEEDS
@@ -985,7 +988,10 @@ fn b05_multiseed_l2_acceptance() {
     assert_eq!(matrix.cases.len(), 14, "the frozen matrix is fixed");
     let checks = all_checks(&matrix);
     let failing = failing_invariants(&checks);
-    let mut expected: Vec<String> = EXPECTED_FINDINGS.iter().map(|name| name.to_string()).collect();
+    let mut expected: Vec<String> = EXPECTED_FINDINGS
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
     expected.sort();
     assert_eq!(
         failing,
@@ -1015,9 +1021,15 @@ fn b05_protected_surface_is_identical_with_and_without_the_four_features() {
     let off = Case::new(42, (0, 0), Variant::Off, false).run();
     // The protected source facts are untouched by the four features.
     assert_eq!(on.protected_area_m2, 49_152, "on-side protected footprint");
-    assert_eq!(off.protected_area_m2, 49_152, "off-side protected footprint");
+    assert_eq!(
+        off.protected_area_m2, 49_152,
+        "off-side protected footprint"
+    );
     assert_eq!(on.protected_changed_height_samples, 0, "on-side re-grading");
-    assert_eq!(off.protected_changed_height_samples, 0, "off-side re-grading");
+    assert_eq!(
+        off.protected_changed_height_samples, 0,
+        "off-side re-grading"
+    );
     // Every protected square metre is realised as its conservation surface, both sides.
     assert_eq!(
         on.conservation_ground_m2, 49_152.0,
@@ -1032,8 +1044,14 @@ fn b05_protected_surface_is_identical_with_and_without_the_four_features() {
         "the four features must not move a single protected square metre"
     );
     // No generated yard/building cell stands in a protected zone.
-    assert_eq!(on.zone_conflict_m2, 0, "on-side yard cells in protected zoning");
-    assert_eq!(off.zone_conflict_m2, 0, "off-side yard cells in protected zoning");
+    assert_eq!(
+        on.zone_conflict_m2, 0,
+        "on-side yard cells in protected zoning"
+    );
+    assert_eq!(
+        off.zone_conflict_m2, 0,
+        "off-side yard cells in protected zoning"
+    );
     // The nature row claims exactly what it surfaces, with no unresolved remainder.
     let on_nature = &on.purposes["nature"];
     let off_nature = &off.purposes["nature"];
@@ -1197,7 +1215,10 @@ fn b05_multiseed_acceptance_record() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let path = root.join(RECORD_PATH);
     if let Some(parent) = path.parent() {
-        fs::DirBuilder::new().recursive(true).create(parent).unwrap();
+        fs::DirBuilder::new()
+            .recursive(true)
+            .create(parent)
+            .unwrap();
     }
     fs::write(&path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
     println!(
@@ -1214,7 +1235,10 @@ fn b05_multiseed_acceptance_record() {
         println!("finding: {detail}");
     }
     let failing = failing_invariants(&checks);
-    let mut expected: Vec<String> = EXPECTED_FINDINGS.iter().map(|name| name.to_string()).collect();
+    let mut expected: Vec<String> = EXPECTED_FINDINGS
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
     expected.sort();
     assert_eq!(
         failing, expected,

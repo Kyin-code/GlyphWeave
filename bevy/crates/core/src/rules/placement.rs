@@ -84,7 +84,7 @@ fn footprint_for(
     let rotation_y_deg = source_rotation + if rotated { 90.0 } else { 0.0 };
     let (half_w, half_d) = spatial_half_extents(width, depth, rotation_y_deg);
     Footprint {
-            rotation_y_deg,
+        rotation_y_deg,
         cx,
         cz,
         half_w: half_w as f32 + desc.geometry.clearance,

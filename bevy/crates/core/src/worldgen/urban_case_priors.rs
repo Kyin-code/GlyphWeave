@@ -5,7 +5,7 @@
 //! that an agent can combine with a selected crop.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const PRIORS_JSON: &str = include_str!("../../../../../assets/data/urban-case-priors-48.json");
 
@@ -394,14 +394,18 @@ mod tests {
         );
         assert_eq!(amsterdam.natural_geography.setting, "low-delta-wetland");
         assert_eq!(las_vegas.natural_geography.setting, "desert-basin");
-        assert!(chongqing
-            .natural_geography
-            .geomorphic_processes
-            .contains(&"mass-wasting".to_string()));
-        assert!(las_vegas
-            .natural_geography
-            .geomorphic_processes
-            .contains(&"aeolian-erosion".to_string()));
+        assert!(
+            chongqing
+                .natural_geography
+                .geomorphic_processes
+                .contains(&"mass-wasting".to_string())
+        );
+        assert!(
+            las_vegas
+                .natural_geography
+                .geomorphic_processes
+                .contains(&"aeolian-erosion".to_string())
+        );
     }
 
     #[test]

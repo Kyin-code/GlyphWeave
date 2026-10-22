@@ -45,17 +45,15 @@ impl MorphologyProfile {
                 return Err("invalid morphology integer range".into());
             }
         }
-        for range in [
-            self.front_inset_m,
-            self.side_inset_m,
-            self.rear_inset_m,
-        ] {
+        for range in [self.front_inset_m, self.side_inset_m, self.rear_inset_m] {
             if range[0] > range[1] || range[1] > 256 {
                 return Err("invalid morphology inset range".into());
             }
         }
         for range in [self.coverage_ratio, self.public_space_ratio] {
-            if !range.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v))
+            if !range
+                .iter()
+                .all(|v| v.is_finite() && (0. ..=1.).contains(v))
                 || range[0] > range[1]
             {
                 return Err("invalid morphology ratio range".into());
@@ -233,21 +231,60 @@ mod tests {
             profile.valid().unwrap();
         }
         assert_ne!(profiles[0].parcel_depth_m, profiles[5].parcel_depth_m);
-        assert!(profiles
-            .iter()
-            .any(|profile| profile.village_field_template == Some([24, 24])));
+        assert!(
+            profiles
+                .iter()
+                .any(|profile| profile.village_field_template == Some([24, 24]))
+        );
         let known: std::collections::BTreeSet<&str> = [
-            "cn-beijing", "cn-shanghai", "cn-guangzhou", "cn-shenzhen", "cn-chengdu",
-            "cn-chongqing", "cn-xian", "cn-hangzhou", "cn-wuhan", "cn-qingdao",
-            "cn-xiamen", "cn-kunming", "us-new-york", "us-san-francisco",
-            "us-los-angeles", "us-chicago", "us-seattle", "us-boston", "us-miami",
-            "us-denver", "us-portland", "us-washington-dc", "us-las-vegas",
-            "us-new-orleans", "eu-london", "eu-paris", "eu-amsterdam", "eu-berlin",
-            "eu-zurich", "eu-milan", "eu-rome", "eu-barcelona", "eu-lisbon",
-            "eu-stockholm", "eu-prague", "eu-vienna", "jp-tokyo-shitamachi",
-            "jp-tokyo-bay", "jp-osaka-namba", "jp-kyoto-gion", "jp-yokohama-minato",
-            "jp-kobe-sannomiya", "hk-central", "hk-mong-kok", "hk-causeway-bay",
-            "hk-kwun-tong", "hk-sha-tin", "hk-sai-kung",
+            "cn-beijing",
+            "cn-shanghai",
+            "cn-guangzhou",
+            "cn-shenzhen",
+            "cn-chengdu",
+            "cn-chongqing",
+            "cn-xian",
+            "cn-hangzhou",
+            "cn-wuhan",
+            "cn-qingdao",
+            "cn-xiamen",
+            "cn-kunming",
+            "us-new-york",
+            "us-san-francisco",
+            "us-los-angeles",
+            "us-chicago",
+            "us-seattle",
+            "us-boston",
+            "us-miami",
+            "us-denver",
+            "us-portland",
+            "us-washington-dc",
+            "us-las-vegas",
+            "us-new-orleans",
+            "eu-london",
+            "eu-paris",
+            "eu-amsterdam",
+            "eu-berlin",
+            "eu-zurich",
+            "eu-milan",
+            "eu-rome",
+            "eu-barcelona",
+            "eu-lisbon",
+            "eu-stockholm",
+            "eu-prague",
+            "eu-vienna",
+            "jp-tokyo-shitamachi",
+            "jp-tokyo-bay",
+            "jp-osaka-namba",
+            "jp-kyoto-gion",
+            "jp-yokohama-minato",
+            "jp-kobe-sannomiya",
+            "hk-central",
+            "hk-mong-kok",
+            "hk-causeway-bay",
+            "hk-kwun-tong",
+            "hk-sha-tin",
+            "hk-sai-kung",
         ]
         .into_iter()
         .collect();
@@ -264,9 +301,7 @@ mod tests {
             serde_json::Value::Null,
             serde_json::json!(["village-field"]),
         ] {
-            assert!(
-                resolve(&serde_json::json!({"morphologyProfile": invalid})).is_err()
-            );
+            assert!(resolve(&serde_json::json!({"morphologyProfile": invalid})).is_err());
         }
         assert!(resolve(&serde_json::json!({})).unwrap().is_none());
     }

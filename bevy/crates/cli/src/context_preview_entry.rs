@@ -15,7 +15,7 @@
 use super::engineering_context::check_report_path;
 use glyphweave_core::engineering_context::resolve_within_root;
 use glyphweave_core::engineering_preview::sha256_hex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::error::Error;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -84,7 +84,11 @@ pub(super) fn run(args: &[String]) -> CliResult<()> {
         check_report_path(report, &preview, &preview)?;
     }
     let facts = inspect_package(&preview).map_err(|detail| -> Box<dyn Error> {
-        format!("saved-context-preview refused {}: {detail}", preview.display()).into()
+        format!(
+            "saved-context-preview refused {}: {detail}",
+            preview.display()
+        )
+        .into()
     })?;
     if let Some(expected) = &expect_scene {
         if facts.scene_id.as_deref() != Some(expected.as_str()) {
@@ -189,7 +193,8 @@ impl PackageFacts {
 fn read_package_file(root: &Path, name: &str, budget: &mut u64) -> Result<Vec<u8>, String> {
     let resolved = resolve_within_root(root, name)
         .map_err(|error| format!("{name} is not a confined path: {error}"))?;
-    let metadata = fs::metadata(&resolved).map_err(|error| format!("{name} is unreadable: {error}"))?;
+    let metadata =
+        fs::metadata(&resolved).map_err(|error| format!("{name} is unreadable: {error}"))?;
     if !metadata.is_file() {
         return Err(format!("{name} is not a regular file"));
     }
@@ -220,8 +225,8 @@ fn string_at(value: &Value, path: &[&str]) -> Option<String> {
 /// set, confined paths, regular files, schema version, and the marker -> model
 /// and marker -> manifest hash chain.
 fn inspect_package(package: &Path) -> Result<PackageFacts, String> {
-    let root = fs::canonicalize(package)
-        .map_err(|error| format!("the package is unusable: {error}"))?;
+    let root =
+        fs::canonicalize(package).map_err(|error| format!("the package is unusable: {error}"))?;
     if !root.is_dir() {
         return Err("the package is not a directory".to_string());
     }
@@ -229,7 +234,8 @@ fn inspect_package(package: &Path) -> Result<PackageFacts, String> {
     match fs::read_dir(&root) {
         Ok(entries) => {
             for entry in entries {
-                let entry = entry.map_err(|error| format!("cannot read a directory entry: {error}"))?;
+                let entry =
+                    entry.map_err(|error| format!("cannot read a directory entry: {error}"))?;
                 let name = entry.file_name().to_string_lossy().to_string();
                 if !REQUIRED_FILES.contains(&name.as_str()) {
                     return Err(format!("undeclared file {name} is present in the package"));
@@ -285,7 +291,7 @@ fn inspect_package(package: &Path) -> Result<PackageFacts, String> {
         Some(other) => {
             return Err(format!(
                 "unsupported render model schemaVersion {other}; expected {PREVIEW_SCHEMA}"
-            ))
+            ));
         }
         None => return Err("the render model declares no schemaVersion".to_string()),
     }
@@ -495,7 +501,11 @@ fn entry_page(facts: &PackageFacts) -> String {
         observation = facts.observation_only_count,
         unmodelled = facts.unmodelled_kind_count,
         drift = escape(&drift),
-        drift_class = if facts.schema_drift.is_some() { "warn" } else { "ok" },
+        drift_class = if facts.schema_drift.is_some() {
+            "warn"
+        } else {
+            "ok"
+        },
         limitations = limitations,
         entry_schema = ENTRY_SCHEMA,
     )
@@ -550,13 +560,24 @@ fn serve(package: PathBuf, port: u16, facts: PackageFacts) -> CliResult<()> {
         let target = parts.next().unwrap_or("/").to_string();
         let path = target.split('?').next().unwrap_or("/").to_string();
         if method != "GET" && method != "HEAD" {
-            respond(&mut stream, "405 Method Not Allowed", "text/plain", b"read-only entry");
+            respond(
+                &mut stream,
+                "405 Method Not Allowed",
+                "text/plain",
+                b"read-only entry",
+            );
             continue;
         }
         let body: Option<(String, Vec<u8>)> = if path == "/" || path == "/index.html" {
-            Some(("text/html; charset=utf-8".to_string(), page.clone().into_bytes()))
+            Some((
+                "text/html; charset=utf-8".to_string(),
+                page.clone().into_bytes(),
+            ))
         } else if path == "/status.json" {
-            Some(("application/json; charset=utf-8".to_string(), status_json.clone()))
+            Some((
+                "application/json; charset=utf-8".to_string(),
+                status_json.clone(),
+            ))
         } else if let Some(relative) = path.strip_prefix("/package/") {
             match resolve_within_root(&package, relative) {
                 Ok(resolved) if resolved.is_file() => match fs::read(&resolved) {
@@ -676,7 +697,9 @@ pub(super) fn run_handoff(args: &[String]) -> CliResult<()> {
         }
         fs::write(report, serde_json::to_vec_pretty(&facts.as_json())?)?;
     }
-    println!("handoff contract: path A read-only 2D context projection; no WebGL/3D, no engineering feasibility, no route safety proof");
+    println!(
+        "handoff contract: path A read-only 2D context projection; no WebGL/3D, no engineering feasibility, no route safety proof"
+    );
     match port_verdict(probe_entry(port), &facts.model_sha256) {
         PortVerdict::SamePackage => {
             println!(
@@ -736,7 +759,12 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("gwc-entry-{}-{}-{}", std::process::id(), tag, nanos));
+        let dir = std::env::temp_dir().join(format!(
+            "gwc-entry-{}-{}-{}",
+            std::process::id(),
+            tag,
+            nanos
+        ));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }
@@ -772,7 +800,10 @@ mod tests {
         assert_eq!(facts.road_count, 3);
         assert_eq!(facts.access_count, 18);
         assert_eq!(facts.observation_only_count, 18);
-        assert!(facts.schema_drift.is_some(), "drift must be shown, not hidden");
+        assert!(
+            facts.schema_drift.is_some(),
+            "drift must be shown, not hidden"
+        );
         assert!(!facts.limitations.is_empty());
         assert_eq!(facts.files.len(), REQUIRED_FILES.len());
     }
@@ -811,9 +842,14 @@ mod tests {
         // Manifest hash mismatch.
         let dir = copied_package("bad-manifest");
         let mut manifest: Value =
-            serde_json::from_slice(&fs::read(dir.join(MANIFEST_FILE)).expect("read")).expect("json");
+            serde_json::from_slice(&fs::read(dir.join(MANIFEST_FILE)).expect("read"))
+                .expect("json");
         manifest["modelSha256"] = json!("0".repeat(64));
-        fs::write(dir.join(MANIFEST_FILE), serde_json::to_vec_pretty(&manifest).expect("json")).expect("write");
+        fs::write(
+            dir.join(MANIFEST_FILE),
+            serde_json::to_vec_pretty(&manifest).expect("json"),
+        )
+        .expect("write");
         assert!(inspect_package(&dir).is_err());
 
         // Render model hash mismatch.
@@ -821,7 +857,11 @@ mod tests {
         let mut model: Value =
             serde_json::from_slice(&fs::read(dir.join(MODEL_FILE)).expect("read")).expect("json");
         model["status"]["entityCount"] = json!(99);
-        fs::write(dir.join(MODEL_FILE), serde_json::to_vec_pretty(&model).expect("json")).expect("write");
+        fs::write(
+            dir.join(MODEL_FILE),
+            serde_json::to_vec_pretty(&model).expect("json"),
+        )
+        .expect("write");
         assert!(inspect_package(&dir).is_err());
 
         // Unknown schema version.
@@ -832,7 +872,8 @@ mod tests {
         let bytes = serde_json::to_vec_pretty(&model).expect("json");
         fs::write(dir.join(MODEL_FILE), &bytes).expect("write");
         let mut manifest: Value =
-            serde_json::from_slice(&fs::read(dir.join(MANIFEST_FILE)).expect("read")).expect("json");
+            serde_json::from_slice(&fs::read(dir.join(MANIFEST_FILE)).expect("read"))
+                .expect("json");
         manifest["modelSha256"] = json!(sha256_hex(&bytes));
         let manifest_bytes = serde_json::to_vec_pretty(&manifest).expect("json");
         fs::write(dir.join(MANIFEST_FILE), &manifest_bytes).expect("write");
@@ -840,8 +881,15 @@ mod tests {
             serde_json::from_slice(&fs::read(dir.join(MARKER_FILE)).expect("read")).expect("json");
         marker["modelSha256"] = json!(sha256_hex(&bytes));
         marker["manifestSha256"] = json!(sha256_hex(&manifest_bytes));
-        fs::write(dir.join(MARKER_FILE), serde_json::to_vec_pretty(&marker).expect("json")).expect("write");
-        assert!(inspect_package(&dir).is_err(), "an unknown version must be refused");
+        fs::write(
+            dir.join(MARKER_FILE),
+            serde_json::to_vec_pretty(&marker).expect("json"),
+        )
+        .expect("write");
+        assert!(
+            inspect_package(&dir).is_err(),
+            "an unknown version must be refused"
+        );
 
         // Extra file.
         let dir = copied_package("extra");
@@ -865,17 +913,33 @@ mod tests {
         let dir = copied_package("read-only");
         let before: Vec<(String, String)> = REQUIRED_FILES
             .iter()
-            .map(|name| (name.to_string(), sha256_hex(&fs::read(dir.join(name)).expect("read"))))
+            .map(|name| {
+                (
+                    name.to_string(),
+                    sha256_hex(&fs::read(dir.join(name)).expect("read")),
+                )
+            })
             .collect();
         let facts = inspect_package(&dir).expect("loads");
         let page = entry_page(&facts);
         assert!(page.contains("scene-0"));
         let after: Vec<(String, String)> = REQUIRED_FILES
             .iter()
-            .map(|name| (name.to_string(), sha256_hex(&fs::read(dir.join(name)).expect("read"))))
+            .map(|name| {
+                (
+                    name.to_string(),
+                    sha256_hex(&fs::read(dir.join(name)).expect("read")),
+                )
+            })
             .collect();
-        assert_eq!(before, after, "inspection and rendering must not modify the package");
-        assert_eq!(fs::read_dir(&dir).expect("dir").count(), REQUIRED_FILES.len());
+        assert_eq!(
+            before, after,
+            "inspection and rendering must not modify the package"
+        );
+        assert_eq!(
+            fs::read_dir(&dir).expect("dir").count(),
+            REQUIRED_FILES.len()
+        );
     }
 
     #[test]
@@ -905,14 +969,20 @@ mod tests {
             "0".into(),
         ];
         assert!(super::run_handoff(&args).is_err());
-        assert!(!target.exists(), "no report may be written into the package");
+        assert!(
+            !target.exists(),
+            "no report may be written into the package"
+        );
     }
 
     #[test]
     fn port_verdict_distinguishes_free_same_and_other() {
         let sha = "a".repeat(64);
         assert_eq!(port_verdict(None, &sha), PortVerdict::Free);
-        assert_eq!(port_verdict(Some(sha.clone()), &sha), PortVerdict::SamePackage);
+        assert_eq!(
+            port_verdict(Some(sha.clone()), &sha),
+            PortVerdict::SamePackage
+        );
         match port_verdict(Some("b".repeat(64)), &sha) {
             PortVerdict::OtherPackage(other) => assert_eq!(other, "b".repeat(64)),
             other => panic!("unexpected verdict {other:?}"),

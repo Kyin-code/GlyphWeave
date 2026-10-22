@@ -59,7 +59,10 @@ fn parse(args: &[String]) -> CliResult<Options> {
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> CliResult<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)?;
     }
     let mut file = fs::OpenOptions::new()
@@ -82,7 +85,10 @@ fn write_new_owned(
     created: &mut Vec<PathBuf>,
     inject: Option<&str>,
 ) -> CliResult<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)?;
     }
     let mut file = fs::OpenOptions::new()
@@ -236,7 +242,10 @@ fn build_command(options: &Options, json: &str) -> CliResult<()> {
     let mut created: Vec<PathBuf> = vec![staging.clone()];
     let result = (|| -> CliResult<serde_json::Value> {
         let staged_bundle = staging.join(file_name(out));
-        write_new(&staged_bundle, serde_json::to_vec_pretty(&bundle)?.as_slice())?;
+        write_new(
+            &staged_bundle,
+            serde_json::to_vec_pretty(&bundle)?.as_slice(),
+        )?;
         created.push(staged_bundle.clone());
         let mut view_records: Vec<serde_json::Value> = vec![];
         for (name, content) in ec::views_to_files(&bundle, &outcome) {
@@ -328,7 +337,10 @@ fn build_command(options: &Options, json: &str) -> CliResult<()> {
             "note": "this command edits only the engineered field it was given; it never bakes a world",
         });
         let staged_report = staging.join(file_name(&options.report));
-        write_new(&staged_report, serde_json::to_vec_pretty(&report)?.as_slice())?;
+        write_new(
+            &staged_report,
+            serde_json::to_vec_pretty(&report)?.as_slice(),
+        )?;
         created.push(staged_report.clone());
         // 4. Commit: views, then the report, then the bundle last.
         for name in VIEW_FILES {
@@ -362,7 +374,8 @@ fn build_command(options: &Options, json: &str) -> CliResult<()> {
             )
             .into());
         }
-        Ok(report)    })();
+        Ok(report)
+    })();
     match result {
         Ok(report) => {
             // The report was moved into place as part of the commit; rewriting it here

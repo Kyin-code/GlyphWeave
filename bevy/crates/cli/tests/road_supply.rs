@@ -30,15 +30,13 @@ fn rules() -> PathBuf {
 fn manifest() -> WorldManifest {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/b02-road-supply.manifest.json");
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(rules());
     manifest
 }
 
 fn read(path: &PathBuf) -> Value {
-    let bytes = fs::read(path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let bytes = fs::read(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
     serde_json::from_slice(&bytes).unwrap()
 }
 
@@ -50,7 +48,11 @@ fn bake(label: &str, max_segments: Option<u64>) -> (TestDir, Value) {
                 serde_json::json!(max);
         }
         None => {
-            manifest.style.as_object_mut().unwrap().remove("automaticRoadExtensions");
+            manifest
+                .style
+                .as_object_mut()
+                .unwrap()
+                .remove("automaticRoadExtensions");
         }
     }
     let dir = TestDir::new(label);
@@ -138,15 +140,17 @@ fn accepted_extensions_publish_tier_provenance_and_a_reconstructable_parent_chai
             saw_base_parent |= !generated.contains(&parent);
         }
     }
-    assert!(roles.contains("collector"), "collector tier must be published");
+    assert!(
+        roles.contains("collector"),
+        "collector tier must be published"
+    );
     assert!(saw_base_parent, "the chain must reach a base road");
 
     let with_quality = cli(&["quality-report"], &with_dir);
     assert!(with_quality.status.success());
     let quality = read(&with_dir.0.join("quality-report.json"));
     assert_eq!(
-        quality["scenes"][0]["roadNetworkAudit"]["status"],
-        "pass",
+        quality["scenes"][0]["roadNetworkAudit"]["status"], "pass",
         "the final road audit must pass on the accepted control"
     );
 

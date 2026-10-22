@@ -30,7 +30,7 @@ use glyphweave_core::worldgen::{
     SceneIndex, SceneSpec, WATER_SHORE_CLEARANCE_M, WorldManifest, bake_world,
     verify_published_placement, water_geometry, water_kind,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::{fs, path::PathBuf};
 
@@ -181,22 +181,24 @@ fn waterfront_without_opt_in() -> WorldManifest {
         "levelPolicy": "horizontal-datum",
         "levelM": 0
     });
-    m.landmarks = vec![serde_json::from_value(json!({
-        "entityId": "landmark.waterfront-river",
-        "name": "waterfront river",
-        "type": "river",
-        "purpose": "structured water the scene must live with",
-        "description": "north-south river through the middle of the town",
-        "sceneId": "scene-0",
-        "worldX": 256,
-        "worldZ": 256,
-        "worldY": 0,
-        "widthM": 16,
-        "depthM": 512,
-        "heightM": 1,
-        "assetId": "water.waterfront-river"
-    }))
-    .unwrap()];
+    m.landmarks = vec![
+        serde_json::from_value(json!({
+            "entityId": "landmark.waterfront-river",
+            "name": "waterfront river",
+            "type": "river",
+            "purpose": "structured water the scene must live with",
+            "description": "north-south river through the middle of the town",
+            "sceneId": "scene-0",
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": 16,
+            "depthM": 512,
+            "heightM": 1,
+            "assetId": "water.waterfront-river"
+        }))
+        .unwrap(),
+    ];
     m
 }
 
@@ -231,7 +233,8 @@ fn a_world_with_no_plan_and_a_waterless_world_are_byte_identical() {
     let manifest = waterfront_without_opt_in();
     bake_world(&manifest, &dir.0).unwrap();
     let scene: Value =
-        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap())
+            .unwrap();
     assert!(
         scene["roadNetworkPlan"].is_null(),
         "a water scene without the opt-in plans no road network, so the row cannot exist either"
@@ -247,7 +250,8 @@ fn a_world_with_no_plan_and_a_waterless_world_are_byte_identical() {
     let manifest = waterless_town();
     bake_world(&manifest, &dir.0).unwrap();
     let scene: Value =
-        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(dir.0.join("scenes/scene-0/scene.json")).unwrap())
+            .unwrap();
     assert!(
         scene["roadNetworkPlan"].is_object(),
         "a waterless strict world still plans its road network"
@@ -341,7 +345,11 @@ fn the_row_stands_on_the_first_quay_street_within_twenty_metres_of_the_shore() {
     let rows: Vec<_> = scene
         .entities
         .iter()
-        .filter(|entity| entity.entity_id.starts_with("generated.service.scene-0.shorefront-row."))
+        .filter(|entity| {
+            entity
+                .entity_id
+                .starts_with("generated.service.scene-0.shorefront-row.")
+        })
         .collect();
     assert_eq!(rows.len(), SAMPLE_SHOREFRONT_SHOPS);
     let mut zones: BTreeMap<&str, usize> = BTreeMap::new();
@@ -466,7 +474,10 @@ fn no_commercial_footprint_enters_the_water_or_the_shore_band() {
             WATER_SHORE_CLEARANCE_M
         );
     }
-    assert!(checked > 0, "the sample carries commercial buildings to check");
+    assert!(
+        checked > 0,
+        "the sample carries commercial buildings to check"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -554,20 +565,26 @@ fn the_rural_conversion_switch_decides_whether_the_row_converts() {
     assert_eq!(conversion["status"], json!("pass"), "{conversion}");
     assert_eq!(
         conversion["planned"].as_u64().unwrap() as usize,
-        pad_records.len() + on_plan["frontage"]["conversions"].as_array().map_or(0, Vec::len),
+        pad_records.len()
+            + on_plan["frontage"]["conversions"]
+                .as_array()
+                .map_or(0, Vec::len),
         "every record the plan claims is re-derived"
     );
     assert_eq!(
-        conversion["applied"],
-        conversion["planned"],
+        conversion["applied"], conversion["planned"],
         "the ledger applies exactly the plan's records"
     );
     assert_eq!(
-        conversion["refusedPads"], json!(0),
+        conversion["refusedPads"],
+        json!(0),
         "no refused pad is booked"
     );
     let ledger = &scene_quality["landUseLedger"];
-    let ledger_records = ledger["conversions"].as_array().cloned().unwrap_or_default();
+    let ledger_records = ledger["conversions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     assert_eq!(
         ledger_records.len(),
         conversion["planned"].as_u64().unwrap() as usize

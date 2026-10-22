@@ -400,18 +400,13 @@ impl RoadNetworkPlan {
                 //      profile design chain. Priority 3 must not become a silent pseudo-profile for a
                 //      zoned base road: a base road whose design failed carries no profile and the
                 //      rejection is retained by the planning caller.
-                let profile = e
-                    .profile
-                    .clone()
-                    .or_else(|| {
-                        self.extensions
-                            .iter()
-                            .find(|p| p.entity_id == e.id)
-                            .map(|p| super::road_extensions::profile(&p.design))
-                    });
-                let road_width_m = profile
-                    .as_ref()
-                    .map_or(8., |p| p.road_width_m as f32);
+                let profile = e.profile.clone().or_else(|| {
+                    self.extensions
+                        .iter()
+                        .find(|p| p.entity_id == e.id)
+                        .map(|p| super::road_extensions::profile(&p.design))
+                });
+                let road_width_m = profile.as_ref().map_or(8., |p| p.road_width_m as f32);
                 let height = profile
                     .as_ref()
                     .and_then(|p| p.height_at(f64::from(e.world_x), f64::from(e.world_z)))
@@ -549,11 +544,8 @@ pub(super) fn plan(
 /// footprint rectangle, in metres. Used by the station scan to keep a roadside
 /// pad on the road it was assigned.
 pub(super) fn road_rect_distance(entity: &EntityInstance, x: i32, z: i32) -> f64 {
-    let (hw, hd) = super::spatial_half_extents(
-        entity.width_m,
-        entity.depth_m,
-        entity.rotation_y_deg,
-    );
+    let (hw, hd) =
+        super::spatial_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
     let dx = (f64::from(x) - f64::from(entity.world_x)).abs() - hw;
     let dz = (f64::from(z) - f64::from(entity.world_z)).abs() - hd;
     dx.max(0.).hypot(dz.max(0.))
@@ -637,9 +629,7 @@ fn roadside_placement_candidates(
         road_entities
             .iter()
             .find(|entity| entity.entity_id == e.id)
-            .and_then(|road| {
-                road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z))
-            })
+            .and_then(|road| road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z)))
             .or(fallback)
     };
     let waterfront_centre = centre_surface_mm(None).map(|mm| {
@@ -691,12 +681,7 @@ fn roadside_placement_candidates(
         for zz in cz - pad_win..=cz + pad_win {
             for xx in cx - pad_win..=cx + pad_win {
                 if let Some(h) = terrain.height(xx, zz) {
-                    let required = super::apply_terrain_carves(
-                        f64::from(h),
-                        xx,
-                        zz,
-                        road_carves,
-                    );
+                    let required = super::apply_terrain_carves(f64::from(h), xx, zz, road_carves);
                     required_max = required_max.max((required * 1000.).round() as i64);
                 }
             }
@@ -755,8 +740,7 @@ fn roadside_placement_candidates(
         for zz in z - pad_win..=z + pad_win {
             for xx in x - pad_win..=x + pad_win {
                 if let Some(h) = terrain.height(xx, zz) {
-                    let required =
-                        super::apply_terrain_carves(f64::from(h), xx, zz, road_carves);
+                    let required = super::apply_terrain_carves(f64::from(h), xx, zz, road_carves);
                     required_max = required_max.max((required * 1000.).round() as i64);
                 }
             }
@@ -1138,9 +1122,7 @@ pub(super) fn plan_with_zones_demand(
                         let h = terrain.height(xx, zz).ok_or_else(|| {
                             TerrainError("road footprint missing natural sample".into())
                         })?;
-                        if water_contact
-                            && water.contains_point(f64::from(xx), f64::from(zz))
-                        {
+                        if water_contact && water.contains_point(f64::from(xx), f64::from(zz)) {
                             // Opt-in structure deck: the span over water carries
                             // no earthwork, so it is excluded from the roadbed
                             // fill range and can never raise the bed.
@@ -1176,7 +1158,8 @@ pub(super) fn plan_with_zones_demand(
                     result.rejected_water += 1;
                     continue;
                 }
-                if !crossing && (max.ceil() - min > max_fill || f64::from(max.ceil()) > protected_cap)
+                if !crossing
+                    && (max.ceil() - min > max_fill || f64::from(max.ceil()) > protected_cap)
                 {
                     result.rejected_relief += 1;
                     continue;
@@ -1453,8 +1436,7 @@ pub(super) fn plan_with_zones_demand(
                 };
                 // A road that offers no legal station at all carries no pad, so its
                 // grading creates no unreachable site and is left alone.
-                let Ok(Some(stations)) =
-                    super::frontage::stations(probe_entity, &roadside_request)
+                let Ok(Some(stations)) = super::frontage::stations(probe_entity, &roadside_request)
                 else {
                     continue;
                 };
@@ -1558,24 +1540,21 @@ pub(super) fn plan_with_zones_demand(
                         result.edges[index].profile = Some(profile);
                         let entities = result.entities();
                         let carves = super::plan_terrain_carves(&entities);
-                        let rise = result.edges[index]
-                            .profile
-                            .as_ref()
-                            .and_then(|profile| {
-                                entities
-                                    .iter()
-                                    .find(|entity| entity.entity_id == rejection.edge_id)
-                                    .and_then(|entity| {
-                                        best_roadside_pad_rise(
-                                            profile,
-                                            entity,
-                                            &carves,
-                                            terrain,
-                                            &roadside_request,
-                                            probe_audit_win,
-                                        )
-                                    })
-                            });
+                        let rise = result.edges[index].profile.as_ref().and_then(|profile| {
+                            entities
+                                .iter()
+                                .find(|entity| entity.entity_id == rejection.edge_id)
+                                .and_then(|entity| {
+                                    best_roadside_pad_rise(
+                                        profile,
+                                        entity,
+                                        &carves,
+                                        terrain,
+                                        &roadside_request,
+                                        probe_audit_win,
+                                    )
+                                })
+                        });
                         match rise {
                             Some(rise) if rise <= apron_capacity_m => {}
                             _ => {
@@ -1669,44 +1648,44 @@ pub(super) fn plan_with_zones_demand(
                     waterfront,
                 );
                 for (x, z, station_own_mm, frontage_point, legacy_parcel) in candidates {
-                let (x, z) = (i64::from(x), i64::from(z));
-                if x - 14 < i64::from(scene.origin_x)
-                    || z - 14 < i64::from(scene.origin_z)
-                    || x + 14 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
-                    || z + 14 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
-                {
-                    continue;
-                }
-                let (x, z) = (x as i32, z as i32); // Bounds checked in i64 above.
-                if let Some(reject) = zoning.as_ref().and_then(|mask| {
-                    mask.check(
-                        format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
-                        "residential_home",
-                        x,
-                        z,
-                        14,
-                        14,
-                    )
-                }) {
-                    result.zoning_rejections.push(reject);
-                    continue;
-                }
-                if water.road_water_crossings() {
-                    // Opt-in waterfront: a pad stands on DRY land and keeps the
-                    // shore clearance the published scale audit already measures
-                    // (`water_query::WATER_SHORE_CLEARANCE_M`, one constant for
-                    // both). The footprint is dilated by that clearance, which
-                    // proves the distance rather than sampling it, and also proves
-                    // the lot owns no cell of the reserved shore band. The refusal
-                    // is NAMED: a silent skip is how a city ends up with no lots
-                    // and no explanation.
-                    if !water.clears_shore(
-                        f64::from(x),
-                        f64::from(z),
-                        f64::from(pad_win),
-                        f64::from(pad_win),
-                    ) {
-                        site_rejections.push(BaseProfileRejection {
+                    let (x, z) = (i64::from(x), i64::from(z));
+                    if x - 14 < i64::from(scene.origin_x)
+                        || z - 14 < i64::from(scene.origin_z)
+                        || x + 14 >= i64::from(scene.origin_x) + i64::from(scene.width_m)
+                        || z + 14 >= i64::from(scene.origin_z) + i64::from(scene.depth_m)
+                    {
+                        continue;
+                    }
+                    let (x, z) = (x as i32, z as i32); // Bounds checked in i64 above.
+                    if let Some(reject) = zoning.as_ref().and_then(|mask| {
+                        mask.check(
+                            format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                            "residential_home",
+                            x,
+                            z,
+                            14,
+                            14,
+                        )
+                    }) {
+                        result.zoning_rejections.push(reject);
+                        continue;
+                    }
+                    if water.road_water_crossings() {
+                        // Opt-in waterfront: a pad stands on DRY land and keeps the
+                        // shore clearance the published scale audit already measures
+                        // (`water_query::WATER_SHORE_CLEARANCE_M`, one constant for
+                        // both). The footprint is dilated by that clearance, which
+                        // proves the distance rather than sampling it, and also proves
+                        // the lot owns no cell of the reserved shore band. The refusal
+                        // is NAMED: a silent skip is how a city ends up with no lots
+                        // and no explanation.
+                        if !water.clears_shore(
+                            f64::from(x),
+                            f64::from(z),
+                            f64::from(pad_win),
+                            f64::from(pad_win),
+                        ) {
+                            site_rejections.push(BaseProfileRejection {
                             edge_id: format!(
                                 "generated.roadside.{}.{}.{side}",
                                 scene.scene_id, e.id
@@ -1718,99 +1697,95 @@ pub(super) fn plan_with_zones_demand(
                                 super::water_query::WATER_SHORE_CLEARANCE_M
                             ),
                         });
+                            continue;
+                        }
+                    } else if water.intersects_axis_aligned(f64::from(x), f64::from(z), 14., 14.) {
                         continue;
                     }
-                } else if water.intersects_axis_aligned(f64::from(x), f64::from(z), 14., 14.) {
-                    continue;
-                }
-                if result.edges.iter().any(|r| {
-                    let (hw, hd) = if r.rotation_y_deg == 0. {
-                        (r.length_m as i32 / 2 + 3, 7)
-                    } else {
-                        (7, r.length_m as i32 / 2 + 3)
-                    };
-                    (r.world_x - x).abs() < hw + 14 && (r.world_z - z).abs() < hd + 14
-                }) {
-                    continue;
-                }
-                if result
-                    .roadside_sites
-                    .iter()
-                    .any(|s| (s.world_x - x).abs() < 28 && (s.world_z - z).abs() < 28)
-                {
-                    continue;
-                }
-                let mut min = f32::INFINITY;
-                let mut max = f32::NEG_INFINITY;
-                let mut protected_cap = f64::INFINITY;
-                for zz in z - audit_win..=z + audit_win {
-                    for xx in x - audit_win..=x + audit_win {
-                        let h = terrain.height(xx, zz).ok_or_else(|| {
-                            TerrainError("missing roadside natural sample".into())
-                        })?;
-                        min = min.min(h);
-                        max = max.max(h);
-                        if let Some(mask) = &zoning {
-                            protected_cap =
-                                protected_cap.min(f64::from(h) + mask.fill_capacity_at(xx, zz));
-                        }
+                    if result.edges.iter().any(|r| {
+                        let (hw, hd) = if r.rotation_y_deg == 0. {
+                            (r.length_m as i32 / 2 + 3, 7)
+                        } else {
+                            (7, r.length_m as i32 / 2 + 3)
+                        };
+                        (r.world_x - x).abs() < hw + 14 && (r.world_z - z).abs() < hd + 14
+                    }) {
+                        continue;
                     }
-                }
-                // B01-T2 R8-1: these gates must be evaluated against the height the
-                // pad will ACTUALLY be declared at (rule A'), not against the flat
-                // `level_m`. For an unprofiled (legacy) adjacent road that declared
-                // height is still the flat level, so legacy behaviour is bit-identical;
-                // for a profiled road it is the road's own surface, which is why sites
-                // whose natural ground sits ABOVE the road could previously be placed
-                // and then never realise (carving is fill-only and cannot cut them
-                // down). Such a site is now refused BY NAME instead of being placed
-                // and left unresolved.
-                // The pad's own level is the road's surface AT ITS STATION (the
-                // scanned frontage point), not at the edge's centre.
-                //
-                // Opt-in waterfront: the base of rule A' is the road's OWN graded
-                // surface (its profile at that station, or that road's published
-                // flat level when it carries no profile) instead of the network's
-                // single `level_m`. A shore is a multi-level surface - bank, quay
-                // and crossing deck stand at different heights - so a pad declared
-                // on the scene datum would either bury a lower neighbour or be
-                // buried by a higher one.
-                let gate_own_mm = station_own_mm;
-                let gate_base_mm = match gate_own_mm {
-                    Some(mm) => mm,
-                    // A placement without a station is the edge's centre one, whose
-                    // frontage point is the edge midpoint; its surface is the own
-                    // road's surface there.
-                    None if waterfront => road_entities
+                    if result
+                        .roadside_sites
                         .iter()
-                        .find(|entity| entity.entity_id == e.id)
-                        .and_then(|road| {
-                            road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z))
-                        })
-                        .unwrap_or(i64::from(level) * 1000),
-                    None => i64::from(level) * 1000,
-                };
-                let mut gate_declared_mm = gate_base_mm;
-                for zz in z - pad_win..=z + pad_win {
-                    for xx in x - pad_win..=x + pad_win {
-                        if let Some(h) = terrain.height(xx, zz) {
-                            let required = super::apply_terrain_carves(
-                                f64::from(h),
-                                xx,
-                                zz,
-                                &road_carves,
-                            );
-                            gate_declared_mm =
-                                gate_declared_mm.max((required * 1000.).round() as i64);
+                        .any(|s| (s.world_x - x).abs() < 28 && (s.world_z - z).abs() < 28)
+                    {
+                        continue;
+                    }
+                    let mut min = f32::INFINITY;
+                    let mut max = f32::NEG_INFINITY;
+                    let mut protected_cap = f64::INFINITY;
+                    for zz in z - audit_win..=z + audit_win {
+                        for xx in x - audit_win..=x + audit_win {
+                            let h = terrain.height(xx, zz).ok_or_else(|| {
+                                TerrainError("missing roadside natural sample".into())
+                            })?;
+                            min = min.min(h);
+                            max = max.max(h);
+                            if let Some(mask) = &zoning {
+                                protected_cap =
+                                    protected_cap.min(f64::from(h) + mask.fill_capacity_at(xx, zz));
+                            }
                         }
                     }
-                }
-                let gate_level = gate_declared_mm as f64 / 1000.;
-                if f64::from(max) > gate_level
-                    || gate_level - f64::from(min) > f64::from(max_fill)
-                    || gate_level > protected_cap
-                {
-                    site_rejections.push(BaseProfileRejection {
+                    // B01-T2 R8-1: these gates must be evaluated against the height the
+                    // pad will ACTUALLY be declared at (rule A'), not against the flat
+                    // `level_m`. For an unprofiled (legacy) adjacent road that declared
+                    // height is still the flat level, so legacy behaviour is bit-identical;
+                    // for a profiled road it is the road's own surface, which is why sites
+                    // whose natural ground sits ABOVE the road could previously be placed
+                    // and then never realise (carving is fill-only and cannot cut them
+                    // down). Such a site is now refused BY NAME instead of being placed
+                    // and left unresolved.
+                    // The pad's own level is the road's surface AT ITS STATION (the
+                    // scanned frontage point), not at the edge's centre.
+                    //
+                    // Opt-in waterfront: the base of rule A' is the road's OWN graded
+                    // surface (its profile at that station, or that road's published
+                    // flat level when it carries no profile) instead of the network's
+                    // single `level_m`. A shore is a multi-level surface - bank, quay
+                    // and crossing deck stand at different heights - so a pad declared
+                    // on the scene datum would either bury a lower neighbour or be
+                    // buried by a higher one.
+                    let gate_own_mm = station_own_mm;
+                    let gate_base_mm = match gate_own_mm {
+                        Some(mm) => mm,
+                        // A placement without a station is the edge's centre one, whose
+                        // frontage point is the edge midpoint; its surface is the own
+                        // road's surface there.
+                        None if waterfront => road_entities
+                            .iter()
+                            .find(|entity| entity.entity_id == e.id)
+                            .and_then(|road| {
+                                road_surface_mm_at(road, f64::from(e.world_x), f64::from(e.world_z))
+                            })
+                            .unwrap_or(i64::from(level) * 1000),
+                        None => i64::from(level) * 1000,
+                    };
+                    let mut gate_declared_mm = gate_base_mm;
+                    for zz in z - pad_win..=z + pad_win {
+                        for xx in x - pad_win..=x + pad_win {
+                            if let Some(h) = terrain.height(xx, zz) {
+                                let required =
+                                    super::apply_terrain_carves(f64::from(h), xx, zz, &road_carves);
+                                gate_declared_mm =
+                                    gate_declared_mm.max((required * 1000.).round() as i64);
+                            }
+                        }
+                    }
+                    let gate_level = gate_declared_mm as f64 / 1000.;
+                    if f64::from(max) > gate_level
+                        || gate_level - f64::from(min) > f64::from(max_fill)
+                        || gate_level > protected_cap
+                    {
+                        site_rejections.push(BaseProfileRejection {
                         edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
                         category: "pad_below_natural_ground_or_over_contract".into(),
                         reason: format!(
@@ -1818,22 +1793,22 @@ pub(super) fn plan_with_zones_demand(
                             e.id
                         ),
                     });
-                    continue;
-                }
-                // B01-T2 R7-1 (rule A'): the pad stays FLAT, but its height is the
-                // MAXIMUM the roads already require anywhere inside the pad, so that
-                // the fill-only carve (`terrain.max(target)`) can agree with the
-                // declaration at every cell. A neighbouring road's blend ramp is
-                // allowed to raise the pad - what is forbidden is sharing cells with
-                // a road's protected band. Sites that cannot satisfy the existing
-                // contracts are refused BY NAME, never placed and never dropped.
-                let pad_half: i64 = pad_win_i64; // the shared 24x24 pad window (R9-1)
-                let overlaps_band = road_bands.iter().any(|(cx, cz, hw, hd)| {
-                    (i64::from(x) - cx).abs() < hw + pad_half
-                        && (i64::from(z) - cz).abs() < hd + pad_half
-                });
-                if overlaps_band {
-                    site_rejections.push(BaseProfileRejection {
+                        continue;
+                    }
+                    // B01-T2 R7-1 (rule A'): the pad stays FLAT, but its height is the
+                    // MAXIMUM the roads already require anywhere inside the pad, so that
+                    // the fill-only carve (`terrain.max(target)`) can agree with the
+                    // declaration at every cell. A neighbouring road's blend ramp is
+                    // allowed to raise the pad - what is forbidden is sharing cells with
+                    // a road's protected band. Sites that cannot satisfy the existing
+                    // contracts are refused BY NAME, never placed and never dropped.
+                    let pad_half: i64 = pad_win_i64; // the shared 24x24 pad window (R9-1)
+                    let overlaps_band = road_bands.iter().any(|(cx, cz, hw, hd)| {
+                        (i64::from(x) - cx).abs() < hw + pad_half
+                            && (i64::from(z) - cz).abs() < hd + pad_half
+                    });
+                    if overlaps_band {
+                        site_rejections.push(BaseProfileRejection {
                         edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
                         category: "pad_overlaps_road_band".into(),
                         reason: format!(
@@ -1841,79 +1816,277 @@ pub(super) fn plan_with_zones_demand(
                             e.id
                         ),
                     });
-                    continue;
-                }
-                // Opt-in waterfront: the pad's flat top (rule A') is declared over
-                // the AUDIT window, because the published site audit requires every
-                // cell of the pad's 2 m apron to equal the declared level exactly.
-                // Its base is the pad's OWN road surface - the profile elevation at
-                // that station, or that road's published flat level when it carries
-                // no profile - raised to whatever a crossing road's fill-only ramp
-                // already demands inside that apron. A shore is a multi-level
-                // surface, so this base is per site and never the scene datum; the
-                // pad still needs no cut (the natural ground may never stand above
-                // it) and no more than the roadbed fill contract.
-                let waterfront_declared_mm: Option<i64> = if water.road_water_crossings() {
-                    let mut declared = gate_base_mm;
-                    let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
+                        continue;
+                    }
+                    // Opt-in waterfront: the pad's flat top (rule A') is declared over
+                    // the AUDIT window, because the published site audit requires every
+                    // cell of the pad's 2 m apron to equal the declared level exactly.
+                    // Its base is the pad's OWN road surface - the profile elevation at
+                    // that station, or that road's published flat level when it carries
+                    // no profile - raised to whatever a crossing road's fill-only ramp
+                    // already demands inside that apron. A shore is a multi-level
+                    // surface, so this base is per site and never the scene datum; the
+                    // pad still needs no cut (the natural ground may never stand above
+                    // it) and no more than the roadbed fill contract.
+                    let waterfront_declared_mm: Option<i64> = if water.road_water_crossings() {
+                        let mut declared = gate_base_mm;
+                        let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
+                        for zz in z - audit_win..=z + audit_win {
+                            for xx in x - audit_win..=x + audit_win {
+                                let natural_m =
+                                    f64::from(terrain.height(xx, zz).ok_or_else(|| {
+                                        TerrainError("missing roadside natural sample".into())
+                                    })?);
+                                low = low.min(natural_m);
+                                high = high.max(natural_m);
+                                let required =
+                                    super::apply_terrain_carves(natural_m, xx, zz, &road_carves);
+                                declared = declared.max((required * 1000.).round() as i64);
+                            }
+                        }
+                        let declared_f = declared as f64 / 1000.;
+                        let own_road_f = gate_base_mm as f64 / 1000.;
+                        let entrance_limit = 24.0 * 0.080; // the road's own 80 mm/m grade over the 24 m offset
+                        // The apron is what an entrance can climb in one walkable cell.
+                        // A pad raised further above its OWN road than that cannot be
+                        // entered from the road it fronts: the checked route detours to a
+                        // different road and the development audit refuses the lot as
+                        // "no_verified_assigned_road_access". The same capacity already
+                        // decides `grading_leaves_no_enterable_pad`, so the two gates
+                        // cannot disagree about what "enterable" means.
+                        let apron_capacity =
+                            super::access::WALKABLE_GRADE * super::ENTRANCE_APRON_RUN_M * 1000.;
+                        let (category, reason) = if high > declared_f + 1e-9
+                            || declared_f - low > f64::from(max_fill) + 1e-9
+                            || high - low > f64::from(max_fill)
+                        {
+                            (
+                                "pad_ground_exceeds_roadbed_contract",
+                                format!(
+                                    "site at ({x},{z}) on road {}: its flat pad on {declared_f:.3} m would need {:.3} m of fill over natural {low:.3}..{high:.3} m (cap {max_fill} m, no excavation)",
+                                    e.id,
+                                    declared_f - low
+                                ),
+                            )
+                        } else if (declared - gate_base_mm) as f64 > apron_capacity + 1e-6 {
+                            (
+                                "pad_not_enterable_from_own_road",
+                                format!(
+                                    "site at ({x},{z}) on road {}: its own graded surface stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step the {} m apron cannot carry",
+                                    e.id,
+                                    declared_f - own_road_f,
+                                    super::ENTRANCE_APRON_RUN_M
+                                ),
+                            )
+                        } else if declared_f - own_road_f > entrance_limit + 1e-9 {
+                            (
+                                "entrance_grade_exceeds_contract",
+                                format!(
+                                    "site at ({x},{z}) on road {}: its own road stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step (limit {entrance_limit:.3} m)",
+                                    e.id,
+                                    declared_f - own_road_f
+                                ),
+                            )
+                        } else {
+                            ("", String::new())
+                        };
+                        if !category.is_empty() {
+                            site_rejections.push(BaseProfileRejection {
+                                edge_id: format!(
+                                    "generated.roadside.{}.{}.{side}",
+                                    scene.scene_id, e.id
+                                ),
+                                category: category.into(),
+                                reason,
+                            });
+                            continue;
+                        }
+                        Some(declared)
+                    } else {
+                        None
+                    };
+                    let own_mm = station_own_mm;
+                    let Some(own_mm) = own_mm else {
+                        // legacy / unprofiled adjacent road: keep the old flat-level path
+                        // B01-T2 R12: the pad is realized by a fill-only carve, so its
+                        // declared flat top has to be the height the gates above just
+                        // certified as realizable. `gate_declared_mm` is exactly that:
+                        // the network level raised by everything the roads require
+                        // inside the pad's own window. Declaring the bare `level`
+                        // instead left the declaration below the raster the carve
+                        // actually produced, the post-bake rebase then moved the
+                        // entity by a whole metre, and the frozen plan no longer
+                        // matched the final entity. When `level` is already realizable
+                        // the declaration is byte-identical to the legacy shape.
+                        // Only a genuinely unprofiled edge (no graded surface at all)
+                        // takes the raised declaration: its road is flat on `level`, so
+                        // raising the pad to the height its own window really holds keeps
+                        // the entrance step inside one walkable cell. A profiled edge
+                        // whose station scan found no usable station keeps the legacy
+                        // centre placement byte-identically, exactly as the scan's own
+                        // contract states.
+                        //
+                        // Opt-in waterfront: the pad takes the declaration derived above
+                        // (its own road's surface over the audited apron) and publishes it
+                        // as a precise `support_level_mm` with its frontage point, so it
+                        // is a real frontage lot with a checked entrance rather than a
+                        // flat pad nobody can walk to.
+                        let support_mm: Option<i32> = match waterfront_declared_mm {
+                            Some(declared) => i32::try_from(declared).ok(),
+                            None => i32::try_from(gate_declared_mm)
+                                .ok()
+                                .filter(|_| e.profile.is_none())
+                                .filter(|mm| i64::from(*mm) != i64::from(level) * 1000),
+                        };
+                        let mut site = RoadsideSite {
+                            program: None,
+                            purpose: None,
+                            id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
+                            road_id: e.id.clone(),
+                            world_x: x,
+                            world_z: z,
+                            width_m: 24,
+                            depth_m: 24,
+                            support_level_m: support_mm.map_or(level, |mm| mm.div_euclid(1000)),
+                            // R11 G1 applies to the PROFILED path only. This branch
+                            // is the legacy unprofiled neighbour: its pad is flat on
+                            // `level` and its 2 m ring is ordinary realizable yard,
+                            // so its parcel geometry must stay byte-identical to b8
+                            // (`None` = ParcelInsets::legacy() = 2/2/2). See the
+                            // inspector's R11 note 1, item 3.
+                            // Only a truly unprofiled neighbour keeps b8's 2/2/2
+                            // ring; a profiled edge that the station scan could not
+                            // serve keeps the zero-inset parcel (see the scan above).
+                            parcel_insets: if legacy_parcel {
+                                None
+                            } else {
+                                Some(super::parcel_geometry::ParcelInsets {
+                                    front_m: 0,
+                                    side_m: 0,
+                                    rear_m: 0,
+                                })
+                            },
+                            support_level_mm: support_mm,
+                            frontage_road_point: support_mm.map(|_| [e.world_x, e.world_z]),
+                            bounded_cut_mm: None,
+                            // A roadside pad of the settlement programme is NOT a
+                            // frontageProgram parcel and never excavates: the opt-in
+                            // bounded cut is scoped to `frontage::append`'s pads.
+                            // The OPT-IN derived earthwork ring is written by
+                            // `earthwork_blend::stamp_plan`, once the pad list is whole
+                            // and every generator has run.
+                            earthwork_blend_m: None,
+                            rotation_y_deg: if e.rotation_y_deg == 0. {
+                                if side < 0 { 180. } else { 0. }
+                            } else if side < 0 {
+                                270.
+                            } else {
+                                90.
+                            },
+                            natural_min_m: min,
+                            natural_max_m: max,
+
+                            entry_corridor: None,
+                        };
+                        // A pad whose own street cannot be walked to is not a lot. The
+                        // refusal is named and the candidate is withdrawn BEFORE the
+                        // purposes are declared, so no conversion, service outcome or
+                        // entity can outlive it; the station scan moves on.
+                        //
+                        // OPT-IN `style.terrainPolicy.entryCorridor`: before the
+                        // candidate is withdrawn, ONE graded walking corridor is offered
+                        // to it. It is accepted only when THIS SAME gate then passes on
+                        // the surface the corridor makes the bake publish.
+                        if let Some((category, reason)) = super::entry_corridor::gate_or_corridor(
+                            &mut site,
+                            &road_entities,
+                            &result.site_entities(),
+                            terrain,
+                            zoning.as_ref(),
+                            profile_cut_mm,
+                            water,
+                            result.entry_corridor_policy,
+                            max_fill,
+                        )? {
+                            site_rejections.push(BaseProfileRejection {
+                                edge_id: site.id.clone(),
+                                category: category.into(),
+                                reason,
+                            });
+                            continue;
+                        }
+                        let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
+                        if let Some(reason) = verdict.reason {
+                            // The urban-edge refusal carries the measured distance in the prose (the
+                            // category alone cannot say HOW far out the pad stood); every other reason
+                            // appends nothing, so its published text is unchanged.
+                            let detail = zones.map_or(String::new(), |zones| {
+                                super::frontage::pad_refusal_detail(&site, zones, reason)
+                            });
+                            site_rejections.push(BaseProfileRejection {
+                                edge_id: site.id.clone(),
+                                category: reason.into(),
+                                reason: format!(
+                                    "pad at ({x},{z}) on road {}: {reason}{detail} for a {} pad",
+                                    e.id,
+                                    site.kind()
+                                ),
+                            });
+                            continue;
+                        }
+                        site.purpose = verdict.declared.map(str::to_owned);
+                        result.roadside_sites.push(site);
+                        continue;
+                    };
+                    let mut declared_mm = waterfront_declared_mm.unwrap_or(own_mm);
+                    let mut worst_fill = f64::NEG_INFINITY;
+                    // Same window as the station scan and the carve/audit: the pad
+                    // plus the 2 m apron, so the declaration covers the door cell.
                     for zz in z - audit_win..=z + audit_win {
                         for xx in x - audit_win..=x + audit_win {
+                            let natural_mm =
+                                f64::from(terrain.height(xx, zz).ok_or_else(|| {
+                                    TerrainError("missing roadside natural sample".into())
+                                })?);
+                            let required =
+                                super::apply_terrain_carves(natural_mm, xx, zz, &road_carves);
+                            declared_mm = declared_mm.max((required * 1000.).round() as i64);
+                        }
+                    }
+                    let declared_f = declared_mm as f64 / 1000.;
+                    for zz in z - fill_gate_win..=z + fill_gate_win {
+                        for xx in x - fill_gate_win..=x + fill_gate_win {
                             let natural_m = f64::from(terrain.height(xx, zz).ok_or_else(|| {
                                 TerrainError("missing roadside natural sample".into())
                             })?);
-                            low = low.min(natural_m);
-                            high = high.max(natural_m);
-                            let required = super::apply_terrain_carves(
-                                natural_m,
-                                xx,
-                                zz,
-                                &road_carves,
-                            );
-                            declared = declared.max((required * 1000.).round() as i64);
+                            let cap = zoning.as_ref().map_or(f64::from(max_fill), |mask| {
+                                mask.fill_capacity_at(xx, zz).min(f64::from(max_fill))
+                            });
+                            let fill = declared_f - natural_m;
+                            worst_fill = worst_fill.max(fill);
+                            if fill < -1e-9 || fill > cap + 1e-9 {
+                                worst_fill = f64::INFINITY;
+                            }
                         }
                     }
-                    let declared_f = declared as f64 / 1000.;
-                    let own_road_f = gate_base_mm as f64 / 1000.;
+                    let entrance_drop = (declared_f - own_mm as f64 / 1000.).abs();
                     let entrance_limit = 24.0 * 0.080; // the road's own 80 mm/m grade over the 24 m offset
-                    // The apron is what an entrance can climb in one walkable cell.
-                    // A pad raised further above its OWN road than that cannot be
-                    // entered from the road it fronts: the checked route detours to a
-                    // different road and the development audit refuses the lot as
-                    // "no_verified_assigned_road_access". The same capacity already
-                    // decides `grading_leaves_no_enterable_pad`, so the two gates
-                    // cannot disagree about what "enterable" means.
-                    let apron_capacity = super::access::WALKABLE_GRADE
-                        * super::ENTRANCE_APRON_RUN_M
-                        * 1000.;
-                    let (category, reason) = if high > declared_f + 1e-9
-                        || declared_f - low > f64::from(max_fill) + 1e-9
-                        || high - low > f64::from(max_fill)
+                    let (category, reason) = if !worst_fill.is_finite()
+                        || worst_fill > f64::from(max_fill) + 1e-9
                     {
                         (
-                            "pad_ground_exceeds_roadbed_contract",
+                            "pad_fill_exceeds_contract",
                             format!(
-                                "site at ({x},{z}) on road {}: its flat pad on {declared_f:.3} m would need {:.3} m of fill over natural {low:.3}..{high:.3} m (cap {max_fill} m, no excavation)",
-                                e.id,
-                                declared_f - low
+                                "site at ({x},{z}) on road {} needs {:.3} m of fill (cap {max_fill} m)",
+                                e.id, worst_fill
                             ),
                         )
-                    } else if (declared - gate_base_mm) as f64 > apron_capacity + 1e-6 {
-                        (
-                            "pad_not_enterable_from_own_road",
-                            format!(
-                                "site at ({x},{z}) on road {}: its own graded surface stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step the {} m apron cannot carry",
-                                e.id,
-                                declared_f - own_road_f,
-                                super::ENTRANCE_APRON_RUN_M
-                            ),
-                        )
-                    } else if declared_f - own_road_f > entrance_limit + 1e-9 {
+                    } else if entrance_drop > entrance_limit + 1e-9 {
                         (
                             "entrance_grade_exceeds_contract",
                             format!(
-                                "site at ({x},{z}) on road {}: its own road stands at {own_road_f:.3} m while the pad has to be {declared_f:.3} m to stay flat, a {:.3} m entrance step (limit {entrance_limit:.3} m)",
-                                e.id,
-                                declared_f - own_road_f
+                                "site at ({x},{z}) on road {} has a {:.3} m entrance drop (limit {:.3} m)",
+                                e.id, entrance_drop, entrance_limit
                             ),
                         )
                     } else {
@@ -1930,43 +2103,7 @@ pub(super) fn plan_with_zones_demand(
                         });
                         continue;
                     }
-                    Some(declared)
-                } else {
-                    None
-                };
-                let own_mm = station_own_mm;
-                let Some(own_mm) = own_mm else {
-                    // legacy / unprofiled adjacent road: keep the old flat-level path
-                    // B01-T2 R12: the pad is realized by a fill-only carve, so its
-                    // declared flat top has to be the height the gates above just
-                    // certified as realizable. `gate_declared_mm` is exactly that:
-                    // the network level raised by everything the roads require
-                    // inside the pad's own window. Declaring the bare `level`
-                    // instead left the declaration below the raster the carve
-                    // actually produced, the post-bake rebase then moved the
-                    // entity by a whole metre, and the frozen plan no longer
-                    // matched the final entity. When `level` is already realizable
-                    // the declaration is byte-identical to the legacy shape.
-                    // Only a genuinely unprofiled edge (no graded surface at all)
-                    // takes the raised declaration: its road is flat on `level`, so
-                    // raising the pad to the height its own window really holds keeps
-                    // the entrance step inside one walkable cell. A profiled edge
-                    // whose station scan found no usable station keeps the legacy
-                    // centre placement byte-identically, exactly as the scan's own
-                    // contract states.
-                    //
-                    // Opt-in waterfront: the pad takes the declaration derived above
-                    // (its own road's surface over the audited apron) and publishes it
-                    // as a precise `support_level_mm` with its frontage point, so it
-                    // is a real frontage lot with a checked entrance rather than a
-                    // flat pad nobody can walk to.
-                    let support_mm: Option<i32> = match waterfront_declared_mm {
-                        Some(declared) => i32::try_from(declared).ok(),
-                        None => i32::try_from(gate_declared_mm)
-                            .ok()
-                            .filter(|_| e.profile.is_none())
-                            .filter(|mm| i64::from(*mm) != i64::from(level) * 1000),
-                    };
+                    let support_mm: Option<i32> = i32::try_from(declared_mm).ok();
                     let mut site = RoadsideSite {
                         program: None,
                         purpose: None,
@@ -1977,33 +2114,17 @@ pub(super) fn plan_with_zones_demand(
                         width_m: 24,
                         depth_m: 24,
                         support_level_m: support_mm.map_or(level, |mm| mm.div_euclid(1000)),
-                        // R11 G1 applies to the PROFILED path only. This branch
-                        // is the legacy unprofiled neighbour: its pad is flat on
-                        // `level` and its 2 m ring is ordinary realizable yard,
-                        // so its parcel geometry must stay byte-identical to b8
-                        // (`None` = ParcelInsets::legacy() = 2/2/2). See the
-                        // inspector's R11 note 1, item 3.
-                        // Only a truly unprofiled neighbour keeps b8's 2/2/2
-                        // ring; a profiled edge that the station scan could not
-                        // serve keeps the zero-inset parcel (see the scan above).
-                        parcel_insets: if legacy_parcel {
-                            None
-                        } else {
-                            Some(super::parcel_geometry::ParcelInsets {
-                                front_m: 0,
-                                side_m: 0,
-                                rear_m: 0,
-                            })
-                        },
+                        parcel_insets: Some(super::parcel_geometry::ParcelInsets {
+                            front_m: 0,
+                            side_m: 0,
+                            rear_m: 0,
+                        }),
                         support_level_mm: support_mm,
-                        frontage_road_point: support_mm.map(|_| [e.world_x, e.world_z]),
+                        frontage_road_point: support_mm.map(|_| frontage_point),
                         bounded_cut_mm: None,
-                        // A roadside pad of the settlement programme is NOT a
-                        // frontageProgram parcel and never excavates: the opt-in
-                        // bounded cut is scoped to `frontage::append`'s pads.
-                        // The OPT-IN derived earthwork ring is written by
-                        // `earthwork_blend::stamp_plan`, once the pad list is whole
-                        // and every generator has run.
+                        // Settlement-programme pad: never excavates (see above). The
+                        // OPT-IN derived earthwork ring is written by
+                        // `earthwork_blend::stamp_plan` once the pad list is whole.
                         earthwork_blend_m: None,
                         rotation_y_deg: if e.rotation_y_deg == 0. {
                             if side < 0 { 180. } else { 0. }
@@ -2014,18 +2135,13 @@ pub(super) fn plan_with_zones_demand(
                         },
                         natural_min_m: min,
                         natural_max_m: max,
-                    
+
                         entry_corridor: None,
-};
-                    // A pad whose own street cannot be walked to is not a lot. The
-                    // refusal is named and the candidate is withdrawn BEFORE the
-                    // purposes are declared, so no conversion, service outcome or
-                    // entity can outlive it; the station scan moves on.
-                    //
-                    // OPT-IN `style.terrainPolicy.entryCorridor`: before the
-                    // candidate is withdrawn, ONE graded walking corridor is offered
-                    // to it. It is accepted only when THIS SAME gate then passes on
-                    // the surface the corridor makes the bake publish.
+                    };
+                    // Same acceptance gate on the profiled path: the pad must be enterable
+                    // from the street it is assigned, on the surface the bake composes
+                    // (including this plan's graded cut) - with ONE graded corridor
+                    // offered first when the world opted into one.
                     if let Some((category, reason)) = super::entry_corridor::gate_or_corridor(
                         &mut site,
                         &road_entities,
@@ -2046,9 +2162,6 @@ pub(super) fn plan_with_zones_demand(
                     }
                     let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
                     if let Some(reason) = verdict.reason {
-                        // The urban-edge refusal carries the measured distance in the prose (the
-                        // category alone cannot say HOW far out the pad stood); every other reason
-                        // appends nothing, so its published text is unchanged.
                         let detail = zones.map_or(String::new(), |zones| {
                             super::frontage::pad_refusal_detail(&site, zones, reason)
                         });
@@ -2065,146 +2178,6 @@ pub(super) fn plan_with_zones_demand(
                     }
                     site.purpose = verdict.declared.map(str::to_owned);
                     result.roadside_sites.push(site);
-                    continue;
-                };
-                let mut declared_mm = waterfront_declared_mm.unwrap_or(own_mm);
-                let mut worst_fill = f64::NEG_INFINITY;
-                // Same window as the station scan and the carve/audit: the pad
-                // plus the 2 m apron, so the declaration covers the door cell.
-                for zz in z - audit_win..=z + audit_win {
-                    for xx in x - audit_win..=x + audit_win {
-                        let natural_mm = f64::from(
-                            terrain
-                                .height(xx, zz)
-                                .ok_or_else(|| TerrainError("missing roadside natural sample".into()))?,
-                        );
-                        let required = super::apply_terrain_carves(
-                            natural_mm,
-                            xx,
-                            zz,
-                            &road_carves,
-                        );
-                        declared_mm = declared_mm.max((required * 1000.).round() as i64);
-                    }
-                }
-                let declared_f = declared_mm as f64 / 1000.;
-                for zz in z - fill_gate_win..=z + fill_gate_win {
-                    for xx in x - fill_gate_win..=x + fill_gate_win {
-                        let natural_m = f64::from(
-                            terrain
-                                .height(xx, zz)
-                                .ok_or_else(|| TerrainError("missing roadside natural sample".into()))?,
-                        );
-                        let cap = zoning.as_ref().map_or(f64::from(max_fill), |mask| {
-                            mask.fill_capacity_at(xx, zz).min(f64::from(max_fill))
-                        });
-                        let fill = declared_f - natural_m;
-                        worst_fill = worst_fill.max(fill);
-                        if fill < -1e-9 || fill > cap + 1e-9 {
-                            worst_fill = f64::INFINITY;
-                        }
-                    }
-                }
-                let entrance_drop = (declared_f - own_mm as f64 / 1000.).abs();
-                let entrance_limit = 24.0 * 0.080; // the road's own 80 mm/m grade over the 24 m offset
-                let (category, reason) = if !worst_fill.is_finite() || worst_fill > f64::from(max_fill) + 1e-9 {
-                    (
-                        "pad_fill_exceeds_contract",
-                        format!(
-                            "site at ({x},{z}) on road {} needs {:.3} m of fill (cap {max_fill} m)",
-                            e.id, worst_fill
-                        ),
-                    )
-                } else if entrance_drop > entrance_limit + 1e-9 {
-                    (
-                        "entrance_grade_exceeds_contract",
-                        format!(
-                            "site at ({x},{z}) on road {} has a {:.3} m entrance drop (limit {:.3} m)",
-                            e.id, entrance_drop, entrance_limit
-                        ),
-                    )
-                } else {
-                    ("", String::new())
-                };
-                if !category.is_empty() {
-                    site_rejections.push(BaseProfileRejection {
-                        edge_id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
-                        category: category.into(),
-                        reason,
-                    });
-                    continue;
-                }
-                let support_mm: Option<i32> = i32::try_from(declared_mm).ok();
-                let mut site = RoadsideSite {
-                    program: None,
-                    purpose: None,
-                    id: format!("generated.roadside.{}.{}.{side}", scene.scene_id, e.id),
-                    road_id: e.id.clone(),
-                    world_x: x,
-                    world_z: z,
-                    width_m: 24,
-                    depth_m: 24,
-                    support_level_m: support_mm.map_or(level, |mm| mm.div_euclid(1000)),
-                    parcel_insets: Some(super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
-                    support_level_mm: support_mm,
-                    frontage_road_point: support_mm.map(|_| frontage_point),
-                    bounded_cut_mm: None,
-                    // Settlement-programme pad: never excavates (see above). The
-                    // OPT-IN derived earthwork ring is written by
-                    // `earthwork_blend::stamp_plan` once the pad list is whole.
-                    earthwork_blend_m: None,
-                    rotation_y_deg: if e.rotation_y_deg == 0. {
-                        if side < 0 { 180. } else { 0. }
-                    } else if side < 0 {
-                        270.
-                    } else {
-                        90.
-                    },
-                    natural_min_m: min,
-                    natural_max_m: max,
-                
-                    entry_corridor: None,
-};
-                // Same acceptance gate on the profiled path: the pad must be enterable
-                // from the street it is assigned, on the surface the bake composes
-                // (including this plan's graded cut) - with ONE graded corridor
-                // offered first when the world opted into one.
-                if let Some((category, reason)) = super::entry_corridor::gate_or_corridor(
-                    &mut site,
-                    &road_entities,
-                    &result.site_entities(),
-                    terrain,
-                    zoning.as_ref(),
-                    profile_cut_mm,
-                    water,
-                    result.entry_corridor_policy,
-                    max_fill,
-                )? {
-                    site_rejections.push(BaseProfileRejection {
-                        edge_id: site.id.clone(),
-                        category: category.into(),
-                        reason,
-                    });
-                    continue;
-                }
-                let verdict = pad_purpose_gate(&site, scene, zones, pad_conversion)?;
-                if let Some(reason) = verdict.reason {
-                    let detail = zones.map_or(String::new(), |zones| {
-                        super::frontage::pad_refusal_detail(&site, zones, reason)
-                    });
-                    site_rejections.push(BaseProfileRejection {
-                        edge_id: site.id.clone(),
-                        category: reason.into(),
-                        reason: format!(
-                            "pad at ({x},{z}) on road {}: {reason}{detail} for a {} pad",
-                            e.id,
-                            site.kind()
-                        ),
-                    });
-                    continue;
-                }
-                site.purpose = verdict.declared.map(str::to_owned);
-                result.roadside_sites.push(site);
                 }
             }
         }
@@ -2473,46 +2446,84 @@ fn base_edge_profile(
         ));
     }
     // category: node/scene identity
-    let from = nodes
-        .iter()
-        .find(|n| n.id == edge.from)
-        .ok_or_else(|| reject("endpoint_not_a_node", format!("edge {}: from node {} is not a node of the plan", edge.id, edge.from)))?;
-    let to = nodes
-        .iter()
-        .find(|n| n.id == edge.to)
-        .ok_or_else(|| reject("endpoint_not_a_node", format!("edge {}: to node {} is not a node of the plan", edge.id, edge.to)))?;
+    let from = nodes.iter().find(|n| n.id == edge.from).ok_or_else(|| {
+        reject(
+            "endpoint_not_a_node",
+            format!(
+                "edge {}: from node {} is not a node of the plan",
+                edge.id, edge.from
+            ),
+        )
+    })?;
+    let to = nodes.iter().find(|n| n.id == edge.to).ok_or_else(|| {
+        reject(
+            "endpoint_not_a_node",
+            format!(
+                "edge {}: to node {} is not a node of the plan",
+                edge.id, edge.to
+            ),
+        )
+    })?;
     // category: axis and length domain
     let dx = i64::from(to.world_x) - i64::from(from.world_x);
     let dz = i64::from(to.world_z) - i64::from(from.world_z);
     if (dx == 0) == (dz == 0) {
-        return Err(reject("not_axis_aligned", format!("edge {}: not a single horizontal or vertical axis", edge.id)));
+        return Err(reject(
+            "not_axis_aligned",
+            format!("edge {}: not a single horizontal or vertical axis", edge.id),
+        ));
     }
     let length = dx.abs() + dz.abs();
     if length % 2 != 0 {
-        return Err(reject("odd_length", format!("edge {}: length {} is odd", edge.id, length)));
+        return Err(reject(
+            "odd_length",
+            format!("edge {}: length {} is odd", edge.id, length),
+        ));
     }
     if !(16..=10000).contains(&length) {
-        return Err(reject("length_out_of_domain", format!("edge {}: length {} outside 16..=10000", edge.id, length)));
+        return Err(reject(
+            "length_out_of_domain",
+            format!("edge {}: length {} outside 16..=10000", edge.id, length),
+        ));
     }
     if u32::try_from(length).ok() != Some(edge.length_m) {
-        return Err(reject("length_disagrees_with_endpoints", format!("edge {}: declared length_m {} disagrees with its endpoints ({}m)", edge.id, edge.length_m, length)));
+        return Err(reject(
+            "length_disagrees_with_endpoints",
+            format!(
+                "edge {}: declared length_m {} disagrees with its endpoints ({}m)",
+                edge.id, edge.length_m, length
+            ),
+        ));
     }
     // category: elevation domain, with CHECKED arithmetic. `saturating_mul(1000).abs()` was wrong twice
     // over: saturation silently clamps into a legal-looking value, and `abs()` on i32::MIN overflows.
     // The RoadProfile domain is -32000..=256000 millimetres, applied per sample by validate_shape.
-    let level_mm = i64::from(level)
-        .checked_mul(1000)
-        .ok_or_else(|| reject("elevation_overflow", format!("edge {}: level {level} mm conversion overflowed", edge.id)))?;
+    let level_mm = i64::from(level).checked_mul(1000).ok_or_else(|| {
+        reject(
+            "elevation_overflow",
+            format!("edge {}: level {level} mm conversion overflowed", edge.id),
+        )
+    })?;
     if !(-32000..=256000).contains(&level_mm) {
-        return Err(reject("elevation_out_of_domain", format!("edge {}: level {} m gives {level_mm} mm, outside -32000..=256000", edge.id, level)));
+        return Err(reject(
+            "elevation_out_of_domain",
+            format!(
+                "edge {}: level {} m gives {level_mm} mm, outside -32000..=256000",
+                edge.id, level
+            ),
+        ));
     }
     // category: engineering parameter contract, inherited unchanged
     const ROAD_WIDTH_M: u32 = 8;
     const SHOULDER_M: u32 = 3;
     const MAX_FILL_MM: u32 = 6000;
     const MAX_RISE_MM_PER_M: u32 = 80;
-    let start_level_mm = i32::try_from(level_mm)
-        .map_err(|_| reject("elevation_overflow", format!("edge {}: {level_mm} mm does not fit i32", edge.id)))?;
+    let start_level_mm = i32::try_from(level_mm).map_err(|_| {
+        reject(
+            "elevation_overflow",
+            format!("edge {}: {level_mm} mm does not fit i32", edge.id),
+        )
+    })?;
     // B01-T2 R3 V2: the platform is DERIVED from the extension contract (see
     // `base_tie_in_platform_m`), not hard-coded.
     let platform_m = base_tie_in_platform_m(edge.length_m);
@@ -2530,13 +2541,19 @@ fn base_edge_profile(
     };
     // category: missing samples / infeasible engineering. The solver's own message names
     // slope, transverse raster, fill capacity, protected zoning or water.
-    let design = context
-        .design(&request)
-        .map_err(|e| reject("design_infeasible", format!("edge {}: solver refused: {}", edge.id, e.0)))?;
+    let design = context.design(&request).map_err(|e| {
+        reject(
+            "design_infeasible",
+            format!("edge {}: solver refused: {}", edge.id, e.0),
+        )
+    })?;
     let profile = super::road_extensions::profile(&design);
-    profile
-        .validate_shape()
-        .map_err(|e| reject("profile_shape_invalid", format!("edge {}: {}", edge.id, e.0)))?;
+    profile.validate_shape().map_err(|e| {
+        reject(
+            "profile_shape_invalid",
+            format!("edge {}: {}", edge.id, e.0),
+        )
+    })?;
     // category: shape/elevation domain of the produced samples, checked explicitly because validate_shape
     // owns the domain and the caller must not assume it succeeded silently
     if profile
@@ -2544,19 +2561,39 @@ fn base_edge_profile(
         .iter()
         .any(|h| !(-32000..=256000).contains(h))
     {
-        return Err(reject("elevation_out_of_domain", format!("edge {}: a produced sample is outside -32000..=256000 mm", edge.id)));
+        return Err(reject(
+            "elevation_out_of_domain",
+            format!(
+                "edge {}: a produced sample is outside -32000..=256000 mm",
+                edge.id
+            ),
+        ));
     }
     // category: the profile must describe THIS edge, because entities() builds the entity from the edge
     let expect_rotation = if dx == 0 { 90. } else { 0. };
-    if !edge.rotation_y_deg.is_finite() || (edge.rotation_y_deg - expect_rotation).abs() > f32::EPSILON {
-        return Err(reject("edge_geometry_not_finite_or_misaligned", format!("edge {}: rotation {} is not the finite cardinal {expect_rotation}", edge.id, edge.rotation_y_deg)));
+    if !edge.rotation_y_deg.is_finite()
+        || (edge.rotation_y_deg - expect_rotation).abs() > f32::EPSILON
+    {
+        return Err(reject(
+            "edge_geometry_not_finite_or_misaligned",
+            format!(
+                "edge {}: rotation {} is not the finite cardinal {expect_rotation}",
+                edge.id, edge.rotation_y_deg
+            ),
+        ));
     }
     if profile.road_width_m != ROAD_WIDTH_M
         || u32::try_from(profile.elevations_mm.len().saturating_sub(1)).ok() != Some(edge.length_m)
         || i64::from(edge.world_x) * 2 != i64::from(profile.start[0]) + i64::from(profile.end[0])
         || i64::from(edge.world_z) * 2 != i64::from(profile.start[1]) + i64::from(profile.end[1])
     {
-        return Err(reject("profile_entity_mismatch", format!("edge {}: profile geometry disagrees with the edge it describes", edge.id)));
+        return Err(reject(
+            "profile_entity_mismatch",
+            format!(
+                "edge {}: profile geometry disagrees with the edge it describes",
+                edge.id
+            ),
+        ));
     }
     Ok(profile)
 }
@@ -2614,15 +2651,16 @@ pub(super) fn attach_base_edge_profiles(
         return Ok(vec![BaseProfileRejection {
             edge_id: "*".into(),
             category: "legacy_no_zones".into(),
-            reason: "no land-use zones supplied; base edge profiles not attempted, so no base edge has \
+            reason:
+                "no land-use zones supplied; base edge profiles not attempted, so no base edge has \
                      frontage eligibility from this path"
-                .into(),
+                    .into(),
         }]);
     };
     // The bounded-cut policy, read once by the caller from the world's own style:
     // `0` is a world that never opted in and keeps the fill-only solver.
-    let context =
-        super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?.with_cut(cut_mm);
+    let context = super::road_alignment::AlignmentContext::new(scene, terrain, water, zones)?
+        .with_cut(cut_mm);
     // Structural guard (I5): a plan whose edges do not have unique ids, or whose
     // edges do not map onto the node table, is damaged rather than merely
     // unprofiled. That must fail closed so no half-updated public plan escapes.
@@ -2792,7 +2830,12 @@ pub(super) fn plan_with_style_declared(
     let (road_cut_policy, _) = super::bounded_cut::CutPolicy::from_style(style);
     if road_cut_policy.enabled() {
         super::road_support::refuse_overfilled_roads(
-            &mut result, scene, terrain, water, zones, style,
+            &mut result,
+            scene,
+            terrain,
+            water,
+            zones,
+            style,
         )?;
     }
     super::frontage::append(&mut result, scene, terrain, water, zones, style)?;
@@ -2997,12 +3040,7 @@ mod waterfront_tests {
     }
 
     fn water(style: &serde_json::Value, scene: &SceneSpec) -> WaterGeometry {
-        water_geometry(
-            super::super::water_kind(style),
-            &[landmark()],
-            scene,
-            style,
-        )
+        water_geometry(super::super::water_kind(style), &[landmark()], scene, style)
     }
 
     /// The production raster for this scene and carve set, as the bake would
@@ -3078,23 +3116,16 @@ mod waterfront_tests {
         assert!(allows_structured_water(&style));
         assert!(enabled(&style, water));
         assert!(water.road_water_crossings());
-        let zones = plan_landuse_zones(
-            &scene,
-            &LandUseProfile::from_style(&style).unwrap(),
-        );
+        let zones = plan_landuse_zones(&scene, &LandUseProfile::from_style(&style).unwrap());
         let mask = crate::worldgen::zoning::ZoningMask::new(&scene, &zones).unwrap();
         let natural = raster(&scene, seed, water, &[], None);
-        let source = NaturalSource::AuthoredSeed { seed, precise: false };
-        let plan = plan_with_style_declared(
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            None,
-            &style,
-            source,
-        )
-        .unwrap();
+        let source = NaturalSource::AuthoredSeed {
+            seed,
+            precise: false,
+        };
+        let plan =
+            plan_with_style_declared(&scene, &natural, water, Some(&zones), None, &style, source)
+                .unwrap();
         assert!(
             !plan.edges.is_empty(),
             "the opt-in has to produce a connected network: {plan:?}"
@@ -3136,7 +3167,11 @@ mod waterfront_tests {
             let measured = measure_water_crossing(&road, water, &natural)
                 .unwrap()
                 .expect("the named road really does touch the water");
-            assert_eq!(crossing.length_m, measured.stations_m, "{}", crossing.road_id);
+            assert_eq!(
+                crossing.length_m, measured.stations_m,
+                "{}",
+                crossing.road_id
+            );
             assert_eq!(crossing.wet_cells, measured.wet_cells);
             assert_eq!(crossing.span, measured.span);
             assert_eq!(crossing.bed_min_mm, measured.bed_min_mm);
@@ -3179,9 +3214,14 @@ mod waterfront_tests {
         assert_eq!(audit.realized_edges, plan.edges.len());
         // (4b) the reserved-land audit is unchanged, and nothing the plan builds
         //      occupies the water: no roadside pad may claim it.
-        let protection =
-            super::super::zoning::audit_protection(&scene, &zones, &natural, &final_terrain, &entities)
-                .unwrap();
+        let protection = super::super::zoning::audit_protection(
+            &scene,
+            &zones,
+            &natural,
+            &final_terrain,
+            &entities,
+        )
+        .unwrap();
         assert_eq!(protection.status, "pass", "{protection:?}");
         for entity in plan.site_entities() {
             assert!(
@@ -3214,16 +3254,9 @@ mod waterfront_tests {
             }
         }
         // (5) same input, twice: byte-identical plan.
-        let again = plan_with_style_declared(
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            None,
-            &style,
-            source,
-        )
-        .unwrap();
+        let again =
+            plan_with_style_declared(&scene, &natural, water, Some(&zones), None, &style, source)
+                .unwrap();
         assert_eq!(
             serde_json::to_vec(&plan).unwrap(),
             serde_json::to_vec(&again).unwrap()
@@ -3258,36 +3291,29 @@ mod waterfront_tests {
         let style = style(true);
         let scene = scene();
         let water = water(&style, &scene);
-        let zones = plan_landuse_zones(
-            &scene,
-            &LandUseProfile::from_style(&style).unwrap(),
-        );
+        let zones = plan_landuse_zones(&scene, &LandUseProfile::from_style(&style).unwrap());
         let natural = raster(&scene, seed, water, &[], None);
-        let source = NaturalSource::AuthoredSeed { seed, precise: false };
-        let plan = plan_with_style_declared(
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            None,
-            &style,
-            source,
-        )
-        .unwrap();
+        let source = NaturalSource::AuthoredSeed {
+            seed,
+            precise: false,
+        };
+        let plan =
+            plan_with_style_declared(&scene, &natural, water, Some(&zones), None, &style, source)
+                .unwrap();
         assert!(
             !plan.roadside_sites.is_empty(),
             "the waterfront fixture has to plan pads to assert the pad rule"
         );
         let roads = plan.entities();
-        let apron_mm = 1000. * super::super::access::WALKABLE_GRADE
-            * super::super::ENTRANCE_APRON_RUN_M;
+        let apron_mm =
+            1000. * super::super::access::WALKABLE_GRADE * super::super::ENTRANCE_APRON_RUN_M;
         for site in &plan.roadside_sites {
-            let level = site.support_level_mm.unwrap_or_else(|| {
-                panic!("site {} has no precise elevation: {site:?}", site.id)
-            });
-            let [fx, fz] = site.frontage_road_point.unwrap_or_else(|| {
-                panic!("site {} has no frontage point: {site:?}", site.id)
-            });
+            let level = site
+                .support_level_mm
+                .unwrap_or_else(|| panic!("site {} has no precise elevation: {site:?}", site.id));
+            let [fx, fz] = site
+                .frontage_road_point
+                .unwrap_or_else(|| panic!("site {} has no frontage point: {site:?}", site.id));
             let road = roads
                 .iter()
                 .find(|road| road.entity_id == site.road_id)
@@ -3378,23 +3404,25 @@ mod waterfront_tests {
         let zones = plan_landuse_zones(&scene, &LandUseProfile::from_style(&style).unwrap());
         let mask = crate::worldgen::zoning::ZoningMask::new(&scene, &zones).unwrap();
         let natural = raster(&scene, seed, water, &[], None);
-        let source = NaturalSource::AuthoredSeed { seed, precise: false };
-        let plan = plan_with_style_declared(
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            None,
-            &style,
-            source,
-        )
-        .unwrap();
+        let source = NaturalSource::AuthoredSeed {
+            seed,
+            precise: false,
+        };
+        let plan =
+            plan_with_style_declared(&scene, &natural, water, Some(&zones), None, &style, source)
+                .unwrap();
         let entities: Vec<EntityInstance> = plan
             .entities()
             .into_iter()
             .chain(plan.site_entities())
             .collect();
-        let final_terrain = raster(&scene, seed, water, &plan_terrain_carves(&entities), Some(&mask));
+        let final_terrain = raster(
+            &scene,
+            seed,
+            water,
+            &plan_terrain_carves(&entities),
+            Some(&mask),
+        );
         let audit = |forged: &RoadNetworkPlan| {
             audit_water_crossings(forged, water, &natural, &final_terrain).unwrap()
         };
@@ -3782,7 +3810,10 @@ mod pad_purpose_tests {
             "the waterfront fixture must plan pads, or the off-lock proves nothing"
         );
         assert!(
-            built.roadside_sites.iter().all(|site| site.purpose.is_none()),
+            built
+                .roadside_sites
+                .iter()
+                .all(|site| site.purpose.is_none()),
             "a waterfront pad of a switched-off world may not gain a purpose"
         );
         assert_eq!(
@@ -3802,7 +3833,11 @@ mod pad_purpose_tests {
         // Every pad declares the purpose of its own kind before it lands.
         assert!(!on.roadside_sites.is_empty());
         for site in &on.roadside_sites {
-            if site.program.as_ref().is_some_and(|program| program.request_id == "urban-homes") {
+            if site
+                .program
+                .as_ref()
+                .is_some_and(|program| program.request_id == "urban-homes")
+            {
                 // a frontage parcel carries its purpose on its authored request instead
                 continue;
             }
@@ -3851,7 +3886,10 @@ mod pad_purpose_tests {
                 (core[2] - core[0]) * (core[3] - core[1]),
                 "a pad converts its buildable core, not its parcel"
             );
-            assert_eq!((record.from.as_str(), record.to.as_str()), ("rural", "urban"));
+            assert_eq!(
+                (record.from.as_str(), record.to.as_str()),
+                ("rural", "urban")
+            );
         }
         // Round 31 narrows this contract on purpose. Until the urban-edge policy, the switch only
         // re-booked land: a pad that declared an urban purpose could stand anywhere its own envelope
@@ -3911,12 +3949,12 @@ mod pad_purpose_tests {
         }
         // The ledger applies exactly the plan's records, once, and the audit re-derives them.
         let converted: i64 = on.pad_conversions.iter().map(|record| record.area_m2).sum();
-        let audit = landuse_ledger::audit_conversions(&on, &zones, water_geometry(
-            water_kind(&style(None)),
-            &[],
-            &scene,
-            &style(None),
-        ), None);
+        let audit = landuse_ledger::audit_conversions(
+            &on,
+            &zones,
+            water_geometry(water_kind(&style(None)), &[], &scene, &style(None)),
+            None,
+        );
         assert_eq!(
             (audit.planned, audit.converted_m2),
             (on.pad_conversions.len(), converted),
@@ -3936,7 +3974,8 @@ mod pad_purpose_tests {
     /// outcome - including the stations it refused, BY NAME, which is the record that keeps a missing
     /// quay frontage a measurement instead of a silence. Nothing about the pads moved with it: the
     /// dry lock below is unchanged, and the switch-off pad programme still declares no purpose.
-    const DRY_PLAN_OFF_BLAKE3: &str = "c007835a3b0fe905882b06a601de1219c9c182c2ad75afac61489d7a8b285b4c";
+    const DRY_PLAN_OFF_BLAKE3: &str =
+        "c007835a3b0fe905882b06a601de1219c9c182c2ad75afac61489d7a8b285b4c";
     const WATERFRONT_PLAN_OFF_BLAKE3: &str =
         "33718fc32c41a810e24abf60de587c04ae44b4ec496b0a88eafd141efe106a6e";
 }
@@ -4093,11 +4132,7 @@ mod tests {
             &v3_style,
         )
         .unwrap_err();
-        assert!(
-            error.0.contains("declared natural source"),
-            "{}",
-            error.0
-        );
+        assert!(error.0.contains("declared natural source"), "{}", error.0);
         // The manifest-bound derivation is the shared rule, and an authored
         // source this build cannot reproduce is refused instead of guessed onto
         // `SuppliedRaster`.
@@ -4115,7 +4150,9 @@ mod tests {
         manifest.style["terrain"] = serde_json::json!("imported-raster");
         let error = super::super::declared_natural_source(&manifest, &scene).unwrap_err();
         assert!(
-            error.to_string().contains("unsupported authored terrain source"),
+            error
+                .to_string()
+                .contains("unsupported authored terrain source"),
             "{error}"
         );
     }
@@ -4518,7 +4555,11 @@ mod tests {
     /// A style with one graded corridor of `width_m`, along the axis implied by
     /// `rotation` (0 = x, 90 = z), starting from a real base node. The search
     /// only accepts candidates the production planner itself accepts.
-    fn single_corridor_style(fixture: &GradedFixture, width_m: u32, rotation: i32) -> Option<serde_json::Value> {
+    fn single_corridor_style(
+        fixture: &GradedFixture,
+        width_m: u32,
+        rotation: i32,
+    ) -> Option<serde_json::Value> {
         let (scene, natural, water, zones, base, level_mm) = fixture;
         let directions: [(i32, i32); 2] = if rotation == 90 {
             [(0, 1), (0, -1)]
@@ -4530,7 +4571,8 @@ mod tests {
                 for length in [64_i32, 96, 48] {
                     let start = [node.world_x, node.world_z];
                     let end = [start[0] + dx * length, start[1] + dz * length];
-                    if end[0] < 12 || end[1] < 12
+                    if end[0] < 12
+                        || end[1] < 12
                         || end[0] + 12 > scene.width_m as i32
                         || end[1] + 12 > scene.depth_m as i32
                     {
@@ -4552,12 +4594,7 @@ mod tests {
                     });
                     let mut probe = base.clone();
                     if super::super::road_extensions::append(
-                        &mut probe,
-                        scene,
-                        natural,
-                        *water,
-                        zones,
-                        &candidate,
+                        &mut probe, scene, natural, *water, zones, &candidate,
                     )
                     .is_ok()
                     {
@@ -4576,11 +4613,23 @@ mod tests {
     fn w1_diagnose_base_profile_geometry() {
         let fixture = graded_fixture();
         let (scene, _natural, _water, _zones, base, level_mm) = &fixture;
-        println!("scene {}x{} origin {} {}", scene.width_m, scene.depth_m, scene.origin_x, scene.origin_z);
+        println!(
+            "scene {}x{} origin {} {}",
+            scene.width_m, scene.depth_m, scene.origin_x, scene.origin_z
+        );
         println!("level_m={:?} level_mm={level_mm}", base.level_m);
-        println!("status={} edges={} nodes={} rejections={}", base.status, base.edges.len(), base.nodes.len(), base.base_profile_rejections.len());
+        println!(
+            "status={} edges={} nodes={} rejections={}",
+            base.status,
+            base.edges.len(),
+            base.nodes.len(),
+            base.base_profile_rejections.len()
+        );
         for r in &base.base_profile_rejections {
-            println!("REJ edge={} cat={} reason={}", r.edge_id, r.category, r.reason);
+            println!(
+                "REJ edge={} cat={} reason={}",
+                r.edge_id, r.category, r.reason
+            );
         }
         for n in &base.nodes {
             println!("NODE id={} x={} z={}", n.id, n.world_x, n.world_z);
@@ -4592,11 +4641,25 @@ mod tests {
                     .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
             };
             let (mx, mz) = ((e.world_x), (e.world_z));
-            let from = base.nodes.iter().find(|n| n.id == e.from).map(|n| (n.world_x, n.world_z));
-            let to = base.nodes.iter().find(|n| n.id == e.to).map(|n| (n.world_x, n.world_z));
+            let from = base
+                .nodes
+                .iter()
+                .find(|n| n.id == e.from)
+                .map(|n| (n.world_x, n.world_z));
+            let to = base
+                .nodes
+                .iter()
+                .find(|n| n.id == e.to)
+                .map(|n| (n.world_x, n.world_z));
             println!(
                 "EDGE {} from={:?} to={:?} c=({},{}) len={} rot={} profiled={} h_start={:?} h_mid={:?} h_end={:?}",
-                e.id, from, to, mx, mz, e.length_m, e.rotation_y_deg,
+                e.id,
+                from,
+                to,
+                mx,
+                mz,
+                e.length_m,
+                e.rotation_y_deg,
                 e.profile.is_some(),
                 from.and_then(|(x, z)| h(x, z)),
                 h(mx, mz),
@@ -4608,7 +4671,11 @@ mod tests {
             let p = ent.grounding.road_profile.as_ref();
             println!(
                 "ENT {} w={} d={} y={} ground={} profiled={} h_at_center={:?}",
-                ent.entity_id, ent.width_m, ent.depth_m, ent.world_y, ent.ground_height_m(),
+                ent.entity_id,
+                ent.width_m,
+                ent.depth_m,
+                ent.world_y,
+                ent.ground_height_m(),
                 p.is_some(),
                 p.and_then(|p| p.height_at(f64::from(ent.world_x), f64::from(ent.world_z))),
             );
@@ -4646,12 +4713,7 @@ mod tests {
                     });
                     let mut probe = base.clone();
                     match super::super::road_extensions::append(
-                        &mut probe,
-                        scene,
-                        natural,
-                        *water,
-                        zones,
-                        &candidate,
+                        &mut probe, scene, natural, *water, zones, &candidate,
                     ) {
                         Ok(()) => println!("ACCEPT start={start:?} end={end:?}"),
                         Err(e) => println!("REJECT start={start:?} end={end:?}: {}", e.0),
@@ -4687,46 +4749,44 @@ mod tests {
                         (32, 48),
                         (48, 32),
                     ] {
-                    if attempts >= 600 {
-                        return None;
-                    }
-                    attempts += 1;
-                    let start = [node.world_x, node.world_z];
-                    let mid = [start[0] + dx * first, start[1] + dz * first];
-                    let end = [mid[0] + ex * second, mid[1] + ez * second];
-                    if start[0] < 12 || start[1] < 12
-                        || mid[0] < 12 || mid[1] < 12
-                        || end[0] < 12 || end[1] < 12
-                        || end[0] + 12 > scene.width_m as i32
-                        || end[1] + 12 > scene.depth_m as i32
-                    {
-                        continue;
-                    }
-                    let candidate = serde_json::json!({
-                        "roadExtensions": {"version": 1, "corridors": [
-                            {"sceneId": "graded-audit", "start": start, "end": mid,
-                             "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
-                             "maxRiseMmPerM": 80, "startLevelMm": level_mm,
-                             "endLevelMm": level_mm, "junctionLengthM": 8},
-                            {"sceneId": "graded-audit", "start": mid, "end": end,
-                             "roadWidthM": 12, "shoulderWidthM": 3, "maxFillMm": 6000,
-                             "maxRiseMmPerM": 80, "startLevelMm": level_mm,
-                             "endLevelMm": level_mm, "junctionLengthM": 8}
-                        ]}
-                    });
-                    let mut probe = base.clone();
-                    if super::super::road_extensions::append(
-                        &mut probe,
-                        scene,
-                        natural,
-                        *water,
-                        zones,
-                        &candidate,
-                    )
-                    .is_ok()
-                    {
-                        return Some(candidate);
-                    }
+                        if attempts >= 600 {
+                            return None;
+                        }
+                        attempts += 1;
+                        let start = [node.world_x, node.world_z];
+                        let mid = [start[0] + dx * first, start[1] + dz * first];
+                        let end = [mid[0] + ex * second, mid[1] + ez * second];
+                        if start[0] < 12
+                            || start[1] < 12
+                            || mid[0] < 12
+                            || mid[1] < 12
+                            || end[0] < 12
+                            || end[1] < 12
+                            || end[0] + 12 > scene.width_m as i32
+                            || end[1] + 12 > scene.depth_m as i32
+                        {
+                            continue;
+                        }
+                        let candidate = serde_json::json!({
+                            "roadExtensions": {"version": 1, "corridors": [
+                                {"sceneId": "graded-audit", "start": start, "end": mid,
+                                 "roadWidthM": 16, "shoulderWidthM": 3, "maxFillMm": 6000,
+                                 "maxRiseMmPerM": 80, "startLevelMm": level_mm,
+                                 "endLevelMm": level_mm, "junctionLengthM": 8},
+                                {"sceneId": "graded-audit", "start": mid, "end": end,
+                                 "roadWidthM": 12, "shoulderWidthM": 3, "maxFillMm": 6000,
+                                 "maxRiseMmPerM": 80, "startLevelMm": level_mm,
+                                 "endLevelMm": level_mm, "junctionLengthM": 8}
+                            ]}
+                        });
+                        let mut probe = base.clone();
+                        if super::super::road_extensions::append(
+                            &mut probe, scene, natural, *water, zones, &candidate,
+                        )
+                        .is_ok()
+                        {
+                            return Some(candidate);
+                        }
                     }
                 }
             }
@@ -4772,16 +4832,16 @@ mod tests {
     }
 
     /// Worst |final - design| inside a road's graded band.
-    fn worst_band_error(
-        entity: &EntityInstance,
-        final_terrain: &BakedTerrain,
-    ) -> f32 {
+    fn worst_band_error(entity: &EntityInstance, final_terrain: &BakedTerrain) -> f32 {
         let profile = entity.grounding.road_profile.as_ref().unwrap();
         let (band_x, band_z) = band_of(entity);
         let mut worst = 0_f32;
         for dz in -band_z..=band_z {
             for dx in -band_x..=band_x {
                 let (x, z) = (entity.world_x + dx, entity.world_z + dz);
+                if super::super::graded_flat_top_outside_m(entity, x, z) > 0.0 {
+                    continue;
+                }
                 let target = profile.height_at(f64::from(x), f64::from(z)).unwrap() as f32;
                 let actual = final_terrain.height(x, z).unwrap();
                 worst = worst.max((actual - target).abs());
@@ -4797,7 +4857,11 @@ mod tests {
             .expect("the control terrain admits a legal graded corridor");
         let (scene, natural, water, zones, _base, _level_mm) = fixture;
         let plan = plan_with_style(&scene, &natural, water, Some(&zones), None, &style).unwrap();
-        assert_eq!(plan.extensions.len(), 1, "the control corridor must be built");
+        assert_eq!(
+            plan.extensions.len(),
+            1,
+            "the control corridor must be built"
+        );
         let mut entities = plan.entities();
         entities.extend(plan.site_entities());
         // Exactly the production final terrain: the carve over the plan.
@@ -5024,9 +5088,10 @@ mod tests {
         let overfilled = {
             let cell = at(pavement_half, 0);
             let natural_mm = natural.height_millimetres(cell.0, cell.1).unwrap() as f64 / 1000.;
-            audit_of(&perturb(cell, natural_mm + 6.5 - f64::from(
-                final_terrain.height(cell.0, cell.1).unwrap(),
-            )))
+            audit_of(&perturb(
+                cell,
+                natural_mm + 6.5 - f64::from(final_terrain.height(cell.0, cell.1).unwrap()),
+            ))
         };
         assert_eq!(overfilled.status, "fail");
         assert!(
@@ -5080,13 +5145,10 @@ mod tests {
                 // extension rather than every profiled entity - base edges now
                 // carry their own 8 m profiles and would both inflate the matrix
                 // and violate the width-specific band assertions.
-                for entity in entities
-                    .iter()
-                    .filter(|entity| {
-                        entity.entity_id.starts_with("generated.road-extension.")
-                            && entity.grounding.road_profile.is_some()
-                    })
-                {
+                for entity in entities.iter().filter(|entity| {
+                    entity.entity_id.starts_with("generated.road-extension.")
+                        && entity.grounding.road_profile.is_some()
+                }) {
                     let (band_x, band_z) = band_of(entity);
                     let (pavement_x, pavement_z) =
                         super::super::graded_pavement_half_extents(entity);
@@ -5115,8 +5177,16 @@ mod tests {
             }
         }
         assert_eq!(matrix.len(), 6, "one profiled road per combination");
-        assert!(matrix.iter().any(|(_, _, width, band)| *width == 16 && *band == 9));
-        assert!(matrix.iter().all(|(_, _, width, band)| *band == (*width as i32 / 2 + 1).max(7)));
+        assert!(
+            matrix
+                .iter()
+                .any(|(_, _, width, band)| *width == 16 && *band == 9)
+        );
+        assert!(
+            matrix
+                .iter()
+                .all(|(_, _, width, band)| *band == (*width as i32 / 2 + 1).max(7))
+        );
     }
 
     /// B02-W1: a real 16m collector feeding a 12m local road, both pinned to
@@ -5129,7 +5199,11 @@ mod tests {
         let (scene, natural, water, zones, _base, level_mm) = fixture;
         let plan = plan_with_style(&scene, &natural, water, Some(&zones), None, &style)
             .unwrap_or_else(|error| panic!("collector+local planning failed: {error}"));
-        assert_eq!(plan.extensions.len(), 2, "collector + local must both be built");
+        assert_eq!(
+            plan.extensions.len(),
+            2,
+            "collector + local must both be built"
+        );
         let widths: Vec<u32> = plan
             .extensions
             .iter()
@@ -5179,7 +5253,10 @@ mod tests {
         } else {
             collector_band.1
         };
-        assert_eq!(collector_transverse, 9, "16m pavement needs a 9m graded band");
+        assert_eq!(
+            collector_transverse, 9,
+            "16m pavement needs a 9m graded band"
+        );
         assert!(worst_band_error(collector, &final_terrain) <= 0.00005);
         assert_eq!(
             collector
@@ -5187,10 +5264,7 @@ mod tests {
                 .road_profile
                 .as_ref()
                 .unwrap()
-                .height_at(
-                    f64::from(shared[0]),
-                    f64::from(shared[1])
-                )
+                .height_at(f64::from(shared[0]), f64::from(shared[1]))
                 .map(|value| (value * 1000.).round() as i32),
             Some(level_mm)
         );
@@ -5229,10 +5303,9 @@ mod tests {
             eprintln!("SKIP missing {}", root.display());
             return;
         }
-        let manifest: crate::worldgen::WorldManifest = serde_json::from_slice(
-            &std::fs::read(root.join("glyphweave.manifest.json")).unwrap(),
-        )
-        .unwrap();
+        let manifest: crate::worldgen::WorldManifest =
+            serde_json::from_slice(&std::fs::read(root.join("glyphweave.manifest.json")).unwrap())
+                .unwrap();
         let spec = manifest.scenes[0].clone();
         let dir = root.join("scenes").join(&spec.scene_id);
         let scene: crate::worldgen::SceneIndex =
@@ -5268,7 +5341,10 @@ mod tests {
         // plan_with_style_declared itself reads the programme from the style when none is supplied, so the
         // probe compares both arms explicitly.
         let program = crate::worldgen::services::from_style(&manifest.style).unwrap();
-        eprintln!("programme built from the manifest style: {}", program.is_some());
+        eprintln!(
+            "programme built from the manifest style: {}",
+            program.is_some()
+        );
         let with_program = plan_with_style_declared(
             &spec,
             &natural,
@@ -5298,10 +5374,9 @@ mod tests {
             eprintln!("NON-DETERMINISTIC: two plans from identical inputs DIFFER");
         }
         // also compare against what was published, which is what quality-report does
-        let published: crate::worldgen::road_network::RoadNetworkPlan = serde_json::from_slice(
-            &std::fs::read(dir.join("road-network-plan.json")).unwrap(),
-        )
-        .unwrap();
+        let published: crate::worldgen::road_network::RoadNetworkPlan =
+            serde_json::from_slice(&std::fs::read(dir.join("road-network-plan.json")).unwrap())
+                .unwrap();
         let c = serde_json::to_value(&published).unwrap();
         eprintln!(
             "first == second : {}\nfirst == published : {}",
@@ -5349,7 +5424,10 @@ mod tests {
                 "NOTE: this world REPRODUCES under the current code, so the version-drift finding does not apply"
             );
         }
-        assert_eq!(a, b, "road planning must be deterministic for identical inputs");
+        assert_eq!(
+            a, b,
+            "road planning must be deterministic for identical inputs"
+        );
     }
     /// Count differing JSON paths, split into the frontage-owned part of the plan and everything else, so
     /// a rebuild difference can be attributed rather than merely reported.
@@ -5461,10 +5539,9 @@ mod tests {
             eprintln!("SKIP missing {}", root.display());
             return;
         }
-        let manifest: crate::worldgen::WorldManifest = serde_json::from_slice(
-            &std::fs::read(root.join("glyphweave.manifest.json")).unwrap(),
-        )
-        .unwrap();
+        let manifest: crate::worldgen::WorldManifest =
+            serde_json::from_slice(&std::fs::read(root.join("glyphweave.manifest.json")).unwrap())
+                .unwrap();
         let spec = manifest.scenes[0].clone();
         let dir = root.join("scenes").join(&spec.scene_id);
         let scene: crate::worldgen::SceneIndex =
@@ -5477,13 +5554,11 @@ mod tests {
                     chunk.world_z,
                     chunk.valid_width_m,
                     chunk.valid_depth_m,
-                    &std::fs::read(dir.join(chunk.natural_height_file.as_ref().unwrap()))
-                        .unwrap(),
+                    &std::fs::read(dir.join(chunk.natural_height_file.as_ref().unwrap())).unwrap(),
                 )
                 .unwrap();
         }
-        let water =
-            super::super::water_geometry(WaterKind::None, &[], &spec, &manifest.style);
+        let water = super::super::water_geometry(WaterKind::None, &[], &spec, &manifest.style);
         let profile = crate::worldgen::LandUseProfile::from_style(&manifest.style).unwrap();
         let zones = crate::worldgen::plan_landuse_zones(&spec, &profile);
         let base = plan_with_zones(&spec, &natural, water, Some(&zones)).unwrap();
@@ -5519,12 +5594,7 @@ mod tests {
             });
             let mut probe = base.clone();
             super::super::road_extensions::append(
-                &mut probe,
-                &spec,
-                &natural,
-                water,
-                &zones,
-                &style,
+                &mut probe, &spec, &natural, water, &zones, &style,
             )
             .is_ok()
         };
@@ -5867,7 +5937,9 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            error.0.contains("overlaps road outside a matching endpoint junction"),
+            error
+                .0
+                .contains("overlaps road outside a matching endpoint junction"),
             "{}",
             error.0
         );
@@ -6296,11 +6368,7 @@ mod tests {
             .unwrap_or_default()
         {
             for site_id in &outcome.site_ids {
-                if let Some(site) = plan
-                    .roadside_sites
-                    .iter()
-                    .find(|site| site.id == *site_id)
-                {
+                if let Some(site) = plan.roadside_sites.iter().find(|site| site.id == *site_id) {
                     frontage_road_ids.insert(site.road_id.clone());
                 }
             }
@@ -6308,8 +6376,7 @@ mod tests {
         let frontage_roads_that_are_base: Vec<String> = frontage_road_ids
             .iter()
             .filter(|id| {
-                plan.edges.iter().any(|edge| edge.id == **id)
-                    && !non_base_ids.contains(id.as_str())
+                plan.edges.iter().any(|edge| edge.id == **id) && !non_base_ids.contains(id.as_str())
             })
             .cloned()
             .collect();
@@ -6369,7 +6436,11 @@ mod tests {
             std::fs::write(path, format!("{text}\n")).unwrap();
         }
         if let Some(path) = std::env::var_os("GLYPHWEAVE_1KM_REPLAY_DIGEST") {
-            std::fs::write(path, format!("{}\n", blake3::hash(text.as_bytes()).to_hex())).unwrap();
+            std::fs::write(
+                path,
+                format!("{}\n", blake3::hash(text.as_bytes()).to_hex()),
+            )
+            .unwrap();
         }
         if std::env::var_os("GLYPHWEAVE_1KM_REPLAY_PRINT").is_some() {
             println!("{text}");
@@ -6386,7 +6457,9 @@ mod tests {
         let flat = plan(&scene, &natural, water).unwrap();
         assert!(!flat.roadside_sites.is_empty());
         assert!(
-            flat.roadside_sites.iter().all(|site| site.parcel_insets.is_none()),
+            flat.roadside_sites
+                .iter()
+                .all(|site| site.parcel_insets.is_none()),
             "an unprofiled neighbour must keep b8's legacy parcel ring"
         );
 
@@ -6611,18 +6684,17 @@ mod tests {
                 let depth = (scene.depth_m - dz).min(chunk_size);
                 let x = scene.origin_x + dx as i32;
                 let z = scene.origin_z + dz as i32;
-                let (height, _surface, _lod2, _semantics) =
-                    super::super::generate_chunk_encoded(
-                        seed,
-                        x,
-                        z,
-                        width,
-                        depth,
-                        water,
-                        &carves,
-                        true,
-                        mask.as_ref(),
-                    );
+                let (height, _surface, _lod2, _semantics) = super::super::generate_chunk_encoded(
+                    seed,
+                    x,
+                    z,
+                    width,
+                    depth,
+                    water,
+                    &carves,
+                    true,
+                    mask.as_ref(),
+                );
                 final_terrain
                     .insert_chunk(x, z, width, depth, &height)
                     .unwrap();
@@ -6734,7 +6806,11 @@ mod tests {
             station_spacing_m: 16,
             setback_m: 4,
             max_candidate_attempts: 8,
-            parcel_insets: Some(super::super::parcel_geometry::ParcelInsets { front_m: 0, side_m: 0, rear_m: 0 }),
+            parcel_insets: Some(super::super::parcel_geometry::ParcelInsets {
+                front_m: 0,
+                side_m: 0,
+                rear_m: 0,
+            }),
             center_distance_m: None,
             center_world: None,
             district_id: None,
@@ -6843,18 +6919,17 @@ mod tests {
                 let depth = (scene.depth_m - dz).min(chunk_size);
                 let x = scene.origin_x + dx as i32;
                 let z = scene.origin_z + dz as i32;
-                let (height, _surface, _lod2, _semantics) =
-                    super::super::generate_chunk_encoded(
-                        seed,
-                        x,
-                        z,
-                        width,
-                        depth,
-                        water,
-                        &carves,
-                        true,
-                        mask.as_ref(),
-                    );
+                let (height, _surface, _lod2, _semantics) = super::super::generate_chunk_encoded(
+                    seed,
+                    x,
+                    z,
+                    width,
+                    depth,
+                    water,
+                    &carves,
+                    true,
+                    mask.as_ref(),
+                );
                 final_terrain
                     .insert_chunk(x, z, width, depth, &height)
                     .unwrap();
@@ -6941,9 +7016,7 @@ mod tests {
         let request = frontage_request(&scene.scene_id);
         let mut sites = 0;
         for entity in &profiled {
-            if let Some(stations) =
-                super::super::frontage::stations(entity, &request).unwrap()
-            {
+            if let Some(stations) = super::super::frontage::stations(entity, &request).unwrap() {
                 if !stations.is_empty() {
                     super::super::frontage::candidate_site(
                         entity,
@@ -6957,7 +7030,10 @@ mod tests {
                 }
             }
         }
-        assert!(sites > 0, "a profiled base road must yield a real candidate site");
+        assert!(
+            sites > 0,
+            "a profiled base road must yield a real candidate site"
+        );
     }
 
     /// C3: base identity is planning provenance, not profile presence, and the
@@ -6982,11 +7058,18 @@ mod tests {
         let trusted_base = super::super::auto_roads::base_only_plan(&base).unwrap();
         assert_eq!(trusted_base.edges.len(), base.edges.len());
         // ... and the trusted contract is built from it instead of refusing it.
-        let contract =
-            super::super::road_parcel_feasibility::trusted_base_contract(&trusted_base, &natural_hash)
-                .unwrap();
+        let contract = super::super::road_parcel_feasibility::trusted_base_contract(
+            &trusted_base,
+            &natural_hash,
+        )
+        .unwrap();
         assert_eq!(contract.base_edges.len(), base.edges.len());
-        assert!(contract.base_edges.iter().all(|edge| edge.profile.is_some()));
+        assert!(
+            contract
+                .base_edges
+                .iter()
+                .all(|edge| edge.profile.is_some())
+        );
         // Mutation sensitivity: a silently re-graded base profile is refused ...
         let mut changed = base.clone();
         let victim = changed
@@ -7055,7 +7138,10 @@ mod tests {
             "{refusals:?}"
         );
         let victim = plan.edges.iter().find(|edge| edge.id == victim_id).unwrap();
-        assert!(victim.profile.is_none(), "a refused base edge keeps no profile");
+        assert!(
+            victim.profile.is_none(),
+            "a refused base edge keeps no profile"
+        );
         let entities = plan.entities();
         let victim_entity = entities
             .iter()
@@ -7068,14 +7154,8 @@ mod tests {
             None
         );
         assert!(
-            super::super::frontage::candidate_site(
-                victim_entity,
-                &request,
-                &scene.scene_id,
-                13,
-                1
-            )
-            .is_err()
+            super::super::frontage::candidate_site(victim_entity, &request, &scene.scene_id, 13, 1)
+                .is_err()
         );
         // Every other base edge still earned a profile and keeps its road.
         assert!(
@@ -7156,9 +7236,7 @@ mod tests {
         }
         // The legal domain edges are NOT refused by the elevation domain gate.
         for probe in [-32, 256, level] {
-            if let Err((category, _)) =
-                super::base_edge_profile(&edge, nodes, &context, probe)
-            {
+            if let Err((category, _)) = super::base_edge_profile(&edge, nodes, &context, probe) {
                 assert_ne!(category, "elevation_out_of_domain", "level {probe}");
                 assert_ne!(category, "elevation_overflow", "level {probe}");
             }
@@ -7167,9 +7245,11 @@ mod tests {
         for rotation in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 45.] {
             let mut bad = edge.clone();
             bad.rotation_y_deg = rotation;
-            let (category, _) =
-                super::base_edge_profile(&bad, nodes, &context, level).unwrap_err();
-            assert_eq!(category, "edge_geometry_not_finite_or_misaligned", "{rotation}");
+            let (category, _) = super::base_edge_profile(&bad, nodes, &context, level).unwrap_err();
+            assert_eq!(
+                category, "edge_geometry_not_finite_or_misaligned",
+                "{rotation}"
+            );
         }
         // The legal cardinals: the edge's own cardinal still produces a profile,
         // the other cardinal is refused as a geometry mismatch (not silently kept).
@@ -7257,18 +7337,18 @@ mod tests {
             .to_hex()
             .to_string(),
         });
-        let golden_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/t2c-r2-golden");
+        let golden_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/t2c-r2-golden");
         let golden = golden_dir.join("chain-summary.json");
         if std::env::var("GLYPHWEAVE_UPDATE_GOLDEN").is_ok() {
             std::fs::create_dir_all(&golden_dir).unwrap();
             std::fs::write(&golden, serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
         }
-        let expected: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&golden).unwrap_or_else(|error| {
-                panic!("missing golden {}: {error}", golden.display())
-            }))
-            .unwrap();
+        let expected: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&golden)
+                .unwrap_or_else(|error| panic!("missing golden {}: {error}", golden.display())),
+        )
+        .unwrap();
         assert_eq!(
             summary, expected,
             "T2 chain golden drifted; update only with GLYPHWEAVE_UPDATE_GOLDEN=1"
@@ -7924,11 +8004,9 @@ fn verify_impl(
                 else {
                     continue;
                 };
-                let Some(verdict) =
-                    super::bounded_cut::pad_top_holds(site, |x, z| {
-                        final_terrain.height_millimetres(x, z)
-                    })
-                else {
+                let Some(verdict) = super::bounded_cut::pad_top_holds(site, |x, z| {
+                    final_terrain.height_millimetres(x, z)
+                }) else {
                     continue;
                 };
                 if verdict.holds() {
@@ -8048,10 +8126,8 @@ fn verify_impl(
         if planned.grounding.road_profile.is_some() {
             let (_, flat_transverse) = super::graded_flat_top_local_half_extents(&planned);
             let (_, pavement_transverse) = super::graded_pavement_local_half_extents(&planned);
-            let shortfall = super::graded_band_shortfall_m(
-                pavement_transverse as i32,
-                flat_transverse as i32,
-            );
+            let shortfall =
+                super::graded_band_shortfall_m(pavement_transverse as i32, flat_transverse as i32);
             if shortfall > 0 {
                 audit.failures.push(format!(
                     "road {} graded band is {}m narrower than its declared pavement half",
@@ -8086,7 +8162,7 @@ fn verify_impl(
                     .as_ref()
                     .and_then(|p| p.height_at(f64::from(x), f64::from(z)))
                     .unwrap_or(f64::from(planned.world_y));
-                let (paved_hw, paved_hd) = if planned.grounding.road_profile.is_some() {
+                let paved_hw_hd = if planned.grounding.road_profile.is_some() {
                     // The design level is required exactly where the earthwork
                     // flattens the road (`graded_flat_top_half_extents`); the
                     // rest of the transport footprint is audited as earthwork
@@ -8548,7 +8624,8 @@ pub const PAD_REFUSED_CATEGORIES: [&str; 6] = [
 /// away) was published, and the frontage programme's fill rings then put 0.72 m at
 /// one cell 2 m north of its door - a 106.7% step where the contract allows 25%.
 /// The refusal is named here, with the checked route's own verdict, instead.
-pub const PAD_ENTRANCE_LOST_AFTER_PAD_LIST: &str = "assigned_road_unreachable_after_pad_list_complete";
+pub const PAD_ENTRANCE_LOST_AFTER_PAD_LIST: &str =
+    "assigned_road_unreachable_after_pad_list_complete";
 
 /// The pad ids the plan refused by name out of an already planned pad list.
 ///
@@ -9119,7 +9196,8 @@ pub(super) fn refuse_entrances_lost_after_pad_list(
                 // The gate's own words already carry the route's verdict; this adds
                 // the one number `route` does not report when it reaches no street.
                 let door = super::access::entrance_start(&site.entity());
-                let detour = match door.and_then(|door| super::access::nearest_street(&roads, door)) {
+                let detour = match door.and_then(|door| super::access::nearest_street(&roads, door))
+                {
                     Some((street, metres)) => format!(
                         "; its door is {metres:.2} m from the nearest street ({street}) and no \
                          checked pedestrian route reaches any street within the {} m budget",
@@ -9685,7 +9763,9 @@ mod pad_refusal_tests {
             "only the pad the plan keeps earns a conversion"
         );
         assert!(
-            conversions.iter().all(|record| record.parcel_id != "pad.low"),
+            conversions
+                .iter()
+                .all(|record| record.parcel_id != "pad.low"),
             "a refused pad may not be booked"
         );
     }
@@ -9721,15 +9801,17 @@ mod pad_refusal_tests {
         let rejections = refuse(&mut plan);
         assert_eq!(rejections.len(), 1, "{rejections:?}");
         assert_eq!(rejections[0].edge_id, "pad.low");
-        let report = plan.frontage.as_ref().expect("the report survives the refusal");
+        let report = plan
+            .frontage
+            .as_ref()
+            .expect("the report survives the refusal");
         assert_eq!(report.outcomes[0].site_ids, vec!["pad.high"]);
         assert_eq!(
             report.outcomes[0].unfilled, 1,
             "demand is recomputed from the sites that remain"
         );
         assert_eq!(
-            report.outcomes[0].stop_reason,
-            "no_feasible_frontage",
+            report.outcomes[0].stop_reason, "no_feasible_frontage",
             "the request can no longer claim its demand was satisfied"
         );
         assert_eq!(
@@ -9755,13 +9837,8 @@ mod pad_refusal_tests {
             "conversion parcel pad.low is not a planned frontage parcel"
         );
         assert_eq!(
-            super::super::frontage::verify_conversion(
-                &plan,
-                &zones,
-                None,
-                &report.conversions[0]
-            )
-            .unwrap(),
+            super::super::frontage::verify_conversion(&plan, &zones, None, &report.conversions[0])
+                .unwrap(),
             484
         );
         // Two runs of the gate and the withdrawal produce identical bytes.
@@ -9830,7 +9907,9 @@ mod pad_refusal_tests {
             rejections[0]
                 .reason
                 .contains("7.000 m of fill above the natural 0.000 m")
-                && rejections[0].reason.contains("against the 6 m fill contract"),
+                && rejections[0]
+                    .reason
+                    .contains("against the 6 m fill contract"),
             "the refusal must carry the fill it would need and the contract it breaks: {}",
             rejections[0].reason
         );
@@ -9950,10 +10029,13 @@ mod pad_refusal_tests {
             "the fixture must stand under the road's taper: {taper_mm} mm"
         );
         // No road cell owns any part of the pad.
-        let owns = road_carves.iter().any(|carve| {
-            (200. - carve.cx).abs() <= carve.half_w && (106. - carve.cz).abs() <= carve.half_d
-        });
-        assert!(!owns, "the fixture must be outside the road's graded flat top");
+        let owns = road_carves
+            .iter()
+            .any(|carve| super::super::carve_outside_m(carve, 200., 106.) <= 0.0);
+        assert!(
+            !owns,
+            "the fixture must be outside the road's graded flat top"
+        );
         let _ = entity;
         let before = serde_json::to_vec(&plan).unwrap();
         let rejections = refuse_on(&mut plan, &terrain, dry_water(&scene()));
@@ -10000,17 +10082,19 @@ mod pad_refusal_tests {
             unfilled_residential: 1,
             recovery_rejections: Default::default(),
         });
-        plan.service_outcomes = vec![serde_json::from_value(serde_json::json!({
-            "request": {
-                "id": "school-request", "sceneId": "pads", "kind": "school",
-                "count": 1, "widthM": 40, "depthM": 30, "heightM": 10,
-            },
-            "plannedSiteIds": ["pad.under-road"],
-            "unfilledCount": 0,
-            "rejectedCandidates": {},
-            "status": "planned",
-        }))
-        .unwrap()];
+        plan.service_outcomes = vec![
+            serde_json::from_value(serde_json::json!({
+                "request": {
+                    "id": "school-request", "sceneId": "pads", "kind": "school",
+                    "count": 1, "widthM": 40, "depthM": 30, "heightM": 10,
+                },
+                "plannedSiteIds": ["pad.under-road"],
+                "unfilledCount": 0,
+                "rejectedCandidates": {},
+                "status": "planned",
+            }))
+            .unwrap(),
+        ];
         let rejections = refuse_on(&mut plan, &terrain, water);
         assert_eq!(rejections.len(), 1, "{rejections:?}");
         assert_eq!(rejections[0].category, PAD_BELOW_SETTLED_ROAD_PLATFORM);
@@ -10140,7 +10224,11 @@ mod pad_refusal_tests {
         // plus the support carve's own 2 m margin), then a 25 % ring that meets the
         // natural surface four metres out - the same numbers the ledger measures.
         assert_eq!(planned_mm(&plan, 1.0, 200, 200), 0);
-        assert_eq!(planned_mm(&plan, 1.0, 214, 200), 0, "the flat top holds out to +-14");
+        assert_eq!(
+            planned_mm(&plan, 1.0, 214, 200),
+            0,
+            "the flat top holds out to +-14"
+        );
         assert_eq!(planned_mm(&plan, 1.0, 215, 200), 250);
         assert_eq!(planned_mm(&plan, 1.0, 216, 200), 500);
         assert_eq!(planned_mm(&plan, 1.0, 217, 200), 750);
@@ -10178,7 +10266,10 @@ mod pad_refusal_tests {
         assert!(unreachable.roadside_sites.is_empty());
         // The very same ground with a declared top the cap CAN reach is accepted: the
         // refusal is about the number, not about cutting as such.
-        let mut reachable = plan(vec![frontage_pad("pad.ledge", 200, 200, 3000, Some(2000))], 0);
+        let mut reachable = plan(
+            vec![frontage_pad("pad.ledge", 200, 200, 3000, Some(2000))],
+            0,
+        );
         let rejections = refuse_on(&mut reachable, &terrain, water);
         assert!(rejections.is_empty(), "{rejections:?}");
         assert_eq!(planned_mm(&reachable, 5.0, 200, 200), 3000);
@@ -10280,7 +10371,10 @@ mod pad_refusal_tests {
             }
         });
         let water = water_geometry(WaterKind::River, &[], &scene, &style);
-        assert!(water.road_water_crossings(), "the fixture opts into the crossing");
+        assert!(
+            water.road_water_crossings(),
+            "the fixture opts into the crossing"
+        );
         let mut plan = plan(
             vec![
                 frontage_pad("frontage.quay.a", 120, 200, 0, None),
@@ -10304,4 +10398,3 @@ mod pad_refusal_tests {
         );
     }
 }
-

@@ -372,15 +372,19 @@ pub fn check_hard(
                 }
             }
             Constraint::RequireFootprintNear { kind, distance } => {
-                let hw=(fp.half_w-desc.geometry.clearance).max(0.);
-                let hd=(fp.half_d-desc.geometry.clearance).max(0.);
-                let ok=placed.iter().any(|p| {
-                    if p.kind!=*kind {return false;}
-                    let dx=((p.cx-fp.cx).abs()-hw-(p.half_w-p.clearance).max(0.)).max(0.);
-                    let dz=((p.cz-fp.cz).abs()-hd-(p.half_d-p.clearance).max(0.)).max(0.);
-                    dx.hypot(dz)<=*distance
+                let hw = (fp.half_w - desc.geometry.clearance).max(0.);
+                let hd = (fp.half_d - desc.geometry.clearance).max(0.);
+                let ok = placed.iter().any(|p| {
+                    if p.kind != *kind {
+                        return false;
+                    }
+                    let dx = ((p.cx - fp.cx).abs() - hw - (p.half_w - p.clearance).max(0.)).max(0.);
+                    let dz = ((p.cz - fp.cz).abs() - hd - (p.half_d - p.clearance).max(0.)).max(0.);
+                    dx.hypot(dz) <= *distance
                 });
-                if !ok {return Err(RejectReason::MissingRequiredRelation{kind:*kind});}
+                if !ok {
+                    return Err(RejectReason::MissingRequiredRelation { kind: *kind });
+                }
             }
             Constraint::RequireNear { kind, distance } => {
                 let d = *distance;
@@ -399,12 +403,25 @@ pub fn check_hard(
             } => {
                 let r = radius.max(0.0);
                 let side = side.as_str();
-                let local = match side {"front"=>Some(0),"left"=>Some(1),"back"=>Some(2),"right"=>Some(3),_=>None};
-                let side = if let Some(base)=local {
-                    let turns=fp.rotation_y_deg/90.;
-                    if !turns.is_finite() || (turns-turns.round()).abs()>0.00001 {return Err(RejectReason::BlockedEntrance{anchor:anchor.clone()});}
-                    ["north","west","south","east"][(base+turns.round() as i32).rem_euclid(4) as usize]
-                } else {side};
+                let local = match side {
+                    "front" => Some(0),
+                    "left" => Some(1),
+                    "back" => Some(2),
+                    "right" => Some(3),
+                    _ => None,
+                };
+                let side = if let Some(base) = local {
+                    let turns = fp.rotation_y_deg / 90.;
+                    if !turns.is_finite() || (turns - turns.round()).abs() > 0.00001 {
+                        return Err(RejectReason::BlockedEntrance {
+                            anchor: anchor.clone(),
+                        });
+                    }
+                    ["north", "west", "south", "east"]
+                        [(base + turns.round() as i32).rem_euclid(4) as usize]
+                } else {
+                    side
+                };
                 let raw_hw = (fp.half_w - desc.geometry.clearance).max(0.0);
                 let raw_hd = (fp.half_d - desc.geometry.clearance).max(0.0);
                 // Model the entrance as an outward rectangular corridor, not a
@@ -452,14 +469,17 @@ pub fn check_hard(
                         let rel_z = p.cz - corridor_cz;
                         let ahead = rel_x * dir_x + rel_z * dir_z;
                         let lateral = (rel_x * dir_z - rel_z * dir_x).abs();
-                        let hw=(p.half_w-p.clearance).max(0.);
-                        let hd=(p.half_d-p.clearance).max(0.);
-                        let forward_extent=hw*dir_x.abs()+hd*dir_z.abs();
-                        let lateral_extent=hw*dir_z.abs()+hd*dir_x.abs();
+                        let hw = (p.half_w - p.clearance).max(0.);
+                        let hd = (p.half_d - p.clearance).max(0.);
+                        let forward_extent = hw * dir_x.abs() + hd * dir_z.abs();
+                        let lateral_extent = hw * dir_z.abs() + hd * dir_x.abs();
                         // Facing is a ray/target-footprint relation. A separate
                         // RequireNear constraint supplies any distance cap.
-                        ahead+forward_extent>=0.
-                            && lateral<=corridor_hw*dir_z.abs()+corridor_hd*dir_x.abs()+lateral_extent
+                        ahead + forward_extent >= 0.
+                            && lateral
+                                <= corridor_hw * dir_z.abs()
+                                    + corridor_hd * dir_x.abs()
+                                    + lateral_extent
                     });
                     if !faces_target {
                         return Err(RejectReason::BlockedEntrance {
@@ -712,7 +732,7 @@ phase = "functional"
         // collision) but inside the front anchor's clear radius.
         let placed = vec![
             PlacedKind {
-            clearance: 0.,
+                clearance: 0.,
                 id: None,
                 kind: ItemKind::Road,
                 cx: 50.0,
@@ -722,7 +742,7 @@ phase = "functional"
                 tags: vec![],
             },
             PlacedKind {
-            clearance: 0.,
+                clearance: 0.,
                 id: None,
                 kind: ItemKind::Tree,
                 cx: 50.0,
@@ -912,21 +932,76 @@ phase = "vegetation"
     }
     #[test]
     fn frontage_relations_use_physical_gap_and_rotated_facing_not_road_centre() {
-        let desc:ObjectDescriptor=toml::from_str(include_str!("../../../../../assets/objects/storefront.object.toml")).unwrap();
-        let (hard,_)=compile(&desc);let context=ctx(vec![],vec![],vec![],(0,0,512,512));
-        let road=PlacedKind{id:Some("long-road".into()),kind:ItemKind::Road,cx:200.,cz:100.,half_w:131.,half_d:7.,clearance:3.,tags:vec![]};
-        let mut fp=Footprint{cx:150.,cz:117.,half_w:6.5,half_d:5.5,rotation_y_deg:0.};
-        assert!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)).is_ok());
-        fp.cz+=0.01;assert!(matches!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)),Err(RejectReason::MissingRequiredRelation{..})));
-        fp.cz=117.;fp.rotation_y_deg=180.;assert!(matches!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)),Err(RejectReason::BlockedEntrance{..})));
-        let road=PlacedKind{cx:100.,cz:200.,half_w:7.,half_d:131.,..road};
-        fp=Footprint{cx:117.,cz:150.,half_w:5.5,half_d:6.5,rotation_y_deg:90.};
-        assert!(check_hard(&desc,&fp,&context,&hard,std::slice::from_ref(&road)).is_ok());
-        fp.rotation_y_deg=270.;assert!(matches!(check_hard(&desc,&fp,&context,&hard,&[road]),Err(RejectReason::BlockedEntrance{..})));
+        let desc: ObjectDescriptor = toml::from_str(include_str!(
+            "../../../../../assets/objects/storefront.object.toml"
+        ))
+        .unwrap();
+        let (hard, _) = compile(&desc);
+        let context = ctx(vec![], vec![], vec![], (0, 0, 512, 512));
+        let road = PlacedKind {
+            id: Some("long-road".into()),
+            kind: ItemKind::Road,
+            cx: 200.,
+            cz: 100.,
+            half_w: 131.,
+            half_d: 7.,
+            clearance: 3.,
+            tags: vec![],
+        };
+        let mut fp = Footprint {
+            cx: 150.,
+            cz: 117.,
+            half_w: 6.5,
+            half_d: 5.5,
+            rotation_y_deg: 0.,
+        };
+        assert!(check_hard(&desc, &fp, &context, &hard, std::slice::from_ref(&road)).is_ok());
+        fp.cz += 0.01;
+        assert!(matches!(
+            check_hard(&desc, &fp, &context, &hard, std::slice::from_ref(&road)),
+            Err(RejectReason::MissingRequiredRelation { .. })
+        ));
+        fp.cz = 117.;
+        fp.rotation_y_deg = 180.;
+        assert!(matches!(
+            check_hard(&desc, &fp, &context, &hard, std::slice::from_ref(&road)),
+            Err(RejectReason::BlockedEntrance { .. })
+        ));
+        let road = PlacedKind {
+            cx: 100.,
+            cz: 200.,
+            half_w: 7.,
+            half_d: 131.,
+            ..road
+        };
+        fp = Footprint {
+            cx: 117.,
+            cz: 150.,
+            half_w: 5.5,
+            half_d: 6.5,
+            rotation_y_deg: 90.,
+        };
+        assert!(check_hard(&desc, &fp, &context, &hard, std::slice::from_ref(&road)).is_ok());
+        fp.rotation_y_deg = 270.;
+        assert!(matches!(
+            check_hard(&desc, &fp, &context, &hard, &[road]),
+            Err(RejectReason::BlockedEntrance { .. })
+        ));
         // Existing descriptors still default to centre distance, not footprint distance.
-        let legacy=Constraint::RequireNear{kind:ItemKind::Road,distance:8.};
-        let distant=PlacedKind{id:None,kind:ItemKind::Road,cx:100.,cz:200.,half_w:4.,half_d:128.,clearance:0.,tags:vec![]};
-        assert!(check_hard(&desc,&fp,&context,&[legacy],&[distant]).is_err());
+        let legacy = Constraint::RequireNear {
+            kind: ItemKind::Road,
+            distance: 8.,
+        };
+        let distant = PlacedKind {
+            id: None,
+            kind: ItemKind::Road,
+            cx: 100.,
+            cz: 200.,
+            half_w: 4.,
+            half_d: 128.,
+            clearance: 0.,
+            tags: vec![],
+        };
+        assert!(check_hard(&desc, &fp, &context, &[legacy], &[distant]).is_err());
     }
-
 }

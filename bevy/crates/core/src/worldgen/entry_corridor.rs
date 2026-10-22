@@ -455,10 +455,12 @@ pub fn plan(request: &Request<'_>) -> Result<Verdict, TerrainError> {
     // elevation is what the bake publishes inside its band; a flat road publishes
     // its own level.
     let end_mm = match &road.grounding.road_profile {
-        Some(profile) => profile.height_at(f64::from(far_x), f64::from(far_z)).map_or_else(
-            || (f64::from(road.ground_height_m()) * 1000.).round() as i32,
-            |h| (h * 1000.).round() as i32,
-        ),
+        Some(profile) => profile
+            .height_at(f64::from(far_x), f64::from(far_z))
+            .map_or_else(
+                || (f64::from(road.ground_height_m()) * 1000.).round() as i32,
+                |h| (h * 1000.).round() as i32,
+            ),
         None => (f64::from(road.ground_height_m()) * 1000.).round() as i32,
     };
     let length_m = f64::from(stations);
@@ -534,9 +536,9 @@ pub fn plan(request: &Request<'_>) -> Result<Verdict, TerrainError> {
             }
         }
     }
-    Ok(Verdict::Infeasible(
-        first_reason.unwrap_or_else(|| format!("no 2 m strip toward {} is free", road.entity_id)),
-    ))
+    Ok(Verdict::Infeasible(first_reason.unwrap_or_else(|| {
+        format!("no 2 m strip toward {} is free", road.entity_id)
+    })))
 }
 
 /// Measure one candidate strip cell by cell, then return it with its ledger.
@@ -707,8 +709,9 @@ pub fn gate_or_corridor(
     policy: Policy,
     max_fill_m: f32,
 ) -> Result<Option<(String, String)>, TerrainError> {
-    let refused =
-        super::road_network::assigned_road_gate(site, roads, neighbours, natural, mask, cut_mm, water)?;
+    let refused = super::road_network::assigned_road_gate(
+        site, roads, neighbours, natural, mask, cut_mm, water,
+    )?;
     let Some((category, reason)) = refused else {
         return Ok(None);
     };
@@ -730,9 +733,7 @@ pub fn gate_or_corridor(
     match plan(&request)? {
         Verdict::Infeasible(measured) => Ok(Some((
             category.into(),
-            format!(
-                "{reason}; a graded entry corridor could not open it: {measured}"
-            ),
+            format!("{reason}; a graded entry corridor could not open it: {measured}"),
         ))),
         Verdict::Corridor(corridor) => {
             let reached = format!(
@@ -745,15 +746,18 @@ pub fn gate_or_corridor(
                 f64::from(corridor.grade_permille) / 10.,
             );
             site.entry_corridor = Some(corridor);
-            let again =
-                super::road_network::assigned_road_gate(site, roads, neighbours, natural, mask, cut_mm, water)?;
+            let again = super::road_network::assigned_road_gate(
+                site, roads, neighbours, natural, mask, cut_mm, water,
+            )?;
             match again {
                 None => Ok(None),
                 Some((category, reason)) => {
                     site.entry_corridor = None;
                     Ok(Some((
                         category.into(),
-                        format!("{reason}; its graded entry corridor ({reached}) still does not reach its own street"),
+                        format!(
+                            "{reason}; its graded entry corridor ({reached}) still does not reach its own street"
+                        ),
                     )))
                 }
             }
@@ -948,10 +952,17 @@ pub fn verify(
                         "{}: published ({x},{z}) is {actual} mm, the corridor says {target} mm",
                         corridor.pad_id
                     )),
-                    None => failures.push(format!("{}: no published sample ({x},{z})", corridor.pad_id)),
+                    None => failures.push(format!(
+                        "{}: no published sample ({x},{z})",
+                        corridor.pad_id
+                    )),
                     _ => {}
                 }
-                match corridor.cells.iter().find(|cell| cell.x == x && cell.z == z) {
+                match corridor
+                    .cells
+                    .iter()
+                    .find(|cell| cell.x == x && cell.z == z)
+                {
                     Some(cell) => {
                         if i64::from(cell.natural_mm) != i64::from(natural_mm)
                             || i64::from(cell.target_mm) != target

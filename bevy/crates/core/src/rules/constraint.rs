@@ -22,7 +22,10 @@ pub enum Constraint {
         kind: ItemKind,
         distance: f32,
     },
-    RequireFootprintNear { kind: ItemKind, distance: f32 },
+    RequireFootprintNear {
+        kind: ItemKind,
+        distance: f32,
+    },
     /// A public-access anchor that must keep a clear zone and face a target.
     ClearAnchor {
         anchor: String,
@@ -85,8 +88,14 @@ pub fn compile(desc: &ObjectDescriptor) -> (Vec<Constraint>, Vec<Constraint>) {
     }
     for r in &desc.relations.require {
         hard.push(match r.distance_metric {
-            super::schema::RequiredDistanceMetric::Center => Constraint::RequireNear {kind:r.kind,distance:r.distance},
-            super::schema::RequiredDistanceMetric::Footprint => Constraint::RequireFootprintNear {kind:r.kind,distance:r.distance},
+            super::schema::RequiredDistanceMetric::Center => Constraint::RequireNear {
+                kind: r.kind,
+                distance: r.distance,
+            },
+            super::schema::RequiredDistanceMetric::Footprint => Constraint::RequireFootprintNear {
+                kind: r.kind,
+                distance: r.distance,
+            },
         });
     }
     for a in &desc.anchors {

@@ -193,21 +193,25 @@ mod tests {
             .is_err()
         );
         for value in [-0.1, 0.26, f64::NAN] {
-            assert!(SceneResidualProgram {
-                urban_open_space_ratio: Some(value),
-                rural_pasture_ratio: Some(0.),
+            assert!(
+                SceneResidualProgram {
+                    urban_open_space_ratio: Some(value),
+                    rural_pasture_ratio: Some(0.),
+                    coverage: None,
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            SceneResidualProgram {
+                urban_open_space_ratio: Some(0.25),
+                rural_pasture_ratio: Some(0.5),
                 coverage: None,
             }
             .validate()
-            .is_err());
-        }
-        assert!(SceneResidualProgram {
-            urban_open_space_ratio: Some(0.25),
-            rural_pasture_ratio: Some(0.5),
-            coverage: None,
-        }
-        .validate()
-        .is_ok());
+            .is_ok()
+        );
     }
     /// A public-space-only policy is legal and consumes exactly one share: the
     /// generator's named default (0) covers the ratio the source never stated.
@@ -217,7 +221,10 @@ mod tests {
         let program = for_scene(&urban_only(0.1), &scene).unwrap().unwrap();
         assert_eq!(program.urban_open_space_ratio(), 0.1);
         assert_eq!(program.rural_pasture_ratio(), 0.0);
-        assert_eq!(program.rural_pasture_ratio, None, "unstated, not stated as 0");
+        assert_eq!(
+            program.rural_pasture_ratio, None,
+            "unstated, not stated as 0"
+        );
         assert_eq!(program.unstated_ratios(), vec!["ruralPastureRatio"]);
         program.validate().unwrap();
         // The unstated default is part of the document: only the stated share
@@ -239,13 +246,15 @@ mod tests {
         for bad in [-0.01, 0.2501, 1.5] {
             assert!(for_scene(&urban_only(bad), &scene).is_err(), "{bad}");
         }
-        assert!(SceneResidualProgram {
-            urban_open_space_ratio: Some(f64::INFINITY),
-            rural_pasture_ratio: None,
-            coverage: None,
-        }
-        .validate()
-        .is_err());
+        assert!(
+            SceneResidualProgram {
+                urban_open_space_ratio: Some(f64::INFINITY),
+                rural_pasture_ratio: None,
+                coverage: None,
+            }
+            .validate()
+            .is_err()
+        );
     }
     #[test]
     fn source_binding_is_exact_and_does_not_default_missing_policy() {
@@ -262,16 +271,18 @@ mod tests {
             Some(expected.clone())
         );
         assert!(audit_source(None, &style, &scene).is_err());
-        assert!(audit_source(
-            Some(&SceneResidualProgram {
-                urban_open_space_ratio: Some(0.0),
-                rural_pasture_ratio: Some(0.0),
-                coverage: None,
-            }),
-            &style,
-            &scene,
-        )
-        .is_err());
+        assert!(
+            audit_source(
+                Some(&SceneResidualProgram {
+                    urban_open_space_ratio: Some(0.0),
+                    rural_pasture_ratio: Some(0.0),
+                    coverage: None,
+                }),
+                &style,
+                &scene,
+            )
+            .is_err()
+        );
         // Deleting a stated field is a publication change even when the value
         // it carried was the equal of the default: presence is audited too.
         let mut deleted = expected.clone();

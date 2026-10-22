@@ -455,9 +455,9 @@ impl<'a> AlignmentContext<'a> {
             match solve(&lower, &s.upper, rise) {
                 Ok(profile) => {
                     let (moved, fill) = s.earthwork(&profile);
-                    let better = best
-                        .as_ref()
-                        .is_none_or(|(known_moved, known_fill, _, _)| (moved, fill) < (*known_moved, *known_fill));
+                    let better = best.as_ref().is_none_or(|(known_moved, known_fill, _, _)| {
+                        (moved, fill) < (*known_moved, *known_fill)
+                    });
                     if better {
                         best = Some((moved, fill, allowance as i32, profile));
                     }
@@ -950,7 +950,10 @@ mod tests {
             assert_eq!(*h, 2_800 + 40 * i as i64, "station {i}");
         }
         assert_eq!(on.maximum_rise_mm_per_m, 40);
-        assert_eq!(on.maximum_fill_mm, 3_600, "5600 mm of embankment less the cap");
+        assert_eq!(
+            on.maximum_fill_mm, 3_600,
+            "5600 mm of embankment less the cap"
+        );
 
         // Cell by cell, from the natural raster: every station is BOTH cut (its
         // uphill half) and filled (its downhill half), and no cell loses more

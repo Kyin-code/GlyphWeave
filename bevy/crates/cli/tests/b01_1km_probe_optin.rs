@@ -529,10 +529,7 @@ fn the_optin_manifest_replays_the_probes_published_numbers() {
         "the refused lot is not a planned pad"
     );
     assert!(
-        !published
-            .replacement_ids
-            .iter()
-            .any(|id| id == REFUSED_PAD),
+        !published.replacement_ids.iter().any(|id| id == REFUSED_PAD),
         "the joint receipt keeps no slot for it"
     );
     assert!(

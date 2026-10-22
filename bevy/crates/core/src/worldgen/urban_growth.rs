@@ -254,23 +254,17 @@ fn merge_runs(segments: impl Iterator<Item = Segment>) -> Vec<Axis> {
     for segment in segments {
         let half = (segment.length_m / 2) as i32;
         if !segment.vertical {
-            lines
-                .entry((0, segment.world_z))
-                .or_default()
-                .push((
-                    segment.world_x - half,
-                    segment.world_x + half,
-                    segment.width_m,
-                ));
+            lines.entry((0, segment.world_z)).or_default().push((
+                segment.world_x - half,
+                segment.world_x + half,
+                segment.width_m,
+            ));
         } else {
-            lines
-                .entry((1, segment.world_x))
-                .or_default()
-                .push((
-                    segment.world_z - half,
-                    segment.world_z + half,
-                    segment.width_m,
-                ));
+            lines.entry((1, segment.world_x)).or_default().push((
+                segment.world_z - half,
+                segment.world_z + half,
+                segment.width_m,
+            ));
         }
     }
     let mut axes = Vec::new();
@@ -470,9 +464,7 @@ pub fn plan(
             });
             order += 1;
         }
-        let in_circle = circles
-            .iter()
-            .any(|circle| rect_inside(&box_, circle));
+        let in_circle = circles.iter().any(|circle| rect_inside(&box_, circle));
         if here.is_empty() {
             pieces.push(Piece {
                 tier: if in_circle { 1 } else { 2 },
@@ -489,9 +481,7 @@ pub fn plan(
             continue;
         }
         for rect in rest {
-            let tier = if in_circle
-                && circles.iter().any(|circle| rect_inside(&rect, circle))
-            {
+            let tier = if in_circle && circles.iter().any(|circle| rect_inside(&rect, circle)) {
                 1
             } else {
                 2
@@ -799,10 +789,7 @@ fn choose(scene: &SceneSpec, network: &Network, budget: i64) -> Option<Selection
     // for the degenerate case where the world has nothing else, and reached only when the spacing rule
     // would otherwise leave the budget homeless.
     for axis in usable {
-        if axes
-            .iter()
-            .any(|chosen| parallel_and_close(chosen, &axis))
-        {
+        if axes.iter().any(|chosen| parallel_and_close(chosen, &axis)) {
             skipped.push(axis);
             continue;
         }
@@ -1207,7 +1194,10 @@ mod tests {
             }
         }
         assert!(urban_area > 0);
-        assert_eq!(in_circle, urban_area, "urban land outside every living circle");
+        assert_eq!(
+            in_circle, urban_area,
+            "urban land outside every living circle"
+        );
         assert_eq!(on_axis, urban_area, "urban land off every axis corridor");
         assert_eq!(
             over_corridor, urban_area,
@@ -1256,8 +1246,8 @@ mod tests {
             assert!(zone.world_z + zone.depth_m as i32 <= scene.origin_z + scene.depth_m as i32);
             for z in zone.world_z..zone.world_z + zone.depth_m as i32 {
                 for x in zone.world_x..zone.world_x + zone.width_m as i32 {
-                    let cell =
-                        &mut grid[(z - scene.origin_z) as usize * width + (x - scene.origin_x) as usize];
+                    let cell = &mut grid
+                        [(z - scene.origin_z) as usize * width + (x - scene.origin_x) as usize];
                     assert_eq!(
                         *cell, 0,
                         "zones overlap at ({x},{z}); the later one is {}",
@@ -1327,7 +1317,10 @@ mod tests {
         let land_use = profile(0.05, 0.85, 0.10);
         let grown = plan(&scene, &land_use, Some(&network), water);
         let (urban, _, _) = totals(&grown.zones);
-        assert_eq!(urban, 16_384, "the 512 m probe's 5 % budget is one 128 m cell");
+        assert_eq!(
+            urban, 16_384,
+            "the 512 m probe's 5 % budget is one 128 m cell"
+        );
         for zone in grown.zones.iter().filter(|zone| zone.kind == "urban") {
             assert!(
                 !water.covers(rect_of(zone)),
@@ -1376,7 +1369,11 @@ mod tests {
                 radial.iter().map(zone_area).collect::<Vec<_>>(),
                 "the degraded plan must be the radial plan's geometry"
             );
-            assert!(plan.zones.iter().all(|zone| zone.source == SOURCE_NO_NETWORK));
+            assert!(
+                plan.zones
+                    .iter()
+                    .all(|zone| zone.source == SOURCE_NO_NETWORK)
+            );
         }
     }
 
@@ -1419,15 +1416,14 @@ mod tests {
 
     #[test]
     fn runs_merge_only_while_they_stay_collinear_and_contiguous() {
-        let segment = |world_x: i32, world_z: i32, length_m: u32, vertical: bool, width_m: u32| {
-            Segment {
+        let segment =
+            |world_x: i32, world_z: i32, length_m: u32, vertical: bool, width_m: u32| Segment {
                 world_x,
                 world_z,
                 length_m,
                 vertical,
                 width_m,
-            }
-        };
+            };
         let axes = merge_runs(
             [
                 segment(64, 0, 64, false, 8),

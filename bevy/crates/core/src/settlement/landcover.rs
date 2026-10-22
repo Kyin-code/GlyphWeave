@@ -352,9 +352,7 @@ pub(super) fn choose_ecology_position(
     {
         return Err("invalid ecology candidate domain".into());
     }
-    let clear = |[x, z]: [f64; 2]| {
-        anchor_is_clear(bounds, width, x, z, water, obstacles, occupied)
-    };
+    let clear = |[x, z]: [f64; 2]| anchor_is_clear(bounds, width, x, z, water, obstacles, occupied);
     if clear(preferred) {
         return Ok(preferred);
     }
@@ -441,11 +439,14 @@ pub fn realize(
     let tracing = std::env::var_os("GLYPHWEAVE_BAKE_TRACE").is_some();
     let started = std::time::Instant::now();
     let mut previous = started;
-    let mut trace = |stage:&str| {
+    let mut trace = |stage: &str| {
         if tracing {
-            let now=std::time::Instant::now();
-            eprintln!("{}",serde_json::json!({"format":"glyphweave.landcover-trace","sceneId":scene.scene_id,"stage":stage,"durationMs":now.duration_since(previous).as_millis(),"elapsedMs":now.duration_since(started).as_millis(),"entities":entities.len(),"sourceCells":plan.cells.len()}));
-            previous=now;
+            let now = std::time::Instant::now();
+            eprintln!(
+                "{}",
+                serde_json::json!({"format":"glyphweave.landcover-trace","sceneId":scene.scene_id,"stage":stage,"durationMs":now.duration_since(previous).as_millis(),"elapsedMs":now.duration_since(started).as_millis(),"entities":entities.len(),"sourceCells":plan.cells.len()})
+            );
+            previous = now;
         }
     };
     development::validate_landcover_plan(plan, scene, development)?;
@@ -803,8 +804,7 @@ pub fn realize(
                 };
                 let mut realized = 0_u64;
                 for z in cell.boundary.z..cell.boundary.z + i64::from(cell.boundary.depth_m) {
-                    for x in cell.boundary.x..cell.boundary.x + i64::from(cell.boundary.width_m)
-                    {
+                    for x in cell.boundary.x..cell.boundary.x + i64::from(cell.boundary.width_m) {
                         if realized >= target {
                             break;
                         }
@@ -827,9 +827,12 @@ pub fn realize(
                         let dz = (heights[3] - heights[0])
                             .abs()
                             .max((heights[2] - heights[1]).abs());
-                        let reason = if water
-                            .intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5)
-                        {
+                        let reason = if water.intersects_axis_aligned(
+                            x as f64 + 0.5,
+                            z as f64 + 0.5,
+                            0.5,
+                            0.5,
+                        ) {
                             Some("water_intersection")
                         } else if residual_obstacles
                             .iter()
@@ -870,8 +873,7 @@ pub fn realize(
         .as_ref()
         .is_some_and(super::residual_land::SceneResidualProgram::complete_ground)
     {
-        let baseline =
-            complete_ground_surfaces(scene, plan, terrain, water, &result.patches)?;
+        let baseline = complete_ground_surfaces(scene, plan, terrain, water, &result.patches)?;
         result.patches.extend(baseline);
     }
     trace("complete-ground");
@@ -1006,12 +1008,7 @@ fn complete_ground_surfaces(
                     x += 1;
                     continue;
                 }
-                let wet = water.intersects_axis_aligned(
-                    x as f64 + 0.5,
-                    z as f64 + 0.5,
-                    0.5,
-                    0.5,
-                );
+                let wet = water.intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5);
                 let start = x;
                 x += 1;
                 while x < x1 {
@@ -1021,12 +1018,8 @@ fn complete_ground_surfaces(
                     if !inside || bit_get(&covered, (lz * width + lx) as usize) {
                         break;
                     }
-                    let next_wet = water.intersects_axis_aligned(
-                        x as f64 + 0.5,
-                        z as f64 + 0.5,
-                        0.5,
-                        0.5,
-                    );
+                    let next_wet =
+                        water.intersects_axis_aligned(x as f64 + 0.5, z as f64 + 0.5, 0.5, 0.5);
                     if next_wet != wet {
                         break;
                     }
@@ -1230,9 +1223,7 @@ pub fn verify(
             {
                 return Err("farm track square is laid by two lanes".into());
             }
-            if track_owners
-                .get(&cell)
-                .map(|owner| owner.field_id.as_str())
+            if track_owners.get(&cell).map(|owner| owner.field_id.as_str())
                 != Some(patch.parcel_id.as_str())
             {
                 return Err("farm track square is not owned by its realized lane".into());
@@ -1471,7 +1462,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -1506,18 +1497,18 @@ mod tests {
                 support_level_m: 0,
                 parcel_insets: None,
                 support_level_mm: None,
-                    frontage_road_point: None,
-                    bounded_cut_mm: None,
-                    earthwork_blend_m: None,
+                frontage_road_point: None,
+                bounded_cut_mm: None,
+                earthwork_blend_m: None,
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,
-            
+
                 entry_corridor: None,
-}],
-        
+            }],
+
             entry_corridor_policy: Default::default(),
-};
+        };
         let development = development::plan(&scene, &zones, &road).unwrap();
         let plan = development::plan_landcover(&scene, &development).unwrap();
         let mut terrain = BakedTerrain::new(&scene).unwrap();
@@ -1682,16 +1673,16 @@ mod tests {
             roadside_sites: vec![],
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: vec![],
             joint_layout: None,
             water_crossings: Vec::new(),
             water_crossing_rejections: Vec::new(),
-        
+
             entry_corridor_policy: Default::default(),
-};
+        };
         let d = development::plan(&s, &[nature], &roads).unwrap();
         let p = development::plan_landcover(&s, &d).unwrap();
         let mut t = BakedTerrain::new(&s).unwrap();
@@ -2153,9 +2144,7 @@ mod tests {
         }
         // Conservation of the scene-level identity, not only the yard identity.
         assert!(
-            (audit.realized_area_m2
-                + audit.conservation_ground_area_m2
-                + audit.unresolved_area_m2
+            (audit.realized_area_m2 + audit.conservation_ground_area_m2 + audit.unresolved_area_m2
                 - audit.planned_area_m2 as f64)
                 .abs()
                 < 1e-7
@@ -2171,9 +2160,13 @@ mod tests {
         // Omitting the whole policy leaves both shares at the named default.
         let (s2, d2, p2, t2, w2, e2) = fixture();
         let plain = realize(&s2, &d2, &p2, &t2, w2, &e2).unwrap();
-        assert!(plain.patches.iter().all(|patch| patch.material
-            != Material::PublicOpenSpace
-            && patch.material != Material::PastureGround));
+        assert!(
+            plain
+                .patches
+                .iter()
+                .all(|patch| patch.material != Material::PublicOpenSpace
+                    && patch.material != Material::PastureGround)
+        );
         let plain_audit = verify(&plain, &s2, &d2, &p2, &t2, w2, &e2).unwrap();
         assert!(plain_audit.residual_defaulted_ratios.is_empty());
     }

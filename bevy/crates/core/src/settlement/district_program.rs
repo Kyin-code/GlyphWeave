@@ -63,8 +63,8 @@ pub fn expand(style: &Value, scenes: &[SceneSpec]) -> Result<Value, String> {
     let Some(raw) = style.get("urbanDistrictProgram") else {
         return Ok(style.clone());
     };
-    let program: Program =
-        serde_json::from_value(raw.clone()).map_err(|error| format!("invalid urbanDistrictProgram: {error}"))?;
+    let program: Program = serde_json::from_value(raw.clone())
+        .map_err(|error| format!("invalid urbanDistrictProgram: {error}"))?;
     validate(&program, scenes)?;
 
     let mut effective = style.clone();
@@ -113,7 +113,9 @@ pub fn expand(style: &Value, scenes: &[SceneSpec]) -> Result<Value, String> {
             if !ids.insert(id.clone()) {
                 return Err(format!("duplicate expanded district request id {id}"));
             }
-            let ring = request.center_distance_m.unwrap_or(iteration.center_distance_m);
+            let ring = request
+                .center_distance_m
+                .unwrap_or(iteration.center_distance_m);
             existing.push(json!({
                 "id": id,
                 "sceneId": program.scene_id,
@@ -169,8 +171,8 @@ pub fn audit(
     let Some(raw) = style.get("urbanDistrictProgram") else {
         return Ok(None);
     };
-    let program: Program =
-        serde_json::from_value(raw.clone()).map_err(|error| format!("invalid urbanDistrictProgram: {error}"))?;
+    let program: Program = serde_json::from_value(raw.clone())
+        .map_err(|error| format!("invalid urbanDistrictProgram: {error}"))?;
     if program.scene_id != scene.scene_id {
         return Ok(None);
     }
@@ -274,9 +276,7 @@ fn validate(program: &Program, scenes: &[SceneSpec]) -> Result<(), String> {
             iteration.construction_cohort.as_str(),
             "established" | "renewal" | "new"
         ) {
-            return Err(
-                "constructionCohort must be established, renewal or new".into(),
-            );
+            return Err("constructionCohort must be established, renewal or new".into());
         }
         valid_ring(iteration.center_distance_m)?;
         if iteration.requests.is_empty() {
@@ -291,10 +291,7 @@ fn validate(program: &Program, scenes: &[SceneSpec]) -> Result<(), String> {
                 return Err("urbanDistrictProgram expands beyond 64 requests".into());
             }
             if !valid_id(&request.id) {
-                return Err(format!(
-                    "invalid district request id {:?}",
-                    request.id
-                ));
+                return Err(format!("invalid district request id {:?}", request.id));
             }
             if !ids.insert((iteration.id.as_str(), request.id.as_str())) {
                 return Err(format!(
@@ -308,9 +305,11 @@ fn validate(program: &Program, scenes: &[SceneSpec]) -> Result<(), String> {
             if let Some(ring) = request.center_distance_m {
                 valid_ring(ring)?;
             }
-            if request.purpose.as_deref().is_some_and(|purpose| {
-                !matches!(purpose, "urban" | "rural")
-            }) {
+            if request
+                .purpose
+                .as_deref()
+                .is_some_and(|purpose| !matches!(purpose, "urban" | "rural"))
+            {
                 return Err("district request purpose must be urban or rural".into());
             }
         }
@@ -403,19 +402,14 @@ mod tests {
     #[test]
     fn iterations_expand_to_radial_frontage_requests() {
         let expanded = expand(&style(), &[scene()]).unwrap();
-        let requests = expanded["frontageProgram"]["requests"]
-            .as_array()
-            .unwrap();
+        let requests = expanded["frontageProgram"]["requests"].as_array().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0]["id"], "old-core-shops");
         assert_eq!(requests[0]["centerWorld"], json!([320, 320]));
         assert_eq!(requests[0]["centerDistanceM"], json!([0, 160]));
         assert_eq!(requests[0]["constructionCohort"], "established");
         assert_eq!(requests[1]["constructionCohort"], "new");
-        assert_eq!(
-            expanded["frontageProgram"]["terrainPolicy"],
-            "bounded-cut"
-        );
+        assert_eq!(expanded["frontageProgram"]["terrainPolicy"], "bounded-cut");
         let parsed = crate::worldgen::frontage::from_style(&expanded)
             .unwrap()
             .unwrap();
@@ -427,8 +421,7 @@ mod tests {
     #[test]
     fn invalid_rings_and_centres_fail_closed() {
         let mut bad_ring = style();
-        bad_ring["urbanDistrictProgram"]["iterations"][0]["centerDistanceM"] =
-            json!([200, 100]);
+        bad_ring["urbanDistrictProgram"]["iterations"][0]["centerDistanceM"] = json!([200, 100]);
         assert!(expand(&bad_ring, &[scene()]).is_err());
 
         let mut outside = style();

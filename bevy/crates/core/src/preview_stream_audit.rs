@@ -1,4 +1,4 @@
-﻿//! Independent parity audit between the authoritative `SceneIndex` and the
+//! Independent parity audit between the authoritative `SceneIndex` and the
 //! derived render projection produced by `preview_stream::write`.
 //!
 //! This is deliberately **not** the producer: it never calls
@@ -13,7 +13,7 @@ use crate::{
     settlement::landcover::Material,
     worldgen::{ChunkDescriptor, EntityInstance, SceneIndex, WorldIndex},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -145,7 +145,10 @@ fn rect_in_chunk(b: [f64; 4], cx: u32, cz: u32, scene: &SceneIndex) -> Result<bo
     Ok(b[2] >= cmin_x && b[0] < cmax_x && b[3] >= cmin_z && b[1] < cmax_z)
 }
 
-fn chunk_of_plant(plant: &crate::settlement::ecology::EcologyPlant, scene: &SceneIndex) -> Result<(u32, u32)> {
+fn chunk_of_plant(
+    plant: &crate::settlement::ecology::EcologyPlant,
+    scene: &SceneIndex,
+) -> Result<(u32, u32)> {
     let size = f64::from(scene.chunk_size_m);
     let x = ((plant.world_x - f64::from(scene.origin_x)) / size).floor();
     let z = ((plant.world_z - f64::from(scene.origin_z)) / size).floor();
@@ -183,7 +186,10 @@ fn contained_chunk_file(scene_dir: &Path, relative: &str, label: &str) -> Result
     let path = Path::new(relative);
     if path.is_absolute()
         || path.components().any(|component| {
-            matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
         })
     {
         return Err(format!("{label} path escapes scene directory: {relative}").into());
@@ -303,11 +309,8 @@ fn prepare_out(world_root: &Path, out_dir: &Path) -> Result<PathBuf> {
     }
     // Validate the parent so the (not yet existing) leaf cannot be resolved
     // into the world tree via a symlinked parent.
-    let parent = out
-        .parent()
-        .ok_or("output directory has no parent")?;
-    let parent = fs::canonicalize(parent)
-        .map_err(|e| format!("output parent must exist: {e}"))?;
+    let parent = out.parent().ok_or("output directory has no parent")?;
+    let parent = fs::canonicalize(parent).map_err(|e| format!("output parent must exist: {e}"))?;
     if parent.starts_with(&world) {
         return Err("output directory must be outside the world tree".into());
     }
@@ -360,7 +363,8 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                 && header.get("depthM").and_then(Value::as_u64) == Some(u64::from(scene.depth_m))
                 && header.get("originX").and_then(Value::as_i64) == Some(i64::from(scene.origin_x))
                 && header.get("originZ").and_then(Value::as_i64) == Some(i64::from(scene.origin_z))
-                && header.get("chunkSizeM").and_then(Value::as_u64) == Some(u64::from(scene.chunk_size_m)),
+                && header.get("chunkSizeM").and_then(Value::as_u64)
+                    == Some(u64::from(scene.chunk_size_m)),
             "{}: header scene domain mismatch",
             scene.scene_id
         );
@@ -435,15 +439,22 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
             &mut scene_failures,
         );
         expect!(
-            render_stream.get("format").and_then(Value::as_str) == Some("glyphweave.render-directory")
+            render_stream.get("format").and_then(Value::as_str)
+                == Some("glyphweave.render-directory")
                 && render_stream.get("version").and_then(Value::as_u64) == Some(1)
-                && render_stream.get("worldRevision").and_then(Value::as_str) == Some(world.revision.as_str()),
+                && render_stream.get("worldRevision").and_then(Value::as_str)
+                    == Some(world.revision.as_str()),
             "{}: render stream header identity/revision mismatch",
             scene.scene_id
         );
         expect!(
             render_stream.get("totalPatches").and_then(Value::as_u64)
-                == Some(scene.landcover_surfaces.as_ref().map_or(0, |s| s.patches.len()) as u64)
+                == Some(
+                    scene
+                        .landcover_surfaces
+                        .as_ref()
+                        .map_or(0, |s| s.patches.len()) as u64
+                )
                 && render_stream.get("totalPlants").and_then(Value::as_u64)
                     == Some(
                         scene
@@ -463,7 +474,8 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
         }
 
         // Descriptor table from the projection header.
-        let mut descriptors: BTreeMap<(u32, u32), (String, String, u64, u64, u64)> = BTreeMap::new();
+        let mut descriptors: BTreeMap<(u32, u32), (String, String, u64, u64, u64)> =
+            BTreeMap::new();
         if let Some(chunks) = render_stream.get("chunks").and_then(Value::as_array) {
             for c in chunks {
                 let key = (
@@ -471,14 +483,23 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                     c.get("chunkZ").and_then(Value::as_u64).unwrap_or(u64::MAX) as u32,
                 );
                 let entry = (
-                    c.get("file").and_then(Value::as_str).unwrap_or("").to_string(),
-                    c.get("sha256").and_then(Value::as_str).unwrap_or("").to_string(),
+                    c.get("file")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    c.get("sha256")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     c.get("bytes").and_then(Value::as_u64).unwrap_or(0),
                     c.get("patchCount").and_then(Value::as_u64).unwrap_or(0),
                     c.get("plantCount").and_then(Value::as_u64).unwrap_or(0),
                 );
                 if descriptors.insert(key, entry).is_some() {
-                    scene_failures.push(format!("{}: duplicate descriptor {:?}", scene.scene_id, key));
+                    scene_failures.push(format!(
+                        "{}: duplicate descriptor {:?}",
+                        scene.scene_id, key
+                    ));
                 }
             }
         }
@@ -493,11 +514,15 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                 scene_failures.push(format!("{}: duplicate source chunk", scene.scene_id));
             }
         }
-        let mut expected_patches: BTreeMap<(u32, u32), Vec<&crate::settlement::landcover::SurfacePatch>> =
-            BTreeMap::new();
+        let mut expected_patches: BTreeMap<
+            (u32, u32),
+            Vec<&crate::settlement::landcover::SurfacePatch>,
+        > = BTreeMap::new();
         let mut expected_non_mesh: BTreeMap<(u32, u32), Vec<String>> = BTreeMap::new();
-        let mut expected_plants: BTreeMap<(u32, u32), Vec<&crate::settlement::ecology::EcologyPlant>> =
-            BTreeMap::new();
+        let mut expected_plants: BTreeMap<
+            (u32, u32),
+            Vec<&crate::settlement::ecology::EcologyPlant>,
+        > = BTreeMap::new();
         let mut expected_access: BTreeMap<(u32, u32), Vec<String>> = BTreeMap::new();
         let mut expected_entities: BTreeMap<(u32, u32), Vec<String>> = BTreeMap::new();
         let mut expected_natural_entities: BTreeMap<(u32, u32), Vec<String>> = BTreeMap::new();
@@ -568,10 +593,7 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                 for cz in 0..scene.chunk_count_z {
                     for cx in 0..scene.chunk_count_x {
                         if rect_in_chunk(b, cx, cz, &scene)? {
-                            expected_patches
-                                .entry((cx, cz))
-                                .or_default()
-                                .push(patch);
+                            expected_patches.entry((cx, cz)).or_default().push(patch);
                             if patch.material == Material::AccessPavement {
                                 expected_non_mesh
                                     .entry((cx, cz))
@@ -599,7 +621,10 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
             for cz in 0..scene.chunk_count_z {
                 for cx in 0..scene.chunk_count_x {
                     if rect_in_chunk(b, cx, cz, &scene)? {
-                        expected_access.entry((cx, cz)).or_default().push(id.clone());
+                        expected_access
+                            .entry((cx, cz))
+                            .or_default()
+                            .push(id.clone());
                     }
                 }
             }
@@ -611,13 +636,17 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
         for cx in 0..scene.chunk_count_x {
             for cz in 0..scene.chunk_count_z {
                 let key = (cx, cz);
-                let (file, want_sha, want_bytes, want_patch, want_plant) = match descriptors.get(&key) {
-                    Some(d) => d.clone(),
-                    None => {
-                        scene_failures.push(format!("{}: missing descriptor for {cx}:{cz}", scene.scene_id));
-                        continue;
-                    }
-                };
+                let (file, want_sha, want_bytes, want_patch, want_plant) =
+                    match descriptors.get(&key) {
+                        Some(d) => d.clone(),
+                        None => {
+                            scene_failures.push(format!(
+                                "{}: missing descriptor for {cx}:{cz}",
+                                scene.scene_id
+                            ));
+                            continue;
+                        }
+                    };
                 let chunk_path = scene_dir.join(&file);
                 if !chunk_path.starts_with(scene_dir) || file.contains("..") {
                     scene_failures.push(format!("{}: unsafe chunk path {file}", scene.scene_id));
@@ -626,13 +655,17 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                 let chunk_bytes = match fs::read(&chunk_path) {
                     Ok(b) => b,
                     Err(e) => {
-                        scene_failures.push(format!("{}: missing chunk {file}: {e}", scene.scene_id));
+                        scene_failures
+                            .push(format!("{}: missing chunk {file}: {e}", scene.scene_id));
                         continue;
                     }
                 };
                 let got_sha = sha256_hex(&chunk_bytes);
                 if got_sha != want_sha || chunk_bytes.len() as u64 != want_bytes {
-                    scene_failures.push(format!("{}: chunk {file} hash/bytes mismatch", scene.scene_id));
+                    scene_failures.push(format!(
+                        "{}: chunk {file} hash/bytes mismatch",
+                        scene.scene_id
+                    ));
                 }
                 let payload: Value = serde_json::from_slice(&chunk_bytes)
                     .map_err(|e| format!("{}: chunk {file} invalid JSON: {e}", scene.scene_id))?;
@@ -647,16 +680,26 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                     .transpose()?
                     .unwrap_or_default();
                 if payload.get("patches") != Some(&Value::Array(exp_patches)) {
-                    scene_failures.push(format!("{}: chunk {cx}:{cz} patches differ from source", scene.scene_id));
+                    scene_failures.push(format!(
+                        "{}: chunk {cx}:{cz} patches differ from source",
+                        scene.scene_id
+                    ));
                 }
                 if payload.get("plants") != Some(&Value::Array(exp_plants)) {
-                    scene_failures.push(format!("{}: chunk {cx}:{cz} plants differ from source", scene.scene_id));
+                    scene_failures.push(format!(
+                        "{}: chunk {cx}:{cz} plants differ from source",
+                        scene.scene_id
+                    ));
                 }
                 if payload.get("chunkX").and_then(Value::as_u64) != Some(u64::from(cx))
                     || payload.get("chunkZ").and_then(Value::as_u64) != Some(u64::from(cz))
-                    || payload.get("worldRevision").and_then(Value::as_str) != Some(world.revision.as_str())
+                    || payload.get("worldRevision").and_then(Value::as_str)
+                        != Some(world.revision.as_str())
                 {
-                    scene_failures.push(format!("{}: chunk {cx}:{cz} payload identity mismatch", scene.scene_id));
+                    scene_failures.push(format!(
+                        "{}: chunk {cx}:{cz} payload identity mismatch",
+                        scene.scene_id
+                    ));
                 }
 
                 let patch_id_list: Vec<String> = expected_patches
@@ -670,11 +713,18 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
                 let non_mesh = expected_non_mesh.get(&key).cloned().unwrap_or_default();
                 let access = expected_access.get(&key).cloned().unwrap_or_default();
                 let entity_id_list = expected_entities.get(&key).cloned().unwrap_or_default();
-                let natural_entity_id_list =
-                    expected_natural_entities.get(&key).cloned().unwrap_or_default();
+                let natural_entity_id_list = expected_natural_entities
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default();
 
-                if patch_id_list.len() as u64 != want_patch || plant_id_list.len() as u64 != want_plant {
-                    scene_failures.push(format!("{}: chunk {cx}:{cz} descriptor counts mismatch", scene.scene_id));
+                if patch_id_list.len() as u64 != want_patch
+                    || plant_id_list.len() as u64 != want_plant
+                {
+                    scene_failures.push(format!(
+                        "{}: chunk {cx}:{cz} descriptor counts mismatch",
+                        scene.scene_id
+                    ));
                 }
 
                 let source_chunk = source_chunks.get(&key).ok_or_else(|| {
@@ -768,17 +818,22 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
             .iter()
             .map(|c| u64::from(c.valid_width_m) * u64::from(c.valid_depth_m))
             .sum();
-        let (surface_patches, ecology_plants, ecology_communities, ecology_rejections, agriculture_fields) =
-            match &scene.landcover_surfaces {
-                Some(s) => (
-                    s.patches.len(),
-                    s.ecology.plants.len(),
-                    s.ecology.communities.len(),
-                    s.ecology.rejections.len(),
-                    s.agriculture.fields.len(),
-                ),
-                None => (0, 0, 0, 0, 0),
-            };
+        let (
+            surface_patches,
+            ecology_plants,
+            ecology_communities,
+            ecology_rejections,
+            agriculture_fields,
+        ) = match &scene.landcover_surfaces {
+            Some(s) => (
+                s.patches.len(),
+                s.ecology.plants.len(),
+                s.ecology.communities.len(),
+                s.ecology.rejections.len(),
+                s.agriculture.fields.len(),
+            ),
+            None => (0, 0, 0, 0, 0),
+        };
         let audit_source = json!({
             "format": "glyphweave.render-audit-source",
             "version": 1,
@@ -835,14 +890,23 @@ pub fn audit_world(world_root: &Path, out_dir: &Path) -> Result<Value> {
         "scenes": scenes_out,
         "failures": failures,
     });
-    write_new(&out.join("parity.json"), &serde_json::to_vec_pretty(&parity)?)?;
+    write_new(
+        &out.join("parity.json"),
+        &serde_json::to_vec_pretty(&parity)?,
+    )?;
     Ok(parity)
 }
 
 fn sanitize(value: &str) -> String {
     value
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

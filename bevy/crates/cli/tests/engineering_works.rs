@@ -31,8 +31,7 @@ fn read(path: &PathBuf) -> Value {
 fn terrain_works_and_engineered_drainage_are_published_and_gated() {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples/c01-engineering-works-512.manifest.json");
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(rules());
     let dir = TestDir::new("engineering-works");
     bake_world(&manifest, &dir.0).unwrap();
@@ -64,10 +63,10 @@ fn terrain_works_and_engineered_drainage_are_published_and_gated() {
     let gate = read(&dir.0.join("world-quality-gate.json"));
     let failures = gate["failures"].as_array().unwrap();
     assert!(
-        !failures
-            .iter()
-            .any(|failure| failure.as_str().unwrap().contains("retaining works")
-                || failure.as_str().unwrap().contains("engineered drainage")),
+        !failures.iter().any(
+            |failure| failure.as_str().unwrap().contains("retaining works")
+                || failure.as_str().unwrap().contains("engineered drainage")
+        ),
         "the published engineering evidence must pass its gate checks: {failures:?}"
     );
 }

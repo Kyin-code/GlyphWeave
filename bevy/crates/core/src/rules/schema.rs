@@ -222,14 +222,21 @@ pub struct RelationNear {
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(rename_all="snake_case")]
-pub enum RequiredDistanceMetric { #[default] Center, Footprint }
+#[serde(rename_all = "snake_case")]
+pub enum RequiredDistanceMetric {
+    #[default]
+    Center,
+    Footprint,
+}
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationRequiredNear {
-    pub kind: ItemKind, pub distance:f32,
-    #[serde(default)] pub weight:f32,
-    #[serde(default)] pub distance_metric:RequiredDistanceMetric,
+    pub kind: ItemKind,
+    pub distance: f32,
+    #[serde(default)]
+    pub weight: f32,
+    #[serde(default)]
+    pub distance_metric: RequiredDistanceMetric,
 }
 /// Relations to other objects (hard avoid/require + soft prefer).
 #[derive(Debug, Clone, Deserialize, Default)]

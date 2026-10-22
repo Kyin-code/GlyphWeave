@@ -199,10 +199,7 @@ fn gate_with(
 }
 
 /// Build the same published raster the bake would write, from a plan's carves.
-fn published_raster(
-    carves: &[super::super::TerrainCarve],
-    terrain: &BakedTerrain,
-) -> BakedTerrain {
+fn published_raster(carves: &[super::super::TerrainCarve], terrain: &BakedTerrain) -> BakedTerrain {
     let scene = scene();
     let mut values = Vec::with_capacity(256 * 256);
     for z in 0..256 {
@@ -226,15 +223,16 @@ fn published_raster(
 /// Zones that cover the whole 256x256 scene exactly once, with one 4x4 nature
 /// patch the corridor has to respect.
 fn zones_with_nature() -> Vec<crate::worldgen::LandUseZone> {
-    let zone = |id: &str, kind: &str, x: i32, z: i32, w: u32, d: u32| crate::worldgen::LandUseZone {
-        id: id.into(),
-        kind: kind.into(),
-        world_x: x,
-        world_z: z,
-        width_m: w,
-        depth_m: d,
-        source: "fixture".into(),
-    };
+    let zone =
+        |id: &str, kind: &str, x: i32, z: i32, w: u32, d: u32| crate::worldgen::LandUseZone {
+            id: id.into(),
+            kind: kind.into(),
+            world_x: x,
+            world_z: z,
+            width_m: w,
+            depth_m: d,
+            source: "fixture".into(),
+        };
     vec![
         zone("rural.north", "rural", 0, 0, 256, 58),
         zone("rural.west", "rural", 0, 58, 126, 4),
@@ -267,7 +265,8 @@ fn the_corridor_is_off_unless_the_exact_value_is_declared() {
         assert!(reason.is_some(), "{style} must name why it is off");
         assert!(policy.is_off(), "{style}");
     }
-    let (policy, reason) = Policy::from_style(&json!({"terrainPolicy": {"entryCorridor": "graded"}}));
+    let (policy, reason) =
+        Policy::from_style(&json!({"terrainPolicy": {"entryCorridor": "graded"}}));
     assert_eq!(policy, Policy::Graded);
     assert_eq!(reason, None);
     assert!(!policy.is_off());
@@ -344,11 +343,17 @@ fn the_graded_corridor_opens_the_entrance_and_is_walkable_cell_by_cell() {
     let terrain = natural();
     let street = street_at(500);
     let mut site = lot();
-    assert!(gate(&site, &street, &terrain).is_some(), "the lot needs the corridor");
+    assert!(
+        gate(&site, &street, &terrain).is_some(),
+        "the lot needs the corridor"
+    );
     let refusal = gate_with(&mut site, &street, &terrain, Policy::Graded);
     assert_eq!(refusal, None, "the corridor must open the entrance");
 
-    let corridor = site.entry_corridor.clone().expect("the pad keeps its corridor");
+    let corridor = site
+        .entry_corridor
+        .clone()
+        .expect("the pad keeps its corridor");
     assert_eq!(corridor.version, VERSION);
     assert_eq!(corridor.pad_id, LOT);
     assert_eq!(corridor.road_id, STREET);
@@ -364,7 +369,10 @@ fn the_graded_corridor_opens_the_entrance_and_is_walkable_cell_by_cell() {
     assert_eq!(corridor.end_mm, 500, "the street's own published surface");
     assert_eq!(corridor.cell_count, 16, "8 stations x 2 m of pavement");
     assert_eq!(corridor.cells.len(), 16);
-    assert_eq!(corridor.max_fill_mm, 1_500, "the deepest fill at the street end");
+    assert_eq!(
+        corridor.max_fill_mm, 1_500,
+        "the deepest fill at the street end"
+    );
     assert_eq!(corridor.fill_sum_mm, 12_000);
 
     // Cell by cell, on the surface the bake publishes: the corridor's own profile
@@ -426,7 +434,10 @@ fn the_corridor_ledger_recomputes_from_the_plan_and_the_natural_raster() {
     let terrain = natural();
     let street = street_at(500);
     let mut site = lot();
-    assert_eq!(gate_with(&mut site, &street, &terrain, Policy::Graded), None);
+    assert_eq!(
+        gate_with(&mut site, &street, &terrain, Policy::Graded),
+        None
+    );
     let planned = carves(&site, &street);
     let published = published_raster(&planned, &terrain);
     let sites = vec![site.clone()];
@@ -436,7 +447,10 @@ fn the_corridor_ledger_recomputes_from_the_plan_and_the_natural_raster() {
     assert_eq!(audit.corridor_count, 1);
     assert_eq!(audit.cells, 16);
     assert_eq!(audit.longest_m, 7.0);
-    assert_eq!(audit.max_grade_permille, 215, "1.500 m over 7 m, rounded per station");
+    assert_eq!(
+        audit.max_grade_permille, 215,
+        "1.500 m over 7 m, rounded per station"
+    );
     assert_eq!(audit.grade_contract, 0.25);
     assert_eq!(audit.length_budget_m, 120.0);
     assert_eq!(audit.fill_sum_mm, 12_000);
@@ -507,7 +521,8 @@ fn the_corridor_ledger_recomputes_from_the_plan_and_the_natural_raster() {
         audit
             .failures
             .iter()
-            .any(|failure| failure.contains("published (128,63) is -990 mm, the corridor says -1000 mm")),
+            .any(|failure| failure
+                .contains("published (128,63) is -990 mm, the corridor says -1000 mm")),
         "{:#?}",
         audit.failures
     );
@@ -547,7 +562,10 @@ fn a_corridor_that_cannot_hold_the_grade_is_refused_with_its_measured_numbers() 
         reason.contains("measured minimum grade 35.7%"),
         "the measured grade: {reason}"
     );
-    assert!(site.entry_corridor.is_none(), "an infeasible corridor is not kept");
+    assert!(
+        site.entry_corridor.is_none(),
+        "an infeasible corridor is not kept"
+    );
     // The same numbers are what the planner itself reports.
     let request = Request {
         site: &site,
@@ -624,7 +642,10 @@ fn the_corridor_may_not_cross_reserved_land_or_water() {
     let mut site = lot();
     let zones = zones_with_nature();
     let mask = super::super::zoning::ZoningMask::new(&scene(), &zones).unwrap();
-    assert!(mask.protected_at(128, 59), "the fixture's nature patch straddles the strip");
+    assert!(
+        mask.protected_at(128, 59),
+        "the fixture's nature patch straddles the strip"
+    );
     let request = Request {
         site: &site,
         road: &street,
@@ -682,7 +703,10 @@ fn the_corridor_may_not_cross_reserved_land_or_water() {
         &scene(),
         &json!({"water": {"waterType": "river"}}),
     );
-    assert!(water.contains_point(128., 59.), "the fixture river covers the strip");
+    assert!(
+        water.contains_point(128., 59.),
+        "the fixture river covers the strip"
+    );
     let request = Request {
         site: &site,
         road: &street,
@@ -739,7 +763,10 @@ fn the_off_state_is_frozen() {
     let with_corridor = carves(&on, &street);
     assert_eq!(with_corridor.len(), planned.len() + 1);
     assert_eq!(
-        with_corridor.iter().filter(|carve| carve.ramp.is_some()).count(),
+        with_corridor
+            .iter()
+            .filter(|carve| carve.ramp.is_some())
+            .count(),
         1
     );
     // ...and the OFF composition is byte-identical to the same carves without the
@@ -792,7 +819,15 @@ fn two_compositions_publish_the_same_bytes() {
     }
     assert_eq!(first_bytes, second_bytes);
     let audit_a = verify(&[first.clone()], &terrain, &a, &scene(), None, water(), 6.0);
-    let audit_b = verify(&[second.clone()], &terrain, &b, &scene(), None, water(), 6.0);
+    let audit_b = verify(
+        &[second.clone()],
+        &terrain,
+        &b,
+        &scene(),
+        None,
+        water(),
+        6.0,
+    );
     assert_eq!(audit_a.status, "pass", "{:#?}", audit_a.failures);
     assert_eq!(
         serde_json::to_vec(&audit_a).unwrap(),

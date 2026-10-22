@@ -92,7 +92,12 @@ pub struct FieldSource {
 }
 
 impl FieldSource {
-    fn new(path: impl Into<String>, source: &str, profile_field: &str, detail: impl Into<String>) -> Self {
+    fn new(
+        path: impl Into<String>,
+        source: &str,
+        profile_field: &str,
+        detail: impl Into<String>,
+    ) -> Self {
         Self {
             path: path.into(),
             source: source.into(),
@@ -162,7 +167,9 @@ pub(crate) fn even_midpoint(range: [u32; 2], field: &str) -> Result<u32, String>
 /// Midpoint of a profile ratio range, rounded to three decimals.
 fn ratio_midpoint(range: [f64; 2], field: &str) -> Result<f64, String> {
     if !range.iter().all(|value| value.is_finite()) || range[0] > range[1] {
-        return Err(err(format!("profile field {field} has an invalid ratio range")));
+        return Err(err(format!(
+            "profile field {field} has an invalid ratio range"
+        )));
     }
     Ok(((range[0] + range[1]) * 0.5 * 1000.).round() / 1000.)
 }
@@ -487,7 +494,12 @@ fn compile_frontage(
         } else {
             item.insert("parcelInsets".into(), policy.insets());
             for (key, value, profile_field, declared) in [
-                ("frontM", policy.front_m, "frontInsetM", profile.front_inset_m),
+                (
+                    "frontM",
+                    policy.front_m,
+                    "frontInsetM",
+                    profile.front_inset_m,
+                ),
                 ("sideM", policy.side_m, "sideInsetM", profile.side_inset_m),
                 ("rearM", policy.rear_m, "rearInsetM", profile.rear_inset_m),
             ] {
@@ -511,8 +523,7 @@ fn compile_frontage(
                 item.get("depthM").and_then(Value::as_u64).map(|v| v as u32),
             );
             if let (Some(width), Some(depth)) = built {
-                if let Some((parcel_width, parcel_depth)) =
-                    effective_policy.parcel_of(width, depth)
+                if let Some((parcel_width, parcel_depth)) = effective_policy.parcel_of(width, depth)
                 {
                     for (field, parcel, declared) in [
                         ("parcelWidthM", parcel_width, profile.parcel_width_m),
@@ -645,8 +656,11 @@ fn compile_auto_roads(
         .as_object_mut()
         .ok_or_else(|| err("style must be a JSON object"))?
         .insert(path.into(), Value::Object(replacement));
-    crate::worldgen::auto_roads::from_style(effective)
-        .map_err(|error| err(format!("effective automaticRoadExtensions is rejected: {error}")))?;
+    crate::worldgen::auto_roads::from_style(effective).map_err(|error| {
+        err(format!(
+            "effective automaticRoadExtensions is rejected: {error}"
+        ))
+    })?;
     Ok(())
 }
 
@@ -767,8 +781,11 @@ fn compile_residual(
         .as_object_mut()
         .ok_or_else(|| err("style must be a JSON object"))?
         .insert(path.into(), Value::Object(object));
-    super::residual_land::from_style(effective)
-        .map_err(|error| err(format!("effective residualLandProgram is rejected: {error}")))?;
+    super::residual_land::from_style(effective).map_err(|error| {
+        err(format!(
+            "effective residualLandProgram is rejected: {error}"
+        ))
+    })?;
     Ok(())
 }
 
@@ -852,7 +869,10 @@ fn compile_agriculture(
             format!("{scene_path}.defaultField"),
             SOURCE_PROFILE,
             "villageFieldTemplate",
-            format!("unstated; profile template {}x{}m", template[0], template[1]),
+            format!(
+                "unstated; profile template {}x{}m",
+                template[0], template[1]
+            ),
         ));
     }
     object.insert("scenes".into(), Value::Object(scene_map));
@@ -991,10 +1011,7 @@ pub fn audit_published(
 
 /// The effective style used by generation and independent audit. Returns the
 /// original style unchanged on the legacy path.
-pub fn effective_style_or_original(
-    style: &Value,
-    scenes: &[SceneSpec],
-) -> Result<Value, String> {
+pub fn effective_style_or_original(style: &Value, scenes: &[SceneSpec]) -> Result<Value, String> {
     Ok(compile(style, scenes)?
         .map(|compiled| compiled.style)
         .unwrap_or_else(|| style.clone()))
@@ -1121,8 +1138,7 @@ mod tests {
             assert_eq!(compiled.report.profile_id, *id);
             assert_eq!(compiled.report.status, "compiled");
             assert_eq!(
-                compiled.report.effective_style,
-                compiled.style,
+                compiled.report.effective_style, compiled.style,
                 "the report publishes the exact effective style generation consumes"
             );
             assert_ne!(
@@ -1143,7 +1159,10 @@ mod tests {
             inset_table.push((id.clone(), insets(&compiled.style, 0)));
             // Road hierarchy is derived from the profile roles.
             let hierarchy = &compiled.style["automaticRoadExtensions"]["scenes"][0]["hierarchy"];
-            assert_eq!(compiled.style["automaticRoadExtensions"]["version"], json!(2));
+            assert_eq!(
+                compiled.style["automaticRoadExtensions"]["version"],
+                json!(2)
+            );
             assert!(hierarchy["tiers"].as_array().unwrap().len() >= 2);
             // The profile's public-space share reaches the residual-land
             // consumer as the urban open-space ratio and nothing else: no
@@ -1154,13 +1173,11 @@ mod tests {
                 "{id} must compile exactly the profile public-space share"
             );
             assert!(
-                compiled
-                    .report
-                    .field_sources
-                    .iter()
-                    .any(|entry| entry.path.ends_with("urbanOpenSpaceRatio")
-                        && entry.source == SOURCE_PROFILE
-                        && entry.profile_field == "publicSpaceRatio"),
+                compiled.report.field_sources.iter().any(|entry| entry
+                    .path
+                    .ends_with("urbanOpenSpaceRatio")
+                    && entry.source == SOURCE_PROFILE
+                    && entry.profile_field == "publicSpaceRatio"),
                 "{id} must report the public-space source"
             );
             assert!(
@@ -1330,9 +1347,11 @@ mod tests {
         }
         let mut unknown = style("village-field");
         unknown["morphologyProfile"] = json!("no-such-profile");
-        assert!(compile(&unknown, &[scene()])
-            .unwrap_err()
-            .contains("unknown morphologyProfile"));
+        assert!(
+            compile(&unknown, &[scene()])
+                .unwrap_err()
+                .contains("unknown morphologyProfile")
+        );
     }
 
     /// A complete parcel is not a building. The default footprint is the
@@ -1361,7 +1380,9 @@ mod tests {
             entry.path.ends_with("requests[0].widthM")
                 && entry.source == SOURCE_PROFILE
                 && entry.profile_field == "parcelWidthM"
-                && entry.detail.contains("complete parcel 26m - 2x8m profile side inset")
+                && entry
+                    .detail
+                    .contains("complete parcel 26m - 2x8m profile side inset")
         }));
         assert!(compiled.report.field_sources.iter().any(|entry| {
             entry.path.ends_with("requests[0].depthM")
@@ -1510,10 +1531,7 @@ mod tests {
         // Only width missing: the real default width is 26 - 2x16 < 0, so this
         // must be refused (the authored depth cannot rescue it).
         let error = build(json!({"depthM": 16, "heightM": 10})).unwrap_err();
-        assert!(
-            error.contains("cannot hold 2x16m side insets"),
-            "{error}"
-        );
+        assert!(error.contains("cannot hold 2x16m side insets"), "{error}");
 
         // Symmetric depth case: front 8 + rear 50 exceeds the 50m parcel, so a
         // missing depth is refused while an authored depth is kept.
@@ -1533,7 +1551,10 @@ mod tests {
             .unwrap()
             .remove("depthM");
         let error = compile(&value, &[scene()]).unwrap_err();
-        assert!(error.contains("cannot hold 8m front + 50m rear insets"), "{error}");
+        assert!(
+            error.contains("cannot hold 8m front + 50m rear insets"),
+            "{error}"
+        );
         // The same authored depth with the width missing is still fine because
         // the width default (26 - 2x2 = 22) is valid on its own axis: the two
         // axes are derived and validated independently.
@@ -1656,9 +1677,8 @@ mod tests {
             }
             compile(&value, &[scene()]).map(|compiled| compiled.unwrap())
         };
-        let request = |compiled: &CompiledStyle| {
-            compiled.style["frontageProgram"]["requests"][0].clone()
-        };
+        let request =
+            |compiled: &CompiledStyle| compiled.style["frontageProgram"]["requests"][0].clone();
         let source_of = |compiled: &CompiledStyle, suffix: &str| -> String {
             compiled
                 .report
@@ -1691,13 +1711,14 @@ mod tests {
             request(&both)["parcelInsets"],
             json!({"frontM": 8, "sideM": 2, "rearM": 26})
         );
-        assert!(both
-            .report
-            .field_sources
-            .iter()
-            .all(|entry| !entry.path.ends_with("widthM")
-                || entry.source == SOURCE_ORIGINAL
-                || entry.source == SOURCE_PROFILE));
+        assert!(
+            both.report
+                .field_sources
+                .iter()
+                .all(|entry| !entry.path.ends_with("widthM")
+                    || entry.source == SOURCE_ORIGINAL
+                    || entry.source == SOURCE_PROFILE)
+        );
         // 34 + 2x2 = 38m is above the profile parcelWidthM band [16, 36], so the
         // deviation is reported rather than adjusted.
         assert!(
@@ -1708,11 +1729,12 @@ mod tests {
             "{:?}",
             both.report.notes
         );
-        assert!(both
-            .report
-            .notes
-            .iter()
-            .all(|note| !note.contains("profile insets")));
+        assert!(
+            both.report
+                .notes
+                .iter()
+                .all(|note| !note.contains("profile insets"))
+        );
     }
 
     /// B04-C1-R2: the derived parcel keeps its extents for all four cardinal
@@ -1744,10 +1766,9 @@ mod tests {
             rear_m: 26,
         };
         for rotation in [0., 90., 180., 270.] {
-            let bounds = crate::worldgen::parcel_geometry::boundary(
-                0, 0, width, depth, rotation, insets,
-            )
-            .unwrap();
+            let bounds =
+                crate::worldgen::parcel_geometry::boundary(0, 0, width, depth, rotation, insets)
+                    .unwrap();
             let extents = (bounds[2] - bounds[0], bounds[3] - bounds[1]);
             let expected = if matches!(rotation.round() as i32, 90 | 270) {
                 (50, 26)
@@ -1773,14 +1794,7 @@ mod tests {
         assert_eq!(base.footprint_depth().unwrap(), 18);
         for (policy, width_fails, depth_fails) in [
             // Side insets consume the whole parcel width.
-            (
-                ParcelPolicy {
-                    width_m: 8,
-                    ..base
-                },
-                true,
-                false,
-            ),
+            (ParcelPolicy { width_m: 8, ..base }, true, false),
             // Front and rear insets consume the whole parcel depth.
             (
                 ParcelPolicy {
@@ -1852,16 +1866,16 @@ mod tests {
                 } else {
                     (parcel_x, parcel_z)
                 };
-                assert_eq!(
-                    extents,
-                    expected,
-                    "{profile_id} at {rotation}deg"
-                );
+                assert_eq!(extents, expected, "{profile_id} at {rotation}deg");
                 // The complete parcel stays inside the profile's declared band.
-                assert!(policy.width_m >= profile.parcel_width_m[0]
-                    && policy.width_m <= profile.parcel_width_m[1]);
-                assert!(policy.depth_m >= profile.parcel_depth_m[0]
-                    && policy.depth_m <= profile.parcel_depth_m[1]);
+                assert!(
+                    policy.width_m >= profile.parcel_width_m[0]
+                        && policy.width_m <= profile.parcel_width_m[1]
+                );
+                assert!(
+                    policy.depth_m >= profile.parcel_depth_m[0]
+                        && policy.depth_m <= profile.parcel_depth_m[1]
+                );
             }
         }
     }
@@ -1968,16 +1982,26 @@ mod tests {
             let program = crate::worldgen::frontage::from_style(&compiled.style)
                 .unwrap()
                 .unwrap();
-            assert!(program.requests.iter().all(|request| request.setback_m == setback));
-            assert!(program
-                .requests
-                .iter()
-                .all(|request| request.parcel_insets.unwrap().front_m < setback));
+            assert!(
+                program
+                    .requests
+                    .iter()
+                    .all(|request| request.setback_m == setback)
+            );
+            assert!(
+                program
+                    .requests
+                    .iter()
+                    .all(|request| request.parcel_insets.unwrap().front_m < setback)
+            );
         }
 
         // An authored setback wins and is reported as authored truth.
         let mut authored = style("compact-mixed-block");
-        for request in authored["frontageProgram"]["requests"].as_array_mut().unwrap() {
+        for request in authored["frontageProgram"]["requests"]
+            .as_array_mut()
+            .unwrap()
+        {
             request["setbackM"] = json!(12);
         }
         let compiled = compile(&authored, &[scene()]).unwrap().unwrap();
@@ -2018,7 +2042,10 @@ mod tests {
 
         // Outside the frontage request band: refuse, never clamp.
         let mut too_far = style("compact-mixed-block");
-        for request in too_far["frontageProgram"]["requests"].as_array_mut().unwrap() {
+        for request in too_far["frontageProgram"]["requests"]
+            .as_array_mut()
+            .unwrap()
+        {
             request.as_object_mut().unwrap().remove("setbackM");
             request["parcelInsets"] = json!({"frontM": 30, "sideM": 2, "rearM": 4});
         }
@@ -2042,13 +2069,12 @@ mod tests {
             json!(8)
         );
         let published = serde_json::to_value(&compiled.report).unwrap();
-        assert!(audit_published(&published, &value, &[scene()])
-            .unwrap()
-            .is_some());
-        for (label, forged) in [
-            ("wider", json!(12)),
-            ("narrower", json!(6)),
-        ] {
+        assert!(
+            audit_published(&published, &value, &[scene()])
+                .unwrap()
+                .is_some()
+        );
+        for (label, forged) in [("wider", json!(12)), ("narrower", json!(6))] {
             let mut document = published.clone();
             document["effectiveStyle"]["frontageProgram"]["requests"][0]["setbackM"] = forged;
             assert!(
@@ -2116,11 +2142,14 @@ mod tests {
                 ("farm_access".to_owned(), 8),
             ]
         );
-        assert!(compiled
-            .report
-            .field_sources
-            .iter()
-            .any(|entry| entry.source == SOURCE_DERIVED && entry.profile_field == "roadHierarchy"));
+        assert!(
+            compiled
+                .report
+                .field_sources
+                .iter()
+                .any(|entry| entry.source == SOURCE_DERIVED
+                    && entry.profile_field == "roadHierarchy")
+        );
         assert_eq!(
             compiled.style["agricultureProgram"]["scenes"]["scene-0"]["defaultField"],
             json!({"widthM": 24, "depthM": 24})
@@ -2135,13 +2164,15 @@ mod tests {
             compiled.style["residualLandProgram"],
             json!({"version": 1, "scenes": {"scene-0": {"urbanOpenSpaceRatio": 0.14}}})
         );
-        assert!(compiled
-            .report
-            .field_sources
-            .iter()
-            .any(|entry| entry.source == SOURCE_PROFILE
-                && entry.profile_field == "publicSpaceRatio"
-                && entry.path.ends_with("urbanOpenSpaceRatio")));
+        assert!(
+            compiled
+                .report
+                .field_sources
+                .iter()
+                .any(|entry| entry.source == SOURCE_PROFILE
+                    && entry.profile_field == "publicSpaceRatio"
+                    && entry.path.ends_with("urbanOpenSpaceRatio"))
+        );
         assert!(
             compiled
                 .report
@@ -2150,20 +2181,22 @@ mod tests {
                 .all(|entry| entry.profile_field != "publicSpaceRatio"),
             "a field with a real consumer is not unsupported"
         );
-        assert!(compiled.report.notes.iter().any(|note| note.contains(
-            "residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated"
-        )));
+        assert!(compiled.report.notes.iter().any(|note| {
+            note.contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")
+        }));
     }
 
     #[test]
     fn a_profile_without_a_field_template_declares_it_absent_not_defaulted() {
         let compiled = compiled("compact-mixed-block");
         assert!(compiled.style.get("agricultureProgram").is_none());
-        assert!(compiled
-            .report
-            .field_sources
-            .iter()
-            .all(|entry| entry.profile_field != "villageFieldTemplate"));
+        assert!(
+            compiled
+                .report
+                .field_sources
+                .iter()
+                .all(|entry| entry.profile_field != "villageFieldTemplate")
+        );
     }
 
     #[test]
@@ -2182,8 +2215,8 @@ mod tests {
         // The residual public-space share is part of the published document:
         // changing it, or deleting the field that states it, is rejected too.
         let mut forged_ratio = published.clone();
-        forged_ratio["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]
-            ["urbanOpenSpaceRatio"] = json!(0.05);
+        forged_ratio["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]["urbanOpenSpaceRatio"] =
+            json!(0.05);
         assert!(audit_published(&forged_ratio, &value, &[scene()]).is_err());
         let mut removed_ratio = published.clone();
         removed_ratio["effectiveStyle"]["residualLandProgram"]["scenes"]["scene-0"]
@@ -2196,9 +2229,11 @@ mod tests {
         wrong_profile["morphologyProfile"] = json!("compact-mixed-block");
         assert!(audit_published(&published, &wrong_profile, &[scene()]).is_err());
         // The legacy path publishes nothing.
-        assert!(audit_published(&published, &json!({}), &[scene()])
-            .unwrap()
-            .is_none());
+        assert!(
+            audit_published(&published, &json!({}), &[scene()])
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -2215,13 +2250,16 @@ mod tests {
             "explicit demand is authored truth"
         );
         assert_eq!(
-            compiled.style["automaticRoadExtensions"], style["automaticRoadExtensions"]
+            compiled.style["automaticRoadExtensions"],
+            style["automaticRoadExtensions"]
         );
         assert_eq!(
-            compiled.style["agricultureProgram"], style["agricultureProgram"]
+            compiled.style["agricultureProgram"],
+            style["agricultureProgram"]
         );
         assert_eq!(
-            compiled.style["residualLandProgram"], style["residualLandProgram"]
+            compiled.style["residualLandProgram"],
+            style["residualLandProgram"]
         );
     }
 
@@ -2327,7 +2365,9 @@ mod tests {
                 "compact-mixed-block",
             ),
             (
-                include_str!("../../../../../examples/morphology/b04-c1-village-field.manifest.json"),
+                include_str!(
+                    "../../../../../examples/morphology/b04-c1-village-field.manifest.json"
+                ),
                 "village-field",
             ),
         ] {
@@ -2358,14 +2398,17 @@ mod tests {
             }
             // Hierarchy is injected because the control declares a v1 program
             // without tiers.
-            assert_eq!(compiled_style.style["automaticRoadExtensions"]["version"], json!(2));
-            let roles: Vec<&str> = compiled_style.style["automaticRoadExtensions"]["scenes"][0]
-                ["hierarchy"]["tiers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tier| tier["role"].as_str().unwrap())
-                .collect();
+            assert_eq!(
+                compiled_style.style["automaticRoadExtensions"]["version"],
+                json!(2)
+            );
+            let roles: Vec<&str> =
+                compiled_style.style["automaticRoadExtensions"]["scenes"][0]["hierarchy"]["tiers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tier| tier["role"].as_str().unwrap())
+                    .collect();
             if expected == "compact-mixed-block" {
                 assert_eq!(roles, vec!["collector", "local"]);
             } else {
@@ -2433,8 +2476,9 @@ mod tests {
         let effective = effective_style_or_original(&legacy, &[scene()]).unwrap();
         assert_eq!(serde_json::to_vec(&effective).unwrap(), bytes);
         // The legacy document is still consumed exactly as written.
-        let program =
-            crate::settlement::residual_land::for_scene(&effective, &scene()).unwrap().unwrap();
+        let program = crate::settlement::residual_land::for_scene(&effective, &scene())
+            .unwrap()
+            .unwrap();
         assert_eq!(program.urban_open_space_ratio(), 0.1);
         assert_eq!(program.rural_pasture_ratio(), 0.2);
         assert!(program.unstated_ratios().is_empty());
@@ -2550,9 +2594,11 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("count");
-        assert!(compile(&legal, &[scene()])
-            .unwrap_err()
-            .contains("never allocates buildings"));
+        assert!(
+            compile(&legal, &[scene()])
+                .unwrap_err()
+                .contains("never allocates buildings")
+        );
     }
 
     /// T3: a public-space share is not a pasture share. The profile fills the
@@ -2584,12 +2630,14 @@ mod tests {
             }));
             // The pasture share never appears as a profile-sourced value: no
             // field source may claim publicSpaceRatio wrote it.
-            assert!(compiled
-                .report
-                .field_sources
-                .iter()
-                .filter(|entry| entry.path.ends_with("ruralPastureRatio"))
-                .all(|entry| entry.source == SOURCE_ORIGINAL));
+            assert!(
+                compiled
+                    .report
+                    .field_sources
+                    .iter()
+                    .filter(|entry| entry.path.ends_with("ruralPastureRatio"))
+                    .all(|entry| entry.source == SOURCE_ORIGINAL)
+            );
             authored.push((
                 profile_id,
                 scene["ruralPastureRatio"].clone(),
@@ -2611,25 +2659,39 @@ mod tests {
         });
         let urban_compiled = compile(&urban_only, &[scene()]).unwrap().unwrap();
         let entry = &urban_compiled.style["residualLandProgram"]["scenes"]["scene-0"];
-        assert_eq!(entry["urbanOpenSpaceRatio"], json!(0.1), "authored share wins");
+        assert_eq!(
+            entry["urbanOpenSpaceRatio"],
+            json!(0.1),
+            "authored share wins"
+        );
         assert!(
             entry.get("ruralPastureRatio").is_none(),
             "the compiler must not invent a pasture share"
         );
-        assert!(urban_compiled.report.notes.iter().any(|note| note
-            .contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")));
-        assert!(urban_compiled
-            .report
-            .unsupported
-            .iter()
-            .all(|entry| entry.profile_field != "publicSpaceRatio"));
+        assert!(urban_compiled.report.notes.iter().any(|note| {
+            note.contains("residualLandProgram.scenes.scene-0.ruralPastureRatio is unstated")
+        }));
+        assert!(
+            urban_compiled
+                .report
+                .unsupported
+                .iter()
+                .all(|entry| entry.profile_field != "publicSpaceRatio")
+        );
 
         // No program at all: the profile supplies its public-space share and
         // still no pasture share, so the same named default applies.
         let compiled = compiled("village-field");
         let program = &compiled.style["residualLandProgram"];
-        assert_eq!(program["scenes"]["scene-0"], json!({"urbanOpenSpaceRatio": 0.14}));
-        assert!(program["scenes"]["scene-0"].get("ruralPastureRatio").is_none());
+        assert_eq!(
+            program["scenes"]["scene-0"],
+            json!({"urbanOpenSpaceRatio": 0.14})
+        );
+        assert!(
+            program["scenes"]["scene-0"]
+                .get("ruralPastureRatio")
+                .is_none()
+        );
         // Every scene that owns an urban remainder receives the same share, in
         // manifest-independent key order and with no other ratio.
         let second_scene = SceneSpec {

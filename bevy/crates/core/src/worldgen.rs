@@ -455,8 +455,7 @@ impl RouteGrade {
         if length_sq <= f64::EPSILON {
             return None;
         }
-        let t = (((x - f64::from(self.start[0])) * dx
-            + (z - f64::from(self.start[1])) * dz)
+        let t = (((x - f64::from(self.start[0])) * dx + (z - f64::from(self.start[1])) * dz)
             / length_sq)
             .clamp(0.0, 1.0);
         Some(
@@ -3101,8 +3100,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             .filter(|entity| !existing.contains(entity.entity_id.as_str()))
             .collect::<Vec<_>>();
             let count = materialized.len();
-            let stairs =
-                settlement_evolution::materialize_stairs(&materialized, &natural_samples);
+            let stairs = settlement_evolution::materialize_stairs(&materialized, &natural_samples);
             let stair_count = stairs.len();
             drop(existing);
             entities.extend(materialized);
@@ -3613,10 +3611,18 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 let Some(frontage) = frontage else {
                     continue;
                 };
+                let stair_target = entities[index]
+                    .anchors
+                    .first()
+                    .map(|anchor| [anchor.world_x, anchor.world_z])
+                    .and_then(|anchor| {
+                        settlement_evolution::frontage_landing_point(&entities, anchor, frontage)
+                    })
+                    .unwrap_or(frontage);
                 if let Some(stairs) = settlement_evolution::attach_frontage_stairs(
                     &mut entities[index],
                     &baked_samples,
-                    frontage,
+                    stair_target,
                 ) {
                     promoted_entrance_stairs.extend(
                         stairs
@@ -3689,8 +3695,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         // silently retained as a warning, and their orphan approaches/stairs
         // leave with them.
         for cleanup_round in 1..=4 {
-            let rejected =
-                access::rejectable_candidates(&access_graph, &protected_access_ids);
+            let rejected = access::rejectable_candidates(&access_graph, &protected_access_ids);
             if rejected.is_empty() {
                 break;
             }
@@ -5535,13 +5540,8 @@ fn generate_chunk_encoded(
             if !precise {
                 height.extend_from_slice(&quarter_meters.to_le_bytes());
             }
-            let mut surface_kind = surface_kind_with_geometry(
-                seed,
-                world_x,
-                world_z,
-                quarter_meters,
-                water,
-            );
+            let mut surface_kind =
+                surface_kind_with_geometry(seed, world_x, world_z, quarter_meters, water);
             // Publish the engineered road corridor as stone/asphalt at the
             // terrain semantics layer too. Renderer-side ribbon seams may expose
             // one or two terrain cells at complex junctions; without this the
@@ -6464,8 +6464,7 @@ fn carve_geometry(entity: &EntityInstance) -> (f64, f64, f64, f32) {
     // carve; every cell test goes through `carve_outside_m`. Treating 45/135
     // degrees as either X or Z intervals was the source of the oversized carve.
     if is_road
-        && (entity.grounding.road_profile.is_some()
-            || entity.grounding.route_grade.is_some())
+        && (entity.grounding.road_profile.is_some() || entity.grounding.route_grade.is_some())
     {
         // Exactly the band the independent audit checks for the design
         // level (see `graded_flat_top_half_extents`).
@@ -7233,17 +7232,10 @@ fn carve_influence_m(carve: &TerrainCarve) -> f64 {
 /// Authored route pavement at one cell, used by the surface semantics bake.
 /// The route flat top carries a graded shoulder, so classify the central
 /// pavement band rather than painting the whole engineering envelope as road.
-fn route_pavement_at(
-    carves: &[TerrainCarve],
-    index: &CarveIndex,
-    x: i32,
-    z: i32,
-) -> bool {
+fn route_pavement_at(carves: &[TerrainCarve], index: &CarveIndex, x: i32, z: i32) -> bool {
     index.active(x, z).iter().any(|carve_index| {
         let carve = &carves[*carve_index as usize];
-        if carve.priority != 10
-            || !carve.profile.as_ref().is_some_and(CarveProfile::is_route)
-        {
+        if carve.priority != 10 || !carve.profile.as_ref().is_some_and(CarveProfile::is_route) {
             return false;
         }
         carve_outside_m(carve, f64::from(x), f64::from(z)) <= 0.0
@@ -7652,9 +7644,7 @@ where
             .as_ref()
             .and_then(|p| p.height_at(xf, zf))
             .unwrap_or(carve.target_h_m);
-        if carve.priority == 10
-            && carve.profile.as_ref().is_some_and(CarveProfile::is_route)
-        {
+        if carve.priority == 10 && carve.profile.as_ref().is_some_and(CarveProfile::is_route) {
             let margin = 3.0;
             if outside <= 0.0 {
                 route_support = Some(route_support.map_or(target, |known| known.max(target)));
@@ -9392,9 +9382,7 @@ pub fn rebase_entities_to_baked_surface(
             && (entity
                 .entity_id
                 .starts_with("generated.settlement-evolution.")
-                || entity
-                    .entity_id
-                    .starts_with("generated.market-catchment."))
+                || entity.entity_id.starts_with("generated.market-catchment."))
     }) {
         let footprint = OrientedFootprint::from_entity(entity);
         let mut ceiling = f32::NEG_INFINITY;
@@ -12977,16 +12965,8 @@ mod tests {
             center_z: -6.0,
             ..crossing
         };
-        assert!(oriented_footprints_overlap(
-            &building,
-            &crossing,
-            0.0
-        ));
-        assert!(!oriented_footprints_overlap(
-            &building,
-            &separated,
-            0.0
-        ));
+        assert!(oriented_footprints_overlap(&building, &crossing, 0.0));
+        assert!(!oriented_footprints_overlap(&building, &separated, 0.0));
     }
 
     #[test]
@@ -13020,18 +13000,10 @@ mod tests {
         };
         let planned = plan_terrain_carves(&[entity]);
         assert_eq!(planned.len(), 1);
-        assert!(matches!(
-            planned[0].profile,
-            Some(CarveProfile::Route(_))
-        ));
+        assert!(matches!(planned[0].profile, Some(CarveProfile::Route(_))));
         let planned_surface_index = CarveIndex::new(&planned);
         assert!(route_pavement_at(&planned, &planned_surface_index, 10, 0));
-        assert!(!route_pavement_at(
-            &planned,
-            &planned_surface_index,
-            10,
-            20
-        ));
+        assert!(!route_pavement_at(&planned, &planned_surface_index, 10, 20));
         assert!((apply_terrain_carves(20.0, 10, 0, &planned) - 5.0).abs() < 1e-9);
         let crossing = TerrainCarve {
             profile: Some(CarveProfile::Route(std::sync::Arc::new(RouteGrade {
@@ -13054,12 +13026,7 @@ mod tests {
             ramp: None,
         };
         assert!(
-            (apply_terrain_carves(
-                20.0,
-                10,
-                0,
-                &[planned[0].clone(), crossing.clone()],
-            ) - 5.0)
+            (apply_terrain_carves(20.0, 10, 0, &[planned[0].clone(), crossing.clone()],) - 5.0)
                 .abs()
                 < 1e-9,
             "another road's transition shoulder must not bury an owned flat top"
@@ -13067,8 +13034,7 @@ mod tests {
         let carves = [planned[0].clone(), crossing];
         let index = CarveIndex::new(&carves);
         assert!(
-            (apply_terrain_carves_indexed(20.0, 10, 0, &carves, &index, PadPlatform::Active)
-                - 5.0)
+            (apply_terrain_carves_indexed(20.0, 10, 0, &carves, &index, PadPlatform::Active) - 5.0)
                 .abs()
                 < 1e-9,
             "the sparse carve index must preserve road ownership"

@@ -83,8 +83,7 @@ use serde::{Deserialize, Serialize};
 /// It is a stable machine-readable key, not prose: the frontage programme counts it among its
 /// request's rejection reasons, and a pad refused under it is withdrawn from the plan exactly like a
 /// pad refused for an unrealizable flat top (see `road_network::PAD_REFUSED_CATEGORIES`).
-pub const CONVERSION_EXCEEDS_URBAN_ALLOCATION: &str =
-    "purpose_conversion_exceeds_urban_allocation";
+pub const CONVERSION_EXCEEDS_URBAN_ALLOCATION: &str = "purpose_conversion_exceeds_urban_allocation";
 
 /// One conversion candidate the allocation refused, with the evidence a reader needs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -131,7 +130,10 @@ impl ConversionAllocation {
 
 /// Planned urban area: the exact figure the land-use ledger books as the urban row's plan.
 pub fn planned_urban_m2(zones: &[LandUseZone]) -> i64 {
-    urban_zone_rects(zones).iter().map(|zone| zone.area() as i64).sum()
+    urban_zone_rects(zones)
+        .iter()
+        .map(|zone| zone.area() as i64)
+        .sum()
 }
 
 fn urban_zone_rects(zones: &[LandUseZone]) -> Vec<Rect> {
@@ -156,7 +158,10 @@ fn clipped_m2(rect: Rect, urban: &[Rect]) -> i64 {
 
 /// The public-space share the scene's effective residual-land policy may take inside the urban
 /// zones, read from the same compiled style the landcover plan is built from.
-pub fn residual_open_space_ratio(style: &serde_json::Value, scene: &SceneSpec) -> Result<f64, String> {
+pub fn residual_open_space_ratio(
+    style: &serde_json::Value,
+    scene: &SceneSpec,
+) -> Result<f64, String> {
     Ok(crate::settlement::residual_land::for_scene(style, scene)?
         .map(|program| program.urban_open_space_ratio())
         .unwrap_or(0.0)
@@ -288,7 +293,11 @@ impl UrbanAllocation {
 
     /// The conversion area this account can still grant.
     pub fn remaining_m2(&self) -> i64 {
-        (self.planned_m2 - self.committed_m2 - self.residual_m2 - self.converted_m2 - self.reserved_m2)
+        (self.planned_m2
+            - self.committed_m2
+            - self.residual_m2
+            - self.converted_m2
+            - self.reserved_m2)
             .max(0)
     }
 
@@ -399,10 +408,7 @@ pub fn allocation_failures(
     // re-derivable here (it is a policy input), so the audited allowance is the one the plan states
     // when it published one, and `planned - committed` otherwise.
     let (residual, allowance) = match &plan.conversion_allocation {
-        Some(allocation) => (
-            allocation.residual_landcover_m2,
-            allocation.allowance_m2(),
-        ),
+        Some(allocation) => (allocation.residual_landcover_m2, allocation.allowance_m2()),
         None => (0, (planned - committed).max(0)),
     };
     if converted_m2 > allowance {

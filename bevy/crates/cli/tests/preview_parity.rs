@@ -123,7 +123,10 @@ fn preview_parity_rejects_existing_output_and_writes_outside_world() {
     let inside = dir.0.join("parity-inside");
     let output = run_audit(&dir.0, &inside);
     assert!(!output.status.success());
-    assert!(!inside.exists(), "audit must not create output inside the world");
+    assert!(
+        !inside.exists(),
+        "audit must not create output inside the world"
+    );
 }
 
 #[test]
@@ -139,42 +142,154 @@ fn preview_parity_header_fields_are_independently_bound_to_source() {
     let original = fs::read(&header_path).unwrap();
 
     let cases: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
-        ("sceneId", Box::new(|h| h["sceneId"] = serde_json::json!("tampered"))),
-        ("widthM", Box::new(|h| h["widthM"] = serde_json::json!(4097))),
-        ("depthM", Box::new(|h| h["depthM"] = serde_json::json!(4097))),
-        ("originX", Box::new(|h| h["originX"] = serde_json::json!(12345))),
-        ("originZ", Box::new(|h| h["originZ"] = serde_json::json!(12345))),
-        ("chunkSizeM", Box::new(|h| h["chunkSizeM"] = serde_json::json!(511))),
-        ("chunkCountX", Box::new(|h| h["chunkCountX"] = serde_json::json!(99))),
-        ("chunkCountZ", Box::new(|h| h["chunkCountZ"] = serde_json::json!(99))),
-        ("chunks-heightFile", Box::new(|h| h["chunks"][0]["heightFile"] = serde_json::json!("missing.height.bin"))),
-        ("chunks-naturalHeightFile", Box::new(|h| h["chunks"][0]["naturalHeightFile"] = serde_json::json!("missing.natural.bin"))),
-        ("chunks-surfaceFile", Box::new(|h| h["chunks"][0]["surfaceFile"] = serde_json::json!("missing.surface.bin"))),
-        ("chunks-terrainFile", Box::new(|h| h["chunks"][0]["terrainFile"] = serde_json::json!("missing.terrain.bin"))),
-        ("chunks-worldX", Box::new(|h| h["chunks"][0]["worldX"] = serde_json::json!(99999))),
-        ("chunks-worldZ", Box::new(|h| h["chunks"][0]["worldZ"] = serde_json::json!(99999))),
-        ("chunks-validWidthM", Box::new(|h| h["chunks"][0]["validWidthM"] = serde_json::json!(1))),
-        ("chunks-validDepthM", Box::new(|h| h["chunks"][0]["validDepthM"] = serde_json::json!(1))),
-        ("chunks-order", Box::new(|h| h["chunks"].as_array_mut().unwrap().swap(0, 1))),
-        ("chunks-remove", Box::new(|h| { h["chunks"].as_array_mut().unwrap().remove(0); })),
-        ("chunks-unknown-field", Box::new(|h| h["chunks"][0]["forged"] = serde_json::json!(true))),
-        ("renderStream-format", Box::new(|h| h["renderStream"]["format"] = serde_json::json!("forged"))),
-        ("renderStream-version", Box::new(|h| h["renderStream"]["version"] = serde_json::json!(2))),
-        ("renderStream-worldRevision", Box::new(|h| h["renderStream"]["worldRevision"] = serde_json::json!("forged"))),
-        ("renderStream-totalPatches", Box::new(|h| h["renderStream"]["totalPatches"] = serde_json::json!(999999))),
-        ("renderStream-totalPlants", Box::new(|h| h["renderStream"]["totalPlants"] = serde_json::json!(999999))),
-        ("renderStream-totalEntities", Box::new(|h| h["renderStream"]["totalEntities"] = serde_json::json!(999999))),
-        ("renderStream-unknown-field", Box::new(|h| h["renderStream"]["forged"] = serde_json::json!(true))),
-        ("header-entities", Box::new(|h| h["entities"] = serde_json::json!([{"forged": true}]))),
-        ("header-accessSurfaces", Box::new(|h| h["accessSurfaces"] = serde_json::json!([{"forged": true}]))),
-        ("header-landmarks", Box::new(|h| h["landmarks"] = serde_json::json!([{"forged": true}]))),
-        ("header-developmentPlan", Box::new(|h| h["developmentPlan"] = serde_json::json!({"forged": true}))),
-        ("header-landcoverPlan", Box::new(|h| h["landcoverPlan"] = serde_json::json!({"forged": true}))),
-        ("header-landUseZones", Box::new(|h| h["landUseZones"] = serde_json::json!([{"forged": true}]))),
-        ("header-landUseBudget", Box::new(|h| h["landUseBudget"] = serde_json::json!({"forged": true}))),
-        ("header-roadNetworkPlan", Box::new(|h| h["roadNetworkPlan"] = serde_json::json!({"forged": true}))),
-        ("header-landcoverSurfaces", Box::new(|h| h["landcoverSurfaces"] = serde_json::json!({"forged": true}))),
-        ("header-unknown-field", Box::new(|h| h["forged"] = serde_json::json!(true))),
+        (
+            "sceneId",
+            Box::new(|h| h["sceneId"] = serde_json::json!("tampered")),
+        ),
+        (
+            "widthM",
+            Box::new(|h| h["widthM"] = serde_json::json!(4097)),
+        ),
+        (
+            "depthM",
+            Box::new(|h| h["depthM"] = serde_json::json!(4097)),
+        ),
+        (
+            "originX",
+            Box::new(|h| h["originX"] = serde_json::json!(12345)),
+        ),
+        (
+            "originZ",
+            Box::new(|h| h["originZ"] = serde_json::json!(12345)),
+        ),
+        (
+            "chunkSizeM",
+            Box::new(|h| h["chunkSizeM"] = serde_json::json!(511)),
+        ),
+        (
+            "chunkCountX",
+            Box::new(|h| h["chunkCountX"] = serde_json::json!(99)),
+        ),
+        (
+            "chunkCountZ",
+            Box::new(|h| h["chunkCountZ"] = serde_json::json!(99)),
+        ),
+        (
+            "chunks-heightFile",
+            Box::new(|h| h["chunks"][0]["heightFile"] = serde_json::json!("missing.height.bin")),
+        ),
+        (
+            "chunks-naturalHeightFile",
+            Box::new(|h| {
+                h["chunks"][0]["naturalHeightFile"] = serde_json::json!("missing.natural.bin")
+            }),
+        ),
+        (
+            "chunks-surfaceFile",
+            Box::new(|h| h["chunks"][0]["surfaceFile"] = serde_json::json!("missing.surface.bin")),
+        ),
+        (
+            "chunks-terrainFile",
+            Box::new(|h| h["chunks"][0]["terrainFile"] = serde_json::json!("missing.terrain.bin")),
+        ),
+        (
+            "chunks-worldX",
+            Box::new(|h| h["chunks"][0]["worldX"] = serde_json::json!(99999)),
+        ),
+        (
+            "chunks-worldZ",
+            Box::new(|h| h["chunks"][0]["worldZ"] = serde_json::json!(99999)),
+        ),
+        (
+            "chunks-validWidthM",
+            Box::new(|h| h["chunks"][0]["validWidthM"] = serde_json::json!(1)),
+        ),
+        (
+            "chunks-validDepthM",
+            Box::new(|h| h["chunks"][0]["validDepthM"] = serde_json::json!(1)),
+        ),
+        (
+            "chunks-order",
+            Box::new(|h| h["chunks"].as_array_mut().unwrap().swap(0, 1)),
+        ),
+        (
+            "chunks-remove",
+            Box::new(|h| {
+                h["chunks"].as_array_mut().unwrap().remove(0);
+            }),
+        ),
+        (
+            "chunks-unknown-field",
+            Box::new(|h| h["chunks"][0]["forged"] = serde_json::json!(true)),
+        ),
+        (
+            "renderStream-format",
+            Box::new(|h| h["renderStream"]["format"] = serde_json::json!("forged")),
+        ),
+        (
+            "renderStream-version",
+            Box::new(|h| h["renderStream"]["version"] = serde_json::json!(2)),
+        ),
+        (
+            "renderStream-worldRevision",
+            Box::new(|h| h["renderStream"]["worldRevision"] = serde_json::json!("forged")),
+        ),
+        (
+            "renderStream-totalPatches",
+            Box::new(|h| h["renderStream"]["totalPatches"] = serde_json::json!(999999)),
+        ),
+        (
+            "renderStream-totalPlants",
+            Box::new(|h| h["renderStream"]["totalPlants"] = serde_json::json!(999999)),
+        ),
+        (
+            "renderStream-totalEntities",
+            Box::new(|h| h["renderStream"]["totalEntities"] = serde_json::json!(999999)),
+        ),
+        (
+            "renderStream-unknown-field",
+            Box::new(|h| h["renderStream"]["forged"] = serde_json::json!(true)),
+        ),
+        (
+            "header-entities",
+            Box::new(|h| h["entities"] = serde_json::json!([{"forged": true}])),
+        ),
+        (
+            "header-accessSurfaces",
+            Box::new(|h| h["accessSurfaces"] = serde_json::json!([{"forged": true}])),
+        ),
+        (
+            "header-landmarks",
+            Box::new(|h| h["landmarks"] = serde_json::json!([{"forged": true}])),
+        ),
+        (
+            "header-developmentPlan",
+            Box::new(|h| h["developmentPlan"] = serde_json::json!({"forged": true})),
+        ),
+        (
+            "header-landcoverPlan",
+            Box::new(|h| h["landcoverPlan"] = serde_json::json!({"forged": true})),
+        ),
+        (
+            "header-landUseZones",
+            Box::new(|h| h["landUseZones"] = serde_json::json!([{"forged": true}])),
+        ),
+        (
+            "header-landUseBudget",
+            Box::new(|h| h["landUseBudget"] = serde_json::json!({"forged": true})),
+        ),
+        (
+            "header-roadNetworkPlan",
+            Box::new(|h| h["roadNetworkPlan"] = serde_json::json!({"forged": true})),
+        ),
+        (
+            "header-landcoverSurfaces",
+            Box::new(|h| h["landcoverSurfaces"] = serde_json::json!({"forged": true})),
+        ),
+        (
+            "header-unknown-field",
+            Box::new(|h| h["forged"] = serde_json::json!(true)),
+        ),
     ];
 
     for (name, mutate) in cases {
@@ -183,7 +298,10 @@ fn preview_parity_header_fields_are_independently_bound_to_source() {
         fs::write(&header_path, serde_json::to_vec(&header).unwrap()).unwrap();
         let out = out_root.0.join(format!("case-{name}"));
         let output = run_audit(&dir.0, &out);
-        assert!(!output.status.success(), "{name} unexpectedly passed the independent audit");
+        assert!(
+            !output.status.success(),
+            "{name} unexpectedly passed the independent audit"
+        );
         assert_eq!(parity_status(&out), "fail", "{name} must fail parity");
     }
     fs::write(&header_path, original).unwrap();
@@ -197,8 +315,13 @@ fn preview_parity_records_hash_bound_audit_input() {
     bake_world(&m, &dir.0).unwrap();
     let out = out_root.0.join("parity");
     let output = run_audit(&dir.0, &out);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let parity: Value = serde_json::from_slice(&fs::read(out.join("parity.json")).unwrap()).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parity: Value =
+        serde_json::from_slice(&fs::read(out.join("parity.json")).unwrap()).unwrap();
     let scene = &parity["scenes"][0];
     let binding = &scene["auditInput"];
     let relative = binding["path"].as_str().unwrap();

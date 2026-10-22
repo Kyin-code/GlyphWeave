@@ -417,10 +417,7 @@ pub(super) fn access_for_entity(
             let had_stair_candidate = !stair_candidates.is_empty();
             let mut stair_routing = None;
             for candidate in stair_candidates {
-                let from = point(
-                    f64::from(candidate.from[0]),
-                    f64::from(candidate.from[1]),
-                );
+                let from = point(f64::from(candidate.from[0]), f64::from(candidate.from[1]));
                 let to = point(f64::from(candidate.to[0]), f64::from(candidate.to[1]));
                 if entrance_obstacles
                     .iter()
@@ -436,8 +433,7 @@ pub(super) fn access_for_entity(
             #[cfg(test)]
             observation::entrance(e, start, facade_point, &entrance_obstacles, terrain, water);
             let direct_step = [start, facade_point].into_iter().any(|p| {
-                height(terrain, p)
-                    .is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
+                height(terrain, p).is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
             });
             let direct_clear =
                 segment_clear(facade_point, start, &entrance_obstacles, terrain, water);
@@ -1421,7 +1417,12 @@ mod tests {
                 distance_m: connected.then_some(8.0),
                 connected,
                 required: true,
-                status: if connected { "walkable_route" } else { "failed" }.into(),
+                status: if connected {
+                    "walkable_route"
+                } else {
+                    "failed"
+                }
+                .into(),
                 path: vec![],
             });
         }

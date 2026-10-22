@@ -296,7 +296,8 @@ fn legacy_ring_m(entity: &Value) -> f64 {
 /// The footprint of one carve, in metres: the support rectangle `plan_terrain_carves`
 /// expands to, plus the ring.
 fn envelope_area(entity: &Value, ring_m: f64) -> f64 {
-    let quarter = (entity["rotationYDeg"].as_f64().unwrap_or(0.0).round() as i32).rem_euclid(180) == 90;
+    let quarter =
+        (entity["rotationYDeg"].as_f64().unwrap_or(0.0).round() as i32).rem_euclid(180) == 90;
     let (width, depth) = (
         entity["widthM"].as_f64().unwrap(),
         entity["depthM"].as_f64().unwrap(),
@@ -425,11 +426,11 @@ fn the_default_envelope_is_still_the_fixed_ring() {
     // The published carve list carries that 144 m ring, and nothing wider.
     let rings = building_rings(&dir);
     assert_eq!(rings.len(), 59, "one carve per structure and per apron");
+    assert_eq!(rings.iter().cloned().fold(0.0_f64, f64::max), LEGACY_RING_M);
     assert_eq!(
-        rings.iter().cloned().fold(0.0_f64, f64::max),
-        LEGACY_RING_M
+        rings.iter().filter(|ring| **ring == LEGACY_RING_M).count(),
+        1
     );
-    assert_eq!(rings.iter().filter(|ring| **ring == LEGACY_RING_M).count(), 1);
     assert_road_rings_unchanged(&dir);
 
     // Round 39: the ring reaches across the pad's window, but the window publishes
@@ -482,7 +483,11 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     // 17 planned pads + the plate and two more urban blocks. The 38x20 lodge that
     // used to stand 3.5 m inside the shop pad is refused by name, so the pad it
     // displaced carries the 16 m ring instead of the lodge's 46 m.
-    assert_eq!(stamped.len(), 22, "every structure of this scene, planned pads included");
+    assert_eq!(
+        stamped.len(),
+        22,
+        "every structure of this scene, planned pads included"
+    );
     let mut values: Vec<f64> = stamped.values().cloned().collect();
     values.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mut want = vec![30.0, 30.0, DERIVED_RING_M];
@@ -499,7 +504,10 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
         .iter()
         .find(|entity| entity.grounding.earthwork_blend_m == Some(DERIVED_RING_M as f32))
         .expect("the 25x23 plate");
-    assert_eq!((plate.width_m, plate.height_m), (PLATE_WIDTH_M as f32, PLATE_HEIGHT_M as f32));
+    assert_eq!(
+        (plate.width_m, plate.height_m),
+        (PLATE_WIDTH_M as f32, PLATE_HEIGHT_M as f32)
+    );
     let plate_value = serde_json::to_value(plate).unwrap();
     assert_eq!(ground_height_m(&plate_value), PLATE_GROUND_M);
     assert_eq!(legacy_ring_m(&plate_value), LEGACY_RING_M);
@@ -516,10 +524,16 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
         "the 144 m and 114 m rings must be gone: {rings:?}"
     );
     for ring in [DERIVED_RING_M, 30.0, 48.0, 32.0, 20.0, 16.0] {
-        assert!(rings.contains(&ring), "the derived ring {ring} m is published");
+        assert!(
+            rings.contains(&ring),
+            "the derived ring {ring} m is published"
+        );
     }
     assert_eq!(
-        rings.iter().filter(|ring| **ring == LEGACY_PAD_RING_M).count(),
+        rings
+            .iter()
+            .filter(|ring| **ring == LEGACY_PAD_RING_M)
+            .count(),
         0,
         "no planned pad may keep the historical 114 m ring"
     );
@@ -549,14 +563,17 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
             .iter()
             .any(|site| site["id"] == json!(THE_PAD))
     );
-    assert_eq!(plan["roadsideSites"].as_array().unwrap().len(), PLANNED_PADS);
+    assert_eq!(
+        plan["roadsideSites"].as_array().unwrap().len(),
+        PLANNED_PADS
+    );
     assert!(
         plan["roadsideSiteRejections"]
             .as_array()
-            .is_none_or(|rejections| rejections
-                .iter()
-                .all(|rejection| rejection["category"]
-                    != json!("pad_top_conflicts_with_entity_platform"))),
+            .is_none_or(
+                |rejections| rejections.iter().all(|rejection| rejection["category"]
+                    != json!("pad_top_conflicts_with_entity_platform"))
+            ),
         "no pad top is refused in this arm"
     );
 
@@ -571,11 +588,19 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     // The PADS' own excavation: the graded roads book their own records in the same
     // ledger (Round 42) and are asserted by the hillside acceptance test.
     assert_eq!(
-        ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>(),
+        ledger
+            .pads
+            .iter()
+            .map(|pad| u64::from(pad.cut_cells))
+            .sum::<u64>(),
         DERIVED_CUT_CELLS
     );
     assert_eq!(
-        ledger.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum::<i64>(),
+        ledger
+            .pads
+            .iter()
+            .map(|pad| pad.cut_depth_sum_mm)
+            .sum::<i64>(),
         DERIVED_CUT_DEPTH_SUM_MM
     );
     assert!(ledger.max_cut_depth_mm <= bounded_cut::MAX_CUT_MM);
@@ -583,9 +608,17 @@ fn the_switch_derives_the_structure_rings_from_their_footprints() {
     let final_terrain = raster(&dir, &scene, true);
     let plan: glyphweave_core::worldgen::road_network::RoadNetworkPlan =
         serde_json::from_value(read_json(scene_dir(&dir).join("road-network-plan.json"))).unwrap();
-    let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain, &bounded_cut::road_flat_tops(&plan.entities()))
-        .expect("the two published rasters measure");
-    assert_eq!(ledger.pads, measured, "the ledger IS the rasters' own measurement");
+    let measured = bounded_cut::measure_from_rasters(
+        &plan.roadside_sites,
+        &natural,
+        &final_terrain,
+        &bounded_cut::road_flat_tops(&plan.entities()),
+    )
+    .expect("the two published rasters measure");
+    assert_eq!(
+        ledger.pads, measured,
+        "the ledger IS the rasters' own measurement"
+    );
     let zones: Vec<LandUseZone> =
         serde_json::from_value(read_json(scene_dir(&dir).join("land-use-zones.json"))).unwrap();
     let spec = scene_spec(&scene);
@@ -634,10 +667,12 @@ fn two_off_bakes_are_byte_identical_and_carry_no_ring() {
     assert!(moved.is_empty(), "off-state bytes moved: {moved:?}");
     for dir in [&first, &second] {
         let scene = scene_index(dir);
-        assert!(scene
-            .entities
-            .iter()
-            .all(|entity| entity.grounding.earthwork_blend_m.is_none()));
+        assert!(
+            scene
+                .entities
+                .iter()
+                .all(|entity| entity.grounding.earthwork_blend_m.is_none())
+        );
         assert_eq!(
             building_rings(dir).iter().cloned().fold(0.0_f64, f64::max),
             LEGACY_RING_M
@@ -695,7 +730,11 @@ fn the_waterfront_sample_keeps_its_plan_and_its_entities() {
         }
         counts
     };
-    assert_eq!(kinds(&fixed), kinds(&derived), "the same entities are realized");
+    assert_eq!(
+        kinds(&fixed),
+        kinds(&derived),
+        "the same entities are realized"
+    );
     let stamped: Vec<f32> = scene_index(&derived)
         .entities
         .iter()
@@ -729,10 +768,12 @@ fn the_waterfront_sample_keeps_its_plan_and_its_entities() {
     assert_eq!((off_rings.len(), on_rings.len()), (82, 82));
     assert_eq!(off_rings.iter().cloned().fold(0.0_f64, f64::max), 114.0);
     assert_eq!(on_rings.iter().cloned().fold(0.0_f64, f64::max), 48.0);
-    assert!(scene_index(&fixed)
-        .entities
-        .iter()
-        .all(|entity| entity.grounding.earthwork_blend_m.is_none()));
+    assert!(
+        scene_index(&fixed)
+            .entities
+            .iter()
+            .all(|entity| entity.grounding.earthwork_blend_m.is_none())
+    );
     // And the record carries it, not just the entity: every one of the 28 pads.
     for site in on_plan["roadsideSites"].as_array().unwrap() {
         assert!(
@@ -741,11 +782,13 @@ fn the_waterfront_sample_keeps_its_plan_and_its_entities() {
             site["id"]
         );
     }
-    assert!(off_plan["roadsideSites"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|site| site.get("earthworkBlendM").is_none()));
+    assert!(
+        off_plan["roadsideSites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|site| site.get("earthworkBlendM").is_none())
+    );
 }
 
 /// One digest over every published file of a world, so a fixture's bytes can be
@@ -754,7 +797,10 @@ fn the_waterfront_sample_keeps_its_plan_and_its_entities() {
 /// in a world embeds a path.
 fn world_digest(files: &BTreeMap<String, String>) -> String {
     let mut hasher = blake3::Hasher::new();
-    for (path, digest) in files.iter().filter(|(path, _)| !path.contains("generation-report")) {
+    for (path, digest) in files
+        .iter()
+        .filter(|(path, _)| !path.contains("generation-report"))
+    {
         hasher.update(path.as_bytes());
         hasher.update(b"\0");
         hasher.update(digest.as_bytes());
@@ -861,7 +907,9 @@ fn every_planned_pad_carries_the_ring_its_own_width_and_height_derive() {
         let want = f64::from(width.max(height)) + 8.0;
         assert_eq!(ring, want, "{} ({width}x{depth} m, h {height})", site["id"]);
         assert_eq!(site["earthworkBlendM"], json!(want as f32));
-        *histogram.entry((width, depth, height, ring as u32)).or_insert(0) += 1;
+        *histogram
+            .entry((width, depth, height, ring as u32))
+            .or_insert(0) += 1;
     }
     // (width, depth, height, ring) -> how many pads of the grown plan derive it.
     let want: BTreeMap<(u32, u32, u32, u32), usize> = GROWN_PAD_RINGS
@@ -870,9 +918,11 @@ fn every_planned_pad_carries_the_ring_its_own_width_and_height_derive() {
         .collect();
     assert_eq!(histogram, want);
     // Not one pad keeps the historical envelope of a 6 m plate.
-    assert!(sites
-        .iter()
-        .all(|site| site["earthworkBlendM"].as_f64() != Some(LEGACY_PAD_RING_M)));
+    assert!(
+        sites
+            .iter()
+            .all(|site| site["earthworkBlendM"].as_f64() != Some(LEGACY_PAD_RING_M))
+    );
     // And the entity that pad becomes publishes the same number, byte for byte.
     let scene = scene_index(&dir);
     for site in sites {
@@ -924,7 +974,12 @@ fn the_planned_pad_entity_is_the_rebuilt_plan_entity_byte_for_byte() {
             .iter()
             .filter(|entity| entity.entity_id == source.entity_id)
             .collect();
-        assert_eq!(found.len(), 1, "{} is realized exactly once", source.entity_id);
+        assert_eq!(
+            found.len(),
+            1,
+            "{} is realized exactly once",
+            source.entity_id
+        );
         let mut actual = found[0].clone();
         actual.bounds = None;
         assert_eq!(
@@ -994,7 +1049,11 @@ fn the_derived_ring_narrows_the_envelope_and_the_pad_top_holds_in_both_arms() {
                 // The PADS' own excavation, not the ledger total: the graded roads
                 // book their own records in the same ledger and are asserted by the
                 // hillside acceptance test instead.
-                ledger.pads.iter().map(|pad| u64::from(pad.cut_cells)).sum::<u64>(),
+                ledger
+                    .pads
+                    .iter()
+                    .map(|pad| u64::from(pad.cut_cells))
+                    .sum::<u64>(),
                 ledger.pads.iter().map(|pad| pad.cut_depth_sum_mm).sum(),
             ),
         )
@@ -1007,13 +1066,23 @@ fn the_derived_ring_narrows_the_envelope_and_the_pad_top_holds_in_both_arms() {
     assert_eq!(after.1, 0, "no kept pad's top may fail to hold");
     assert_eq!(before.2, Some(PAD_MM));
     assert_eq!(after.2, Some(PAD_MM));
-    assert_eq!(before.3, LEGACY_RING_M, "the fixed envelope is still the widest");
+    assert_eq!(
+        before.3, LEGACY_RING_M,
+        "the fixed envelope is still the widest"
+    );
     assert_eq!(after.3, 48.0, "the derived envelope is the widest left");
     assert!(!before.4, "the fixed-envelope arm settles no pad top");
     assert!(!after.4, "the derived-envelope arm settles no pad top");
-    assert_eq!(before.5, (OFF_CUT_PADS, OFF_CUT_CELLS, OFF_CUT_DEPTH_SUM_MM));
+    assert_eq!(
+        before.5,
+        (OFF_CUT_PADS, OFF_CUT_CELLS, OFF_CUT_DEPTH_SUM_MM)
+    );
     assert_eq!(
         after.5,
-        (DERIVED_CUT_PADS, DERIVED_CUT_CELLS, DERIVED_CUT_DEPTH_SUM_MM)
+        (
+            DERIVED_CUT_PADS,
+            DERIVED_CUT_CELLS,
+            DERIVED_CUT_DEPTH_SUM_MM
+        )
     );
 }

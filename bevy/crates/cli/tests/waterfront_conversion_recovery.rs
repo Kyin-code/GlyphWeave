@@ -26,7 +26,9 @@
 //!    locked by `road_network::pad_refusal_tests`), and it can never leave the plan,
 //!    the ledger and the world disagreeing again.
 
-use glyphweave_core::worldgen::{SceneIndex, WorldManifest, bake_world, verify_published_placement};
+use glyphweave_core::worldgen::{
+    SceneIndex, WorldManifest, bake_world, verify_published_placement,
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fs, path::PathBuf, process::Command};
@@ -43,10 +45,8 @@ impl TestDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "glyphweave-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("glyphweave-{label}-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -138,21 +138,29 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         "22 retained dwellings + 2 recovered replacements + 4 services + the shoreline row's 2 \
          quay shops the urban edge reaches"
     );
-    let rejections: BTreeMap<&str, u64> = plan
-        .roadside_site_rejections
-        .iter()
-        .fold(BTreeMap::new(), |mut map, rejection| {
-            *map.entry(rejection.category.as_str()).or_default() += 1;
-            map
-        });
+    let rejections: BTreeMap<&str, u64> =
+        plan.roadside_site_rejections
+            .iter()
+            .fold(BTreeMap::new(), |mut map, rejection| {
+                *map.entry(rejection.category.as_str()).or_default() += 1;
+                map
+            });
     assert_eq!(
         rejections.get("pad_fill_conflicts_with_neighbour"),
         None,
         "the church's fill ring does not bury the shop: the bake pins the shop's validated \
          top against a neighbouring blend, so no pad has to be refused here: {rejections:?}"
     );
-    assert_eq!(rejections.get("pad_flat_top_unrealizable"), None, "{rejections:?}");
-    assert_eq!(count_kind(&scene, "church"), 1, "the church is a building in the world");
+    assert_eq!(
+        rejections.get("pad_flat_top_unrealizable"),
+        None,
+        "{rejections:?}"
+    );
+    assert_eq!(
+        count_kind(&scene, "church"),
+        1,
+        "the church is a building in the world"
+    );
 
     // ---------------------------------------------------------------------
     // 2. THE TRIANGLE: plan == entities == ledger. Every planned pad id is
@@ -216,7 +224,11 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     //    80 m2 because its core stood outside the urban edge. The church's own
     //    468 m2 is one of the twelve.
     // ---------------------------------------------------------------------
-    let pad_converted: i64 = plan.pad_conversions.iter().map(|record| record.area_m2).sum();
+    let pad_converted: i64 = plan
+        .pad_conversions
+        .iter()
+        .map(|record| record.area_m2)
+        .sum();
     assert_eq!(plan.pad_conversions.len(), 12);
     assert_eq!(pad_converted, 4_796);
     let church = plan
@@ -224,17 +236,24 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .iter()
         .find(|record| record.parcel_id == "generated.service.scene-0.bank-church.0")
         .expect("the church pad declared urban purpose on rural land and converted its core");
-    assert_eq!((church.from.as_str(), church.to.as_str()), ("rural", "urban"));
+    assert_eq!(
+        (church.from.as_str(), church.to.as_str()),
+        ("rural", "urban")
+    );
     assert_eq!(church.area_m2, 468);
     for record in &plan.pad_conversions {
         assert!(
-            plan.roadside_sites.iter().any(|site| site.id == record.parcel_id),
+            plan.roadside_sites
+                .iter()
+                .any(|site| site.id == record.parcel_id),
             "conversion record {} belongs to no planned pad",
             record.parcel_id
         );
     }
     let ledger = read_json(dir.0.join("scenes/scene-0/land-use-ledger.json"));
-    let ledger_records = ledger["conversions"].as_array().expect("the ledger applied them");
+    let ledger_records = ledger["conversions"]
+        .as_array()
+        .expect("the ledger applied them");
     assert_eq!(ledger_records.len(), 12);
     let ledger_converted: i64 = ledger_records
         .iter()
@@ -242,10 +261,9 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         .sum();
     assert_eq!(ledger_converted, 4_796);
     assert!(
-        ledger_records
-            .iter()
-            .any(|record| record["parcelId"] == json!("generated.service.scene-0.bank-church.0")
-                && record["areaM2"] == json!(468)),
+        ledger_records.iter().any(|record| record["parcelId"]
+            == json!("generated.service.scene-0.bank-church.0")
+            && record["areaM2"] == json!(468)),
         "the ledger must book the church's 468 m2 - and the church exists, so the booking is honest"
     );
 
@@ -302,7 +320,10 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
     assert_eq!(row["jointLayoutAudit"]["status"], json!("pass"));
     assert_eq!(row["jointLayoutAudit"]["residentialMinimum"], json!(12));
     assert_eq!(row["jointLayoutAudit"]["plannedResidential"], json!(22));
-    assert_eq!(row["jointLayoutAudit"]["realizedResidentialWithAccess"], json!(22));
+    assert_eq!(
+        row["jointLayoutAudit"]["realizedResidentialWithAccess"],
+        json!(22)
+    );
     assert_eq!(row["jointLayoutAudit"]["missingResidential"], json!(0));
     assert_eq!(row["jointLayoutAudit"]["unfilledServices"], json!(0));
     assert_eq!(count_kind(&scene, "residential_home"), 22);
@@ -366,8 +387,11 @@ fn the_explicit_conversion_sample_realizes_its_church_and_every_pad_agrees_with_
         entry.get("refusedEntityIds").is_none(),
         "no pad was refused on this sample"
     );
-    let published_ids: BTreeSet<String> =
-        scene.entities.iter().map(|entity| entity.entity_id.clone()).collect();
+    let published_ids: BTreeSet<String> = scene
+        .entities
+        .iter()
+        .map(|entity| entity.entity_id.clone())
+        .collect();
     let authored: BTreeSet<String> = scene
         .landmarks
         .iter()

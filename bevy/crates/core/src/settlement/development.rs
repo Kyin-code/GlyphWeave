@@ -407,8 +407,7 @@ pub fn rule_building_candidates(
         let Ok(id) = claim.stable_id() else {
             continue;
         };
-        if planned.contains(id.as_str())
-            || published.get(id.as_str()) != Some(&claim.kind.as_str())
+        if planned.contains(id.as_str()) || published.get(id.as_str()) != Some(&claim.kind.as_str())
         {
             continue;
         }
@@ -540,8 +539,10 @@ pub fn plan(
         {
             return Err("invalid development source road".into());
         }
-        if let Some(profile)=&e.grounding.road_profile {
-            profile.validate_entity(&e).map_err(|error|error.to_string())?;
+        if let Some(profile) = &e.grounding.road_profile {
+            profile
+                .validate_entity(&e)
+                .map_err(|error| error.to_string())?;
         }
         let r = road_rect(&e);
         if !scene_rect.contains(r) {
@@ -723,15 +724,19 @@ pub fn validate(
         let b = buildings
             .get(&parcel.building_id)
             .ok_or("parcel missing building plan")?;
-        let expected_boundary = parcel_geometry::boundary_for_entity(&b.entity, parcel.parcel_insets)?;
+        let expected_boundary =
+            parcel_geometry::boundary_for_entity(&b.entity, parcel.parcel_insets)?;
         if !b.footprint.valid()
             || b.parcel_id != parcel.id
             || b.road_id != parcel.road_id
             || !parcel.boundary.contains(b.footprint)
             || b.footprint.area() != parcel.footprint_m2
-            || [parcel.boundary.x, parcel.boundary.z,
+            || [
+                parcel.boundary.x,
+                parcel.boundary.z,
                 parcel.boundary.x + i64::from(parcel.boundary.width_m),
-                parcel.boundary.z + i64::from(parcel.boundary.depth_m)] != expected_boundary
+                parcel.boundary.z + i64::from(parcel.boundary.depth_m),
+            ] != expected_boundary
         {
             return Err("building/parcel relationship mismatch".into());
         }
@@ -1068,7 +1073,7 @@ mod tests {
             unselected_candidates: 0,
             pad_conversions: vec![],
             conversion_allocation: None,
-        conversion_fringe: None,
+            conversion_fringe: None,
             zoning_hash: None,
             zoning_rejections: vec![],
             service_outcomes: Vec::new(),
@@ -1124,18 +1129,18 @@ mod tests {
                 support_level_m: 0,
                 parcel_insets: None,
                 support_level_mm: None,
-                    frontage_road_point: None,
-                    bounded_cut_mm: None,
-                    earthwork_blend_m: None,
+                frontage_road_point: None,
+                bounded_cut_mm: None,
+                earthwork_blend_m: None,
                 rotation_y_deg: 0.,
                 natural_min_m: 0.,
                 natural_max_m: 0.,
-            
+
                 entry_corridor: None,
-}],
-        
+            }],
+
             entry_corridor_policy: Default::default(),
-};
+        };
         (scene, zones, roads)
     }
     fn access(p: &DevelopmentPlan) -> AccessGraph {
@@ -1209,19 +1214,24 @@ mod tests {
         assert_eq!(parcel.boundary.area(), 520);
         assert_eq!(parcel.footprint_m2, 120);
         assert_eq!(parcel.yard_m2, 400);
-        assert_eq!(parcel.source_zones.values().copied().collect::<Vec<_>>(), [260, 260]);
+        assert_eq!(
+            parcel.source_zones.values().copied().collect::<Vec<_>>(),
+            [260, 260]
+        );
         let mut forged = p.clone();
         forged.parcels[0].boundary.x += 1;
-        assert!(verify(
-            &forged,
-            &s,
-            &z,
-            &r,
-            &forged.building_entities(),
-            &access(&forged),
-            &[]
-        )
-        .is_err());
+        assert!(
+            verify(
+                &forged,
+                &s,
+                &z,
+                &r,
+                &forged.building_entities(),
+                &access(&forged),
+                &[]
+            )
+            .is_err()
+        );
     }
     #[test]
     fn subtraction_partitions_all_overlap_cases() {
@@ -1296,17 +1306,28 @@ mod tests {
         assert!(verify(&bad, &s, &z, &r, &entities, &a, &[]).is_err());
         let mut bad = entities.clone();
         bad[0].anchors.clear();
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
+        assert_eq!(
+            verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status,
+            "fail"
+        );
         let mut bad = entities.clone();
         bad[0].world_x += 1;
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
         assert_eq!(
-            verify(&p, &s, &z, &r, &[], &a, &[]).unwrap().realized_buildings,
+            verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status,
+            "fail"
+        );
+        assert_eq!(
+            verify(&p, &s, &z, &r, &[], &a, &[])
+                .unwrap()
+                .realized_buildings,
             0
         );
         let mut bad = entities.clone();
         bad.push(entities[0].clone());
-        assert_eq!(verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status, "fail");
+        assert_eq!(
+            verify(&p, &s, &z, &r, &bad, &a, &[]).unwrap().status,
+            "fail"
+        );
         let mut bad = a.clone();
         bad.links[0].road_id = Some("road1".into());
         assert_eq!(
@@ -1454,28 +1475,16 @@ mod tests {
         // 1. A key that does not recompute any published id.
         let mut fabricated = key.clone();
         fabricated.slot = vec![9, 9, 9];
-        let audit = verify(
-            &p,
-            &s,
-            &z,
-            &r,
-            &entities,
-            &access(&p),
-            &[fabricated],
-        )
-        .unwrap();
+        let audit = verify(&p, &s, &z, &r, &entities, &access(&p), &[fabricated]).unwrap();
         assert_eq!(audit.rule_generated_buildings, 0);
         assert_eq!(audit.unplanned_building_ids, vec![rule.entity_id.clone()]);
         assert!(
             audit.failures.iter().any(|f| f
-                == &format!(
-                    "{}: rule_building_origin_names_no_published_entity",
-                    {
-                        let mut k = key.clone();
-                        k.slot = vec![9, 9, 9];
-                        k.stable_id().unwrap()
-                    }
-                )),
+                == &format!("{}: rule_building_origin_names_no_published_entity", {
+                    let mut k = key.clone();
+                    k.slot = vec![9, 9, 9];
+                    k.stable_id().unwrap()
+                })),
             "{audit:?}"
         );
 
@@ -1558,16 +1567,7 @@ mod tests {
         // 5. A claim from another scene, and a duplicate claim.
         let mut foreign = key.clone();
         foreign.scene_id = "somewhere-else".into();
-        let audit = verify(
-            &p,
-            &s,
-            &z,
-            &r,
-            &entities,
-            &access(&p),
-            &[foreign],
-        )
-        .unwrap();
+        let audit = verify(&p, &s, &z, &r, &entities, &access(&p), &[foreign]).unwrap();
         assert!(
             audit
                 .failures
@@ -1604,16 +1604,7 @@ mod tests {
         // 6. An unreadable key (illegal planner charset) is refused, not skipped.
         let mut illegal = key.clone();
         illegal.planner = "urban building".into();
-        let audit = verify(
-            &p,
-            &s,
-            &z,
-            &r,
-            &entities,
-            &access(&p),
-            &[illegal],
-        )
-        .unwrap();
+        let audit = verify(&p, &s, &z, &r, &entities, &access(&p), &[illegal]).unwrap();
         assert!(
             audit
                 .failures
@@ -1765,7 +1756,9 @@ mod tests {
         assert_eq!(lc.cells[1].role, LandcoverRole::ConservationCandidate);
         assert!(lc.cells.iter().all(|c| c.realization_status == "planned"));
         assert_eq!(
-            audit_landcover(&lc, &s, &p, None).unwrap().unresolved_area_m2,
+            audit_landcover(&lc, &s, &p, None)
+                .unwrap()
+                .unresolved_area_m2,
             128 * 128
         );
     }

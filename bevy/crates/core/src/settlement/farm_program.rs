@@ -332,7 +332,10 @@ mod tests {
                 "the stale zone reference must be rejected exactly when index 6 is not rural"
             );
         } else {
-            assert!(rejected, "a reference to a zone that does not exist must be rejected");
+            assert!(
+                rejected,
+                "a reference to a zone that does not exist must be rejected"
+            );
         }
         let _ = &mut style;
     }
@@ -348,14 +351,18 @@ mod tests {
         ))
         .expect("the regenerated 1 km manifest must parse");
         assert_eq!(m.scenes[0].width_m, 1000, "the derived scene must be 1 km");
-        let ap = m.style.get("agricultureProgram").expect("agricultureProgram must be present");
+        let ap = m
+            .style
+            .get("agricultureProgram")
+            .expect("agricultureProgram must be present");
         let rendered = serde_json::to_string(ap).unwrap();
         assert!(
             !rendered.contains("zoneFields"),
             "the scene-size-specific zoneFields key must be gone; it is what made the manifest invalid at 1 km"
         );
-        validate_manifest(&m.style, &m.scenes)
-            .expect("the regenerated 1 km manifest must satisfy the agricultureProgram obligations");
+        validate_manifest(&m.style, &m.scenes).expect(
+            "the regenerated 1 km manifest must satisfy the agricultureProgram obligations",
+        );
         // and the pattern must resolve for the scene, so the program is usable and not merely tolerated
         let pattern = for_scene(&m.style, &m.scenes[0])
             .expect("the scene must resolve a farm pattern")

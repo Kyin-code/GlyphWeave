@@ -30,10 +30,7 @@ pub struct CoverageAudit {
     pub failures: Vec<String>,
 }
 
-pub fn audit(
-    plan: &DevelopmentPlan,
-    profile: &MorphologyProfile,
-) -> Result<CoverageAudit, String> {
+pub fn audit(plan: &DevelopmentPlan, profile: &MorphologyProfile) -> Result<CoverageAudit, String> {
     let mut building_area = 0_u64;
     let mut parcel_area = 0_u64;
     let mut ratios = Vec::new();
@@ -62,9 +59,7 @@ pub fn audit(
             return Err(format!("building footprint has zero area: {}", building.id));
         }
         let ratio = footprint as f64 / area as f64;
-        if ratio < profile.coverage_ratio[0] - 1e-9
-            || ratio > profile.coverage_ratio[1] + 1e-9
-        {
+        if ratio < profile.coverage_ratio[0] - 1e-9 || ratio > profile.coverage_ratio[1] + 1e-9 {
             out_of_range.push(parcel.id.clone());
         }
         building_area = building_area
@@ -117,9 +112,7 @@ pub fn audit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settlement::development::{
-        BuildingPlan, DevelopmentPlan, FrontageParcel, Rect,
-    };
+    use crate::settlement::development::{BuildingPlan, DevelopmentPlan, FrontageParcel, Rect};
     use crate::worldgen::EntityInstance;
     use std::collections::BTreeMap;
 

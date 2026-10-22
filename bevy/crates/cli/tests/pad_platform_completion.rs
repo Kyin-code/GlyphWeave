@@ -32,7 +32,9 @@
 //! 7. two bakes of the same manifest publish byte-identical bytes.
 use glyphweave_core::baked_terrain::BakedTerrain;
 use glyphweave_core::worldgen::bounded_cut::{self, CutLedger, CutPolicy};
-use glyphweave_core::worldgen::road_network::{RoadNetworkPlan, PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM};
+use glyphweave_core::worldgen::road_network::{
+    PAD_TOP_CONFLICTS_WITH_ENTITY_PLATFORM, RoadNetworkPlan,
+};
 use glyphweave_core::worldgen::{
     LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world,
     verify_published_placement, water_geometry, water_kind,
@@ -220,14 +222,26 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     let final_terrain = raster(&dir, &scene, true);
     let verdict = bounded_cut::pad_top_holds(site, |x, z| final_terrain.height_millimetres(x, z))
         .expect("the pad declares a flat top");
-    assert!(verdict.holds(), "the published top does not hold: {verdict:?}");
+    assert!(
+        verdict.holds(),
+        "the published top does not hold: {verdict:?}"
+    );
     assert_eq!(verdict.cells, PAD_CELLS);
     assert_eq!(verdict.highest_mm, DECLARED_MM);
     assert_eq!(verdict.lowest_mm, DECLARED_MM);
     assert_eq!(verdict.mismatched, 0);
-    assert_eq!(final_terrain.height_millimetres(140, 259), Some(DECLARED_MM));
-    assert_eq!(final_terrain.height_millimetres(140, 256), Some(DECLARED_MM));
-    assert_eq!(final_terrain.height_millimetres(148, 264), Some(DECLARED_MM));
+    assert_eq!(
+        final_terrain.height_millimetres(140, 259),
+        Some(DECLARED_MM)
+    );
+    assert_eq!(
+        final_terrain.height_millimetres(140, 256),
+        Some(DECLARED_MM)
+    );
+    assert_eq!(
+        final_terrain.height_millimetres(148, 264),
+        Some(DECLARED_MM)
+    );
 
     // 4. The structure that used to evict the pad is refused BY NAME instead, and it
     //    is not in the world: the pad keeps its ground, the lodge keeps none.
@@ -274,7 +288,10 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     for outcome in &frontage.outcomes {
         assert_eq!(
             outcome.unfilled,
-            outcome.request.count.saturating_sub(outcome.site_ids.len() as u32),
+            outcome
+                .request
+                .count
+                .saturating_sub(outcome.site_ids.len() as u32),
             "the outcome's demand is recomputed, not decremented by hand"
         );
     }
@@ -316,7 +333,10 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
              parcel the world does not carry"
         );
     }
-    assert_eq!(entry["plannedPadIds"].as_array().unwrap().len(), PLANNED_PADS);
+    assert_eq!(
+        entry["plannedPadIds"].as_array().unwrap().len(),
+        PLANNED_PADS
+    );
     assert!(
         entry.get("refusedEntityIds").is_none(),
         "no pad was refused, so no refused id may be published: {entry}"
@@ -344,8 +364,7 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
     let road_audit = read_json(scene_dir(&dir).join("road-network-audit.json"));
     assert_eq!(road_audit["plannedSites"], json!(PLANNED_PADS));
     assert_eq!(
-        road_audit["realizedSites"],
-        road_audit["plannedSites"],
+        road_audit["realizedSites"], road_audit["plannedSites"],
         "every planned pad reaches the world: {road_audit}"
     );
     assert!(
@@ -359,7 +378,11 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
         .iter()
         .find(|outcome| outcome.request.id == "bench-terrace-school")
         .expect("the school request");
-    assert_eq!(school.planned_site_ids.len(), 1, "the school is already placed");
+    assert_eq!(
+        school.planned_site_ids.len(),
+        1,
+        "the school is already placed"
+    );
 
     // 8. The cut audit, recomputed from the published bytes.
     let ledger: CutLedger = serde_json::from_value(
@@ -387,8 +410,13 @@ fn the_grown_hillside_town_converges_on_the_published_platform_and_keeps_every_p
         "the pad's own bench is shallow: {pad_record:?}"
     );
     let natural = raster(&dir, &scene, false);
-    let measured = bounded_cut::measure_from_rasters(&plan.roadside_sites, &natural, &final_terrain, &bounded_cut::road_flat_tops(&plan.entities()))
-        .expect("the two published rasters measure");
+    let measured = bounded_cut::measure_from_rasters(
+        &plan.roadside_sites,
+        &natural,
+        &final_terrain,
+        &bounded_cut::road_flat_tops(&plan.entities()),
+    )
+    .expect("the two published rasters measure");
     assert_eq!(
         ledger.pads, measured,
         "the ledger IS the rasters' own measurement"
@@ -463,7 +491,10 @@ fn the_completion_pass_publishes_nothing_when_the_capability_is_off() {
         program.remove("terrainPolicy");
         program.remove("maxCutMm");
     }
-    assert_eq!(CutPolicy::from_style(&manifest.style).0, CutPolicy::Disabled);
+    assert_eq!(
+        CutPolicy::from_style(&manifest.style).0,
+        CutPolicy::Disabled
+    );
     let first = TestDir::new("grown-off-first");
     let second = TestDir::new("grown-off-second");
     bake_world(&manifest, &first.0).expect("the off arm bakes");

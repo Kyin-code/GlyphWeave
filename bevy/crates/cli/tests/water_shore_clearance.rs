@@ -229,7 +229,11 @@ fn the_hillside_banks_publish_no_tree_inside_the_shore_band() {
     );
     let report = read_json(dir.0.join("scale-audit.json"));
     assert_eq!(report["status"], json!("pass"));
-    assert_eq!(report["failures"], json!([]), "no object is inside water geometry");
+    assert_eq!(
+        report["failures"],
+        json!([]),
+        "no object is inside water geometry"
+    );
     assert_eq!(report["treeCount"], json!(HILLSIDE_TREES));
 
     let scene = scene_index(&dir.0);
@@ -291,7 +295,10 @@ fn the_hillside_banks_publish_no_tree_inside_the_shore_band() {
     // The gate no longer fails on either old account; it now reports the failures
     // that were always true of this world but hidden behind the fail-fast stage.
     let gate = run("world-quality-gate", &dir.0);
-    assert!(!gate.status.success(), "the land-use backlog is not this round's");
+    assert!(
+        !gate.status.success(),
+        "the land-use backlog is not this round's"
+    );
     let gate_report = read_json(dir.0.join("world-quality-gate.json"));
     let failures: Vec<&str> = gate_report["failures"]
         .as_array()
@@ -301,7 +308,9 @@ fn the_hillside_banks_publish_no_tree_inside_the_shore_band() {
         .collect();
     assert_eq!(failures, HILLSIDE_OFF_GATE_FAILURES);
     assert!(
-        failures.iter().all(|failure| !failure.contains("water geometry")),
+        failures
+            .iter()
+            .all(|failure| !failure.contains("water geometry")),
         "the tree-in-water account is closed"
     );
     assert!(
@@ -326,13 +335,20 @@ fn the_river_is_checked_by_the_rules_engine_instead_of_disclosed_as_unruled() {
         "the river may not be disclosed as unruled any more: {}",
         report["unruled_items"]
     );
-    assert_eq!(report["checked_items"], json!(WATERFRONT_CHECKED_WITH_RIVER));
+    assert_eq!(
+        report["checked_items"],
+        json!(WATERFRONT_CHECKED_WITH_RIVER)
+    );
     assert_eq!(report["passed_items"], json!(WATERFRONT_CHECKED_WITH_RIVER));
     assert_eq!(report["rejected_items"], json!(0));
     assert_eq!(report["rejects"], json!([]));
     let scene = scene_index(&dir.0);
     assert_eq!(
-        scene.entities.iter().filter(|entity| entity.kind == "river").count(),
+        scene
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == "river")
+            .count(),
         1,
         "the body the report now checks is the authored river"
     );
@@ -359,7 +375,10 @@ fn the_river_is_checked_by_the_rules_engine_instead_of_disclosed_as_unruled() {
     );
     let control = read_json(control_report_path);
     assert_eq!(control["unruled_items"], json!(["river"]));
-    assert_eq!(control["checked_items"], json!(WATERFRONT_CHECKED_WITHOUT_RIVER));
+    assert_eq!(
+        control["checked_items"],
+        json!(WATERFRONT_CHECKED_WITHOUT_RIVER)
+    );
     assert_eq!(
         control["passed_items"],
         json!(WATERFRONT_CHECKED_WITHOUT_RIVER)
@@ -433,7 +452,14 @@ fn the_river_rule_reaches_no_world_whose_rules_are_closed() {
     for world in [&without, &with] {
         assert!(!world.join("rules-audit.json").exists());
         assert!(!world.join("rules-placement.json").exists());
-        assert_eq!(scene_index(world).entities.iter().filter(|e| e.kind == "river").count(), 1);
+        assert_eq!(
+            scene_index(world)
+                .entities
+                .iter()
+                .filter(|e| e.kind == "river")
+                .count(),
+            1
+        );
     }
     let mut a = published_files(&without);
     let mut b = published_files(&with);
@@ -460,5 +486,8 @@ fn two_waterfront_bakes_are_byte_identical() {
     let mut b = published_files(&second.0);
     a.remove("generation-report.json");
     b.remove("generation-report.json");
-    assert_eq!(a, b, "two bakes of one manifest must publish the same bytes");
+    assert_eq!(
+        a, b,
+        "two bakes of one manifest must publish the same bytes"
+    );
 }

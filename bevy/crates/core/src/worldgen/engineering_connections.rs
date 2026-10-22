@@ -94,7 +94,8 @@ pub const TERMINAL_CONTACT_ZONE_M: f64 = 1.0;
 /// step above the walking plane: a kerb or the first step of a flight is legal
 /// contact, a tread or riser higher than that stands in the body space and blocks.
 /// There is no ownership exemption and no distance window.
-pub const MAX_SUPPORT_STEP_RISE_M: f64 = 0.25;/// A walking surface may be touched by a walk only where it is at most one support
+pub const MAX_SUPPORT_STEP_RISE_M: f64 = 0.25;
+/// A walking surface may be touched by a walk only where it is at most one support
 /// step above the walking plane: a kerb or the first step of a flight is legal
 /// contact, a tread or riser higher than that stands in the body space and blocks.
 /// There is no ownership exemption and no distance window. 0.25;
@@ -255,7 +256,11 @@ pub struct GridSpec {
 
 impl GridSpec {
     fn validate(&self) -> EcResult<()> {
-        if self.width == 0 || self.depth == 0 || self.width > MAX_GRID_SIDE || self.depth > MAX_GRID_SIDE {
+        if self.width == 0
+            || self.depth == 0
+            || self.width > MAX_GRID_SIDE
+            || self.depth > MAX_GRID_SIDE
+        {
             return err(
                 "grid_out_of_range",
                 format!(
@@ -275,7 +280,12 @@ impl GridSpec {
                 ),
             );
         }
-        if self.natural_mm.iter().chain(self.baseline_mm.iter()).any(|v| *v == i32::MIN) {
+        if self
+            .natural_mm
+            .iter()
+            .chain(self.baseline_mm.iter())
+            .any(|v| *v == i32::MIN)
+        {
             return err("non_finite_value", "a sample is a sentinel, not a height");
         }
         if i64::from(self.origin_x) + i64::from(self.width) > i64::from(i32::MAX)
@@ -444,7 +454,11 @@ pub struct SwitchbackStairSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum StructureSpec {
     Landing(LandingSpec),
     StraightStair(StraightStairSpec),
@@ -517,8 +531,8 @@ fn validate_port_membership(
     structures: &[StructureRecord],
 ) -> EcResult<()> {
     for port in &input.ports {
-        let reserved = port.surface_id == RESERVED_GROUND_SURFACE
-            && port.level_id == RESERVED_GROUND_LEVEL;
+        let reserved =
+            port.surface_id == RESERVED_GROUND_SURFACE && port.level_id == RESERVED_GROUND_LEVEL;
         if reserved {
             // A ground port may sit on the terrain at a structure's boundary, but not
             // under structure material that rises above it: that is drilling into a
@@ -538,8 +552,12 @@ fn validate_port_membership(
                             "port_under_structure",
                             format!(
                                 "ground port {} at ({:.3},{:.3}) sits under {} of {}, which rises to {:.3} m above its level",
-                                port.id, port.position_m[0], port.position_m[2], part.part_id,
-                                structure.structure_id, part.aabb().max.y
+                                port.id,
+                                port.position_m[0],
+                                port.position_m[2],
+                                part.part_id,
+                                structure.structure_id,
+                                part.aabb().max.y
                             ),
                         );
                     }
@@ -580,7 +598,11 @@ fn validate_port_membership(
                 };
                 (f64::from(part.top_mm) / 1000.0 - port.position_m[1]).abs()
                     <= GROUND_PORT_LEVEL_TOLERANCE_M
-                    && frame.contains(port.position_m[0], port.position_m[2], GROUND_PORT_LEVEL_TOLERANCE_M)
+                    && frame.contains(
+                        port.position_m[0],
+                        port.position_m[2],
+                        GROUND_PORT_LEVEL_TOLERANCE_M,
+                    )
             });
         let Some(member) = member else {
             return Err(EngineeringError::new(
@@ -600,8 +622,6 @@ fn validate_port_membership(
         };
         // The walking width of a member is its larger horizontal extent (a tread is
         // long in the run direction and wide across it; a deck is wide both ways).
-
-
     }
     Ok(())
 }
@@ -670,7 +690,10 @@ pub fn load_input(json: &str) -> EcResult<EngineeringInput> {
         .with_detail(serde_json::json!({ "missingFields": missing })));
     }
     let input: EngineeringInput = serde_json::from_value(value).map_err(|error| {
-        EngineeringError::new("input_invalid", format!("the description is malformed: {error}"))
+        EngineeringError::new(
+            "input_invalid",
+            format!("the description is malformed: {error}"),
+        )
     })?;
     if input.version != ENGINEERING_CONNECTIONS_VERSION {
         return Err(EngineeringError::new(
@@ -751,13 +774,7 @@ impl EngineeringSurface {
         })
         .map_err(|error| EngineeringError::new("terrain_build", error.0))?;
         terrain
-            .insert_chunk(
-                self.origin_x,
-                self.origin_z,
-                self.width,
-                self.depth,
-                &bytes,
-            )
+            .insert_chunk(self.origin_x, self.origin_z, self.width, self.depth, &bytes)
             .map_err(|error| EngineeringError::new("terrain_insert", error.0))?;
         terrain
             .require_complete()
@@ -793,8 +810,7 @@ pub struct GroundWorkReport {
     pub status: String,
 }
 
-const VOLUME_METHOD: &str =
-    "one square metre per grid cell times the absolute height difference; sum of cell volumes, never a sum of heights";
+const VOLUME_METHOD: &str = "one square metre per grid cell times the absolute height difference; sum of cell volumes, never a sum of heights";
 
 /// Apply one authorised plan transactionally. Every cell is evaluated before any
 /// value is committed, so a failure leaves the surface untouched.
@@ -821,7 +837,7 @@ pub fn apply_ground_work(
                     "plan {} declares both a flat target and a target plane",
                     plan.id
                 ),
-            )
+            );
         }
         (Some(values), None) => {
             let cells = plan.scope.cells()?;
@@ -843,7 +859,7 @@ pub fn apply_ground_work(
                     "plan {} has neither a flat target nor a target plane",
                     plan.id
                 ),
-            )
+            );
         }
         (None, Some(_)) => {}
     }
@@ -875,7 +891,10 @@ pub fn apply_ground_work(
         } else if let Some(flat) = plan.flat_target_mm {
             Ok(flat)
         } else {
-            err("missing_target", "the plan has neither a flat target nor a target plane")
+            err(
+                "missing_target",
+                "the plan has neither a flat target nor a target plane",
+            )
         }
     };
     let mut protection_intersections: Vec<String> = vec![];
@@ -943,7 +962,10 @@ pub fn apply_ground_work(
                 if !plan.allow_fill {
                     return err(
                         "fill_not_authorised",
-                        format!("plan {} would fill ({x},{z}) by {delta}mm without authorisation", plan.id),
+                        format!(
+                            "plan {} would fill ({x},{z}) by {delta}mm without authorisation",
+                            plan.id
+                        ),
                     );
                 }
                 if delta > i64::from(plan.max_fill_mm) {
@@ -1119,8 +1141,16 @@ impl Aabb {
         let mut min = Vec3::new(f64::MAX, f64::MAX, f64::MAX);
         let mut max = Vec3::new(f64::MIN, f64::MIN, f64::MIN);
         for corner in corners {
-            min = Vec3::new(min.x.min(corner[0]), min.y.min(corner[1]), min.z.min(corner[2]));
-            max = Vec3::new(max.x.max(corner[0]), max.y.max(corner[1]), max.z.max(corner[2]));
+            min = Vec3::new(
+                min.x.min(corner[0]),
+                min.y.min(corner[1]),
+                min.z.min(corner[2]),
+            );
+            max = Vec3::new(
+                max.x.max(corner[0]),
+                max.y.max(corner[1]),
+                max.z.max(corner[2]),
+            );
         }
         Self { min, max }
     }
@@ -1265,14 +1295,12 @@ impl SupportRecord {
         surface: &EngineeringSurface,
         bearing: &[BearingSurface],
     ) -> EcResult<Self> {
-        let existing = bearing
-            .iter()
-            .find(|b| {
-                centre_xz.x >= b.rect.x0
-                    && centre_xz.x <= b.rect.x1
-                    && centre_xz.z >= b.rect.z0
-                    && centre_xz.z <= b.rect.z1
-            });
+        let existing = bearing.iter().find(|b| {
+            centre_xz.x >= b.rect.x0
+                && centre_xz.x <= b.rect.x1
+                && centre_xz.z >= b.rect.z0
+                && centre_xz.z <= b.rect.z1
+        });
         let (bearing_id, bearing_level_mm, bearing_source) = match existing {
             Some(surface_bearing) => (
                 surface_bearing.id.clone(),
@@ -1289,7 +1317,11 @@ impl SupportRecord {
                         ),
                     );
                 };
-                ("terrain".to_string(), (height * 1000.0).round() as i32, "engineering surface".to_string())
+                (
+                    "terrain".to_string(),
+                    (height * 1000.0).round() as i32,
+                    "engineering surface".to_string(),
+                )
             }
         };
         let overlap_mm = bearing_level_mm - bottom_mm;
@@ -1323,9 +1355,10 @@ fn bearing_level_mm(
     x: f64,
     z: f64,
 ) -> Option<i32> {
-    if let Some(found) = bearing.iter().find(|b| {
-        x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1
-    }) {
+    if let Some(found) = bearing
+        .iter()
+        .find(|b| x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1)
+    {
         return Some(found.level_mm);
     }
     surface
@@ -1716,8 +1749,16 @@ fn summarize_mesh(parts: &[MeshPart]) -> MeshSummary {
     let mut max = Vec3::new(f64::MIN, f64::MIN, f64::MIN);
     for part in parts {
         let aabb = part.aabb();
-        min = Vec3::new(min.x.min(aabb.min.x), min.y.min(aabb.min.y), min.z.min(aabb.min.z));
-        max = Vec3::new(max.x.max(aabb.max.x), max.y.max(aabb.max.y), max.z.max(aabb.max.z));
+        min = Vec3::new(
+            min.x.min(aabb.min.x),
+            min.y.min(aabb.min.y),
+            min.z.min(aabb.min.z),
+        );
+        max = Vec3::new(
+            max.x.max(aabb.max.x),
+            max.y.max(aabb.max.y),
+            max.z.max(aabb.max.z),
+        );
     }
     MeshSummary {
         points: parts.len() * 8,
@@ -1829,32 +1870,37 @@ fn build_supports(
             let centre_bearing = bearing_level_mm(surface, bearing, cx, cz).ok_or_else(|| {
                 EngineeringError::new(
                     "support_outside_grid",
-                    format!("{structure_id}/{} has no bearing surface at its centre", part.part_id),
+                    format!(
+                        "{structure_id}/{} has no bearing surface at its centre",
+                        part.part_id
+                    ),
                 )
             })?;
-            Ok(vec![SupportRecord::from_terrain(
-                &format!("{}::{}", part.part_id, "block"),
-                structure_id,
-                &part.part_id,
-                "ground_contact",
-                Vec3::new(cx, 0.0, cz),
-                part.aabb().max.x - part.aabb().min.x,
-                lowest,
-                surface,
-                bearing,
-            )
-            .map(|mut record| {
-                record.detail = serde_json::json!({
-                    "footprintLevelsMm": levels,
-                    "lowestBearingMm": lowest,
-                    "highestBearingMm": highest,
-                    "reliefM": relief_m,
-                    "centreBearingMm": centre_bearing,
-                    "blockBottomMm": lowest,
-                    "model": "the block itself reaches the ground; no separate column is added",
-                });
-                record
-            })?])
+            Ok(vec![
+                SupportRecord::from_terrain(
+                    &format!("{}::{}", part.part_id, "block"),
+                    structure_id,
+                    &part.part_id,
+                    "ground_contact",
+                    Vec3::new(cx, 0.0, cz),
+                    part.aabb().max.x - part.aabb().min.x,
+                    lowest,
+                    surface,
+                    bearing,
+                )
+                .map(|mut record| {
+                    record.detail = serde_json::json!({
+                        "footprintLevelsMm": levels,
+                        "lowestBearingMm": lowest,
+                        "highestBearingMm": highest,
+                        "reliefM": relief_m,
+                        "centreBearingMm": centre_bearing,
+                        "blockBottomMm": lowest,
+                        "model": "the block itself reaches the ground; no separate column is added",
+                    });
+                    record
+                })?,
+            ])
         }
         SupportKind::Columns => {
             let columns = support.columns.max(1).min(8);
@@ -2010,7 +2056,10 @@ fn support_spec_check(spec: &SupportSpec, what: &str) -> EcResult<()> {
     if spec.kind == SupportKind::Columns && !(0.1..=1.0).contains(&spec.column_size_m) {
         return err(
             "invalid_column_size",
-            format!("{what}: column size {} m is outside 0.1..1.0 m", spec.column_size_m),
+            format!(
+                "{what}: column size {} m is outside 0.1..1.0 m",
+                spec.column_size_m
+            ),
         );
     }
     Ok(())
@@ -2039,13 +2088,11 @@ fn structure_node(
     }
 }
 
-fn verify_declared_port(
-    port: &PortSpec,
-    expected: [f64; 3],
-    what: &str,
-) -> EcResult<()> {
+fn verify_declared_port(port: &PortSpec, expected: [f64; 3], what: &str) -> EcResult<()> {
     check_finite(&expected, what)?;
-    let drift = Vec3::from_arr(port.position_m).sub(Vec3::from_arr(expected)).len();
+    let drift = Vec3::from_arr(port.position_m)
+        .sub(Vec3::from_arr(expected))
+        .len();
     if drift > PORT_MATCH_TOLERANCE_M {
         return err(
             "port_geometry_mismatch",
@@ -2150,11 +2197,25 @@ fn build_landing(
                 );
             }
             let deck = parts[0].clone();
-            build_supports(&spec.id, &deck, &spec.support, surface, &input.bearing, &mut parts)?
+            build_supports(
+                &spec.id,
+                &deck,
+                &spec.support,
+                surface,
+                &input.bearing,
+                &mut parts,
+            )?
         }
         SupportKind::Columns => {
             let deck = parts[0].clone();
-            build_supports(&spec.id, &deck, &spec.support, surface, &input.bearing, &mut parts)?
+            build_supports(
+                &spec.id,
+                &deck,
+                &spec.support,
+                surface,
+                &input.bearing,
+                &mut parts,
+            )?
         }
     };
     let mut nodes = vec![node_from_port(port, "landing_port")];
@@ -2364,7 +2425,10 @@ fn build_straight_stair(
                         bearing_level_mm(surface, &input.bearing, *x, *z).ok_or_else(|| {
                             EngineeringError::new(
                                 "support_outside_grid",
-                                format!("stair {} tread {index} leaves the engineering grid", spec.id),
+                                format!(
+                                    "stair {} tread {index} leaves the engineering grid",
+                                    spec.id
+                                ),
                             )
                         })
                     })
@@ -2459,20 +2523,29 @@ fn build_switchback_stair(
     let b = Vec3::from_arr(to.position_m);
     let n = spec.steps_per_run;
     if n == 0 {
-        return err("invalid_stair", format!("switchback {} has no steps", spec.id));
+        return err(
+            "invalid_stair",
+            format!("switchback {} has no steps", spec.id),
+        );
     }
     let rise_m = f64::from(spec.rise_mm) / 1000.0;
     let run_m = f64::from(spec.run_mm) / 1000.0;
     if rise_m <= 0.0 || rise_m > MAX_STEP_RISE_M || run_m < MIN_STEP_RUN_M {
         return err(
             "step_out_of_contract",
-            format!("switchback {} step geometry is outside the v1 limits", spec.id),
+            format!(
+                "switchback {} step geometry is outside the v1 limits",
+                spec.id
+            ),
         );
     }
     if f64::from(n) * run_m > MAX_STAIR_RUN_M {
         return err(
             "stair_too_long",
-            format!("switchback {} single run exceeds {MAX_STAIR_RUN_M} m", spec.id),
+            format!(
+                "switchback {} single run exceeds {MAX_STAIR_RUN_M} m",
+                spec.id
+            ),
         );
     }
     support_spec_check(&spec.support, &spec.id)?;
@@ -2557,7 +2630,9 @@ fn build_switchback_stair(
     let far = Vec3::new(a.x, 0.0, a.z).add(axis.scale(f64::from(n) * run_m));
     for index in 0..n {
         let top = landing_top + f64::from(index + 1) * rise_m;
-        let centre = far.add(side.scale(lane)).sub(axis.scale((f64::from(index) + 0.5) * run_m));
+        let centre = far
+            .add(side.scale(lane))
+            .sub(axis.scale((f64::from(index) + 0.5) * run_m));
         parts.push(oriented_box(
             &format!("{}::r2tread{}", spec.id, index),
             "tread",
@@ -2573,7 +2648,9 @@ fn build_switchback_stair(
             top - spec.thickness_m,
             top,
         ));
-        let front = far.add(side.scale(lane)).sub(axis.scale(f64::from(index) * run_m));
+        let front = far
+            .add(side.scale(lane))
+            .sub(axis.scale(f64::from(index) * run_m));
         parts.push(oriented_box(
             &format!("{}::r2riser{}", spec.id, index),
             "riser",
@@ -2647,7 +2724,10 @@ fn build_switchback_stair(
     if !landing_reaches(Vec3::new(middle.position_m[0], 0.0, middle.position_m[2])) {
         return err(
             "port_outside_structure",
-            format!("switchback {} middle port is outside the turn landing", spec.id),
+            format!(
+                "switchback {} middle port is outside the turn landing",
+                spec.id
+            ),
         );
     }
     // The turn landing is a solid of its own, not a plate laid over the flights: it stands
@@ -2722,10 +2802,16 @@ fn build_switchback_stair(
     if side_of(corner_position) - side_of(Vec3::from_arr(middle.position_m)) < lane - 1e-9 {
         return err(
             "turn_corner_missing_lane",
-            format!("switchback {} turn corner does not reach the second lane", spec.id),
+            format!(
+                "switchback {} turn corner does not reach the second lane",
+                spec.id
+            ),
         );
     }
-    if corner_position.sub(Vec3::from_arr(middle.position_m)).xz_len() < 1e-6
+    if corner_position
+        .sub(Vec3::from_arr(middle.position_m))
+        .xz_len()
+        < 1e-6
         || turn_exit_plan.sub(corner_position).xz_len() < 1e-6
     {
         return err(
@@ -2894,7 +2980,11 @@ fn structure_edge(
     let path_length_3d = polyline_length(&polyline);
     let polyline_m_for_metrics = polyline.clone();
     let samples = polyline.len();
-    let grade = if horizontal > 1e-9 { rise / horizontal } else { 0.0 };
+    let grade = if horizontal > 1e-9 {
+        rise / horizontal
+    } else {
+        0.0
+    };
     let bidirectional = !one_way;
     GraphEdge {
         edge_id: edge_id.to_string(),
@@ -2925,11 +3015,7 @@ fn structure_edge(
 fn polyline_length(polyline: &[[f64; 3]]) -> f64 {
     polyline
         .windows(2)
-        .map(|pair| {
-            Vec3::from_arr(pair[1])
-                .sub(Vec3::from_arr(pair[0]))
-                .len()
-        })
+        .map(|pair| Vec3::from_arr(pair[1]).sub(Vec3::from_arr(pair[0])).len())
         .sum()
 }
 
@@ -3092,7 +3178,11 @@ fn build_ground_edge(
         surface,
         a,
         b,
-        &[0.0, WHEELCHAIR_CLEAR_WIDTH_M / 2.0, -WHEELCHAIR_CLEAR_WIDTH_M / 2.0],
+        &[
+            0.0,
+            WHEELCHAIR_CLEAR_WIDTH_M / 2.0,
+            -WHEELCHAIR_CLEAR_WIDTH_M / 2.0,
+        ],
     )?;
     let facts = CapabilityFacts {
         grade_pedestrian,
@@ -3125,12 +3215,16 @@ fn build_ground_edge(
                 &terminal_frames,
             )
             .map(|(solid, index)| format!("{solid} at sample {index}"));
-        let water = input.water.iter().find(|water| {
-            segment_hits_rect(a.x, a.z, b.x, b.z, half, &water.rect)
-        });
+        let water = input
+            .water
+            .iter()
+            .find(|water| segment_hits_rect(a.x, a.z, b.x, b.z, half, &water.rect));
         let blocker = match (blocker, water) {
             (Some(solid), _) => Some(solid),
-            (None, Some(water)) => Some(format!("water {} in the {half:.2} m half-width band", water.id)),
+            (None, Some(water)) => Some(format!(
+                "water {} in the {half:.2} m half-width band",
+                water.id
+            )),
             (None, None) => None,
         };
         clearance.insert(capability, blocker);
@@ -3188,9 +3282,11 @@ fn build_ground_edge(
             detail["rangeT"] = serde_json::json!([interval.from_t, interval.to_t]);
             detail["effectiveLevelM"] = serde_json::json!(interval.effective_level_m);
             detail["contributingParts"] = serde_json::json!(interval.parts);
-            detail["witness"] = serde_json::json!(interval.witness.map(|witness| {
-                serde_json::json!({"t": witness.t, "s": witness.s})
-            }));
+            detail["witness"] = serde_json::json!(
+                interval
+                    .witness
+                    .map(|witness| { serde_json::json!({"t": witness.t, "s": witness.s}) })
+            );
         }
         return Err(EngineeringError::new(
             &refusal.category,
@@ -3407,7 +3503,10 @@ impl MemberFrame {
         }
         let mut low = f64::MIN;
         let mut high = f64::MAX;
-        for (dir, half) in [(self.along, self.half_length), (self.across, self.half_width)] {
+        for (dir, half) in [
+            (self.along, self.half_length),
+            (self.across, self.half_width),
+        ] {
             let origin = (a.x - self.centre.x) * dir.x + (a.z - self.centre.z) * dir.z;
             let slope = delta.x * dir.x + delta.z * dir.z;
             if slope.abs() < 1e-12 {
@@ -3468,7 +3567,11 @@ pub fn member_frame(part: &MeshPart) -> Option<MemberFrame> {
 fn box_body(centre: Vec3, half_width: f64, height: f64) -> Aabb {
     Aabb {
         min: Vec3::new(centre.x - half_width, centre.y, centre.z - half_width),
-        max: Vec3::new(centre.x + half_width, centre.y + height, centre.z + half_width),
+        max: Vec3::new(
+            centre.x + half_width,
+            centre.y + height,
+            centre.z + half_width,
+        ),
     }
 }
 
@@ -3923,7 +4026,10 @@ pub fn structural_support_detail_with_budget(
             support_coverage::REASON_INVALID_PATH,
         );
     }
-    if polyline.iter().any(|point| !point.iter().all(|value| value.is_finite())) {
+    if polyline
+        .iter()
+        .any(|point| !point.iter().all(|value| value.is_finite()))
+    {
         return unevaluated_support(
             frames,
             polyline,
@@ -4004,14 +4110,8 @@ pub fn structural_support_detail_with_budget(
                 .collect();
             layers.push((level, group));
         }
-        let certificate = support_coverage::certify_band(
-            &layers,
-            index,
-            a,
-            b,
-            required_band,
-            event_budget,
-        );
+        let certificate =
+            support_coverage::certify_band(&layers, index, a, b, required_band, event_budget);
         for part in &certificate.parts_considered {
             if !out.parts_considered.contains(part) {
                 out.parts_considered.push(part.clone());
@@ -4101,7 +4201,12 @@ pub fn structural_support_detail_with_budget(
     let mut unsupported = 0_usize;
     for endpoint in [0_usize, polyline.len() - 1] {
         let at = Vec3::from_arr(polyline[endpoint]);
-        let next = Vec3::from_arr(polyline.get(endpoint + 1).copied().unwrap_or(polyline[endpoint]));
+        let next = Vec3::from_arr(
+            polyline
+                .get(endpoint + 1)
+                .copied()
+                .unwrap_or(polyline[endpoint]),
+        );
         let previous = Vec3::from_arr(
             polyline
                 .get(endpoint.wrapping_sub(1))
@@ -4143,7 +4248,11 @@ pub fn structural_support_detail_with_budget(
             unsupported += 1;
         }
     }
-    out.band_m = if narrowest.is_finite() { narrowest } else { 0.0 };
+    out.band_m = if narrowest.is_finite() {
+        narrowest
+    } else {
+        0.0
+    };
     out.unsupported_endpoints = unsupported;
     out.bearing = if any_unknown {
         support_coverage::BearingIdentity::Unknown
@@ -4156,17 +4265,11 @@ pub fn structural_support_detail_with_budget(
         support_coverage::CoverageVerdict::NotApplicable
     } else if any_indeterminate {
         support_coverage::CoverageVerdict::Indeterminate
-    } else if out
-        .intervals
-        .iter()
-        .all(|interval| interval.coverage_verdict == support_coverage::CoverageVerdict::NotApplicable.name())
-    {
+    } else if out.intervals.iter().all(|interval| {
+        interval.coverage_verdict == support_coverage::CoverageVerdict::NotApplicable.name()
+    }) {
         support_coverage::CoverageVerdict::NotApplicable
-    } else if out
-        .intervals
-        .iter()
-        .all(|interval| interval.carried)
-    {
+    } else if out.intervals.iter().all(|interval| interval.carried) {
         support_coverage::CoverageVerdict::Certified
     } else {
         support_coverage::CoverageVerdict::Gap
@@ -4395,9 +4498,9 @@ impl CollisionContext {
             let Some(frame) = self.frames.get(&solid.solid_id) else {
                 continue;
             };
-            let touches = endpoints
-                .iter()
-                .any(|endpoint| frame.distance_to(endpoint.x, endpoint.z) <= SOLID_CONTACT_TOLERANCE_M);
+            let touches = endpoints.iter().any(|endpoint| {
+                frame.distance_to(endpoint.x, endpoint.z) <= SOLID_CONTACT_TOLERANCE_M
+            });
             if touches {
                 out.insert(solid.solid_id.clone(), *frame);
             }
@@ -4634,7 +4737,8 @@ impl CollisionContext {
     /// The narrowest band of this polyline. A station with no support measures zero,
     /// never a maximum. Diagnostic only: see [`CollisionContext::band_coverage_detail`].
     pub fn band_coverage(&self, owners: &BTreeSet<String>, polyline: &[[f64; 3]]) -> f64 {
-        self.band_coverage_detail(owners, polyline).narrowest_or_zero()
+        self.band_coverage_detail(owners, polyline)
+            .narrowest_or_zero()
     }
 
     /// Every structure that built a walking member.
@@ -4669,10 +4773,7 @@ impl CollisionContext {
             // thin wall, a short column or a low solid between samples is still found.
             let terminal = index == 0 || index + 1 >= terminal_last;
             let (from, to) = if index == terminal_last {
-                (
-                    Vec3::from_arr(polyline[index.saturating_sub(1)]),
-                    here,
-                )
+                (Vec3::from_arr(polyline[index.saturating_sub(1)]), here)
             } else {
                 (here, next)
             };
@@ -4717,7 +4818,8 @@ impl CollisionContext {
                 });
                 if landing_line && touches_endpoint {
                     continue;
-                }                if solid.max.y <= band_bottom {
+                }
+                if solid.max.y <= band_bottom {
                     continue;
                 }
                 // One conservative swept interval for obstacles and for structure
@@ -4725,7 +4827,8 @@ impl CollisionContext {
                 // the corridor interval blocks, whatever its owner.
                 if band_hits_rect(from, to, half_width, solid.min, solid.max) {
                     return Some((solid.solid_id.clone(), index));
-                }            }
+                }
+            }
         }
         None
     }
@@ -4783,7 +4886,9 @@ impl CollisionContext {
             .collect();
         for (index, a) in parts.iter().enumerate() {
             for b in parts.iter().skip(index + 1) {
-                if a.aabb().interpenetrates(&b.aabb(), SOLID_CONTACT_TOLERANCE_M) {
+                if a.aabb()
+                    .interpenetrates(&b.aabb(), SOLID_CONTACT_TOLERANCE_M)
+                {
                     return Some((
                         a.solid_id.clone(),
                         b.solid_id.clone(),
@@ -4807,7 +4912,13 @@ fn scope_touches(changed: &[RectI], min_x: f64, min_z: f64, max_x: f64, max_z: f
     })
 }
 
-fn sample_footprint(surface: &EngineeringSurface, min_x: f64, min_z: f64, max_x: f64, max_z: f64) -> EcResult<Vec<f64>> {
+fn sample_footprint(
+    surface: &EngineeringSurface,
+    min_x: f64,
+    min_z: f64,
+    max_x: f64,
+    max_z: f64,
+) -> EcResult<Vec<f64>> {
     let mut out = Vec::with_capacity(5);
     for (x, z) in [
         (min_x, min_z),
@@ -4964,14 +5075,13 @@ fn support_interval_disagreements(
         .and_then(serde_json::Value::as_array)
         .is_some_and(|values| {
             values.len() == 2
-                && values
-                    .iter()
-                    .zip(recomputed.adjacent_levels_m.iter())
-                    .all(|(value, expected)| {
+                && values.iter().zip(recomputed.adjacent_levels_m.iter()).all(
+                    |(value, expected)| {
                         value
                             .as_f64()
                             .is_some_and(|saved_level| (saved_level - expected).abs() <= 1e-9)
-                    })
+                    },
+                )
         });
     if !adjacent_ok {
         wrong.push("adjacentLevelsM".into());
@@ -5051,7 +5161,9 @@ fn support_facts_disagreements(
 ) -> Vec<String> {
     let mut wrong: Vec<String> = vec![];
     let Some(object) = saved.as_object() else {
-        return vec![format!("{edge_id}: saved {capability} support facts are not an object")];
+        return vec![format!(
+            "{edge_id}: saved {capability} support facts are not an object"
+        )];
     };
     match object
         .get("schemaVersion")
@@ -5070,7 +5182,8 @@ fn support_facts_disagreements(
         .and_then(serde_json::Value::as_str)
     {
         Some(value)
-            if support_coverage::CoverageVerdict::from_name(value) == Some(recomputed.coverage) => {}
+            if support_coverage::CoverageVerdict::from_name(value) == Some(recomputed.coverage) => {
+        }
         _ => wrong.push("coverageVerdict".into()),
     }
     match object
@@ -5144,11 +5257,11 @@ fn support_facts_disagreements(
         .and_then(serde_json::Value::as_array)
         .is_some_and(|values| {
             values.len() == recomputed.parts_filtered.len()
-                && values.iter().zip(recomputed.parts_filtered.iter()).all(
-                    |(value, expected)| {
-                        value
-                            .get("segment")
-                            .and_then(serde_json::Value::as_u64)
+                && values
+                    .iter()
+                    .zip(recomputed.parts_filtered.iter())
+                    .all(|(value, expected)| {
+                        value.get("segment").and_then(serde_json::Value::as_u64)
                             == Some(expected.segment as u64)
                             && value.get("part").and_then(serde_json::Value::as_str)
                                 == Some(expected.part.as_str())
@@ -5158,13 +5271,15 @@ fn support_facts_disagreements(
                                 .is_some_and(|level| (level - expected.level_m).abs() <= 1e-9)
                             && value.get("reason").and_then(serde_json::Value::as_str)
                                 == Some(expected.reason.as_str())
-                    },
-                )
+                    })
         });
     if !filtered_ok {
         wrong.push("partsFiltered".into());
     }
-    match object.get("intervals").and_then(serde_json::Value::as_array) {
+    match object
+        .get("intervals")
+        .and_then(serde_json::Value::as_array)
+    {
         None => wrong.push("intervals".into()),
         Some(list) if list.len() != recomputed.intervals.len() => wrong.push("intervals".into()),
         Some(list) => {
@@ -5178,7 +5293,10 @@ fn support_facts_disagreements(
             }
         }
     }
-    match object.get("uncarried").and_then(serde_json::Value::as_array) {
+    match object
+        .get("uncarried")
+        .and_then(serde_json::Value::as_array)
+    {
         None => wrong.push("uncarried".into()),
         Some(list) => {
             let expected: Vec<&SupportInterval> = recomputed
@@ -5243,7 +5361,9 @@ fn refresh_walkable_capabilities(
             let required_half = rules.required_half_width(capability);
             let mut blocker: Option<String> = None;
             for member in &members {
-                if let Some(solid) = collisions.walking_volume_blocker(&structure_id, member, height) {
+                if let Some(solid) =
+                    collisions.walking_volume_blocker(&structure_id, member, height)
+                {
                     blocker = Some(format!("{} blocked by {solid}", member.part_id));
                     break;
                 }
@@ -5259,10 +5379,7 @@ fn refresh_walkable_capabilities(
             );
             let measured = support.band_m;
             let unsupported_endpoints = support.unsupported_endpoints;
-            support_evidence.insert(
-                capability_name(capability).to_string(),
-                support.evidence(),
-            );
+            support_evidence.insert(capability_name(capability).to_string(), support.evidence());
             // The two axes are checked before the band: an undecided identity or a
             // proven bearing-free section is never a structure edge. A structure edge
             // may not be downgraded into a ground edge, and a line with no evaluated
@@ -5417,8 +5534,7 @@ pub struct RouteResult {
     pub detail: serde_json::Value,
 }
 
-const COST_DEFINITION: &str =
-    "cost is the three-dimensional path length in metres; the horizontal length is reported separately and the legacy 120 m access contract is neither used nor redefined here";
+const COST_DEFINITION: &str = "cost is the three-dimensional path length in metres; the horizontal length is reported separately and the legacy 120 m access contract is neither used nor redefined here";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Limits {
@@ -5641,7 +5757,10 @@ fn dijkstra(
                 edge.from_node.clone()
             };
             if !forward && !edge.bidirectional {
-                *outcome.rejected.entry("one_way_blocked".into()).or_insert(0) += 1;
+                *outcome
+                    .rejected
+                    .entry("one_way_blocked".into())
+                    .or_insert(0) += 1;
                 continue;
             }
             if !edge.supports(query.capability) {
@@ -5664,27 +5783,26 @@ fn dijkstra(
             // Signed rise along the direction of travel: a descent is not a climb.
             // The resource is the edge's own measured climb, not an endpoint difference.
             let next_cost = cost + edge.path_length_3d_m;
-            let next_climb = climb + if forward { edge.climb_m } else { edge.descent_m };
+            let next_climb = climb
+                + if forward {
+                    edge.climb_m
+                } else {
+                    edge.descent_m
+                };
             if let Some(limits) = limits {
                 if next_cost > limits.max_length_3d_m + 1e-9 {
-                    *outcome
-                        .rejected
-                        .entry("length_limit".into())
-                        .or_insert(0) += 1;
+                    *outcome.rejected.entry("length_limit".into()).or_insert(0) += 1;
                     continue;
                 }
                 if next_climb > limits.max_rise_m + 1e-9 {
-                    *outcome
-                        .rejected
-                        .entry("rise_limit".into())
-                        .or_insert(0) += 1;
+                    *outcome.rejected.entry("rise_limit".into()).or_insert(0) += 1;
                     continue;
                 }
             }
             let existing = labels.entry(other.clone()).or_default();
-            let dominated = existing.iter().any(|known| {
-                known.cost <= next_cost + 1e-9 && known.climb <= next_climb + 1e-9
-            });
+            let dominated = existing
+                .iter()
+                .any(|known| known.cost <= next_cost + 1e-9 && known.climb <= next_climb + 1e-9);
             if dominated {
                 continue;
             }
@@ -5701,12 +5819,7 @@ fn dijkstra(
                 climb: next_climb,
                 from: Some((node_id.clone(), label_index, index, forward)),
             });
-            heap.push(Reverse(LabelKey(
-                next_cost,
-                next_climb,
-                other,
-                next_index,
-            )));
+            heap.push(Reverse(LabelKey(next_cost, next_climb, other, next_index)));
         }
     }
     outcome.reached_nodes = labels.len();
@@ -5719,7 +5832,6 @@ fn dijkstra(
         });
     outcome
 }
-
 
 fn route(
     nodes: &BTreeMap<String, GraphNode>,
@@ -5831,9 +5943,7 @@ fn route(
                     // on the directed polyline and a path outside the declared limits is
                     // never published as found.
                     let (horizontal, length, climb, descent) = polyline_metrics(polyline);
-                    if length > query.max_length_3d_m + 1e-6
-                        || climb > query.max_rise_m + 1e-6
-                    {
+                    if length > query.max_length_3d_m + 1e-6 || climb > query.max_rise_m + 1e-6 {
                         base.status = "budget_exhausted".into();
                         base.termination = format!(
                             "the searched path is {length:.3} m long and climbs {climb:.3} m, outside the declared limits (maxLength {} m, maxRise {} m)",
@@ -5882,7 +5992,6 @@ fn route(
         }
     }
 }
-
 
 pub fn capability_name(capability: Capability) -> &'static str {
     match capability {
@@ -6065,10 +6174,7 @@ fn validate_identities(input: &EngineeringInput) -> EcResult<()> {
         }
         claim("roadReference", &reference.id)?;
     }
-    for value in [
-        input.query.max_length_3d_m,
-        input.query.max_rise_m,
-    ] {
+    for value in [input.query.max_length_3d_m, input.query.max_rise_m] {
         if !value.is_finite() || value < 0.0 {
             return err(
                 "non_finite_value",
@@ -6081,10 +6187,7 @@ fn validate_identities(input: &EngineeringInput) -> EcResult<()> {
 
 /// A label is not a reference. Every surface, level and road a description mentions
 /// must resolve to something this description actually declares.
-fn validate_references(
-    input: &EngineeringInput,
-    structures: &[StructureRecord],
-) -> EcResult<()> {
+fn validate_references(input: &EngineeringInput, structures: &[StructureRecord]) -> EcResult<()> {
     let declared: BTreeSet<String> = input
         .road_references
         .iter()
@@ -6123,8 +6226,8 @@ fn validate_references(
         }
     }
     for port in &input.ports {
-        let reserved = port.surface_id == RESERVED_GROUND_SURFACE
-            && port.level_id == RESERVED_GROUND_LEVEL;
+        let reserved =
+            port.surface_id == RESERVED_GROUND_SURFACE && port.level_id == RESERVED_GROUND_LEVEL;
         if reserved {
             continue;
         }
@@ -6231,7 +6334,10 @@ pub fn build(input: &EngineeringInput) -> EcResult<BuildOutcome> {
     if input.structures.len() > MAX_STRUCTURES {
         return err(
             "structure_count_out_of_range",
-            format!("{} structures exceed the v1 cap {MAX_STRUCTURES}", input.structures.len()),
+            format!(
+                "{} structures exceed the v1 cap {MAX_STRUCTURES}",
+                input.structures.len()
+            ),
         );
     }
     if input.ports.len() > MAX_PORTS {
@@ -6249,7 +6355,10 @@ pub fn build(input: &EngineeringInput) -> EcResult<BuildOutcome> {
     let mut seen = BTreeSet::new();
     for port in &input.ports {
         if !seen.insert(port.id.clone()) {
-            return err("duplicate_id", format!("port {} is declared twice", port.id));
+            return err(
+                "duplicate_id",
+                format!("port {} is declared twice", port.id),
+            );
         }
         check_finite(&port.position_m, &format!("port {}", port.id))?;
         if port.width_m <= 0.0 || port.width_m > 60.0 {
@@ -6282,9 +6391,7 @@ pub fn build(input: &EngineeringInput) -> EcResult<BuildOutcome> {
         let record = match structure {
             StructureSpec::Landing(spec) => build_landing(spec, input, &surface)?,
             StructureSpec::StraightStair(spec) => build_straight_stair(spec, input, &surface)?,
-            StructureSpec::SwitchbackStair(spec) => {
-                build_switchback_stair(spec, input, &surface)?
-            }
+            StructureSpec::SwitchbackStair(spec) => build_switchback_stair(spec, input, &surface)?,
             StructureSpec::Unsupported {
                 id,
                 requested_kind,
@@ -6387,7 +6494,10 @@ pub fn build(input: &EngineeringInput) -> EcResult<BuildOutcome> {
             node_map.get(id).ok_or_else(|| {
                 EngineeringError::new(
                     "unknown_node",
-                    format!("structure {} references node {id} which is not in the graph", structure.structure_id),
+                    format!(
+                        "structure {} references node {id} which is not in the graph",
+                        structure.structure_id
+                    ),
                 )
             })
         };
@@ -6551,7 +6661,10 @@ pub fn build(input: &EngineeringInput) -> EcResult<BuildOutcome> {
             other => {
                 return err(
                     "unknown_structure_kind",
-                    format!("structure {} has unhandled kind {other}", structure.structure_id),
+                    format!(
+                        "structure {} has unhandled kind {other}",
+                        structure.structure_id
+                    ),
                 );
             }
         }
@@ -6694,7 +6807,9 @@ impl Default for PublicationRecord {
             view_files: vec![],
             report_file: String::new(),
             commit_order: vec![],
-            note: "no publication record: this bundle was written before the v2 transaction contract".into(),
+            note:
+                "no publication record: this bundle was written before the v2 transaction contract"
+                    .into(),
         }
     }
 }
@@ -6945,11 +7060,8 @@ pub fn commit_bundle(
     bundle.publication.contract_version = ENGINEERING_CONNECTIONS_VERSION;
     bundle.publication.bundle_file = bundle_file.to_string();
     bundle.publication.report_file = report_file.to_string();
-    bundle.publication.commit_order = vec![
-        "geometryViews".into(),
-        "report".into(),
-        "bundle".into(),
-    ];
+    bundle.publication.commit_order =
+        vec!["geometryViews".into(), "report".into(), "bundle".into()];
     bundle.publication.note =
         "published by build-engineering-connection after a full preflight and a staging write; the bundle is moved into place last, so a bundle at its final path implies its views were already there"
             .into();
@@ -7133,7 +7245,8 @@ fn plan_svg(bundle: &EngineeringBundle, outcome: &BuildOutcome) -> String {
             let points: Vec<String> = [4_usize, 5, 6, 7]
                 .iter()
                 .map(|corner| {
-                    let (x, y) = transform.project(part.corners_m[*corner][0], part.corners_m[*corner][2]);
+                    let (x, y) =
+                        transform.project(part.corners_m[*corner][0], part.corners_m[*corner][2]);
                     format!("{x:.2},{y:.2}")
                 })
                 .collect();
@@ -7183,12 +7296,7 @@ fn plan_svg(bundle: &EngineeringBundle, outcome: &BuildOutcome) -> String {
 fn elevation_svg(bundle: &EngineeringBundle, outcome: &BuildOutcome) -> String {
     let mut line: Vec<[f64; 3]> = if !bundle.route.path_polyline_m.is_empty() {
         bundle.route.path_polyline_m.clone()
-    } else if let Some(edge) = outcome
-        .graph
-        .edges
-        .iter()
-        .find(|edge| edge.kind == "stair")
-    {
+    } else if let Some(edge) = outcome.graph.edges.iter().find(|edge| edge.kind == "stair") {
         edge.polyline_m.clone()
     } else if let Some(edge) = outcome.graph.edges.first() {
         edge.polyline_m.clone()
@@ -7207,17 +7315,21 @@ fn elevation_svg(bundle: &EngineeringBundle, outcome: &BuildOutcome) -> String {
     }
     for x in 0..outcome.surface.width {
         for z in 0..outcome.surface.depth {
-            if let Some(mm) = outcome
-                .surface
-                .mm_at(outcome.surface.origin_x + x as i32, outcome.surface.origin_z + z as i32)
-            {
+            if let Some(mm) = outcome.surface.mm_at(
+                outcome.surface.origin_x + x as i32,
+                outcome.surface.origin_z + z as i32,
+            ) {
                 min_ground = min_ground.min(f64::from(mm) / 1000.0);
             }
         }
     }
     let min_y = if min_y.is_finite() { min_y } else { 0.0 };
     let max_y = if max_y.is_finite() { max_y } else { 1.0 };
-    let min_ground = if min_ground.is_finite() { min_ground } else { min_y };
+    let min_ground = if min_ground.is_finite() {
+        min_ground
+    } else {
+        min_y
+    };
     let scale = 60.0_f64;
     let mut distance = 0.0_f64;
     let mut projected: Vec<(f64, f64)> = vec![];
@@ -7562,7 +7674,8 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
         if payload_hash_matches {
             "the saved payload hash matches the saved content".to_string()
         } else {
-            "the saved payload hash does not match the saved content: the file was edited".to_string()
+            "the saved payload hash does not match the saved content: the file was edited"
+                .to_string()
         },
     ));
     checks.push(check(
@@ -7597,7 +7710,9 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
             &mut finding_count,
         );
     }
-    let surface_match = findings.iter().all(|finding| !finding.at.starts_with("surface"));
+    let surface_match = findings
+        .iter()
+        .all(|finding| !finding.at.starts_with("surface"));
     checks.push(check(
         "surface_recomputed",
         surface_match,
@@ -7676,7 +7791,8 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                 "stored_ground_edges_rechecked",
                 bad.is_empty(),
                 if bad.is_empty() {
-                    "every saved ground edge passes the production predicate on the saved surface".to_string()
+                    "every saved ground edge passes the production predicate on the saved surface"
+                        .to_string()
                 } else {
                     bad.join("; ")
                 },
@@ -7716,7 +7832,8 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                 "stored_supports_rechecked",
                 supports_bad.is_empty(),
                 if supports_bad.is_empty() {
-                    "every saved support is re-derived from the saved surface and is in contact".to_string()
+                    "every saved support is re-derived from the saved surface and is in contact"
+                        .to_string()
                 } else {
                     supports_bad.join("; ")
                 },
@@ -7775,18 +7892,19 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
             .iter()
             .filter(|part| part.role == "tread" || part.role == "landing")
             .collect();
-        for edge in stored
-            .graph
-            .edges
-            .iter()
-            .filter(|edge| edge.structure_id.as_deref() == Some(structure.structure_id.as_str()))
+        for edge in
+            stored.graph.edges.iter().filter(|edge| {
+                edge.structure_id.as_deref() == Some(structure.structure_id.as_str())
+            })
         {
             for capability in &edge.capabilities {
                 let height = stored.graph.capability_rules.body_height(*capability);
                 for member in &members {
-                    if let Some(solid) =
-                        stored_collisions.walking_volume_blocker(&structure.structure_id, member, height)
-                    {
+                    if let Some(solid) = stored_collisions.walking_volume_blocker(
+                        &structure.structure_id,
+                        member,
+                        height,
+                    ) {
                         solid_bad.push(format!(
                             "edge {} grants {} but {} is blocked by {solid}",
                             edge.edge_id,
@@ -7822,25 +7940,33 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
     };
     let authoritative = CapabilityRules::default();
     let mut capability_bad: Vec<String> = vec![];
-    for edge in stored.graph.edges.iter().filter(|edge| edge.kind == "ground") {
-        let Some(from) = stored.nodes.iter().find(|node| node.node_id == edge.from_node) else {
+    for edge in stored
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == "ground")
+    {
+        let Some(from) = stored
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.from_node)
+        else {
             capability_bad.push(format!("{}: unknown from node", edge.edge_id));
             continue;
         };
-        let Some(to) = stored.nodes.iter().find(|node| node.node_id == edge.to_node) else {
+        let Some(to) = stored
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.to_node)
+        else {
             capability_bad.push(format!("{}: unknown to node", edge.edge_id));
             continue;
         };
         let a = Vec3::from_arr(from.position_m);
         let b = Vec3::from_arr(to.position_m);
         let bands = |half: f64| -> Option<(f64, f64, f64)> {
-            let (_, centre, band, _) = ground_band_profile(
-                &resampled,
-                a,
-                b,
-                &[0.0, half, -half],
-            )
-            .ok()?;
+            let (_, centre, band, _) =
+                ground_band_profile(&resampled, a, b, &[0.0, half, -half]).ok()?;
             Some((centre, band, band.max(centre)))
         };
         let Some((centre, pedestrian, _)) = bands(0.75) else {
@@ -7900,7 +8026,10 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                     a.z,
                     b.x,
                     b.z,
-                    stored.graph.capability_rules.required_half_width(capability),
+                    stored
+                        .graph
+                        .capability_rules
+                        .required_half_width(capability),
                     &water.rect,
                 )
             });
@@ -7928,7 +8057,12 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
     // stays with the authoritative terrain, and an undecided identity is a failure. The
     // saved ground bearing facts are audited field by field as well, so a rewritten
     // identity or coverage result cannot hide behind the rebuilt geometry.
-    for edge in stored.graph.edges.iter().filter(|edge| edge.kind == "ground") {
+    for edge in stored
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == "ground")
+    {
         let required = authoritative.required_half_width(Capability::Pedestrian) * 2.0;
         let support = stored_collisions.structural_support_detail(
             &stored_collisions.all_structure_ids(),
@@ -7962,7 +8096,12 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
     }
     // Structure edges are re-derived too: the support band of their own members must
     // carry every capability the bundle claims, recomputed from the saved geometry.
-    for edge in stored.graph.edges.iter().filter(|edge| edge.kind != "ground") {
+    for edge in stored
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind != "ground")
+    {
         let Some(structure_id) = edge.structure_id.clone() else {
             continue;
         };
@@ -8058,7 +8197,9 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                 let start = stored_nodes_by_id.get(&stored.route.from_port_id);
                 match start {
                     Some(node) => {
-                        let drift = Vec3::from_arr(*first).sub(Vec3::from_arr(node.position_m)).len();
+                        let drift = Vec3::from_arr(*first)
+                            .sub(Vec3::from_arr(node.position_m))
+                            .len();
                         if drift > 1e-6 {
                             route_bad.push(format!(
                                 "the saved path starts {drift:.6} m from its start port"
@@ -8068,19 +8209,31 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                     None => route_bad.push("the saved path start port is not in the graph".into()),
                 }
                 let ends_at_target = stored_nodes_by_id
-                    .get(&stored.route.path_node_ids.last().cloned().unwrap_or_default())
+                    .get(
+                        &stored
+                            .route
+                            .path_node_ids
+                            .last()
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
                     .is_some_and(|node| {
                         node.road_id.as_deref() == Some(stored.route.to_road_id.as_str())
                     });
                 if !ends_at_target {
-                    route_bad.push("the saved path does not end at a port of the target road".into());
+                    route_bad
+                        .push("the saved path does not end at a port of the target road".into());
                 }
                 let end_drift = stored
                     .route
                     .path_node_ids
                     .last()
                     .and_then(|id| stored_nodes_by_id.get(id))
-                    .map(|node| Vec3::from_arr(*last).sub(Vec3::from_arr(node.position_m)).len())
+                    .map(|node| {
+                        Vec3::from_arr(*last)
+                            .sub(Vec3::from_arr(node.position_m))
+                            .len()
+                    })
                     .unwrap_or(f64::MAX);
                 if end_drift > 1e-6 {
                     route_bad.push(format!(
@@ -8131,15 +8284,30 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
                     .into(),
             );
         }
-        if cursor != stored.route.path_node_ids.last().cloned().unwrap_or_default() {
+        if cursor
+            != stored
+                .route
+                .path_node_ids
+                .last()
+                .cloned()
+                .unwrap_or_default()
+        {
             route_bad.push("the saved path edges do not connect its own node list".into());
         }
         let (horizontal, length, climb, descent) = polyline_metrics(&stored.route.path_polyline_m);
         for (label, saved, measured) in [
-            ("horizontalLengthM", stored.route.horizontal_length_m, horizontal),
+            (
+                "horizontalLengthM",
+                stored.route.horizontal_length_m,
+                horizontal,
+            ),
             ("pathLength3dM", stored.route.path_length_3d_m, length),
             ("cumulativeRiseM", stored.route.cumulative_rise_m, climb),
-            ("cumulativeDescentM", stored.route.cumulative_descent_m, descent),
+            (
+                "cumulativeDescentM",
+                stored.route.cumulative_descent_m,
+                descent,
+            ),
         ] {
             if (saved - measured).abs() > 1e-6 {
                 route_bad.push(format!(
@@ -8175,14 +8343,20 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
         }
         for part in &structure.parts {
             if part.bottom_mm >= part.top_mm {
-                mesh_bad.push(format!("{}: part {} is inverted", structure.structure_id, part.part_id));
+                mesh_bad.push(format!(
+                    "{}: part {} is inverted",
+                    structure.structure_id, part.part_id
+                ));
             }
             if part
                 .corners_m
                 .iter()
                 .any(|corner| corner.iter().any(|value| !value.is_finite()))
             {
-                mesh_bad.push(format!("{}: part {} is not finite", structure.structure_id, part.part_id));
+                mesh_bad.push(format!(
+                    "{}: part {} is not finite",
+                    structure.structure_id, part.part_id
+                ));
             }
         }
     }
@@ -8201,7 +8375,12 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
         .map(|node| (node.node_id.clone(), node.clone()))
         .collect();
     let stored_adjacency = adjacency_of(&stored.graph.edges);
-    let rerun = route(&stored_nodes, &stored_adjacency, &stored.graph.edges, &input.query);
+    let rerun = route(
+        &stored_nodes,
+        &stored_adjacency,
+        &stored.graph.edges,
+        &input.query,
+    );
     let route_reproduced = rerun.status == stored.route.status
         && rerun.path_edge_ids == stored.route.path_edge_ids
         && (rerun.path_length_3d_m - stored.route.path_length_3d_m).abs() < 1e-6;
@@ -8294,7 +8473,11 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
     }
     let passed = findings.is_empty();
     VerifyReport {
-        status: if passed { "verified".into() } else { "tamper_detected".into() },
+        status: if passed {
+            "verified".into()
+        } else {
+            "tamper_detected".into()
+        },
         scene_id: stored.scene_id.clone(),
         bundle_version: stored.version,
         contract_version: ENGINEERING_CONNECTIONS_VERSION,
@@ -8325,8 +8508,7 @@ pub fn verify_bundle(input: &EngineeringInput, stored: &EngineeringBundle) -> Ve
         }),
         notes,
     }
-
-} 
+}
 
 #[cfg(test)]
 mod tests {
@@ -8393,7 +8575,12 @@ mod tests {
                     if name == "reverse-flat" {
                         // The reported line must follow the query direction.
                         let start = input.query.from_port_id.clone();
-                        let first = bundle.route.path_polyline_m.first().copied().unwrap_or([0.0; 3]);
+                        let first = bundle
+                            .route
+                            .path_polyline_m
+                            .first()
+                            .copied()
+                            .unwrap_or([0.0; 3]);
                         let node = bundle
                             .nodes
                             .iter()
@@ -8457,18 +8644,24 @@ mod tests {
         let explicit = r#"{"version":2,"sceneId":"x","units":"lengths_m;levels_mm","grid":{"width":2,"depth":2,"originX":0,"originZ":0,"naturalMm":[0,0,0,0],"baselineMm":[0,0,0,0],"source":"t"},"protection":[],"obstacles":[],"water":[],"bearing":[],"roadReferences":[],"groundWorks":[],"structures":[],"ports":[],"groundConnections":[],"query":{"fromPortId":"a","toRoadId":"R","capability":"pedestrian","maxLength3dM":1.0,"maxRiseM":1.0}}"#;
         let parsed = load_input(explicit).expect("an explicit empty environment is legal input");
         assert_eq!(
-            build_bundle(&parsed).expect_err("the query road is not registered").category,
+            build_bundle(&parsed)
+                .expect_err("the query road is not registered")
+                .category,
             "unknown_road_reference"
         );
         let v1 = explicit.replace(r#""version":2"#, r#""version":1"#);
         assert_eq!(
-            load_input(&v1).expect_err("v1 must be re-declared").category,
+            load_input(&v1)
+                .expect_err("v1 must be re-declared")
+                .category,
             "contract_version_mismatch"
         );
         let unbound = explicit.replace(r#""toRoadId":"R""#, r#""toRoadId":"UNKNOWN""#);
         let parsed = load_input(&unbound).expect("input parses");
         assert_eq!(
-            build_bundle(&parsed).expect_err("an unregistered road id").category,
+            build_bundle(&parsed)
+                .expect_err("an unregistered road id")
+                .category,
             "unknown_road_reference"
         );
     }
@@ -8482,7 +8675,10 @@ mod tests {
             z0: 1,
             z1: 1,
         };
-        assert_eq!(rect.cells().expect_err("must not wrap").category, "scope_out_of_range");
+        assert_eq!(
+            rect.cells().expect_err("must not wrap").category,
+            "scope_out_of_range"
+        );
         let reversed = RectI {
             x0: 4,
             x1: 1,
@@ -8540,9 +8736,11 @@ mod tests {
         let (granted, refusals) = rules.decide("ground", &hump, &clearance);
         assert!(!granted.contains(&Capability::Wheelchair));
         assert!(!granted.contains(&Capability::Vehicle));
-        assert!(refusals
-            .iter()
-            .any(|refusal| refusal["reason"] == "local_grade_over_limit"));
+        assert!(
+            refusals
+                .iter()
+                .any(|refusal| refusal["reason"] == "local_grade_over_limit")
+        );
         let stair = CapabilityFacts {
             max_step_rise_m: 0.17,
             ..flat
@@ -8592,7 +8790,8 @@ mod tests {
     #[test]
     fn r2c_endpoint_contact_variants() {
         let root = case_root();
-        let read = |name: &str| std::fs::read_to_string(root.join(format!("{name}.json"))).expect("case");
+        let read =
+            |name: &str| std::fs::read_to_string(root.join(format!("{name}.json"))).expect("case");
         let verdict = |json: &str| -> (String, String) {
             let input = load_input(json).expect("v2 input");
             match build_bundle(&input) {
@@ -8624,7 +8823,10 @@ mod tests {
         let mut connections = ordered["groundConnections"].as_array().unwrap().clone();
         connections.reverse();
         ordered["groundConnections"] = serde_json::Value::Array(connections);
-        assert_eq!(verdict(&ordered.to_string()), verdict(&read("hump-with-valid-detour")));
+        assert_eq!(
+            verdict(&ordered.to_string()),
+            verdict(&read("hump-with-valid-detour"))
+        );
         // (d) the width boundary: exactly the requirement passes, below it must not
         let mut boundary: serde_json::Value = serde_json::from_str(&read("control-flat")).unwrap();
         for port in boundary["ports"].as_array_mut().unwrap() {
@@ -8731,7 +8933,8 @@ mod tests {
     #[test]
     fn r3_restored_semantic_regressions() {
         let root = case_root();
-        let read = |name: &str| std::fs::read_to_string(root.join(format!("{name}.json"))).expect("case");
+        let read =
+            |name: &str| std::fs::read_to_string(root.join(format!("{name}.json"))).expect("case");
         let category = |json: &str| -> String {
             match load_input(json).and_then(|input| build_bundle(&input)) {
                 Ok(_) => "<built>".into(),
@@ -8764,7 +8967,8 @@ mod tests {
         assert_eq!(category(&shortcut.to_string()), "ground_predicate_failed");
         // (c) protection, authorisation and over-authorisation: refusal, no partial work
         let mut protected = terrace.clone();
-        protected["groundWorks"][0]["scope"] = serde_json::json!({"x0": 4, "z0": 29, "x1": 8, "z1": 33});
+        protected["groundWorks"][0]["scope"] =
+            serde_json::json!({"x0": 4, "z0": 29, "x1": 8, "z1": 33});
         assert_eq!(category(&protected.to_string()), "protected_cell");
         let mut unauthorised = terrace.clone();
         unauthorised["groundWorks"][1]["allowCut"] = serde_json::json!(false);
@@ -8809,7 +9013,9 @@ mod tests {
         assert!(
             matches!(
                 support_category.as_str(),
-                "support_outside_grid" | "port_outside_structure" | "port_not_on_referenced_surface"
+                "support_outside_grid"
+                    | "port_outside_structure"
+                    | "port_not_on_referenced_surface"
             ),
             "unexpected category {support_category}"
         );
@@ -8833,13 +9039,15 @@ mod tests {
         let reverse = load_input(&one_way.to_string()).unwrap();
         let (reversed, _) = build_bundle(&reverse).expect("the one-way scene builds");
         assert_eq!(reversed.route.status, "no_suitable_edge");
-        assert!(reversed
-            .route
-            .rejected_by_reason
-            .get("one_way_blocked")
-            .copied()
-            .unwrap_or(0)
-            > 0);
+        assert!(
+            reversed
+                .route
+                .rejected_by_reason
+                .get("one_way_blocked")
+                .copied()
+                .unwrap_or(0)
+                > 0
+        );
         // (f) unmodelled structures and retaining or drainage needs are refused
         let mut retaining = terrace.clone();
         retaining["groundWorks"][0]["requiresRetainingOrDrainage"] = serde_json::json!(true);
@@ -8893,9 +9101,18 @@ mod tests {
         let (width, borne) = station_band_width(&[frame], Vec3::new(8.0, 1.0, 8.0), across);
         assert!(borne);
         assert!((width - 0.6).abs() < 1e-9);
-        assert_eq!(station_band_width(&[frame], Vec3::new(8.0, 5.0, 8.0), across), (0.0, false));
-        assert_eq!(station_band_width(&[frame], Vec3::new(14.0, 1.0, 8.0), across), (0.0, false));
-        let off_centre = MemberFrame { centre: Vec3::new(8.0, 0.0, 8.2), ..frame };
+        assert_eq!(
+            station_band_width(&[frame], Vec3::new(8.0, 5.0, 8.0), across),
+            (0.0, false)
+        );
+        assert_eq!(
+            station_band_width(&[frame], Vec3::new(14.0, 1.0, 8.0), across),
+            (0.0, false)
+        );
+        let off_centre = MemberFrame {
+            centre: Vec3::new(8.0, 0.0, 8.2),
+            ..frame
+        };
         let (width, borne) = station_band_width(&[off_centre], Vec3::new(8.0, 1.0, 8.0), across);
         assert!(borne);
         assert!((width - 0.2).abs() < 1e-9, "off-centre margin, got {width}");
@@ -8920,7 +9137,10 @@ mod tests {
         let beyond = vec![[5.0, 1.0, 8.0], [14.0, 1.0, 8.0]];
         let (band, unsupported) = structural_support_from_frames(&[deck], &beyond, 1.5);
         assert_eq!(unsupported, 1, "the far end must not be skipped");
-        assert!(band < 1.5, "a line leaving the support is not carried: {band}");
+        assert!(
+            band < 1.5,
+            "a line leaving the support is not carried: {band}"
+        );
         // The foot of a walk: the port stands on the ground in front of the first tread,
         // one riser below its top. Path height and bearing member agree, because the only
         // vertex above the port lies on the tread the walk lands on.
@@ -8935,28 +9155,52 @@ mod tests {
         };
         let foot = vec![[0.0, 0.0, 0.0], [0.15, riser, 0.0]];
         let (band, unsupported) = structural_support_from_frames(&[tread], &foot, 1.5);
-        assert_eq!(unsupported, 0, "a tread one riser up that touches the port joins it");
+        assert_eq!(
+            unsupported, 0,
+            "a tread one riser up that touches the port joins it"
+        );
         assert!(band + 1e-9 >= 1.5, "the stepped line is carried: {band}");
         // two risers up is no longer one step, so the port is not joined
-        let tall = MemberFrame { top: 2.0 * riser, ..tread };
+        let tall = MemberFrame {
+            top: 2.0 * riser,
+            ..tread
+        };
         let tall_foot = vec![[0.0, 0.0, 0.0], [0.15, 2.0 * riser, 0.0]];
         let (_band, unsupported) = structural_support_from_frames(&[tall], &tall_foot, 1.5);
-        assert_eq!(unsupported, 1, "more than one step away is not a transition");
+        assert_eq!(
+            unsupported, 1,
+            "more than one step away is not a transition"
+        );
         // a neighbour that cannot carry the band itself excuses neither end
-        let narrow_tread = MemberFrame { half_width: 0.3, ..tread };
+        let narrow_tread = MemberFrame {
+            half_width: 0.3,
+            ..tread
+        };
         let (_band, unsupported) = structural_support_from_frames(&[narrow_tread], &foot, 1.5);
         assert_eq!(
             unsupported, 2,
             "a narrow neighbour may not excuse the end it cannot carry"
         );
         // a neighbour that does not touch the port joins nothing
-        let detached = MemberFrame { centre: Vec3::new(0.45, 0.0, 0.0), ..tread };
+        let detached = MemberFrame {
+            centre: Vec3::new(0.45, 0.0, 0.0),
+            ..tread
+        };
         let (_band, unsupported) = structural_support_from_frames(&[detached], &foot, 1.5);
-        assert_eq!(unsupported, 2, "a neighbour that does not touch joins nothing");
+        assert_eq!(
+            unsupported, 2,
+            "a neighbour that does not touch joins nothing"
+        );
         // a narrow member is unsupported everywhere, and never its own transition
-        let narrow_deck = MemberFrame { half_width: 0.3, ..deck };
+        let narrow_deck = MemberFrame {
+            half_width: 0.3,
+            ..deck
+        };
         let (band, unsupported) = structural_support_from_frames(&[narrow_deck], &inside, 1.5);
-        assert!(band < 1.5, "a 0.6 m member cannot carry a 1.5 m band: {band}");
+        assert!(
+            band < 1.5,
+            "a 0.6 m member cannot carry a 1.5 m band: {band}"
+        );
         assert_eq!(unsupported, 2, "a member may not excuse its own ports");
     }
 
@@ -9026,14 +9270,14 @@ mod tests {
         let across = Vec3::new(0.0, 0.0, 1.0);
         let (port_width, borne) =
             station_band_width(&[low, high], Vec3::new(0.0, 1.0, 0.0), across);
-        assert!(borne, "the port really is on a surface, it is just too narrow");
+        assert!(
+            borne,
+            "the port really is on a surface, it is just too narrow"
+        );
         assert!((port_width - 0.4).abs() < 1e-9, "got {port_width}");
         let line = vec![[0.0, 1.0, 0.0], [9.0, 1.0, 0.0]];
-        let facts = structural_support_detail(
-            &[("low", low), ("high", high), ("main", main)],
-            &line,
-            1.5,
-        );
+        let facts =
+            structural_support_detail(&[("low", low), ("high", high), ("main", main)], &line, 1.5);
         assert_eq!(
             facts.unsupported_endpoints, 1,
             "the port is neither carried at its own level nor joined by a member that can carry it"
@@ -9052,7 +9296,10 @@ mod tests {
         // at that section is 0.4 m wide, so the covered half width is 0.2 m.
         assert_eq!(narrow_interval.coverage_verdict, "gap");
         let witness = narrow_interval.witness.expect("the gap has a witness");
-        assert!((witness.covered_half_width_m - 0.2).abs() < 1e-9, "{witness:?}");
+        assert!(
+            (witness.covered_half_width_m - 0.2).abs() < 1e-9,
+            "{witness:?}"
+        );
         assert_eq!(narrow_interval.band_m, 0.0, "unproved is not carried");
         let wide = facts
             .intervals
@@ -9142,10 +9389,11 @@ mod tests {
         assert_eq!(gap.coverage_verdict, "gap", "a gap is not a certificate");
         assert!(!gap.carried && gap.certified_band_m == 0.0);
         assert!(gap.parts.is_empty(), "a gap claims no contributing part");
-        assert!(gap
-            .adjacent_levels_m
-            .iter()
-            .all(|level| (level - 1.0).abs() < 1e-9));
+        assert!(
+            gap.adjacent_levels_m
+                .iter()
+                .all(|level| (level - 1.0).abs() < 1e-9)
+        );
     }
 
     #[test]
@@ -9192,17 +9440,25 @@ mod tests {
         assert!(!worst.carried, "the narrow interval is not carried");
         assert_eq!(worst.coverage_verdict, "gap");
         let witness = worst.witness.expect("the gap has a witness");
-        assert!((witness.covered_half_width_m - 0.2).abs() < 1e-9, "{witness:?}");
-        let certified: Vec<&SupportInterval> =
-            facts.intervals.iter().filter(|interval| interval.carried).collect();
+        assert!(
+            (witness.covered_half_width_m - 0.2).abs() < 1e-9,
+            "{witness:?}"
+        );
+        let certified: Vec<&SupportInterval> = facts
+            .intervals
+            .iter()
+            .filter(|interval| interval.carried)
+            .collect();
         assert!(
             !certified.is_empty(),
             "the outer surfaces certify their own parts of the walk"
         );
-        assert!(certified.iter().any(|interval| interval
-            .parts
-            .iter()
-            .any(|part| part == "left" || part == "right")));
+        assert!(certified.iter().any(|interval| {
+            interval
+                .parts
+                .iter()
+                .any(|part| part == "left" || part == "right")
+        }));
     }
 
     /// P2: a saved bundle whose *support geometry* was rewritten, with its capability
@@ -9225,8 +9481,7 @@ mod tests {
         for structure in bundle.structures.iter_mut() {
             for part in structure.parts.iter_mut() {
                 if part.part_id.ends_with("::turn") {
-                    let centre_x =
-                        part.corners_m.iter().map(|corner| corner[0]).sum::<f64>() / 8.0;
+                    let centre_x = part.corners_m.iter().map(|corner| corner[0]).sum::<f64>() / 8.0;
                     for corner in part.corners_m.iter_mut() {
                         corner[0] = centre_x + (corner[0] - centre_x) * 0.6;
                     }
@@ -9318,8 +9573,7 @@ mod tests {
         let line = vec![[7.9, 1.0, 8.2], [8.0, 1.0, 8.3], [8.1, 1.0, 8.2]];
         let first = Vec3::from_arr(line[1]).sub(Vec3::from_arr(line[0]));
         let across = first.normalize_xz().unwrap().perp_xz();
-        let (corner_band, borne) =
-            station_band_width(&[deck], Vec3::new(8.0, 1.0, 8.3), across);
+        let (corner_band, borne) = station_band_width(&[deck], Vec3::new(8.0, 1.0, 8.3), across);
         assert!(borne, "the corner really is on the deck");
         assert!(
             (corner_band - 1.414_213_562_373_095).abs() < 1e-9,
@@ -9622,7 +9876,10 @@ mod tests {
             [1.0, 1.0, 0.0],
             1.5,
         );
-        assert_eq!(reversed.verdict, support_coverage::CoverageVerdict::Certified);
+        assert_eq!(
+            reversed.verdict,
+            support_coverage::CoverageVerdict::Certified
+        );
     }
 
     #[test]
@@ -9704,7 +9961,10 @@ mod tests {
             [0.0, 1.0, 9.0],
             1.5,
         );
-        assert_eq!(rotated.verdict, support_coverage::CoverageVerdict::Certified);
+        assert_eq!(
+            rotated.verdict,
+            support_coverage::CoverageVerdict::Certified
+        );
         // degenerate and budgeted cases are indeterminate, never carried
         let degenerate = certify(
             vec![("central", central)],
@@ -9740,7 +10000,10 @@ mod tests {
         // G22: an exhausted budget keeps the bearing identity it independently proved
         // (`structure`, because a real station in the segment is carried) while the
         // coverage stays undecided. It is never rewritten into "no support needed".
-        assert_eq!(budgeted.bearing, support_coverage::BearingIdentity::Structure);
+        assert_eq!(
+            budgeted.bearing,
+            support_coverage::BearingIdentity::Structure
+        );
         assert_eq!(
             budgeted.bearing_reason,
             support_coverage::REASON_COVERAGE_BUDGET_EXHAUSTED
@@ -9819,7 +10082,9 @@ mod tests {
             .map(|recheck| recheck.name.clone())
             .collect();
         assert!(
-            failed.iter().any(|name| name == "stored_capabilities_resampled"),
+            failed
+                .iter()
+                .any(|name| name == "stored_capabilities_resampled"),
             "{label}: the designated support re-check must conclude on its own, failed {failed:?}"
         );
     }
@@ -9866,15 +10131,26 @@ mod tests {
     #[test]
     fn g22_the_inspector_ground_differential_is_refused_in_both_forms() {
         let root = case_root();
-        let control_json =
-            std::fs::read_to_string(root.join("g22-ground-narrow-control.json")).expect("control case");
-        let remote_json = std::fs::read_to_string(root.join("g22-ground-narrow-with-remote-parts-v2.json"))
-            .expect("remote-parts case");
+        let control_json = std::fs::read_to_string(root.join("g22-ground-narrow-control.json"))
+            .expect("control case");
+        let remote_json =
+            std::fs::read_to_string(root.join("g22-ground-narrow-with-remote-parts-v2.json"))
+                .expect("remote-parts case");
         let control: serde_json::Value = serde_json::from_str(&control_json).unwrap();
         let remote: serde_json::Value = serde_json::from_str(&remote_json).unwrap();
         // The scene really is the same locally: only far, unconnected parts were added.
-        for key in ["grid", "obstacles", "water", "bearing", "groundConnections", "query"] {
-            assert_eq!(control[key], remote[key], "the differential must not touch {key}");
+        for key in [
+            "grid",
+            "obstacles",
+            "water",
+            "bearing",
+            "groundConnections",
+            "query",
+        ] {
+            assert_eq!(
+                control[key], remote[key],
+                "the differential must not touch {key}"
+            );
         }
         for id in ["a", "b", "deck-port"] {
             let pick = |value: &serde_json::Value| {
@@ -9897,7 +10173,11 @@ mod tests {
                 .cloned()
                 .expect("the local deck")
         };
-        assert_eq!(deck(&control), deck(&remote), "the local platform is unchanged");
+        assert_eq!(
+            deck(&control),
+            deck(&remote),
+            "the local platform is unchanged"
+        );
         assert!(
             remote["structures"].as_array().unwrap().len()
                 > control["structures"].as_array().unwrap().len(),
@@ -9917,8 +10197,12 @@ mod tests {
             assert_eq!(error.detail["bearing"], "structure", "{label}");
             assert_eq!(error.detail["coverageVerdict"], "gap", "{label}");
             assert_eq!(error.detail["bearingReason"], "decided", "{label}");
-            let measured = error.detail["measuredBandM"].as_f64().expect("measured band");
-            let required = error.detail["requiredBandM"].as_f64().expect("required band");
+            let measured = error.detail["measuredBandM"]
+                .as_f64()
+                .expect("measured band");
+            let required = error.detail["requiredBandM"]
+                .as_f64()
+                .expect("required band");
             assert!(
                 measured < required,
                 "{label}: the real band {measured} is under the required {required}"
@@ -9936,7 +10220,9 @@ mod tests {
             filtered.len()
         );
         assert!(
-            filtered.iter().all(|entry| entry["reason"] == "outside_closed_walking_band"),
+            filtered
+                .iter()
+                .all(|entry| entry["reason"] == "outside_closed_walking_band"),
             "{filtered:?}"
         );
         assert!(
@@ -9945,7 +10231,10 @@ mod tests {
                 .is_some_and(|part| part.starts_with("remote-"))),
             "only the remote parts may be excluded: {filtered:?}"
         );
-        assert_eq!(error.detail["eventBudget"], support_coverage::MAX_COVERAGE_EVENTS as u64);
+        assert_eq!(
+            error.detail["eventBudget"],
+            support_coverage::MAX_COVERAGE_EVENTS as u64
+        );
         // The same invariance holds in the pure prover: the local certificate does not
         // move when far parts are added, and they are reported as filtered.
         let local = rect([8.0, 0.0, 8.2], 3.0, 0.8);
@@ -9953,10 +10242,7 @@ mod tests {
         let alone = certify(vec![("deck::deck", local)], line[0], line[1], 1.5);
         let mut with_remote = vec![("deck::deck", local)];
         for index in 0..40 {
-            with_remote.push((
-                "remote",
-                rect([120.0 + index as f64, 0.0, 120.0], 1.0, 0.8),
-            ));
+            with_remote.push(("remote", rect([120.0 + index as f64, 0.0, 120.0], 1.0, 0.8)));
         }
         let crowded = certify(with_remote, line[0], line[1], 1.5);
         assert_eq!(alone.verdict, crowded.verdict);
@@ -9985,13 +10271,15 @@ mod tests {
         assert_eq!(facts["coverageVerdict"], "notApplicable");
         assert_eq!(facts["bearingReason"], "no_candidate_parts_proven");
         assert_eq!(facts["schemaVersion"], SUPPORT_FACTS_SCHEMA_VERSION as u64);
-        assert!(facts["intervals"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|interval| interval["bearing"] == "noStructuralSupport"
-                && interval["coverageVerdict"] == "notApplicable"
-                && interval["centreBorne"] == false));
+        assert!(
+            facts["intervals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|interval| interval["bearing"] == "noStructuralSupport"
+                    && interval["coverageVerdict"] == "notApplicable"
+                    && interval["centreBorne"] == false)
+        );
         assert!(ground.capabilities.contains(&Capability::Pedestrian));
         // Bare ground is still refused by the authoritative solid and scope rules ...
         for (name, category) in [
@@ -10019,16 +10307,28 @@ mod tests {
         let switchback = load_input(&case_source("minimal-switchback")).expect("v2 input");
         let (bundle, _) = build_bundle(&switchback).expect("the switchback builds");
         let mut audited = 0_usize;
-        for edge in bundle.graph.edges.iter().filter(|edge| edge.kind != "ground") {
+        for edge in bundle
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind != "ground")
+        {
             let Some(facts) = edge.verification.detail.get("supportFacts") else {
                 continue;
             };
             for fact in facts.as_object().unwrap().values() {
                 let intervals = fact["intervals"].as_array().expect("intervals");
-                assert!(!intervals.is_empty(), "a structure edge carries support facts");
+                assert!(
+                    !intervals.is_empty(),
+                    "a structure edge carries support facts"
+                );
                 for interval in intervals {
                     assert_eq!(interval["bearing"], "structure", "{}", edge.edge_id);
-                    assert_ne!(interval["coverageVerdict"], "notApplicable", "{}", edge.edge_id);
+                    assert_ne!(
+                        interval["coverageVerdict"], "notApplicable",
+                        "{}",
+                        edge.edge_id
+                    );
                 }
                 audited += 1;
             }
@@ -10055,13 +10355,22 @@ mod tests {
         assert_eq!(full.bearing, support_coverage::BearingIdentity::Structure);
         assert_eq!(full.coverage, support_coverage::CoverageVerdict::Certified);
         assert!(full.band_m + 1e-9 >= 1.5);
-        assert!(full.ground_refusal().is_none(), "a wide deck passes the support gate");
+        assert!(
+            full.ground_refusal().is_none(),
+            "a wide deck passes the support gate"
+        );
         // The same real geometry, evaluated under a budget that cannot afford it. The
         // identity that a real station proves survives the failure; the coverage does not
         // become a certificate and the gate refuses.
         let starved = structural_support_detail_with_budget(&[("deck::deck", deck)], &line, 1.5, 4);
-        assert_eq!(starved.coverage, support_coverage::CoverageVerdict::Indeterminate);
-        assert_eq!(starved.bearing, support_coverage::BearingIdentity::Structure);
+        assert_eq!(
+            starved.coverage,
+            support_coverage::CoverageVerdict::Indeterminate
+        );
+        assert_eq!(
+            starved.bearing,
+            support_coverage::BearingIdentity::Structure
+        );
         assert_eq!(
             starved.bearing_reason,
             support_coverage::REASON_COVERAGE_BUDGET_EXHAUSTED
@@ -10085,8 +10394,14 @@ mod tests {
         let walk = vec![[0.0, 1.0, 0.0], [10.0, 1.0, 0.0]];
         let undecided =
             structural_support_detail_with_budget(&[("off::probe", off_probe)], &walk, 1.5, 4);
-        assert_eq!(undecided.coverage, support_coverage::CoverageVerdict::Indeterminate);
-        assert_eq!(undecided.bearing, support_coverage::BearingIdentity::Unknown);
+        assert_eq!(
+            undecided.coverage,
+            support_coverage::CoverageVerdict::Indeterminate
+        );
+        assert_eq!(
+            undecided.bearing,
+            support_coverage::BearingIdentity::Unknown
+        );
         assert_eq!(
             undecided.bearing_reason,
             support_coverage::REASON_COVERAGE_BUDGET_EXHAUSTED
@@ -10103,7 +10418,10 @@ mod tests {
         };
         let invalid = structural_support_detail(&[("broken::deck", broken)], &line, 1.5);
         assert_eq!(invalid.bearing, support_coverage::BearingIdentity::Unknown);
-        assert_eq!(invalid.bearing_reason, support_coverage::REASON_INVALID_FRAME);
+        assert_eq!(
+            invalid.bearing_reason,
+            support_coverage::REASON_INVALID_FRAME
+        );
         assert_eq!(
             invalid.coverage,
             support_coverage::CoverageVerdict::Indeterminate
@@ -10113,7 +10431,9 @@ mod tests {
             "ground_edge_support_unknown"
         );
         assert!(
-            invalid.parts_considered.contains(&"broken::deck".to_string()),
+            invalid
+                .parts_considered
+                .contains(&"broken::deck".to_string()),
             "an unusable frame is still a considered candidate"
         );
         // The designated audit refuses the same states when they are saved: an undecided
@@ -10139,13 +10459,18 @@ mod tests {
         commit_bundle(&mut ground_bundle, "bundle.json", "report.json").expect("publish");
         let mut variant = ground_bundle.clone();
         {
-            let facts = first_support_facts_mut(&mut variant, Some("ground")).expect("ground facts");
+            let facts =
+                first_support_facts_mut(&mut variant, Some("ground")).expect("ground facts");
             facts
                 .as_object_mut()
                 .unwrap()
                 .insert("bearing".into(), serde_json::json!("structure"));
         }
-        assert_designated_recheck_refuses(&control_input, &mut variant, "ground bearing -> structure");
+        assert_designated_recheck_refuses(
+            &control_input,
+            &mut variant,
+            "ground bearing -> structure",
+        );
     }
 
     /// N4: every single-field, self-consistent rewrite of the saved bearing state is
@@ -10233,7 +10558,10 @@ mod tests {
 
         for (name, mut variant) in variants {
             assert_designated_recheck_refuses(&input, &mut variant, &name);
-            export_variant(&name, &serde_json::to_string_pretty(&variant).expect("serialise"));
+            export_variant(
+                &name,
+                &serde_json::to_string_pretty(&variant).expect("serialise"),
+            );
         }
 
         // The structure side of the same schema: structure -> noStructuralSupport,
@@ -10293,7 +10621,10 @@ mod tests {
             } else {
                 assert_designated_recheck_refuses(&structure_input, &mut variant, &name);
             }
-            export_variant(&name, &serde_json::to_string_pretty(&variant).expect("serialise"));
+            export_variant(
+                &name,
+                &serde_json::to_string_pretty(&variant).expect("serialise"),
+            );
         }
     }
 
@@ -10335,13 +10666,55 @@ mod tests {
         // A single frame whose own fields cannot be trusted is an Unknown, whichever field
         // it is, and it names the part instead of vanishing.
         for (label, broken) in [
-            ("top NaN", MemberFrame { top: f64::NAN, ..deck }),
-            ("top +Inf", MemberFrame { top: f64::INFINITY, ..deck }),
-            ("centre NaN", MemberFrame { centre: Vec3::new(f64::NAN, 0.0, 8.0), ..deck }),
-            ("along NaN", MemberFrame { along: Vec3::new(f64::NAN, 0.0, 0.0), ..deck }),
-            ("vertical along", MemberFrame { along: Vec3::new(0.0, 1.0, 0.0), ..deck }),
-            ("half_width zero", MemberFrame { half_width: 0.0, ..deck }),
-            ("half_length NaN", MemberFrame { half_length: f64::NAN, ..deck }),
+            (
+                "top NaN",
+                MemberFrame {
+                    top: f64::NAN,
+                    ..deck
+                },
+            ),
+            (
+                "top +Inf",
+                MemberFrame {
+                    top: f64::INFINITY,
+                    ..deck
+                },
+            ),
+            (
+                "centre NaN",
+                MemberFrame {
+                    centre: Vec3::new(f64::NAN, 0.0, 8.0),
+                    ..deck
+                },
+            ),
+            (
+                "along NaN",
+                MemberFrame {
+                    along: Vec3::new(f64::NAN, 0.0, 0.0),
+                    ..deck
+                },
+            ),
+            (
+                "vertical along",
+                MemberFrame {
+                    along: Vec3::new(0.0, 1.0, 0.0),
+                    ..deck
+                },
+            ),
+            (
+                "half_width zero",
+                MemberFrame {
+                    half_width: 0.0,
+                    ..deck
+                },
+            ),
+            (
+                "half_length NaN",
+                MemberFrame {
+                    half_length: f64::NAN,
+                    ..deck
+                },
+            ),
         ] {
             let facts = structural_support_detail(&[("deck::deck", broken)], &line, 1.5);
             assert_eq!(
@@ -10374,7 +10747,10 @@ mod tests {
                 "{label}: the refusal names the offending section"
             );
             assert_eq!(
-                facts.structure_refusal().expect("the structure gate refuses").category,
+                facts
+                    .structure_refusal()
+                    .expect("the structure gate refuses")
+                    .category,
                 "structure_edge_unsupported",
                 "{label}"
             );
@@ -10389,7 +10765,16 @@ mod tests {
         // by the level comparison and the deck certifies the line, so the extra part would
         // read as "no structure at another level" instead of "cannot be classified".
         let with_unusable_extra = structural_support_detail(
-            &[("deck::deck", deck), ("ghost::part", MemberFrame { top: f64::NAN, ..deck })],
+            &[
+                ("deck::deck", deck),
+                (
+                    "ghost::part",
+                    MemberFrame {
+                        top: f64::NAN,
+                        ..deck
+                    },
+                ),
+            ],
             &line,
             1.5,
         );
@@ -10410,15 +10795,17 @@ mod tests {
             "the unusable part is named: {}",
             refusal.detail
         );
-        assert!(with_unusable_extra
-            .parts_considered
-            .contains(&"ghost::part".to_string()));
-        assert!(with_unusable_extra
-            .parts_considered
-            .contains(&"deck::deck".to_string()));
-        assert!(with_unusable_extra
-            .structure_refusal()
-            .is_some());
+        assert!(
+            with_unusable_extra
+                .parts_considered
+                .contains(&"ghost::part".to_string())
+        );
+        assert!(
+            with_unusable_extra
+                .parts_considered
+                .contains(&"deck::deck".to_string())
+        );
+        assert!(with_unusable_extra.structure_refusal().is_some());
     }
 
     /// P2 (b): an empty, single-point, non-finite or fully degenerate path is an explicit
@@ -10440,7 +10827,12 @@ mod tests {
             ),
             (
                 "all segments degenerate",
-                vec![[5.5, 1.0, 8.0], [5.5, 1.0, 8.0], [5.5, 1.0, 8.0], [5.5, 1.0, 8.0]],
+                vec![
+                    [5.5, 1.0, 8.0],
+                    [5.5, 1.0, 8.0],
+                    [5.5, 1.0, 8.0],
+                    [5.5, 1.0, 8.0],
+                ],
             ),
             (
                 "non-finite vertex",
@@ -10476,13 +10868,10 @@ mod tests {
                 "{label}: an unevaluated line still reports one explicit interval"
             );
             assert!(
-                facts
-                    .intervals
-                    .iter()
-                    .all(|interval| interval.bearing
-                        == support_coverage::BearingIdentity::Unknown
-                        && !interval.carried
-                        && interval.band_m == 0.0),
+                facts.intervals.iter().all(|interval| interval.bearing
+                    == support_coverage::BearingIdentity::Unknown
+                    && !interval.carried
+                    && interval.band_m == 0.0),
                 "{label}"
             );
             let refusal = facts
@@ -10507,10 +10896,7 @@ mod tests {
         assert!(facts.structure_refusal().is_none());
         assert!(!facts.intervals.is_empty());
         assert!(
-            facts
-                .intervals
-                .iter()
-                .all(|interval| interval.segment == 1),
+            facts.intervals.iter().all(|interval| interval.segment == 1),
             "the zero-length segment 0 contributes nothing: {:?}",
             facts
                 .intervals
@@ -10536,9 +10922,15 @@ mod tests {
             facts.bearing_reason,
             support_coverage::REASON_NO_CANDIDATE_PARTS_PROVEN
         );
-        assert!(facts.ground_refusal().is_none(), "bare ground is not refused here");
+        assert!(
+            facts.ground_refusal().is_none(),
+            "bare ground is not refused here"
+        );
         assert_eq!(
-            facts.structure_refusal().expect("a structure edge may not be bare").category,
+            facts
+                .structure_refusal()
+                .expect("a structure edge may not be bare")
+                .category,
             "structure_edge_unsupported"
         );
     }
@@ -10571,12 +10963,20 @@ mod tests {
         assert!(certified.structure_refusal().is_none());
 
         // valid, structure-borne but too narrow: structure + gap, both gates refuse
-        let narrow = MemberFrame { half_width: 0.2, ..deck };
+        let narrow = MemberFrame {
+            half_width: 0.2,
+            ..deck
+        };
         let too_narrow = structural_support_detail(&[("deck::deck", narrow)], &line, 1.5);
-        assert_eq!(too_narrow.bearing, support_coverage::BearingIdentity::Structure);
+        assert_eq!(
+            too_narrow.bearing,
+            support_coverage::BearingIdentity::Structure
+        );
         assert_eq!(too_narrow.coverage, support_coverage::CoverageVerdict::Gap);
         assert!(too_narrow.band_m < 1.5);
-        let refusal = too_narrow.ground_refusal().expect("the narrow deck refuses");
+        let refusal = too_narrow
+            .ground_refusal()
+            .expect("the narrow deck refuses");
         assert_eq!(refusal.category, "ground_edge_unsupported_by_structure");
         assert_eq!(
             refusal.bearing,
@@ -10586,9 +10986,11 @@ mod tests {
 
         // an exhausted budget: the identity a real station proves survives, the coverage
         // does not, and both gates refuse through the production entrance
-        let starved =
-            structural_support_detail_with_budget(&[("deck::deck", deck)], &line, 1.5, 0);
-        assert_eq!(starved.bearing, support_coverage::BearingIdentity::Structure);
+        let starved = structural_support_detail_with_budget(&[("deck::deck", deck)], &line, 1.5, 0);
+        assert_eq!(
+            starved.bearing,
+            support_coverage::BearingIdentity::Structure
+        );
         assert_eq!(
             starved.coverage,
             support_coverage::CoverageVerdict::Indeterminate

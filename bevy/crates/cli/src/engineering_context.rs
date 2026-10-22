@@ -9,11 +9,11 @@
 //! outranks it; only a fully evaluated, fully matching package passes.
 
 use glyphweave_core::engineering_context::{
-    build_context, resolve_within_root, BoundScene, WindowRect, CONTEXT_CHECK_CONTRACT,
-    FORBIDDEN_CLAIM_PHRASES, MANDATED_DRIFT_LIMITATION_PREFIX, MANDATED_LIMITATION_PREFIXES,
+    BoundScene, CONTEXT_CHECK_CONTRACT, FORBIDDEN_CLAIM_PHRASES, MANDATED_DRIFT_LIMITATION_PREFIX,
+    MANDATED_LIMITATION_PREFIXES, WindowRect, build_context, resolve_within_root,
 };
 use glyphweave_core::engineering_preview::sha256_hex;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
@@ -52,22 +52,86 @@ struct FieldRule {
 }
 
 const FIELD_RULES: [FieldRule; 16] = [
-    FieldRule { field: "schemaVersion", stage: "contextCompleteness", rule: "supportedVersion" },
-    FieldRule { field: "readOnly", stage: "contextCompleteness", rule: "mustBeTrue" },
-    FieldRule { field: "checks", stage: "contextCompleteness", rule: "formalStagesNotEvaluated" },
-    FieldRule { field: "limitations", stage: "contextCompleteness", rule: "nonEmptyAndDriftDisclosed" },
-    FieldRule { field: "sceneBinding", stage: "sourceBinding", rule: "sourceRebuildEquality" },
-    FieldRule { field: "sourceBindings", stage: "sourceBinding", rule: "sourceRebuildEquality" },
-    FieldRule { field: "heightFiles", stage: "sourceBinding", rule: "sourceRebuildEquality" },
-    FieldRule { field: "requiredFileSet", stage: "sourceBinding", rule: "sourceRebuildEquality" },
-    FieldRule { field: "window", stage: "terrainParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "terrainComparison", stage: "terrainParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "crop", stage: "terrainParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "entities", stage: "entityAndRoadParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "roads", stage: "entityAndRoadParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "planEdgeReferences", stage: "entityAndRoadParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "derived", stage: "entityAndRoadParity", rule: "sourceRebuildEquality" },
-    FieldRule { field: "accessRecords", stage: "entityAndRoadParity", rule: "sourceRebuildEquality" },
+    FieldRule {
+        field: "schemaVersion",
+        stage: "contextCompleteness",
+        rule: "supportedVersion",
+    },
+    FieldRule {
+        field: "readOnly",
+        stage: "contextCompleteness",
+        rule: "mustBeTrue",
+    },
+    FieldRule {
+        field: "checks",
+        stage: "contextCompleteness",
+        rule: "formalStagesNotEvaluated",
+    },
+    FieldRule {
+        field: "limitations",
+        stage: "contextCompleteness",
+        rule: "nonEmptyAndDriftDisclosed",
+    },
+    FieldRule {
+        field: "sceneBinding",
+        stage: "sourceBinding",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "sourceBindings",
+        stage: "sourceBinding",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "heightFiles",
+        stage: "sourceBinding",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "requiredFileSet",
+        stage: "sourceBinding",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "window",
+        stage: "terrainParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "terrainComparison",
+        stage: "terrainParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "crop",
+        stage: "terrainParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "entities",
+        stage: "entityAndRoadParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "roads",
+        stage: "entityAndRoadParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "planEdgeReferences",
+        stage: "entityAndRoadParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "derived",
+        stage: "entityAndRoadParity",
+        rule: "sourceRebuildEquality",
+    },
+    FieldRule {
+        field: "accessRecords",
+        stage: "entityAndRoadParity",
+        rule: "sourceRebuildEquality",
+    },
 ];
 
 fn field_stage(field: &str) -> Option<&'static str> {
@@ -190,13 +254,25 @@ pub(super) struct Stage {
 
 impl Stage {
     pub(super) fn pass(name: &'static str, detail: String) -> Self {
-        Self { name, state: "pass", detail }
+        Self {
+            name,
+            state: "pass",
+            detail,
+        }
     }
     pub(super) fn fail(name: &'static str, detail: String) -> Self {
-        Self { name, state: "fail", detail }
+        Self {
+            name,
+            state: "fail",
+            detail,
+        }
     }
     pub(super) fn not_evaluated(name: &'static str, detail: String) -> Self {
-        Self { name, state: "notEvaluated", detail }
+        Self {
+            name,
+            state: "notEvaluated",
+            detail,
+        }
     }
 }
 
@@ -219,7 +295,10 @@ pub(super) fn compare_stage(
     }
     Stage::pass(
         name,
-        format!("{} assigned field group(s) match the rebuilt source", keys.len()),
+        format!(
+            "{} assigned field group(s) match the rebuilt source",
+            keys.len()
+        ),
     )
 }
 
@@ -264,7 +343,9 @@ fn read_package_file(
     let metadata = match fs::metadata(&resolved) {
         Ok(metadata) => metadata,
         Err(error) => {
-            failures.push(format!("required package file {name} is unreadable: {error}"));
+            failures.push(format!(
+                "required package file {name} is unreadable: {error}"
+            ));
             return None;
         }
     };
@@ -291,7 +372,9 @@ fn read_package_file(
     match fs::read(&resolved) {
         Ok(bytes) => Some(bytes),
         Err(error) => {
-            failures.push(format!("required package file {name} is unreadable: {error}"));
+            failures.push(format!(
+                "required package file {name} is unreadable: {error}"
+            ));
             None
         }
     }
@@ -400,9 +483,9 @@ fn validate_contract(package: &Path) -> Contract {
                             Ok(_) => contract.failures.push(format!(
                                 "required package entry {name} is not a regular file"
                             )),
-                            Err(error) => contract.failures.push(format!(
-                                "cannot inspect package entry {name}: {error}"
-                            )),
+                            Err(error) => contract
+                                .failures
+                                .push(format!("cannot inspect package entry {name}: {error}")),
                         }
                     }
                     Err(error) => contract
@@ -532,12 +615,16 @@ fn validate_manifest(manifest: &Value, context_sha256: &str, failures: &mut Vec<
     }
     match string_field(manifest, "contextFile").as_deref() {
         Some(CONTEXT_FILE) => {}
-        Some(other) => failures.push(format!("manifest contextFile must be {CONTEXT_FILE}, found {other}")),
+        Some(other) => failures.push(format!(
+            "manifest contextFile must be {CONTEXT_FILE}, found {other}"
+        )),
         None => failures.push("manifest contextFile is missing".to_string()),
     }
     match string_field(manifest, "markerFile").as_deref() {
         Some(MARKER_FILE) => {}
-        Some(other) => failures.push(format!("manifest markerFile must be {MARKER_FILE}, found {other}")),
+        Some(other) => failures.push(format!(
+            "manifest markerFile must be {MARKER_FILE}, found {other}"
+        )),
         None => failures.push("manifest markerFile is missing".to_string()),
     }
     match string_field(manifest, "contextSha256") {
@@ -581,7 +668,9 @@ fn validate_manifest(manifest: &Value, context_sha256: &str, failures: &mut Vec<
                 failures.push("manifest requiredFileSet contains duplicate entries".to_string());
             }
         }
-        Some(_) => failures.push("manifest requiredFileSet must be a non-empty string array".to_string()),
+        Some(_) => {
+            failures.push("manifest requiredFileSet must be a non-empty string array".to_string())
+        }
         None => failures.push("manifest requiredFileSet is missing".to_string()),
     }
     match manifest.get("sourceBindings").and_then(Value::as_array) {
@@ -617,7 +706,9 @@ fn validate_marker(
 ) {
     match string_field(marker, "status").as_deref() {
         Some("complete") => {}
-        Some(other) => failures.push(format!("completion marker status must be complete, found {other}")),
+        Some(other) => failures.push(format!(
+            "completion marker status must be complete, found {other}"
+        )),
         None => failures.push("completion marker status is missing".to_string()),
     }
     match string_field(marker, "schemaVersion").as_deref() {
@@ -627,12 +718,16 @@ fn validate_marker(
     }
     match string_field(marker, "contextFile").as_deref() {
         Some(CONTEXT_FILE) => {}
-        Some(other) => failures.push(format!("marker contextFile must be {CONTEXT_FILE}, found {other}")),
+        Some(other) => failures.push(format!(
+            "marker contextFile must be {CONTEXT_FILE}, found {other}"
+        )),
         None => failures.push("marker contextFile is missing".to_string()),
     }
     match string_field(marker, "manifestFile").as_deref() {
         Some(MANIFEST_FILE) => {}
-        Some(other) => failures.push(format!("marker manifestFile must be {MANIFEST_FILE}, found {other}")),
+        Some(other) => failures.push(format!(
+            "marker manifestFile must be {MANIFEST_FILE}, found {other}"
+        )),
         None => failures.push("marker manifestFile is missing".to_string()),
     }
     match string_field(marker, "contextSha256") {
@@ -816,7 +911,9 @@ fn validate_manifest_consistency(manifest: &Value, context: &Value, failures: &m
         (Some(declared), Some(actual)) => failures.push(format!(
             "manifest sceneId {declared} does not match the context scene {actual}"
         )),
-        _ => failures.push("manifest sceneId or the context scene identity is unusable".to_string()),
+        _ => {
+            failures.push("manifest sceneId or the context scene identity is unusable".to_string())
+        }
     }
     let declared_window = manifest.get("window").and_then(Value::as_array);
     let context_window = context.get("window");
@@ -849,10 +946,22 @@ fn manifest_matches_rebuilt(contract: &Contract, bound: &BoundScene) -> Option<S
     let describe = |value: &Value| {
         format!(
             "{}|{}|{}|{}",
-            value.get("path").and_then(Value::as_str).unwrap_or_default(),
-            value.get("role").and_then(Value::as_str).unwrap_or_default(),
-            value.get("bytes").and_then(Value::as_u64).unwrap_or_default(),
-            value.get("sha256").and_then(Value::as_str).unwrap_or_default()
+            value
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("bytes")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            value
+                .get("sha256")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
         )
     };
     let mut declared: Vec<String> = contract
@@ -939,10 +1048,15 @@ pub(super) struct Owned {
 /// adopted, so nothing that this run did not create is ever removed.
 pub(super) fn claim_directory(dir: &Path) -> CliResult<Owned> {
     match fs::create_dir(dir) {
-        Ok(()) => Ok(Owned { dir: dir.to_path_buf(), files: Vec::new() }),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err(format!("target {} already exists; refusing to reuse it", dir.display()).into())
-        }
+        Ok(()) => Ok(Owned {
+            dir: dir.to_path_buf(),
+            files: Vec::new(),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(format!(
+            "target {} already exists; refusing to reuse it",
+            dir.display()
+        )
+        .into()),
         Err(error) => Err(format!("cannot claim target {}: {error}", dir.display()).into()),
     }
 }
@@ -959,7 +1073,7 @@ pub(super) fn release(owned: Owned) -> Result<(), String> {
                 return Err(format!(
                     "cannot clean up {}: {error}; incomplete package kept for inspection",
                     path.display()
-                ))
+                ));
             }
         }
     }
@@ -1037,9 +1151,8 @@ pub(super) fn check_report_path(report: &Path, world: &Path, package: &Path) -> 
     let resolved = parent.join(file_name);
     // Both roots are canonicalised so that `\\?\` prefixes, links and platform
     // aliases cannot make an inside path look like an outside one.
-    let package_canonical = fs::canonicalize(package).map_err(|error| {
-        format!("audited package {} is unusable: {error}", package.display())
-    })?;
+    let package_canonical = fs::canonicalize(package)
+        .map_err(|error| format!("audited package {} is unusable: {error}", package.display()))?;
     if PACKAGE_FILES.contains(&file_name.to_string_lossy().as_ref())
         && path_inside(&resolved, &package_canonical)
     {
@@ -1181,7 +1294,9 @@ fn export_context(args: &[String]) -> CliResult<()> {
         Err(detail) => {
             let cleanup = release(owned);
             match cleanup {
-                Ok(()) => Err(format!("export failed ({detail}); created objects were cleaned up").into()),
+                Ok(()) => {
+                    Err(format!("export failed ({detail}); created objects were cleaned up").into())
+                }
                 Err(cleanup_detail) => Err(format!(
                     "export failed ({detail}); cleanup also failed: {cleanup_detail}"
                 )
@@ -1212,18 +1327,27 @@ fn audit_context(args: &[String]) -> CliResult<()> {
         Some(window) => match BoundScene::read(&world, window) {
             Ok(bound) => match build_context(&bound) {
                 Ok(context) => Ok((bound, context)),
-                Err(error) => Err(format!("the rebuilt source could not produce a context: {error}")),
+                Err(error) => Err(format!(
+                    "the rebuilt source could not produce a context: {error}"
+                )),
             },
-            Err(error) => Err(format!("the caller-given source could not be rebuilt: {error}")),
+            Err(error) => Err(format!(
+                "the caller-given source could not be rebuilt: {error}"
+            )),
         },
-        None => Err("the package declares no usable window, so the source was not rebuilt".to_string()),
+        None => {
+            Err("the package declares no usable window, so the source was not rebuilt".to_string())
+        }
     };
 
     // sourceBinding
     let mut source_binding_detail = Vec::new();
     if let Some(expected) = &expected_window {
         let declared = contract.window.map(|window| {
-            format!("{},{},{},{}", window.min_x, window.min_z, window.width_m, window.depth_m)
+            format!(
+                "{},{},{},{}",
+                window.min_x, window.min_z, window.width_m, window.depth_m
+            )
         });
         if declared.as_deref() != Some(expected.as_str()) {
             source_binding_detail.push(format!(
@@ -1241,7 +1365,8 @@ fn audit_context(args: &[String]) -> CliResult<()> {
             {
                 Some(value) => Some(value),
                 None => {
-                    source_binding_detail.push("the rebuilt context could not be serialised".to_string());
+                    source_binding_detail
+                        .push("the rebuilt context could not be serialised".to_string());
                     None
                 }
             }
@@ -1258,7 +1383,12 @@ fn audit_context(args: &[String]) -> CliResult<()> {
             "sourceBinding",
             fresh,
             package,
-            &["sceneBinding", "sourceBindings", "heightFiles", "requiredFileSet"],
+            &[
+                "sceneBinding",
+                "sourceBindings",
+                "heightFiles",
+                "requiredFileSet",
+            ],
         );
         if stage.state == "fail" {
             source_binding_failed = true;
@@ -1337,7 +1467,13 @@ fn audit_context(args: &[String]) -> CliResult<()> {
                 "contextCompleteness",
                 fresh,
                 package,
-                &["checks", "limitations", "readOnly", "schemaVersion", "accessScope"],
+                &[
+                    "checks",
+                    "limitations",
+                    "readOnly",
+                    "schemaVersion",
+                    "accessScope",
+                ],
             );
             if stage.state == "fail" {
                 completeness_detail.push(stage.detail);
@@ -1370,7 +1506,8 @@ fn finish(
     stages: Vec<Stage>,
     contract: &Contract,
 ) -> CliResult<()> {
-    let total_pass = stages.len() == STAGES.len() && stages.iter().all(|stage| stage.state == "pass");
+    let total_pass =
+        stages.len() == STAGES.len() && stages.iter().all(|stage| stage.state == "pass");
     let evaluated: Vec<String> = stages
         .iter()
         .filter(|stage| stage.state != "notEvaluated")
@@ -1443,7 +1580,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("gwc-cli-{}-{}-{}", std::process::id(), tag, nanos));
+        let dir =
+            std::env::temp_dir().join(format!("gwc-cli-{}-{}-{}", std::process::id(), tag, nanos));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }
@@ -1468,7 +1606,10 @@ mod tests {
             "sceneBinding".into(),
             json!({"sceneId": "scene-0", "sceneSchemaDrift": null}),
         );
-        map.insert("window".into(), json!({"minX": 0, "minZ": 0, "widthM": 4, "depthM": 4}));
+        map.insert(
+            "window".into(),
+            json!({"minX": 0, "minZ": 0, "widthM": 4, "depthM": 4}),
+        );
         map.insert("sourceBindings".into(), json!([]));
         map.insert("heightFiles".into(), json!([]));
         map.insert("requiredFileSet".into(), json!(["world.json"]));
@@ -1558,7 +1699,12 @@ mod tests {
         .expect("marker write");
         let contract = validate_contract(&dir);
         assert!(!contract.failures.is_empty());
-        assert!(contract.failures.iter().any(|line| line.contains("manifest")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("manifest"))
+        );
     }
 
     #[test]
@@ -1571,10 +1717,12 @@ mod tests {
         )
         .expect("marker write");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("manifestSha256")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("manifestSha256"))
+        );
     }
 
     #[test]
@@ -1589,10 +1737,12 @@ mod tests {
         )
         .expect("marker write");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("unsupported context schemaVersion")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("unsupported context schemaVersion"))
+        );
     }
 
     #[test]
@@ -1601,10 +1751,12 @@ mod tests {
         write_package(&dir, |_| {});
         fs::write(dir.join("undeclared.txt"), b"x").expect("extra write");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("undeclared package file")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("undeclared package file"))
+        );
     }
 
     #[test]
@@ -1613,10 +1765,12 @@ mod tests {
         write_package(&dir, |_| {});
         fs::remove_file(dir.join(CONTEXT_FILE)).expect("remove context");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("required package file")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("required package file"))
+        );
     }
 
     #[test]
@@ -1629,10 +1783,12 @@ mod tests {
             (
                 "checks",
                 Box::new(|context: &mut Value| {
-                    context["checks"] = json!(STAGES
-                        .iter()
-                        .map(|stage| json!({"name": stage, "state": "pass"}))
-                        .collect::<Vec<Value>>())
+                    context["checks"] = json!(
+                        STAGES
+                            .iter()
+                            .map(|stage| json!({"name": stage, "state": "pass"}))
+                            .collect::<Vec<Value>>()
+                    )
                 }),
             ),
             (
@@ -1661,7 +1817,8 @@ mod tests {
             let (context_sha, manifest_sha) = write_package(&dir, |context| mutate(context));
             fs::write(
                 dir.join(MARKER_FILE),
-                serde_json::to_vec_pretty(&marker_for(&context_sha, &manifest_sha)).expect("marker"),
+                serde_json::to_vec_pretty(&marker_for(&context_sha, &manifest_sha))
+                    .expect("marker"),
             )
             .expect("marker write");
             let contract = validate_contract(&dir);
@@ -1684,10 +1841,12 @@ mod tests {
         )
         .expect("marker write");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("mandated disclosure is missing")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("mandated disclosure is missing"))
+        );
     }
 
     #[test]
@@ -1705,14 +1864,20 @@ mod tests {
     fn window_conversion_is_checked() {
         assert!(checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 64, "depthM": 64})).is_ok());
         assert!(checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 0, "depthM": 64})).is_err());
-        assert!(checked_window(&json!({"minX": 0, "minZ": 0, "widthM": -4, "depthM": 64})).is_err());
-        assert!(checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 4096, "depthM": 64})).is_err());
+        assert!(
+            checked_window(&json!({"minX": 0, "minZ": 0, "widthM": -4, "depthM": 64})).is_err()
+        );
+        assert!(
+            checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 4096, "depthM": 64})).is_err()
+        );
         assert!(
             checked_window(&json!({"minX": 9_000_000_000i64, "minZ": 0, "widthM": 4, "depthM": 4}))
                 .is_err(),
             "i64 values outside i32 must be refused rather than truncated"
         );
-        assert!(checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 4.5, "depthM": 4})).is_err());
+        assert!(
+            checked_window(&json!({"minX": 0, "minZ": 0, "widthM": 4.5, "depthM": 4})).is_err()
+        );
     }
 
     /// A genuine package built from the fixed source, so manifest declarations
@@ -1816,10 +1981,7 @@ mod tests {
     fn shortened_bindings_and_a_wrong_required_set_are_refused() {
         let shortened = temp_dir("short-bindings");
         real_package(&shortened, |manifest| {
-            let kept = manifest["sourceBindings"]
-                .as_array()
-                .expect("bindings")[0]
-                .clone();
+            let kept = manifest["sourceBindings"].as_array().expect("bindings")[0].clone();
             manifest["sourceBindings"] = Value::Array(vec![kept]);
         });
         let contract = validate_contract(&shortened);
@@ -1844,14 +2006,18 @@ mod tests {
             manifest["window"] = json!([0, 0, 8, 8]);
         });
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("does not match the context scene")));
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("does not match the context window")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("does not match the context scene"))
+        );
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("does not match the context window"))
+        );
     }
 
     #[test]
@@ -1943,7 +2109,9 @@ mod tests {
             lines.push(first);
         });
         assert!(
-            duplicated.iter().any(|line| line.contains("appears 2 times")),
+            duplicated
+                .iter()
+                .any(|line| line.contains("appears 2 times")),
             "{duplicated:?}"
         );
     }
@@ -1972,10 +2140,12 @@ mod tests {
         });
         let contract = validate_contract(&dir);
         assert!(!contract.context_valid);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("unsupported context schemaVersion")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("unsupported context schemaVersion"))
+        );
     }
 
     #[test]
@@ -1985,18 +2155,24 @@ mod tests {
         let mut budget = 0u64;
         let mut failures = Vec::new();
         assert!(read_package_file(&dir, "../escape.json", &mut budget, &mut failures).is_none());
-        assert!(failures
-            .iter()
-            .any(|line| line.contains("not a confined path")));
+        assert!(
+            failures
+                .iter()
+                .any(|line| line.contains("not a confined path"))
+        );
         let mut failures = Vec::new();
         assert!(
             read_package_file(&dir, "C:/Windows/win.ini", &mut budget, &mut failures).is_none()
         );
-        assert!(failures
-            .iter()
-            .any(|line| line.contains("not a confined path")));
+        assert!(
+            failures
+                .iter()
+                .any(|line| line.contains("not a confined path"))
+        );
         let mut failures = Vec::new();
-        assert!(read_package_file(&dir, "nested/context.json", &mut budget, &mut failures).is_none());
+        assert!(
+            read_package_file(&dir, "nested/context.json", &mut budget, &mut failures).is_none()
+        );
         assert!(!failures.is_empty());
     }
 
@@ -2007,14 +2183,18 @@ mod tests {
         fs::write(dir.join("undeclared.txt"), b"x").expect("extra");
         fs::create_dir(dir.join("subdir")).expect("subdir");
         let contract = validate_contract(&dir);
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("undeclared package file undeclared.txt")));
-        assert!(contract
-            .failures
-            .iter()
-            .any(|line| line.contains("undeclared package file subdir")));
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("undeclared package file undeclared.txt"))
+        );
+        assert!(
+            contract
+                .failures
+                .iter()
+                .any(|line| line.contains("undeclared package file subdir"))
+        );
     }
 
     #[test]
@@ -2049,8 +2229,14 @@ mod tests {
 
         fs::create_dir(&target).expect("foreign dir");
         fs::write(target.join("sentinel.txt"), b"keep").expect("sentinel");
-        assert!(claim_directory(&target).is_err(), "existing target must be refused");
-        assert_eq!(fs::read(target.join("sentinel.txt")).expect("read"), b"keep");
+        assert!(
+            claim_directory(&target).is_err(),
+            "existing target must be refused"
+        );
+        assert_eq!(
+            fs::read(target.join("sentinel.txt")).expect("read"),
+            b"keep"
+        );
     }
 
     #[test]
@@ -2068,8 +2254,14 @@ mod tests {
             error.contains(MARKER_FILE),
             "the injected failure stops before the marker, got: {error}"
         );
-        assert!(target.join(CONTEXT_FILE).is_file(), "written file exists before cleanup");
-        assert!(!target.join(MARKER_FILE).exists(), "the marker was never published");
+        assert!(
+            target.join(CONTEXT_FILE).is_file(),
+            "written file exists before cleanup"
+        );
+        assert!(
+            !target.join(MARKER_FILE).exists(),
+            "the marker was never published"
+        );
         release(owned).expect("cleanup");
         assert!(!target.exists(), "owned files and directory removed");
     }
@@ -2088,6 +2280,9 @@ mod tests {
         let error = release(owned).expect_err("cleanup must refuse to delete a foreign file");
         assert!(error.contains("not empty"), "got: {error}");
         assert_eq!(fs::read(target.join("foreign.txt")).expect("read"), b"keep");
-        assert!(!target.join(MARKER_FILE).exists(), "no completion marker was published");
+        assert!(
+            !target.join(MARKER_FILE).exists(),
+            "no completion marker was published"
+        );
     }
 }

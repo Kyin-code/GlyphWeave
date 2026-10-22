@@ -303,15 +303,12 @@ pub fn audit_failures(plan: &RoadNetworkPlan, zones: &[LandUseZone]) -> Vec<Stri
                 ));
             }
         }
-        let outcome = plan
-            .frontage
-            .as_ref()
-            .and_then(|report| {
-                report
-                    .outcomes
-                    .iter()
-                    .find(|outcome| outcome.request.id == refusal.request_id)
-            });
+        let outcome = plan.frontage.as_ref().and_then(|report| {
+            report
+                .outcomes
+                .iter()
+                .find(|outcome| outcome.request.id == refusal.request_id)
+        });
         match outcome {
             Some(outcome) => {
                 let counted = outcome
@@ -376,7 +373,10 @@ mod tests {
         ];
         assert_eq!(distance_to_urban([50, 50, 60, 60], &two), Some(40));
         // no urban zone: there is no edge to measure from, and no band
-        assert_eq!(distance_to_urban([50, 50, 60, 60], &[zone("rural", 0, 0, 200, 200)]), None);
+        assert_eq!(
+            distance_to_urban([50, 50, 60, 60], &[zone("rural", 0, 0, 200, 200)]),
+            None
+        );
         assert_eq!(distance_to_urban([50, 50, 60, 60], &[]), None);
         // a degenerate rectangle is not a place, so it has no distance
         assert_eq!(distance_to_urban([50, 50, 50, 60], &zones), None);
@@ -391,9 +391,15 @@ mod tests {
         let at = |gap: i64| [150 + gap, 110, 160 + gap, 120];
         assert!(within_band(distance_to_urban(at(0), &zones)));
         assert!(within_band(distance_to_urban(at(1), &zones)));
-        assert!(within_band(distance_to_urban(at(FRINGE_M), &zones)), "64 m is inside");
+        assert!(
+            within_band(distance_to_urban(at(FRINGE_M), &zones)),
+            "64 m is inside"
+        );
         let outside = at(FRINGE_M + 1);
-        assert!(!within_band(distance_to_urban(outside, &zones)), "65 m is outside");
+        assert!(
+            !within_band(distance_to_urban(outside, &zones)),
+            "65 m is outside"
+        );
         assert_eq!(distance_to_urban(outside, &zones), Some(65));
         // "no urban zone at all" is outside the band, not inside it
         assert!(!within_band(None));

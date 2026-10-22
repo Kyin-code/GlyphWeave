@@ -19,8 +19,12 @@ fn cells([x0, x1, z0, z1]: [f64; 4], limit: i64) -> Option<Cells> {
     // Pad outward for floating-point addition at large origins and the caller's
     // patch-edge EPS. Inclusive cells deliberately keep touching candidates.
     let pad = 1e-9 + x0.abs().max(x1.abs()).max(z0.abs()).max(z1.abs()) * f64::EPSILON * 8.;
-    let values = [(x0 - pad) / CELL_M, (x1 + pad) / CELL_M,
-                  (z0 - pad) / CELL_M, (z1 + pad) / CELL_M];
+    let values = [
+        (x0 - pad) / CELL_M,
+        (x1 + pad) / CELL_M,
+        (z0 - pad) / CELL_M,
+        (z1 + pad) / CELL_M,
+    ];
     if values.iter().any(|v| !v.is_finite() || v.abs() > MAX_CELL) {
         return None;
     }
@@ -76,7 +80,10 @@ impl<'a> ObstacleQuery<'a> {
 
     fn empty(entities: &'a [EntityInstance]) -> Self {
         Self {
-            obstacles: entities.iter().filter(|e| landcover::ecology_obstacle(e)).collect(),
+            obstacles: entities
+                .iter()
+                .filter(|e| landcover::ecology_obstacle(e))
+                .collect(),
             buckets: BTreeMap::new(),
             spill: vec![],
             #[cfg(test)]
@@ -97,7 +104,8 @@ impl<'a> ObstacleQuery<'a> {
     pub(super) fn query(&self, bounds: [f64; 4]) -> Vec<&'a EntityInstance> {
         #[cfg(test)]
         if self.linear {
-            self.candidate_visits.set(self.candidate_visits.get() + self.obstacles.len());
+            self.candidate_visits
+                .set(self.candidate_visits.get() + self.obstacles.len());
             return self.obstacles.clone();
         }
         let result = if let Some((x0, x1, z0, z1)) = cells(bounds, MAX_QUERY_CELLS) {
@@ -118,7 +126,8 @@ impl<'a> ObstacleQuery<'a> {
             self.obstacles.clone()
         };
         #[cfg(test)]
-        self.candidate_visits.set(self.candidate_visits.get() + result.len());
+        self.candidate_visits
+            .set(self.candidate_visits.get() + result.len());
         result
     }
 }
@@ -127,11 +136,20 @@ impl<'a> ObstacleQuery<'a> {
 mod tests {
     use super::*;
 
-    fn entity(id: &str, x: i32, z: i32, width: f32, depth: f32, yaw: f32, scale: f32) -> EntityInstance {
+    fn entity(
+        id: &str,
+        x: i32,
+        z: i32,
+        width: f32,
+        depth: f32,
+        yaw: f32,
+        scale: f32,
+    ) -> EntityInstance {
         let mut e: EntityInstance = serde_json::from_value(serde_json::json!({
             "entityId":id,"assetId":"test","kind":"road","worldX":x,"worldZ":z,
             "worldY":4,"widthM":1.,"depthM":1.,"heightM":1.,"scale":1.
-        })).unwrap();
+        }))
+        .unwrap();
         e.width_m = width;
         e.depth_m = depth;
         e.rotation_y_deg = yaw;
@@ -153,33 +171,55 @@ mod tests {
         let reference = ObstacleQuery::linear(&entities);
         assert_eq!(indexed.spill, vec![1, 3]);
         assert!(indexed.buckets.len() < 100);
-        for x in [-100., -65., -64., -32., -31., -1., 0., 1., 2., 31., 32., 33., 65., 500_000.] {
+        for x in [
+            -100., -65., -64., -32., -31., -1., 0., 1., 2., 31., 32., 33., 65., 500_000.,
+        ] {
             for z in [-65., -64., -32., -1., 0., 2., 31., 32., 65.] {
                 for r in [0.4, 0.75, 1.25, 2., 8., 16., 33.] {
-                    let bounds = [x-r, x+r, z-r, z+r];
+                    let bounds = [x - r, x + r, z - r, z + r];
                     let candidates = indexed.query(bounds);
-                    let ordinal: Vec<_> = candidates.iter().map(|e| {
-                        entities.iter().position(|original| std::ptr::eq(original, *e)).unwrap()
-                    }).collect();
+                    let ordinal: Vec<_> = candidates
+                        .iter()
+                        .map(|e| {
+                            entities
+                                .iter()
+                                .position(|original| std::ptr::eq(original, *e))
+                                .unwrap()
+                        })
+                        .collect();
                     assert!(ordinal.windows(2).all(|w| w[0] < w[1]));
                     let hits = |list: Vec<&EntityInstance>| -> Vec<String> {
-                        list.into_iter().filter(|e| landcover::footprint_intersects_entity(e,x,z,r,r))
-                            .map(|e| e.entity_id.clone()).collect()
+                        list.into_iter()
+                            .filter(|e| landcover::footprint_intersects_entity(e, x, z, r, r))
+                            .map(|e| e.entity_id.clone())
+                            .collect()
                     };
-                    assert_eq!(hits(candidates), hits(reference.query(bounds)), "x={x} z={z} r={r}");
+                    assert_eq!(
+                        hits(candidates),
+                        hits(reference.query(bounds)),
+                        "x={x} z={z} r={r}"
+                    );
                 }
             }
         }
         // Touching the unit half-width rectangle is not SAT overlap; just inside is.
         let single = vec![entities[5].clone()];
         let query = ObstacleQuery::indexed(&single);
-        for (x, expected) in [(2., false), (2.-1e-7, true), (2.+1e-7, false)] {
-            assert_eq!(query.query([x-1.,x+1.,-1.,1.]).iter()
-                .any(|e| landcover::footprint_intersects_entity(e,x,0.,1.,1.)), expected);
+        for (x, expected) in [(2., false), (2. - 1e-7, true), (2. + 1e-7, false)] {
+            assert_eq!(
+                query
+                    .query([x - 1., x + 1., -1., 1.])
+                    .iter()
+                    .any(|e| landcover::footprint_intersects_entity(e, x, 0., 1., 1.)),
+                expected
+            );
         }
         // Unsupported query domains conservatively visit all entries.
         assert_eq!(indexed.query([f64::NAN, 1., 0., 1.]).len(), entities.len());
-        assert_eq!(indexed.query([-1e20, 1e20, -1e20, 1e20]).len(), entities.len());
+        assert_eq!(
+            indexed.query([-1e20, 1e20, -1e20, 1e20]).len(),
+            entities.len()
+        );
     }
 
     #[test]
@@ -187,23 +227,39 @@ mod tests {
         for bad in [
             entity("nan", 1_000_000, 1_000_000, f32::NAN, 1., 0., 1.),
             entity("zero", 1_000_000, 1_000_000, 0., 1., 0., 1.),
-            entity("infinite-yaw", 1_000_000, 1_000_000, 1., 1., f32::INFINITY, 1.),
+            entity(
+                "infinite-yaw",
+                1_000_000,
+                1_000_000,
+                1.,
+                1.,
+                f32::INFINITY,
+                1.,
+            ),
             entity("negative-scale", 1_000_000, 1_000_000, 1., 1., 0., -1.),
         ] {
             let entities = [bad];
             let query = ObstacleQuery::indexed(&entities);
             assert_eq!(query.spill, vec![0]);
-            assert!(query.query([-1.,1.,-1.,1.]).iter()
-                .any(|e| landcover::footprint_intersects_entity(e,0.,0.,1.,1.)));
+            assert!(
+                query
+                    .query([-1., 1., -1., 1.])
+                    .iter()
+                    .any(|e| landcover::footprint_intersects_entity(e, 0., 0., 1., 1.))
+            );
         }
         for offset in [i32::MIN + 256, -32, i32::MAX - 256] {
             let entities = [entity("large-origin", offset, offset, 30., 0.1, 45., 2.)];
             let query = ObstacleQuery::indexed(&entities);
             for delta in [-32., -16., -1e-7, 0., 1e-7, 16., 32.] {
                 let (x, z) = (f64::from(offset) + delta, f64::from(offset) - delta);
-                assert_eq!(query.query([x-0.4,x+0.4,z-0.4,z+0.4]).iter()
-                    .any(|e| landcover::footprint_intersects_entity(e,x,z,0.4,0.4)),
-                    landcover::footprint_intersects_entity(&entities[0],x,z,0.4,0.4));
+                assert_eq!(
+                    query
+                        .query([x - 0.4, x + 0.4, z - 0.4, z + 0.4])
+                        .iter()
+                        .any(|e| landcover::footprint_intersects_entity(e, x, z, 0.4, 0.4)),
+                    landcover::footprint_intersects_entity(&entities[0], x, z, 0.4, 0.4)
+                );
             }
         }
     }

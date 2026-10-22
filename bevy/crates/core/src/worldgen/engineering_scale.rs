@@ -379,13 +379,17 @@ mod tests {
         assert_eq!(authority.authority_scope, "reclamation-planning-led");
         assert!(authority.no_absolute_earthwork_cap);
         assert!(authority.engineering_audit_required);
-        assert!(authority
-            .signals
-            .iter()
-            .any(|signal| signal.contains("coastal-reclamation")));
-        assert!(authority
-            .rationale
-            .contains("without an absolute earthwork cap"));
+        assert!(
+            authority
+                .signals
+                .iter()
+                .any(|signal| signal.contains("coastal-reclamation"))
+        );
+        assert!(
+            authority
+                .rationale
+                .contains("without an absolute earthwork cap")
+        );
         assert_eq!(plan.local_contracts.max_fill_m, 6.0);
         assert_eq!(plan.local_contracts.max_road_grade, 0.08);
     }

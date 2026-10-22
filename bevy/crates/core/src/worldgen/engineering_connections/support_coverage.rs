@@ -67,7 +67,8 @@ pub fn frame_is_usable(frame: &MemberFrame) -> bool {
     let along = frame.along.xz_len();
     let across = frame.across.xz_len();
     let axes_unit = (along - 1.0).abs() <= 1e-6 && (across - 1.0).abs() <= 1e-6;
-    let independent = (frame.along.x * frame.across.x + frame.along.z * frame.across.z).abs() <= 1e-6;
+    let independent =
+        (frame.along.x * frame.across.x + frame.along.z * frame.across.z).abs() <= 1e-6;
     frame.centre.finite()
         && frame.along.finite()
         && frame.across.finite()
@@ -300,7 +301,8 @@ fn segment_crossing(
     let qp = (q0.0 - p0.0, q0.1 - p0.1);
     let u = (qp.0 * r.1 - qp.1 * r.0) / denominator;
     let v = (qp.0 * s.1 - qp.1 * s.0) / denominator;
-    if !(-EXACT_EPS..=1.0 + EXACT_EPS).contains(&u) || !(-EXACT_EPS..=1.0 + EXACT_EPS).contains(&v) {
+    if !(-EXACT_EPS..=1.0 + EXACT_EPS).contains(&u) || !(-EXACT_EPS..=1.0 + EXACT_EPS).contains(&v)
+    {
         return None;
     }
     Some((p0.0 + v * r.0, p0.1 + v * r.1))
@@ -342,7 +344,10 @@ fn inspect_section(rects: &[Rect], members: &[usize], t: f64, half_width: f64) -
             return Section {
                 certified: true,
                 centre_borne: true,
-                parts: owners.iter().map(|index| rects[*index].part.clone()).collect(),
+                parts: owners
+                    .iter()
+                    .map(|index| rects[*index].part.clone())
+                    .collect(),
                 witness: None,
                 covered_half_width_m: (-low).min(*high),
             };
@@ -491,7 +496,10 @@ pub fn certify_band(
     let mut rects: Vec<Rect> = vec![];
     let mut levels: Vec<f64> = vec![];
     for (level, frames) in layers {
-        if !levels.iter().any(|existing| (existing - level).abs() <= 1e-9) {
+        if !levels
+            .iter()
+            .any(|existing| (existing - level).abs() <= 1e-9)
+        {
             levels.push(*level);
         }
         for (part, frame) in frames {
@@ -685,7 +693,11 @@ pub fn certify_band(
     }
     let adjacent = [
         levels[0],
-        if levels.len() > 1 { levels[1] } else { levels[0] },
+        if levels.len() > 1 {
+            levels[1]
+        } else {
+            levels[0]
+        },
     ];
     let mut slices: Vec<CoverageSlice> = vec![];
     let mut section_count = 0_usize;
@@ -701,10 +713,9 @@ pub fn certify_band(
                 best = Some((*level, section));
                 break;
             }
-            if best
-                .as_ref()
-                .is_none_or(|(_, previous)| section.covered_half_width_m > previous.covered_half_width_m)
-            {
+            if best.as_ref().is_none_or(|(_, previous)| {
+                section.covered_half_width_m > previous.covered_half_width_m
+            }) {
                 best = Some((*level, section));
             }
         }

@@ -49,11 +49,7 @@ fn service(e: &EntityInstance) -> bool {
 fn dwelling(e: &EntityInstance) -> bool {
     matches!(
         e.kind.as_str(),
-        "residential_home"
-            | "residential_block"
-            | "residential_tower"
-            | "apartment"
-            | "townhouse"
+        "residential_home" | "residential_block" | "residential_tower" | "apartment" | "townhouse"
     )
 }
 

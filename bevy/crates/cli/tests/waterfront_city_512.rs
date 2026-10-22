@@ -209,7 +209,10 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
         manifest.style["landUseProfile"]["theme"],
         json!("river-delta")
     );
-    assert_eq!(manifest.style["morphologyProfile"], json!("compact-mixed-block"));
+    assert_eq!(
+        manifest.style["morphologyProfile"],
+        json!("compact-mixed-block")
+    );
     assert_eq!(
         manifest.style["automaticRoadExtensions"]["allowStructuredWater"],
         json!("bridge-or-causeway")
@@ -393,7 +396,10 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
         realized_total += realized;
     }
     let scene_area = ledger["sceneAreaM2"].as_f64().unwrap();
-    assert_eq!(planned_total, scene_area, "planned purposes cover the scene");
+    assert_eq!(
+        planned_total, scene_area,
+        "planned purposes cover the scene"
+    );
     assert_eq!(
         realized_total,
         ledger["realizedM2"].as_f64().unwrap(),
@@ -484,7 +490,10 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
     let services = &quality["scenes"][0]["serviceProgramAudit"];
     assert_eq!(services["status"], json!("pass"));
     assert_eq!(services["requested"], json!(4));
-    assert_eq!(services["realizedWithAccess"], json!(SAMPLE_REALIZED_SERVICES));
+    assert_eq!(
+        services["realizedWithAccess"],
+        json!(SAMPLE_REALIZED_SERVICES)
+    );
     for kind in ["school", "church", "convenience_store", "residential_home"] {
         assert!(
             count_kind(&scene, kind) > 0,
@@ -597,12 +606,7 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
             }
         }
         assert!(
-            water.clears_shore(
-                f64::from(site.world_x),
-                f64::from(site.world_z),
-                12.,
-                12.,
-            ),
+            water.clears_shore(f64::from(site.world_x), f64::from(site.world_z), 12., 12.,),
             "pad {} does not keep the published {} m shore clearance",
             site.id,
             WATER_SHORE_CLEARANCE_M
@@ -616,13 +620,13 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
     // the refusal list is exactly the waterfront categories, per site. The old
     // blanket refusal - one category that swallowed the whole programme - is
     // absent by name.
-    let rejected: BTreeMap<&str, u64> = plan
-        .roadside_site_rejections
-        .iter()
-        .fold(BTreeMap::new(), |mut map, rejection| {
-            *map.entry(rejection.category.as_str()).or_default() += 1;
-            map
-        });
+    let rejected: BTreeMap<&str, u64> =
+        plan.roadside_site_rejections
+            .iter()
+            .fold(BTreeMap::new(), |mut map, rejection| {
+                *map.entry(rejection.category.as_str()).or_default() += 1;
+                map
+            });
     assert_eq!(
         rejected.get("waterfront_pad_needs_a_second_level"),
         None,
@@ -670,7 +674,10 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
     let band = &quality["scenes"][0]["shoreBandAudit"];
     assert_eq!(band["status"], json!("pass"), "{band}");
     assert_eq!(band["clearanceM"].as_f64(), Some(WATER_SHORE_CLEARANCE_M));
-    assert_eq!(band["bandAreaM2"].as_f64(), Some(SAMPLE_SHORE_BAND_M2 as f64));
+    assert_eq!(
+        band["bandAreaM2"].as_f64(),
+        Some(SAMPLE_SHORE_BAND_M2 as f64)
+    );
     assert_eq!(band["publicOpenSpaceM2"].as_f64(), Some(3_648.0));
     assert_eq!(band["roadPassageCells"], json!(448));
     assert_eq!(band["uncoveredCells"], json!(0));
@@ -710,11 +717,8 @@ fn the_registered_river_delta_sample_bakes_with_exact_water_bridges_and_a_closed
         if !is_building_kind(&entity.kind) {
             continue;
         }
-        let (half_w, half_d) = building_half_extents(
-            entity.width_m,
-            entity.depth_m,
-            entity.rotation_y_deg,
-        );
+        let (half_w, half_d) =
+            building_half_extents(entity.width_m, entity.depth_m, entity.rotation_y_deg);
         for z in entity.world_z - half_d as i32..entity.world_z + half_d as i32 {
             for x in entity.world_x - half_w as i32..entity.world_x + half_w as i32 {
                 assert!(

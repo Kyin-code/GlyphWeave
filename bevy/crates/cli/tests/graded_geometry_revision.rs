@@ -124,7 +124,10 @@ fn published_geometry_revision_is_rebuilt_and_missing_or_wrong_tags_are_rejected
 
     // A missing tag is rejected too: an affected product may not silently claim
     // the historical identity.
-    world.as_object_mut().unwrap().remove("roadGeometryRevision");
+    world
+        .as_object_mut()
+        .unwrap()
+        .remove("roadGeometryRevision");
     fs::write(&world_path, serde_json::to_vec_pretty(&world).unwrap()).unwrap();
     let missing = validate();
     assert!(!missing.status.success());
@@ -149,9 +152,8 @@ fn a_legacy_input_without_graded_roads_keeps_the_historical_identity() {
     // No geometry binding, so the derived revision is exactly the payload
     // without a geometry key.
     let derived = glyphweave_core::worldgen::world_manifest_revision(&manifest).unwrap();
-    let legacy = glyphweave_core::worldgen::world_manifest_revision_with_geometry(
-        &manifest, None, None,
-    )
-    .unwrap();
+    let legacy =
+        glyphweave_core::worldgen::world_manifest_revision_with_geometry(&manifest, None, None)
+            .unwrap();
     assert_eq!(derived, legacy);
 }

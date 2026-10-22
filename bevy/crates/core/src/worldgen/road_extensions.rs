@@ -103,7 +103,11 @@ pub const fn extension_transport_half_m(width: u32) -> i32 {
 pub const fn junction_occupancy_m(width: u32) -> i32 {
     let graded = extension_graded_half_m(width);
     let transport = extension_transport_half_m(width);
-    if graded > transport { graded } else { transport }
+    if graded > transport {
+        graded
+    } else {
+        transport
+    }
 }
 
 /// The largest junction occupancy any width the extension contract admits can
@@ -113,7 +117,9 @@ pub const fn max_junction_occupancy_m() -> i32 {
     let mut i = 0;
     while i < EXTENSION_ROAD_WIDTHS_M.len() {
         let occupancy = junction_occupancy_m(EXTENSION_ROAD_WIDTHS_M[i]);
-        if occupancy > worst { worst = occupancy; }
+        if occupancy > worst {
+            worst = occupancy;
+        }
         i += 1;
     }
     worst
@@ -437,12 +443,10 @@ pub(super) fn append_one_with_tier(
                     .abs()
                         > 0.00001
                 {
-                    return Err(err(
-                        format!(
-                            "extension overlaps road outside a matching endpoint junction:{}",
-                            old.entity_id
-                        ),
-                    ));
+                    return Err(err(format!(
+                        "extension overlaps road outside a matching endpoint junction:{}",
+                        old.entity_id
+                    )));
                 }
             }
         }

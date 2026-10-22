@@ -1,6 +1,6 @@
 //! Continuous footprint queries. No finite list of sample points can prove
 //! absence of an intersection (a whole pond may fit between the samples).
-use super::{lake_radius_at, river_half_width_at, EntityInstance, WaterGeometry, WaterKind};
+use super::{EntityInstance, WaterGeometry, WaterKind, lake_radius_at, river_half_width_at};
 
 /// The frozen water-shore clearance band, in metres.
 ///

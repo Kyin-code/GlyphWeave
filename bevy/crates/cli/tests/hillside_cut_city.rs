@@ -47,9 +47,7 @@
 //! unchanged (7 pads / 1,572 cells / 753,367 mm) - the excavation this manifest
 //! needs is exactly the pads' own.
 use glyphweave_core::baked_terrain::BakedTerrain;
-use glyphweave_core::worldgen::bounded_cut::{
-    self, CutLedger, CutPolicy, footprint_intersection,
-};
+use glyphweave_core::worldgen::bounded_cut::{self, CutLedger, CutPolicy, footprint_intersection};
 use glyphweave_core::worldgen::road_network::{RoadNetworkPlan, RoadsideSite};
 use glyphweave_core::worldgen::{
     LandUseZone, SceneIndex, SceneSpec, WaterGeometry, WorldManifest, bake_world,
@@ -228,7 +226,9 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         cut.len(),
         CUT_PADS,
         "the benched lots carry a cap: {:?}",
-        cut.iter().map(|s| (&s.id, s.bounded_cut_mm)).collect::<Vec<_>>()
+        cut.iter()
+            .map(|s| (&s.id, s.bounded_cut_mm))
+            .collect::<Vec<_>>()
     );
     assert_eq!(PLANNED_PADS - CUT_PADS, 15, "the rest are fill-only pads");
     for site in &cut {
@@ -261,10 +261,13 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     // 2b. No two benches share a cut footprint, and the candidates that would have
     //     are refused BY NAME and counted in the request's own rejection table.
     for (index, site) in cut.iter().enumerate() {
-        let footprint = site.cut_footprint().expect("a cut pad publishes its footprint");
+        let footprint = site
+            .cut_footprint()
+            .expect("a cut pad publishes its footprint");
         for other in cut.iter().skip(index + 1) {
-            let other_footprint =
-                other.cut_footprint().expect("a cut pad publishes its footprint");
+            let other_footprint = other
+                .cut_footprint()
+                .expect("a cut pad publishes its footprint");
             assert_eq!(
                 footprint_intersection(&footprint, &other_footprint),
                 None,
@@ -274,7 +277,10 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
             );
         }
     }
-    let report = plan.frontage.as_ref().expect("the world publishes its frontage report");
+    let report = plan
+        .frontage
+        .as_ref()
+        .expect("the world publishes its frontage report");
     let refused: u32 = report
         .outcomes
         .iter()
@@ -287,7 +293,8 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         })
         .sum();
     assert_eq!(
-        refused, FOOTPRINT_REFUSALS,
+        refused,
+        FOOTPRINT_REFUSALS,
         "the overlapping candidates are named and counted: {:?}",
         report
             .outcomes
@@ -317,7 +324,7 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
         &final_terrain,
         &bounded_cut::road_flat_tops(&plan.entities()),
     )
-        .expect("the two published rasters measure");
+    .expect("the two published rasters measure");
     assert_eq!(measured.len(), CUT_PADS);
     assert_eq!(
         ledger.pads, measured,
@@ -346,7 +353,10 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     assert_eq!(cells, SCENE_CUT_CELLS, "scene-wide lowered cells");
     assert_eq!(depth_sum, SCENE_CUT_DEPTH_SUM_MM, "scene-wide cut depth");
     assert_eq!(deepest, SCENE_CUT_MAX_DEPTH_MM, "scene-wide deepest cut");
-    assert_eq!(ledger.cut_cells, cells, "the ledger total is the scene total");
+    assert_eq!(
+        ledger.cut_cells, cells,
+        "the ledger total is the scene total"
+    );
     assert_eq!(
         ledger.cut_depth_sum_mm, depth_sum,
         "the ledger's millimetres are the scene's millimetres, once"
@@ -355,10 +365,9 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     assert_eq!(ledger.max_cut_depth_mm, deepest);
 
     // 4. The whole cut audit, recomputed from the published bytes.
-    let zones: Vec<LandUseZone> = serde_json::from_value(read_json(
-        scene_dir(&dir).join("land-use-zones.json"),
-    ))
-    .expect("the world publishes its zoning");
+    let zones: Vec<LandUseZone> =
+        serde_json::from_value(read_json(scene_dir(&dir).join("land-use-zones.json")))
+            .expect("the world publishes its zoning");
     let spec = scene_spec(&scene);
     let water: WaterGeometry = water_geometry(
         water_kind(&manifest.style),
@@ -421,7 +430,10 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     //    transport band (`graded_transport_half_extents`, the audit's own window).
     assert_eq!(road_audit["status"], json!("pass"), "{road_audit}");
     assert_eq!(road_audit["plannedEdges"], json!(33));
-    assert_eq!(road_audit["realizedEdges"], road_audit["plannedEdges"], "{road_audit}");
+    assert_eq!(
+        road_audit["realizedEdges"], road_audit["plannedEdges"],
+        "{road_audit}"
+    );
     assert!(
         road_audit["maxFinalRoadbedFillM"].as_f64().unwrap() <= 6.,
         "the roadbed fill contract holds: {road_audit}"
@@ -431,7 +443,11 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     // this plan's 33 roads carry a graded profile; a flat road has no authored
     // surface to cut to and keeps the historical fill-only contract, so it
     // publishes no record at all.
-    assert_eq!(ledger.roads.len(), 12, "the graded roads publish one record each");
+    assert_eq!(
+        ledger.roads.len(),
+        12,
+        "the graded roads publish one record each"
+    );
     assert!(
         plan.entities()
             .iter()
@@ -448,11 +464,20 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     // Round 42: the corridors now EXCAVATE. Five of the eleven graded roads book
     // their own cut: 675 cells and 150,657 mm of depth, 150.657 m3.
     let road_cells: u32 = ledger.roads.iter().map(|record| record.cut_cells).sum();
-    let road_depth: i64 = ledger.roads.iter().map(|record| record.cut_depth_sum_mm).sum();
+    let road_depth: i64 = ledger
+        .roads
+        .iter()
+        .map(|record| record.cut_depth_sum_mm)
+        .sum();
     assert_eq!(road_cells, 675);
     assert_eq!(road_depth, 150_657);
     assert!(
-        ledger.roads.iter().filter(|record| record.cut_cells > 0).count() == 5,
+        ledger
+            .roads
+            .iter()
+            .filter(|record| record.cut_cells > 0)
+            .count()
+            == 5,
         "five graded roads carry a real excavation: {:?}",
         ledger
             .roads
@@ -464,35 +489,64 @@ fn the_benched_hillside_town_bakes_with_real_cuts_that_verify() {
     assert_eq!(ledger.cut_cells, SCENE_CUT_CELLS);
     assert_eq!(ledger.cut_depth_sum_mm, SCENE_CUT_DEPTH_SUM_MM);
     assert_eq!(
-        ledger.roads.iter().map(|record| u64::from(record.cut_cells)).sum::<u64>()
-            + ledger.pads.iter().map(|record| u64::from(record.cut_cells)).sum::<u64>(),
+        ledger
+            .roads
+            .iter()
+            .map(|record| u64::from(record.cut_cells))
+            .sum::<u64>()
+            + ledger
+                .pads
+                .iter()
+                .map(|record| u64::from(record.cut_cells))
+                .sum::<u64>(),
         ledger.cut_cells
     );
     assert_eq!(
-        ledger.road("generated.road-auto.scene-0.0").map(|r| (r.design_level_mm, r.cut_cells)),
+        ledger
+            .road("generated.road-auto.scene-0.0")
+            .map(|r| (r.design_level_mm, r.cut_cells)),
         Some((8_357, 14))
     );
     assert_eq!(
-        ledger.road("generated.road-auto.scene-0.1").map(|r| (r.design_level_mm, r.cut_cells)),
+        ledger
+            .road("generated.road-auto.scene-0.1")
+            .map(|r| (r.design_level_mm, r.cut_cells)),
         Some((6_336, 194))
     );
     assert_eq!(
-        ledger.road("generated.road-auto.scene-0.2").map(|r| (r.design_level_mm, r.cut_cells)),
+        ledger
+            .road("generated.road-auto.scene-0.2")
+            .map(|r| (r.design_level_mm, r.cut_cells)),
         Some((5_495, 352))
     );
     // The two roads Round 38 measured at 6.705 m / 7.150 m of fill: 2.153 m /
     // 2.682 m now, and the third 5.788 m road (Round 39) is 2.682 m as well,
     // because its own band publishes its own surface and its own excavation.
     assert_eq!(
-        road_band_fill_cut(&plan, "generated.road-auto.scene-0.0", &natural, &final_terrain),
+        road_band_fill_cut(
+            &plan,
+            "generated.road-auto.scene-0.0",
+            &natural,
+            &final_terrain
+        ),
         (2_153, 101)
     );
     assert_eq!(
-        road_band_fill_cut(&plan, "generated.road-auto.scene-0.1", &natural, &final_terrain),
+        road_band_fill_cut(
+            &plan,
+            "generated.road-auto.scene-0.1",
+            &natural,
+            &final_terrain
+        ),
         (2_682, 141)
     );
     assert_eq!(
-        road_band_fill_cut(&plan, "generated.road-auto.scene-0.2", &natural, &final_terrain),
+        road_band_fill_cut(
+            &plan,
+            "generated.road-auto.scene-0.2",
+            &natural,
+            &final_terrain
+        ),
         (4_500, 599)
     );
 }
@@ -565,7 +619,10 @@ fn the_hillside_frontage_shortfall_is_measured_and_the_search_is_exhausted() {
             .or_default() += 1;
     }
     assert_eq!(roads, 33, "the plan publishes its whole network");
-    assert_eq!(profiled, 12, "12 of the 33 roads carry a longitudinal profile");
+    assert_eq!(
+        profiled, 12,
+        "12 of the 33 roads carry a longitudinal profile"
+    );
     assert_eq!(
         profile_lengths,
         BTreeMap::from([(64, 9), (96, 3)]),
@@ -796,16 +853,18 @@ fn the_policy_off_bake_is_frozen_and_two_bakes_agree() {
         program.remove("terrainPolicy");
         program.remove("maxCutMm");
     }
-    assert_eq!(CutPolicy::from_style(&manifest.style).0, CutPolicy::Disabled);
+    assert_eq!(
+        CutPolicy::from_style(&manifest.style).0,
+        CutPolicy::Disabled
+    );
     let first = TestDir::new("hillside-off-frozen-first");
     let second = TestDir::new("hillside-off-frozen-second");
     bake_world(&manifest, &first.0).expect("the off arm bakes");
     bake_world(&manifest, &second.0).expect("the off arm bakes twice");
     // Off is byte-identical: no pad gains a cap, no bounded-cut section is published.
-    let plan: RoadNetworkPlan = serde_json::from_value(read_json(
-        scene_dir(&first).join("road-network-plan.json"),
-    ))
-    .expect("the off plan round-trips");
+    let plan: RoadNetworkPlan =
+        serde_json::from_value(read_json(scene_dir(&first).join("road-network-plan.json")))
+            .expect("the off plan round-trips");
     assert!(
         plan.roadside_sites
             .iter()

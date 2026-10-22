@@ -128,7 +128,8 @@ pub const POLICY_VALUE_FILL: &str = "derived-from-fill";
 /// `access::WALKABLE_GRADE` (the yard grade) over `bounded_cut::MAX_CUT_RING_GRADE`
 /// (the ring grade): two of the project's three existing slope contracts, both
 /// 0.25, so the ring is as wide as the structure is large.
-pub const BLEND_RUN_PER_METRE: f64 = super::access::WALKABLE_GRADE / bounded_cut::MAX_CUT_RING_GRADE;
+pub const BLEND_RUN_PER_METRE: f64 =
+    super::access::WALKABLE_GRADE / bounded_cut::MAX_CUT_RING_GRADE;
 
 /// The fixed apron every structure ring keeps, in metres.
 ///
@@ -231,8 +232,7 @@ pub fn fill_depth_m(design_m: f64, natural_min_m: f64) -> f64 {
 /// `BLEND_FLOOR_M ..= BLEND_CEILING_M`. A 6 m fill publishes `20 m`; the same pad
 /// publishes `8 m` with no fill at all and the ceiling binds above `68 m` of fill.
 pub fn derived_fill_blend_m(fill_depth_m: f64) -> f64 {
-    (fill_depth_m.max(0.0) / SIDE_SLOPE_GRADE + BLEND_APRON_M)
-        .clamp(BLEND_FLOOR_M, BLEND_CEILING_M)
+    (fill_depth_m.max(0.0) / SIDE_SLOPE_GRADE + BLEND_APRON_M).clamp(BLEND_FLOOR_M, BLEND_CEILING_M)
 }
 
 /// The declared top of one published pad, in metres.
@@ -279,10 +279,7 @@ fn entity_design_m(entity: &super::EntityInstance, x: i32, z: i32) -> f64 {
 /// The rectangle is [`super::carve_flat_top_half_extents`] - the very cells the
 /// carve flattens and the ledger books - so "the pad's own range" means one thing
 /// for the ring, the raster and the audit.
-pub fn entity_fill_depth_m(
-    natural: &BakedTerrain,
-    entity: &super::EntityInstance,
-) -> Option<f64> {
+pub fn entity_fill_depth_m(natural: &BakedTerrain, entity: &super::EntityInstance) -> Option<f64> {
     let (half_w, half_d) = super::carve_flat_top_half_extents(entity);
     let mut deepest = 0.0_f64;
     let mut sampled = false;
@@ -598,7 +595,10 @@ mod tests {
         assert!(derived_blend_m(0.0, 0.0) >= BLEND_FLOOR_M);
         assert!(derived_blend_m(135.9, 0.0) < BLEND_CEILING_M);
         assert_eq!(derived_blend_m(136.0, 0.0), BLEND_CEILING_M);
-        assert_eq!(BLEND_FLOOR_M, bounded_cut::ring_width_m(bounded_cut::MAX_CUT_MM));
+        assert_eq!(
+            BLEND_FLOOR_M,
+            bounded_cut::ring_width_m(bounded_cut::MAX_CUT_MM)
+        );
         assert_eq!(BLEND_CEILING_M, 3.0 * (16.0 + 32.0));
     }
 
@@ -719,8 +719,14 @@ mod tests {
         );
         let mut derived = building.clone();
         assert!(stamp_entity(&mut derived, Policy::Footprint));
-        assert_eq!(derived.grounding.earthwork_blend_m, Some(BLEND_APRON_M as f32 + 25.));
-        assert_eq!(bury(&plan_terrain_carves(std::slice::from_ref(&derived))), (0, 0));
+        assert_eq!(
+            derived.grounding.earthwork_blend_m,
+            Some(BLEND_APRON_M as f32 + 25.)
+        );
+        assert_eq!(
+            bury(&plan_terrain_carves(std::slice::from_ref(&derived))),
+            (0, 0)
+        );
         // And the switch is inert when it is off: nothing is stamped, and the
         // carve is the legacy one, bit for bit.
         let mut off = building.clone();
@@ -740,7 +746,10 @@ mod tests {
         let ring = derived_fill_blend_m(fill_depth_m(16.0, 5.376));
         assert!((ring - (8.0 + 21.248)).abs() < 1e-9, "{ring}");
         assert!(ring < BLEND_CEILING_M);
-        assert!(ring < derived_blend_m(25.0, 12.0), "the 33 m footprint ring");
+        assert!(
+            ring < derived_blend_m(25.0, 12.0),
+            "the 33 m footprint ring"
+        );
         // On a 6 m plain with the natural ground at zero, the round's own case.
         assert_eq!(derived_fill_blend_m(fill_depth_m(6.0, 0.0)), 20.0);
         assert_eq!(
@@ -788,8 +797,8 @@ mod tests {
                 &crate::height_payload::encode_millimetres(128, 128, values).expect("encoded"),
             )
             .expect("one chunk covers the scene");
-        let entity = |id: &str, kind: &str, z: i32, world_y: i32, width: f32, depth: f32| {
-            EntityInstance {
+        let entity =
+            |id: &str, kind: &str, z: i32, world_y: i32, width: f32, depth: f32| EntityInstance {
                 entity_id: id.into(),
                 asset_id: format!("prop.{kind}"),
                 kind: kind.into(),
@@ -804,13 +813,13 @@ mod tests {
                 grounding: GroundingSpec::default(),
                 anchors: vec![],
                 bounds: None,
-            }
-        };
+            };
         let platform = entity("plate", "urban_building", 40, PLATE_TOP_M as i32, 24., 24.);
         let shop = entity("shop", "storefront", SHOP_Z, 0, 12., 10.);
         // The published fill over the natural plain at the shop's door, in mm.
         let rise_at_door = |carves: &[TerrainCarve]| -> i64 {
-            let surface = apply_terrain_carves_with(0.0, DOOR.0, DOOR.1, carves, PadPlatform::Dormant);
+            let surface =
+                apply_terrain_carves_with(0.0, DOOR.0, DOOR.1, carves, PadPlatform::Dormant);
             (surface * 1000.).round() as i64
         };
 
@@ -836,9 +845,16 @@ mod tests {
         assert_eq!(entities[0].grounding.earthwork_blend_m, Some(20.0));
         assert_eq!(entities[1].grounding.earthwork_blend_m, Some(8.0));
         let fill = plan_terrain_carves(&entities);
-        assert_eq!(fill[0].blend_m, 20.0, "a 6 m fill at 1:2 plus the 8 m apron");
+        assert_eq!(
+            fill[0].blend_m, 20.0,
+            "a 6 m fill at 1:2 plus the 8 m apron"
+        );
         assert_eq!(fill[1].blend_m, 8.0, "a pad with no fill at all");
-        assert_eq!(rise_at_door(&fill), 43, "the doorstep meets the natural ground");
+        assert_eq!(
+            rise_at_door(&fill),
+            43,
+            "the doorstep meets the natural ground"
+        );
         assert!(
             (rise_at_door(&fill) as f64 / 1000.) <= super::super::access::WALKABLE_GRADE,
             "the step into the door is inside the 25% walkable contract"
@@ -850,7 +866,12 @@ mod tests {
             entity("shop", "storefront", SHOP_Z, 0, 12., 10.),
         ];
         assert_eq!(
-            stamp(&mut off, &json!({}), &std::collections::BTreeSet::new(), &natural),
+            stamp(
+                &mut off,
+                &json!({}),
+                &std::collections::BTreeSet::new(),
+                &natural
+            ),
             0
         );
         assert!(off.iter().all(|e| e.grounding.earthwork_blend_m.is_none()));

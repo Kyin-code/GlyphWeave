@@ -75,10 +75,8 @@ impl TestDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "glyphweave-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("glyphweave-{label}-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         Self(path, true)
     }
@@ -188,7 +186,10 @@ fn carves(dir: &TestDir) -> (Vec<(String, f64)>, Vec<(String, f64)>) {
     let mut pads = Vec::new();
     let mut roads = Vec::new();
     for operation in ledger(dir) {
-        let id = operation["entityId"].as_str().unwrap_or_default().to_owned();
+        let id = operation["entityId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let ring = operation["blendM"].as_f64().expect("a published ring");
         if operation["kind"] == json!("roadbed") {
             roads.push((id, ring));
@@ -255,14 +256,19 @@ fn every_planned_pad_publishes_the_ring_its_own_fill_depth_derives() {
         "the widest pad ring (4.5 m of fill)"
     );
     assert!(
-        rings.iter().all(|ring| *ring >= BLEND_FLOOR_M && *ring <= 18.0),
+        rings
+            .iter()
+            .all(|ring| *ring >= BLEND_FLOOR_M && *ring <= 18.0),
         "every pad ring stays inside the floor and well under the ceiling: {rings:?}"
     );
     // And the world's building carves are the same numbers.
     let (pads, _) = carves(&dir);
     assert_eq!(pads.len(), 24, "22 pads + 2 rule-engine buildings");
     let widest_pad = widest(&pads);
-    assert!(close(widest_pad, 18.202), "the widest building carve: {widest_pad}");
+    assert!(
+        close(widest_pad, 18.202),
+        "the widest building carve: {widest_pad}"
+    );
 }
 
 /// 2. The CLOSED arm is the elevation ring, unchanged, and carries no ring key at
@@ -366,14 +372,11 @@ fn a_road_keeps_its_corridor_floor_and_publishes_its_recorded_ring() {
 #[test]
 fn the_old_value_keeps_its_own_rings_and_never_touches_a_road() {
     let dir = TestDir::new("fill-footprint");
-    bake_world(&sample(HILLSIDE, Some(FOOTPRINT)), &dir.0)
-        .expect("the footprint arm bakes");
+    bake_world(&sample(HILLSIDE, Some(FOOTPRINT)), &dir.0).expect("the footprint arm bakes");
     let plan = plan(&dir);
     let mut narrowest = f64::INFINITY;
     for site in plan["roadsideSites"].as_array().unwrap() {
-        let recorded = site["earthworkBlendM"]
-            .as_f64()
-            .expect("the record's ring");
+        let recorded = site["earthworkBlendM"].as_f64().expect("the record's ring");
         let width = site["widthM"].as_f64().unwrap();
         let height = site["program"]["heightM"].as_f64().unwrap_or(8.0);
         let want = (width.max(height) + BLEND_APRON_M).clamp(BLEND_FLOOR_M, BLEND_CEILING_M);
@@ -458,7 +461,11 @@ fn the_fill_value_keeps_the_hillside_and_costs_the_waterfront_one_pad() {
             .map(|site| site["id"].as_str().unwrap().to_owned())
             .collect()
     };
-    assert_eq!(names(&closed_plan), names(&fill_plan), "the same pads, in order");
+    assert_eq!(
+        names(&closed_plan),
+        names(&fill_plan),
+        "the same pads, in order"
+    );
     assert_eq!(
         closed_plan["roadsideSiteRejections"], fill_plan["roadsideSiteRejections"],
         "the same named refusals"
@@ -475,18 +482,14 @@ fn the_fill_value_keeps_the_hillside_and_costs_the_waterfront_one_pad() {
         closed_kinds.get("residential_home"),
         fill_kinds.get("residential_home")
     );
-    assert_eq!(
-        closed_kinds.get("storefront"),
-        fill_kinds.get("storefront")
-    );
+    assert_eq!(closed_kinds.get("storefront"), fill_kinds.get("storefront"));
     assert_eq!(fill_kinds.get("residential_home"), Some(&15));
     assert_eq!(fill_kinds.get("storefront"), Some(&6));
 
     let wf_closed = TestDir::new("fill-waterfront-closed");
     let wf_fill = TestDir::new("fill-waterfront-fill");
     bake_world(&sample(WATERFRONT, None), &wf_closed.0).expect("the closed waterfront bakes");
-    bake_world(&sample(WATERFRONT, Some(FILL)), &wf_fill.0)
-        .expect("the fill waterfront bakes");
+    bake_world(&sample(WATERFRONT, Some(FILL)), &wf_fill.0).expect("the fill waterfront bakes");
     let (wf_closed_plan, wf_fill_plan) = (plan(&wf_closed), plan(&wf_fill));
     assert_eq!(
         wf_closed_plan["roadsideSites"].as_array().unwrap().len(),
@@ -575,7 +578,10 @@ fn the_fill_value_replays_the_one_km_probe() {
         .arg(&dir.0)
         .output()
         .expect("world-quality-gate runs");
-    assert!(!gate.status.success(), "this probe is still an incomplete world");
+    assert!(
+        !gate.status.success(),
+        "this probe is still an incomplete world"
+    );
 
     let quality = read_json(&dir.0.join("quality-report.json"))["scenes"][0].clone();
     let kinds = &quality["entityKinds"];
@@ -594,16 +600,15 @@ fn the_fill_value_replays_the_one_km_probe() {
     assert_eq!(joint["missingResidential"], json!(JOINT_MISSING_FILL));
 
     let plan = plan(&dir);
-    let categories: BTreeMap<String, usize> =
-        plan["roadsideSiteRejections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .fold(BTreeMap::new(), |mut acc, refusal| {
-                *acc.entry(refusal["category"].as_str().unwrap().to_owned())
-                    .or_insert(0) += 1;
-                acc
-            });
+    let categories: BTreeMap<String, usize> = plan["roadsideSiteRejections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .fold(BTreeMap::new(), |mut acc, refusal| {
+            *acc.entry(refusal["category"].as_str().unwrap().to_owned())
+                .or_insert(0) += 1;
+            acc
+        });
     assert_eq!(
         categories
             .get("assigned_road_unreachable_after_pad_list_complete")
@@ -621,7 +626,11 @@ fn the_fill_value_replays_the_one_km_probe() {
     );
 
     let (pads, roads) = carves(&dir);
-    assert!(close(widest(&pads), WIDEST_PAD_RING_FILL), "{}", widest(&pads));
+    assert!(
+        close(widest(&pads), WIDEST_PAD_RING_FILL),
+        "{}",
+        widest(&pads)
+    );
     assert!(
         widest(&pads) < WIDEST_PAD_RING_CLOSED / 6.0,
         "the widest pad ring is more than six times narrower"

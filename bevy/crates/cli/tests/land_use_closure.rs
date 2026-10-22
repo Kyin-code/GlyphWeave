@@ -35,8 +35,7 @@ fn bake(manifest_name: &str, label: &str) -> (TestDir, Value) {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../examples")
         .join(manifest_name);
-    let mut manifest: WorldManifest =
-        serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+    let mut manifest: WorldManifest = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
     manifest.style["rulesDir"] = serde_json::json!(rules());
     let dir = TestDir::new(label);
     bake_world(&manifest, &dir.0).unwrap();
@@ -81,4 +80,3 @@ fn complete_ground_closes_the_ledger_and_its_independent_surface_audit() {
         "complete-ground-v1"
     );
 }
-

@@ -129,7 +129,10 @@ fn published_files(root: &PathBuf) -> BTreeMap<String, String> {
 /// records the output directory and nothing else in a world embeds a path.
 fn world_digest(files: &BTreeMap<String, String>) -> String {
     let mut hasher = blake3::Hasher::new();
-    for (path, digest) in files.iter().filter(|(path, _)| !path.contains("generation-report")) {
+    for (path, digest) in files
+        .iter()
+        .filter(|(path, _)| !path.contains("generation-report"))
+    {
         hasher.update(path.as_bytes());
         hasher.update(b"\0");
         hasher.update(digest.as_bytes());
@@ -180,16 +183,24 @@ fn the_rule_generated_buildings_are_counted_apart_and_leave_the_failure_list() {
             serde_json::from_value(origin.clone()).expect("a published candidate key");
         let id = key.stable_id().expect("the key names a stable id");
         assert!(
-            entities.iter().any(|entity| entity["entityId"] == id.as_str()),
+            entities
+                .iter()
+                .any(|entity| entity["entityId"] == id.as_str()),
             "{id} must be a published entity"
         );
-        assert!(!planned.contains(&id.as_str()), "{id} is not a parcel's product");
+        assert!(
+            !planned.contains(&id.as_str()),
+            "{id} is not a parcel's product"
+        );
     }
 
     let audit = read_json(scene_dir(&dir).join("development-audit.json"));
     assert_eq!(audit["plannedBuildings"], json!(HILLSIDE_PLANNED));
     assert_eq!(audit["realizedBuildings"], json!(HILLSIDE_REALIZED));
-    assert_eq!(audit["ruleGeneratedBuildings"], json!(HILLSIDE_RULE_GENERATED));
+    assert_eq!(
+        audit["ruleGeneratedBuildings"],
+        json!(HILLSIDE_RULE_GENERATED)
+    );
     assert_eq!(audit["unplannedBuildingIds"], json!([]));
     assert!(
         !audit["failures"]
@@ -295,9 +306,15 @@ fn an_origin_that_disagrees_with_the_published_kind_is_refused() {
     bake_world(&sample(), &dir.0).expect("the committed hillside bakes");
     let mut scene: glyphweave_core::worldgen::SceneIndex =
         serde_json::from_slice(&fs::read(scene_dir(&dir).join("scene.json")).unwrap()).unwrap();
-    let road_plan = scene.road_network_plan.clone().expect("the sample plans roads");
+    let road_plan = scene
+        .road_network_plan
+        .clone()
+        .expect("the sample plans roads");
     let zones = scene.land_use_zones.clone();
-    let plan = scene.development_plan.clone().expect("the sample owns parcels");
+    let plan = scene
+        .development_plan
+        .clone()
+        .expect("the sample owns parcels");
     let honest: EntityCandidateKey = scene.rule_building_candidates[0].clone();
     let rule_id = honest.stable_id().unwrap();
     for entity in &mut scene.entities {

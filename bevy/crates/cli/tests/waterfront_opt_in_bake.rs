@@ -90,22 +90,24 @@ fn waterfront_opt_in() -> WorldManifest {
             "reachDistanceM": 96
         }]
     });
-    manifest.landmarks = vec![serde_json::from_value(json!({
-        "entityId": "landmark.waterfront-river",
-        "name": "waterfront river",
-        "type": "river",
-        "purpose": "structured water the plan has to span",
-        "description": "north-south river through the middle of the town",
-        "sceneId": "scene-0",
-        "worldX": 256,
-        "worldZ": 256,
-        "worldY": 0,
-        "widthM": RIVER_WIDTH_M,
-        "depthM": SCENE_SIZE_M,
-        "heightM": 1,
-        "assetId": "water.waterfront-river"
-    }))
-    .unwrap()];
+    manifest.landmarks = vec![
+        serde_json::from_value(json!({
+            "entityId": "landmark.waterfront-river",
+            "name": "waterfront river",
+            "type": "river",
+            "purpose": "structured water the plan has to span",
+            "description": "north-south river through the middle of the town",
+            "sceneId": "scene-0",
+            "worldX": 256,
+            "worldZ": 256,
+            "worldY": 0,
+            "widthM": RIVER_WIDTH_M,
+            "depthM": SCENE_SIZE_M,
+            "heightM": 1,
+            "assetId": "water.waterfront-river"
+        }))
+        .unwrap(),
+    ];
     manifest
 }
 
@@ -269,16 +271,15 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         .collect();
     assert_eq!(
         ids,
-        vec!["generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da"]
+        vec![
+            "generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da"
+        ]
     );
     let reasons: Vec<&str> = skips
         .iter()
         .map(|skip| skip["reason"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        reasons,
-        vec!["slope 10.644444% > max 8%"]
-    );
+    assert_eq!(reasons, vec!["slope 10.644444% > max 8%"]);
     for skip in skips {
         assert_eq!(skip["kind"], json!("storefront"));
         assert_eq!(skip["rule"], json!("storefront.object.toml"));
@@ -301,10 +302,8 @@ fn the_waterfront_opt_in_world_bakes_with_named_skips_and_no_water_earthwork() {
         .map(|landmark| landmark.entity_id.clone())
         .collect();
     let registry = ObjectRegistry::load_dir(&rules()).unwrap();
-    let audit =
-        verify_published_placement(entry, &published, &authored, Some(&registry)).expect(
-            "the published skips must recompute from the plan ids and the descriptors",
-        );
+    let audit = verify_published_placement(entry, &published, &authored, Some(&registry))
+        .expect("the published skips must recompute from the plan ids and the descriptors");
     assert_eq!(audit.plan_items, 421);
     assert_eq!(audit.output_items, 420);
     assert_eq!(audit.skipped_items, 1);
@@ -355,7 +354,9 @@ fn two_bakes_publish_identical_skip_records() {
     assert_eq!(skips.len(), 1);
     assert_eq!(
         skips[0]["entityId"],
-        json!("generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da")
+        json!(
+            "generated.storefront.stable-v1.adce32212580c8037185d3fe07721a8ff8eb1ad465efd8d13f0f57afb5c7c5da"
+        )
     );
 }
 

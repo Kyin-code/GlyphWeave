@@ -462,15 +462,17 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(plan.operations.iter().any(|op| op.operation == "modify"));
         assert!(plan.operations.iter().any(|op| op.operation == "demolish"));
-        assert!(plan
-            .assigned_buildings
-            .iter()
-            .any(|building| building.operation == "replace"));
-        assert!(plan
-            .assigned_buildings
-            .iter()
-            .filter(|building| building.operation == "replace")
-            .all(|building| building.parent_id.is_some()));
+        assert!(
+            plan.assigned_buildings
+                .iter()
+                .any(|building| building.operation == "replace")
+        );
+        assert!(
+            plan.assigned_buildings
+                .iter()
+                .filter(|building| building.operation == "replace")
+                .all(|building| building.parent_id.is_some())
+        );
         let stages: BTreeMap<_, _> = plan
             .assigned_buildings
             .iter()

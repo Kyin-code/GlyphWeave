@@ -121,10 +121,7 @@ impl EngineeredTerrainSnapshot {
 
     /// Attach the C-E1 retaining-wall / culvert plan. The snapshot version is
     /// bumped only for a world that actually opted in.
-    pub fn with_terrain_works(
-        mut self,
-        works: crate::engineering_works::TerrainWorksPlan,
-    ) -> Self {
+    pub fn with_terrain_works(mut self, works: crate::engineering_works::TerrainWorksPlan) -> Self {
         if self.version < 5 {
             self.version = 5;
         }

@@ -146,19 +146,46 @@ pub struct RequiredAsset {
 /// sections all pass, and the entry answers 404. The required set therefore has to come from
 /// the format, never from the remainder of the audited declaration list.
 pub const REQUIRED_ASSETS: &[RequiredAsset] = &[
-    RequiredAsset { path: SOURCE_INPUT_FILE, role: ROLE_SOURCE_INPUT },
-    RequiredAsset { path: SOURCE_BUNDLE_FILE, role: ROLE_SOURCE_BUNDLE },
-    RequiredAsset { path: RENDER_MODEL_FILE, role: ROLE_RENDER_MODEL },
-    RequiredAsset { path: VIEWER_ENTRY_FILE, role: ROLE_VIEWER },
-    RequiredAsset { path: "preview/engineering-preview.js", role: ROLE_VIEWER_MODULE },
-    RequiredAsset { path: "preview/preview-model.js", role: ROLE_VIEWER_MODULE },
-    RequiredAsset { path: "preview/vendor/three/build/three.module.js", role: ROLE_VENDOR },
-    RequiredAsset { path: "preview/vendor/three/build/three.core.js", role: ROLE_VENDOR },
+    RequiredAsset {
+        path: SOURCE_INPUT_FILE,
+        role: ROLE_SOURCE_INPUT,
+    },
+    RequiredAsset {
+        path: SOURCE_BUNDLE_FILE,
+        role: ROLE_SOURCE_BUNDLE,
+    },
+    RequiredAsset {
+        path: RENDER_MODEL_FILE,
+        role: ROLE_RENDER_MODEL,
+    },
+    RequiredAsset {
+        path: VIEWER_ENTRY_FILE,
+        role: ROLE_VIEWER,
+    },
+    RequiredAsset {
+        path: "preview/engineering-preview.js",
+        role: ROLE_VIEWER_MODULE,
+    },
+    RequiredAsset {
+        path: "preview/preview-model.js",
+        role: ROLE_VIEWER_MODULE,
+    },
+    RequiredAsset {
+        path: "preview/vendor/three/build/three.module.js",
+        role: ROLE_VENDOR,
+    },
+    RequiredAsset {
+        path: "preview/vendor/three/build/three.core.js",
+        role: ROLE_VENDOR,
+    },
     RequiredAsset {
         path: "preview/vendor/three/examples/jsm/controls/OrbitControls.js",
         role: ROLE_VENDOR,
     },
-    RequiredAsset { path: "preview/vendor/three/LICENSE", role: ROLE_VENDOR },
+    RequiredAsset {
+        path: "preview/vendor/three/LICENSE",
+        role: ROLE_VENDOR,
+    },
 ];
 
 /// The required asset for a canonical relative path, when the format defines one.
@@ -214,7 +241,8 @@ mod sha256 {
             let mut w = [0u32; 64];
             for (index, word) in w.iter_mut().take(16).enumerate() {
                 let at = index * 4;
-                *word = u32::from_be_bytes([chunk[at], chunk[at + 1], chunk[at + 2], chunk[at + 3]]);
+                *word =
+                    u32::from_be_bytes([chunk[at], chunk[at + 1], chunk[at + 2], chunk[at + 3]]);
             }
             for index in 16..64 {
                 let s0 = w[index - 15].rotate_right(7)
@@ -953,7 +981,13 @@ pub fn verify_sources(
     Ok((input, bundle, report))
 }
 
-fn file_fact(path: &str, role: &str, bytes: &[u8], objects: usize, bounds_m: Option<[f64; 6]>) -> PreviewFileFact {
+fn file_fact(
+    path: &str,
+    role: &str,
+    bytes: &[u8],
+    objects: usize,
+    bounds_m: Option<[f64; 6]>,
+) -> PreviewFileFact {
     PreviewFileFact {
         path: path.to_string(),
         role: role.to_string(),
@@ -966,11 +1000,17 @@ fn file_fact(path: &str, role: &str, bytes: &[u8], objects: usize, bounds_m: Opt
 
 /// Build the whole export in memory: the description, the source copies, the render model
 /// and the viewer modules. The caller owns publication.
-pub fn build_export(input_json: &str, bundle_json: &str) -> Result<PreviewExport, ec::EngineeringError> {
+pub fn build_export(
+    input_json: &str,
+    bundle_json: &str,
+) -> Result<PreviewExport, ec::EngineeringError> {
     let (input, bundle, report) = verify_sources(input_json, bundle_json)?;
     let render_model = build_render_model(&input, &bundle)?;
     let render_model_json = serde_json::to_vec_pretty(&render_model).map_err(|error| {
-        err("preview_serialise", format!("the render model could not be serialised: {error}"))
+        err(
+            "preview_serialise",
+            format!("the render model could not be serialised: {error}"),
+        )
     })?;
 
     // The exporter publishes exactly the format's required set, taken from the same rule the
@@ -1075,7 +1115,10 @@ pub fn build_export(input_json: &str, bundle_json: &str) -> Result<PreviewExport
     };
 
     let description_json = serde_json::to_vec_pretty(&description).map_err(|error| {
-        err("preview_serialise", format!("the description could not be serialised: {error}"))
+        err(
+            "preview_serialise",
+            format!("the description could not be serialised: {error}"),
+        )
     })?;
 
     Ok(PreviewExport {
@@ -1094,7 +1137,9 @@ pub fn build_export(input_json: &str, bundle_json: &str) -> Result<PreviewExport
 /// Read the observed files of a preview directory into `path -> (bytes, sha256)`. Paths are
 /// relative to the preview root, `/`-separated, and every symlink/reparse point is refused
 /// rather than followed, so a package cannot point the audit outside itself.
-pub fn observe_directory(root: &Path) -> Result<BTreeMap<String, (u64, String)>, ec::EngineeringError> {
+pub fn observe_directory(
+    root: &Path,
+) -> Result<BTreeMap<String, (u64, String)>, ec::EngineeringError> {
     let mut out = BTreeMap::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -1106,7 +1151,10 @@ pub fn observe_directory(root: &Path) -> Result<BTreeMap<String, (u64, String)>,
         })?;
         for entry in entries {
             let entry = entry.map_err(|error| {
-                err("preview_unreadable", format!("cannot read an entry: {error}"))
+                err(
+                    "preview_unreadable",
+                    format!("cannot read an entry: {error}"),
+                )
             })?;
             let path = entry.path();
             let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
@@ -1118,7 +1166,10 @@ pub fn observe_directory(root: &Path) -> Result<BTreeMap<String, (u64, String)>,
             if metadata.file_type().is_symlink() {
                 return Err(err(
                     "preview_symlink_refused",
-                    format!("{} is a link; a preview package may not contain one", path.display()),
+                    format!(
+                        "{} is a link; a preview package may not contain one",
+                        path.display()
+                    ),
                 ));
             }
             if metadata.is_dir() {
@@ -1195,7 +1246,12 @@ pub struct AuditReport {
 
 const DIFF_LIMIT: usize = 40;
 
-fn diff_json(expected: &serde_json::Value, found: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+fn diff_json(
+    expected: &serde_json::Value,
+    found: &serde_json::Value,
+    path: &str,
+    out: &mut Vec<String>,
+) {
     if out.len() >= DIFF_LIMIT {
         return;
     }
@@ -1213,7 +1269,9 @@ fn diff_json(expected: &serde_json::Value, found: &serde_json::Value, path: &str
             }
             for key in b.keys() {
                 if !a.contains_key(key) {
-                    out.push(format!("{path}.{key}: present only in the saved projection"));
+                    out.push(format!(
+                        "{path}.{key}: present only in the saved projection"
+                    ));
                 }
                 if out.len() >= DIFF_LIMIT {
                     return;
@@ -1293,7 +1351,9 @@ pub fn audit_export(
             }
         },
         None => {
-            completeness.fail(format!("{DESCRIPTION_FILE} is missing: the export never completed"));
+            completeness.fail(format!(
+                "{DESCRIPTION_FILE} is missing: the export never completed"
+            ));
             None
         }
     };
@@ -1332,7 +1392,9 @@ pub fn audit_export(
                     description.viewer_entry
                 ));
             }
-            if required_asset(&description.viewer_entry).map(|asset| asset.role) != Some(ROLE_VIEWER) {
+            if required_asset(&description.viewer_entry).map(|asset| asset.role)
+                != Some(ROLE_VIEWER)
+            {
                 completeness.fail(format!(
                     "the declared viewer entry {:?} is not a required viewer asset of this format",
                     description.viewer_entry
@@ -1462,7 +1524,8 @@ pub fn audit_export(
             } else if let Some((bytes, hash)) = observed.get(DESCRIPTION_FILE) {
                 let text = description_json.unwrap_or("");
                 if *bytes != text.len() as u64 || *hash != sha256_hex(text.as_bytes()) {
-                    completeness.fail("the description on disk is not the description that was read");
+                    completeness
+                        .fail("the description on disk is not the description that was read");
                 }
             }
             completeness.note(format!(
@@ -1490,9 +1553,8 @@ pub fn audit_export(
             if input_hash != description.source.input_sha256
                 || input_text.len() as u64 != description.source.input_bytes
             {
-                binding.fail(
-                    "the exported input copy is not the input the description binds by hash",
-                );
+                binding
+                    .fail("the exported input copy is not the input the description binds by hash");
             }
             if bundle_hash != description.source.bundle_sha256
                 || bundle_text.len() as u64 != description.source.bundle_bytes
@@ -1521,7 +1583,9 @@ pub fn audit_export(
                                 ));
                             }
                             if bundle.units != input.units {
-                                binding.fail("the bundle and the input declare different unit contracts");
+                                binding.fail(
+                                    "the bundle and the input declare different unit contracts",
+                                );
                             }
                             if bundle.scene_id != description.scene_id {
                                 binding.fail("the description scene and the bundle scene disagree");
@@ -1561,7 +1625,8 @@ pub fn audit_export(
                                 ));
                             }
                             if !report.payload_hash_matches {
-                                engineering.fail("the bundle payload hash does not match its content");
+                                engineering
+                                    .fail("the bundle payload hash does not match its content");
                             }
                             if description.source.publication_state != bundle.publication.state {
                                 binding.fail("the declared publication state is not the bundle's");
@@ -1598,7 +1663,9 @@ pub fn audit_export(
     match (&verified, render_model_json) {
         (Some((input, bundle, _)), Some(model_text)) => {
             match serde_json::from_str::<serde_json::Value>(model_text) {
-                Err(error) => parity.fail(format!("the saved render model is not readable: {error}")),
+                Err(error) => {
+                    parity.fail(format!("the saved render model is not readable: {error}"))
+                }
                 Ok(saved_value) => match build_render_model(input, bundle) {
                     Err(error) => parity.fail(format!(
                         "the render model could not be recomputed from the saved bundle: {}",
@@ -1621,7 +1688,9 @@ pub fn audit_export(
                         if recomputed.display_convention != display_convention() {
                             parity.fail("the saved display convention is not the declared identity convention");
                         }
-                        if recomputed.counts.triangles != recomputed.parts.len() * BOX_TRIANGLES.len() {
+                        if recomputed.counts.triangles
+                            != recomputed.parts.len() * BOX_TRIANGLES.len()
+                        {
                             parity.fail("the declared triangle count is not 12 per part");
                         }
                         if differences.is_empty() {
@@ -1655,7 +1724,9 @@ pub fn audit_export(
             );
         }
         if description.render_model.sha256
-            != render_model_json.map(|text| sha256_hex(text.as_bytes())).unwrap_or_default()
+            != render_model_json
+                .map(|text| sha256_hex(text.as_bytes()))
+                .unwrap_or_default()
         {
             binding.fail("the description's render model hash is not the saved render model's");
         }
@@ -1781,7 +1852,10 @@ fn check_box_topology() -> Result<(), String> {
         ));
     }
     if edges.len() != 18 {
-        return Err(format!("the box topology has {} edges, expected 18", edges.len()));
+        return Err(format!(
+            "the box topology has {} edges, expected 18",
+            edges.len()
+        ));
     }
     let volume = box_topology_volume();
     if (volume.abs() - 1.0).abs() > 1e-9 {
@@ -1802,7 +1876,9 @@ mod tests {
 
     fn case(name: &str) -> String {
         std::fs::read_to_string(
-            preview_root().join("tests/resources/g19r2").join(format!("{name}.json")),
+            preview_root()
+                .join("tests/resources/g19r2")
+                .join(format!("{name}.json")),
         )
         .unwrap_or_else(|error| panic!("case {name}: {error}"))
     }
@@ -1873,8 +1949,7 @@ mod tests {
             sha256_hex(input_json.as_bytes())
         );
         assert_ne!(
-            export.description.source.bundle_payload_hash,
-            export.description.source.bundle_sha256,
+            export.description.source.bundle_payload_hash, export.description.source.bundle_sha256,
             "the bundle's own hash and the file hash are different units and must not be mixed"
         );
         // Every declared file is present in memory with the declared bytes and hash.
@@ -1893,27 +1968,40 @@ mod tests {
             assert_eq!(fact.bytes, bytes.len() as u64, "{}", fact.path);
             assert_eq!(fact.sha256, sha256_hex(bytes), "{}", fact.path);
         }
-        assert!(export
-            .description
-            .files
-            .iter()
-            .any(|fact| fact.path == VIEWER_ENTRY_FILE && fact.role == "viewer"));
+        assert!(
+            export
+                .description
+                .files
+                .iter()
+                .any(|fact| fact.path == VIEWER_ENTRY_FILE && fact.role == "viewer")
+        );
 
         // The render model carries the saved geometry one-to-one.
         let model: RenderModel = serde_json::from_slice(&export.render_model_json).unwrap();
         assert_eq!(model.scene_id, bundle.scene_id);
-        assert_eq!(model.parts.len(), bundle.structures.iter().map(|s| s.parts.len()).sum::<usize>());
-        for (part, saved) in model
-            .parts
-            .iter()
-            .zip(bundle.structures.iter().flat_map(|structure| structure.parts.iter()))
-        {
+        assert_eq!(
+            model.parts.len(),
+            bundle
+                .structures
+                .iter()
+                .map(|s| s.parts.len())
+                .sum::<usize>()
+        );
+        for (part, saved) in model.parts.iter().zip(
+            bundle
+                .structures
+                .iter()
+                .flat_map(|structure| structure.parts.iter()),
+        ) {
             assert_eq!(part.part_id, saved.part_id);
             assert_eq!(part.corners_m, saved.corners_m);
             assert_eq!(part.triangles, BOX_TRIANGLES);
         }
         assert_eq!(model.route.polyline_m, bundle.route.path_polyline_m);
-        assert_eq!(model.terrain.engineered.heights_m.len(), bundle.surface.mm.len());
+        assert_eq!(
+            model.terrain.engineered.heights_m.len(),
+            bundle.surface.mm.len()
+        );
         assert_eq!(
             model.terrain.natural.heights_m.len(),
             ec::load_input(&input_json).unwrap().grid.natural_mm.len()
@@ -1984,14 +2072,16 @@ mod tests {
                 sha256_hex(tampered_model.as_bytes()),
             ),
         );
-        let mut tampered_description: serde_json::Value = serde_json::from_str(&description_text).unwrap();
+        let mut tampered_description: serde_json::Value =
+            serde_json::from_str(&description_text).unwrap();
         for fact in tampered_description["files"].as_array_mut().unwrap() {
             if fact["path"] == RENDER_MODEL_FILE {
                 fact["bytes"] = serde_json::json!(tampered_model.len());
                 fact["sha256"] = serde_json::json!(sha256_hex(tampered_model.as_bytes()));
             }
         }
-        let tampered_description_text = serde_json::to_string_pretty(&tampered_description).unwrap();
+        let tampered_description_text =
+            serde_json::to_string_pretty(&tampered_description).unwrap();
         tampered_observed.insert(
             DESCRIPTION_FILE.into(),
             (
@@ -2010,12 +2100,20 @@ mod tests {
         assert_eq!(caught.status, "fail");
         assert_eq!(caught.render_parity.status, "fail");
         assert!(
-            caught.render_parity.findings.iter().any(|finding| finding.contains("cornersM")),
+            caught
+                .render_parity
+                .findings
+                .iter()
+                .any(|finding| finding.contains("cornersM")),
             "{:?}",
             caught.render_parity.findings
         );
         assert!(
-            caught.render_parity.findings.iter().any(|finding| finding.contains("levelId")),
+            caught
+                .render_parity
+                .findings
+                .iter()
+                .any(|finding| finding.contains("levelId")),
             "{:?}",
             caught.render_parity.findings
         );
@@ -2078,7 +2176,8 @@ mod tests {
         let mut broken = committed.clone();
         broken.payload_hash = "0".repeat(64);
         let broken_json = serde_json::to_string_pretty(&broken).unwrap();
-        let error = build_export(&input_json, &broken_json).expect_err("a broken payload hash is refused");
+        let error =
+            build_export(&input_json, &broken_json).expect_err("a broken payload hash is refused");
         assert!(
             error.category == "preview_source_not_verified"
                 || error.category == "preview_payload_hash_mismatch",
@@ -2127,7 +2226,8 @@ mod tests {
         let mut stripped = 0;
         if let Some(edges) = value["graph"]["edges"].as_array_mut() {
             for edge in edges {
-                if let Some(facts) = edge["verification"]["detail"]["supportFacts"].as_object_mut() {
+                if let Some(facts) = edge["verification"]["detail"]["supportFacts"].as_object_mut()
+                {
                     for fact in facts.values_mut() {
                         if let Some(object) = fact.as_object_mut() {
                             if object.remove("schemaVersion").is_some() {
@@ -2142,10 +2242,12 @@ mod tests {
         let mut missing_schema: EngineeringBundle = serde_json::from_value(value).unwrap();
         missing_schema.payload_hash = ec::payload_hash_of(&missing_schema).unwrap();
         let missing_json = serde_json::to_string_pretty(&missing_schema).unwrap();
-        let missing_error =
-            build_export(&input_json, &missing_json).expect_err("a missing support schema is refused");
+        let missing_error = build_export(&input_json, &missing_json)
+            .expect_err("a missing support schema is refused");
         assert_eq!(missing_error.category, "preview_source_not_verified");
-        assert!(missing_error.message.contains("verified") || missing_error.message.contains("refused"));
+        assert!(
+            missing_error.message.contains("verified") || missing_error.message.contains("refused")
+        );
 
         // 4. saved geometry rewritten and the payload hash recomputed: still refused by the
         //    designated support re-check, never by the hash the tamper recomputed.
@@ -2169,7 +2271,10 @@ mod tests {
             build_export(&input_json, &geometry_json).expect_err("rewritten geometry is refused");
         assert_eq!(geometry_error.category, "preview_source_not_verified");
         assert!(
-            geometry_error.detail.to_string().contains("stored_capabilities_resampled")
+            geometry_error
+                .detail
+                .to_string()
+                .contains("stored_capabilities_resampled")
                 || geometry_error.message.contains("refused"),
             "{}",
             geometry_error.message
@@ -2370,7 +2475,12 @@ mod tests {
                 .iter()
                 .filter(|fact| fact.path == asset.path)
                 .collect();
-            assert_eq!(matches.len(), 1, "{} must be declared exactly once", asset.path);
+            assert_eq!(
+                matches.len(),
+                1,
+                "{} must be declared exactly once",
+                asset.path
+            );
             assert_eq!(matches[0].role, asset.role, "{} role", asset.path);
         }
         let clean = audit_variant(
@@ -2585,13 +2695,16 @@ mod tests {
 
         let extra = sha256_hex(b"abc");
         let (text, mut observed) = edit_description(&fixture, |value| {
-            value["files"].as_array_mut().unwrap().push(serde_json::json!({
-                "path": "preview/extra.js",
-                "role": ROLE_VIEWER_MODULE,
-                "bytes": 3,
-                "sha256": sha256_hex(b"abc"),
-                "objects": 0,
-            }));
+            value["files"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "path": "preview/extra.js",
+                    "role": ROLE_VIEWER_MODULE,
+                    "bytes": 3,
+                    "sha256": sha256_hex(b"abc"),
+                    "objects": 0,
+                }));
         });
         observed.insert("preview/extra.js".into(), (3, extra));
         let report = audit_variant("extra-entry", &fixture, &text, &observed);

@@ -73,7 +73,13 @@ fn move_patch(manifest: &WorldManifest) -> WorldPatch {
     }
 }
 
-fn run(base: &PathBuf, manifest: &PathBuf, patch: &PathBuf, approvals: &PathBuf, out: &PathBuf) -> std::process::Output {
+fn run(
+    base: &PathBuf,
+    manifest: &PathBuf,
+    patch: &PathBuf,
+    approvals: &PathBuf,
+    out: &PathBuf,
+) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_glyphweave"))
         .arg("apply-patch-preserving")
         .arg(base)
@@ -93,7 +99,11 @@ fn preserving_patch_requires_exact_approval_and_publishes_only_after_audit() {
     bake_world(&manifest, &base_dir).unwrap();
     let manifest_path = root.0.join("manifest.json");
     let patch_path = root.0.join("patch.json");
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
     fs::write(
         &patch_path,
         serde_json::to_vec_pretty(&move_patch(&manifest)).unwrap(),
@@ -124,7 +134,10 @@ fn preserving_patch_requires_exact_approval_and_publishes_only_after_audit() {
         "unapproved move must fail: {}",
         String::from_utf8_lossy(&denied.stderr)
     );
-    assert!(!denied_out.exists(), "failed inventory audit must not publish");
+    assert!(
+        !denied_out.exists(),
+        "failed inventory audit must not publish"
+    );
 
     let approved_approvals = root.0.join("approved-approvals.json");
     fs::write(
@@ -160,10 +173,8 @@ fn preserving_patch_requires_exact_approval_and_publishes_only_after_audit() {
     assert_eq!(audit["status"], "pass");
     assert!(audit["entries"].as_array().unwrap().iter().any(|entry| {
         entry["entityId"] == "generated.inventory-rock"
-            && entry["changes"]
-                .as_array()
-                .is_some_and(|changes| {
-                    changes.contains(&json!("moved")) && changes.contains(&json!("updated"))
-                })
+            && entry["changes"].as_array().is_some_and(|changes| {
+                changes.contains(&json!("moved")) && changes.contains(&json!("updated"))
+            })
     }));
 }

@@ -250,36 +250,38 @@ mod tests {
     #[test]
     fn natural_only_requires_authored_macro_geography() {
         assert!(validate_style(&serde_json::json!({"naturalOnly": true})).is_err());
-        assert!(validate_style(&serde_json::json!({
-            "naturalOnly": true,
-            "naturalGeography": {
-                "version": 1,
-                "setting": "coastal-mountain",
-                "regionalReliefM": 900,
-                "orogenyAxisDeg": 28,
-                "upliftBias": 0.72,
-                "coast": {"type": "ria-bay", "waveExposure": "moderate", "trench": false},
-                "climate": {
-                    "band": "humid-subtropical",
-                    "prevailingWindDeg": 125,
-                    "monsoon": true,
-                    "rainfallBias": 0.65,
-                    "seasonality": 0.48
-                },
-                "hydrology": {
-                    "regime": "perennial",
-                    "historicChannelShiftM": 260,
-                    "wetlandBias": 0.3
-                },
-                "landform": {
-                    "karst": false,
-                    "aeolian": false,
-                    "glacial": false,
-                    "incisedValleys": 0.68
-                },
-                "hazards": ["flood"]
-            }
-        }))
-        .is_ok());
+        assert!(
+            validate_style(&serde_json::json!({
+                "naturalOnly": true,
+                "naturalGeography": {
+                    "version": 1,
+                    "setting": "coastal-mountain",
+                    "regionalReliefM": 900,
+                    "orogenyAxisDeg": 28,
+                    "upliftBias": 0.72,
+                    "coast": {"type": "ria-bay", "waveExposure": "moderate", "trench": false},
+                    "climate": {
+                        "band": "humid-subtropical",
+                        "prevailingWindDeg": 125,
+                        "monsoon": true,
+                        "rainfallBias": 0.65,
+                        "seasonality": 0.48
+                    },
+                    "hydrology": {
+                        "regime": "perennial",
+                        "historicChannelShiftM": 260,
+                        "wetlandBias": 0.3
+                    },
+                    "landform": {
+                        "karst": false,
+                        "aeolian": false,
+                        "glacial": false,
+                        "incisedValleys": 0.68
+                    },
+                    "hazards": ["flood"]
+                }
+            }))
+            .is_ok()
+        );
     }
 }

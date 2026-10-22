@@ -36,8 +36,7 @@
 use super::road_network::{BaseProfileRejection, RoadNetworkPlan};
 use super::zoning::ZoningMask;
 use super::{
-    LandUseZone, SceneSpec, WaterGeometry, plan_terrain_carves,
-    published_surface_from_raster,
+    LandUseZone, SceneSpec, WaterGeometry, plan_terrain_carves, published_surface_from_raster,
 };
 use crate::baked_terrain::{BakedTerrain, TerrainError};
 
@@ -113,12 +112,7 @@ pub(super) fn refuse_overfilled_roads(
                 }
             }
             if worst > max_fill_m + FILL_MM_TOLERANCE {
-                refused.push((
-                    entity.entity_id.clone(),
-                    worst,
-                    worst_at,
-                    max_fill_m,
-                ));
+                refused.push((entity.entity_id.clone(), worst, worst_at, max_fill_m));
             }
         }
         if refused.is_empty() {
@@ -161,8 +155,7 @@ fn withdraw_road(plan: &mut RoadNetworkPlan, road_id: &str) {
         .filter(|site| site.road_id == road_id)
         .map(|site| site.id.clone())
         .collect();
-    plan.roadside_sites
-        .retain(|site| site.road_id != road_id);
+    plan.roadside_sites.retain(|site| site.road_id != road_id);
     if withdrawn_sites.is_empty() {
         return;
     }
@@ -199,7 +192,15 @@ mod tests {
     /// roadside structure whose support rectangle reaches into the road's transport
     /// band. `level_m` decides whether that structure's fill is inside the 6 m
     /// contract (`14`) or beyond it (`19`), which is exactly the refusal boundary.
-    fn fixture(level_m: f64) -> (SceneSpec, Vec<LandUseZone>, RoadNetworkPlan, BakedTerrain, WaterGeometry) {
+    fn fixture(
+        level_m: f64,
+    ) -> (
+        SceneSpec,
+        Vec<LandUseZone>,
+        RoadNetworkPlan,
+        BakedTerrain,
+        WaterGeometry,
+    ) {
         let scene = SceneSpec {
             scene_id: "road-support".into(),
             origin_x: 0,
@@ -299,15 +300,8 @@ mod tests {
     fn a_road_that_still_overfills_after_its_cut_is_refused_by_name() {
         let (scene, zones, mut plan, natural, water) = fixture(19.0);
         assert_eq!(plan.edges.len(), 1);
-        refuse_overfilled_roads(
-            &mut plan,
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            &style(),
-        )
-        .expect("the probe converges");
+        refuse_overfilled_roads(&mut plan, &scene, &natural, water, Some(&zones), &style())
+            .expect("the probe converges");
         assert!(plan.edges.is_empty(), "the road leaves the plan");
         assert!(plan.extensions.is_empty());
         assert!(plan.entities().is_empty(), "and its entity leaves with it");
@@ -318,7 +312,9 @@ mod tests {
         let refusal = plan
             .base_profile_rejections
             .iter()
-            .find(|record| record.category == super::super::bounded_cut::ROAD_FILL_EXCEEDS_AFTER_CUT)
+            .find(|record| {
+                record.category == super::super::bounded_cut::ROAD_FILL_EXCEEDS_AFTER_CUT
+            })
             .expect("the refusal is named and persisted");
         assert_eq!(refusal.edge_id, "road.0");
         assert!(
@@ -335,15 +331,8 @@ mod tests {
     #[test]
     fn a_road_whose_band_stays_inside_the_fill_contract_is_kept() {
         let (scene, zones, mut plan, natural, water) = fixture(14.0);
-        refuse_overfilled_roads(
-            &mut plan,
-            &scene,
-            &natural,
-            water,
-            Some(&zones),
-            &style(),
-        )
-        .expect("the probe converges");
+        refuse_overfilled_roads(&mut plan, &scene, &natural, water, Some(&zones), &style())
+            .expect("the probe converges");
         assert_eq!(plan.edges.len(), 1, "the road stays");
         assert_eq!(plan.entities().len(), 1);
         assert_eq!(plan.roadside_sites.len(), 1);

@@ -26,14 +26,8 @@ const SEARCH_RADII_M: [i32; 5] = [2, 4, 8, 16, 32];
 /// Kinds whose placement IS infrastructure layout rather than a candidate site.
 /// Moving or dropping one could silently break a road graph, a registered bridge
 /// or a canal's hydrology, so reconciliation is never allowed to remove them.
-const INFRASTRUCTURE_KINDS: [&str; 6] = [
-    "road",
-    "bridge",
-    "railway",
-    "canal",
-    "causeway",
-    "sidewalk",
-];
+const INFRASTRUCTURE_KINDS: [&str; 6] =
+    ["road", "bridge", "railway", "canal", "causeway", "sidewalk"];
 
 /// May reconciliation REMOVE this entity instead of moving it or failing?
 ///
@@ -195,9 +189,7 @@ pub(super) fn reconcile(
         let mut progress = false;
         if round < MAX_ROUNDS {
             for reject in &rejects {
-                let Some(index) = entities
-                    .iter()
-                    .position(|e| e.entity_id == reject.item_id)
+                let Some(index) = entities.iter().position(|e| e.entity_id == reject.item_id)
                 else {
                     continue;
                 };
@@ -247,7 +239,10 @@ pub(super) fn reconcile(
                 let other_carves = plan_terrain_carves(&other_entities);
                 let (origin_x, origin_z) = original_positions[&source.entity_id];
                 let mut offsets = vec![(0, 0)];
-                if matches!(desc.placement.fallback, crate::rules::schema::Fallback::Move) {
+                if matches!(
+                    desc.placement.fallback,
+                    crate::rules::schema::Fallback::Move
+                ) {
                     for radius in SEARCH_RADII_M {
                         for (dx, dz) in [
                             (0, -1),
@@ -304,10 +299,9 @@ pub(super) fn reconcile(
                     trial_carves.extend(plan_terrain_carves(std::slice::from_ref(&candidate)));
                     trial_carves.sort_by_key(|c| c.priority);
                     let height = |x, z| terrain_context.height(x, z, &trial_carves);
-                    let valid =
-                        with_height_placement_context(seed, scene, water, &height, |ctx| {
-                            check_hard(desc, &fp, ctx, &hard, &others).is_ok()
-                        });
+                    let valid = with_height_placement_context(seed, scene, water, &height, |ctx| {
+                        check_hard(desc, &fp, ctx, &hard, &others).is_ok()
+                    });
                     if !valid {
                         continue;
                     }
@@ -336,8 +330,14 @@ pub(super) fn reconcile(
             // Nothing could be moved. A descriptor that asks to be skipped is not
             // a reason to fail a whole world, so remove those (and only those) by
             // name; everything else still fails below.
-            progress =
-                remove_skippable_rejects(&registry, landmarks, &mut entities, &rejects, round, &mut skips);
+            progress = remove_skippable_rejects(
+                &registry,
+                landmarks,
+                &mut entities,
+                &rejects,
+                round,
+                &mut skips,
+            );
         }
         if !progress {
             // Only a round with NO skippable reject is fatal. The two exits keep
@@ -480,11 +480,15 @@ pub fn verify_published_placement(
     }
     let plan: BTreeSet<&str> = plan_ids.iter().map(String::as_str).collect();
     if plan.len() != plan_ids.len() {
-        return Err(format!("{scene_id}: the plan publishes a duplicate item id"));
+        return Err(format!(
+            "{scene_id}: the plan publishes a duplicate item id"
+        ));
     }
     let output: BTreeSet<&str> = output_ids.iter().map(String::as_str).collect();
     if output.len() != output_ids.len() {
-        return Err(format!("{scene_id}: the output publishes a duplicate item id"));
+        return Err(format!(
+            "{scene_id}: the output publishes a duplicate item id"
+        ));
     }
     // A refusal the PLANNER published (`refusedEntityIds`, written only when a pad was refused by
     // name - see `road_network::PAD_FILL_CONFLICT_CATEGORY`) must be honoured end to end. A refused
@@ -756,8 +760,8 @@ mod tests {
     #[test]
     fn stalled_search_honours_descriptor_fallback_and_names_the_skip() {
         let (scene, water, entities) = collision_fixture();
-        let (repaired, _carves, report) =
-            reconcile_fixture(&scene, water, &entities, &[]).expect("a skippable feature must not fail the world");
+        let (repaired, _carves, report) = reconcile_fixture(&scene, water, &entities, &[])
+            .expect("a skippable feature must not fail the world");
         // The storefront is gone; the green space (a movable descriptor) stays.
         assert_eq!(repaired.len(), 1);
         assert_eq!(repaired[0].entity_id, "generated.green-space.0");
@@ -767,13 +771,17 @@ mod tests {
         let skips = skips_of(&report);
         assert_eq!(skips.len(), 1);
         assert_eq!(
-            skips[0]["entityId"], serde_json::json!("generated.storefront.0"),
+            skips[0]["entityId"],
+            serde_json::json!("generated.storefront.0"),
             "the skipped feature must be named"
         );
         assert_eq!(skips[0]["kind"], serde_json::json!("storefront"));
         assert_eq!(skips[0]["descriptorFallback"], serde_json::json!("skip"));
         assert_eq!(skips[0]["exit"], serde_json::json!("search-exhausted"));
-        assert_eq!(skips[0]["rule"], serde_json::json!("storefront.object.toml"));
+        assert_eq!(
+            skips[0]["rule"],
+            serde_json::json!("storefront.object.toml")
+        );
         assert_eq!(skips[0]["round"], serde_json::json!(1));
         let reason = skips[0]["reason"].as_str().unwrap();
         assert!(
@@ -793,7 +801,10 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert_eq!(plan, vec!["generated.green-space.0", "generated.storefront.0"]);
+        assert_eq!(
+            plan,
+            vec!["generated.green-space.0", "generated.storefront.0"]
+        );
         assert_eq!(output, vec!["generated.green-space.0"]);
         // The true audit must agree with the published report.
         let published: BTreeSet<String> = output.iter().map(|id| (*id).to_owned()).collect();
@@ -893,10 +904,10 @@ mod tests {
     #[test]
     fn skip_records_are_identical_on_two_bakes() {
         let (scene, water, entities) = collision_fixture();
-        let (first_entities, _, first) = reconcile_fixture(&scene, water, &entities, &[])
-            .expect("fixture reconciles");
-        let (second_entities, _, second) = reconcile_fixture(&scene, water, &entities, &[])
-            .expect("fixture reconciles");
+        let (first_entities, _, first) =
+            reconcile_fixture(&scene, water, &entities, &[]).expect("fixture reconciles");
+        let (second_entities, _, second) =
+            reconcile_fixture(&scene, water, &entities, &[]).expect("fixture reconciles");
         assert_eq!(first, second, "the whole report must be deterministic");
         assert_eq!(
             first_entities
@@ -914,10 +925,9 @@ mod tests {
     #[test]
     fn published_skips_are_recomputable_and_forgery_is_refused() {
         let (scene, water, entities) = collision_fixture();
-        let (repaired, _, report) = reconcile_fixture(&scene, water, &entities, &[])
-            .expect("fixture reconciles");
-        let published: BTreeSet<String> =
-            repaired.iter().map(|e| e.entity_id.clone()).collect();
+        let (repaired, _, report) =
+            reconcile_fixture(&scene, water, &entities, &[]).expect("fixture reconciles");
+        let published: BTreeSet<String> = repaired.iter().map(|e| e.entity_id.clone()).collect();
         let registry = ObjectRegistry::load_dir(&rules_dir()).unwrap();
         verify_published_placement(&report, &published, &BTreeSet::new(), Some(&registry))
             .expect("a published legitimate skip must recompute against the real descriptors");
@@ -952,48 +962,44 @@ mod tests {
         let mut wrong_rule = report.clone();
         wrong_rule["skips"][0]["rule"] = serde_json::json!("landscape.object.toml");
         assert!(
-            verify_published_placement(
-                &wrong_rule,
-                &published,
-                &BTreeSet::new(),
-                Some(&registry)
-            )
-            .is_err(),
+            verify_published_placement(&wrong_rule, &published, &BTreeSet::new(), Some(&registry))
+                .is_err(),
             "a rule that does not declare fallback=skip must be refused"
         );
 
         // An authored landmark is never skippable, even when the plan and the
         // published scene agree that it is gone.
         let mut landmark_skip = report.clone();
-        landmark_skip["inputEntityIds"] = serde_json::json!([
-            "generated.green-space.0",
-            "landmark.waterfront-river"
-        ]);
+        landmark_skip["inputEntityIds"] =
+            serde_json::json!(["generated.green-space.0", "landmark.waterfront-river"]);
         landmark_skip["outputEntityIds"] = serde_json::json!(["generated.green-space.0"]);
         landmark_skip["inputItems"] = serde_json::json!(2);
         landmark_skip["outputItems"] = serde_json::json!(1);
-        landmark_skip["skips"][0]["entityId"] =
-            serde_json::json!("landmark.waterfront-river");
+        landmark_skip["skips"][0]["entityId"] = serde_json::json!("landmark.waterfront-river");
         let mut landmark_published = BTreeSet::new();
         landmark_published.insert("generated.green-space.0".to_string());
         let mut landmarks = BTreeSet::new();
         landmarks.insert("landmark.waterfront-river".to_string());
-        let message = verify_published_placement(&landmark_skip, &landmark_published, &landmarks, None)
-            .expect_err("a skip naming an authored landmark must be refused");
+        let message =
+            verify_published_placement(&landmark_skip, &landmark_published, &landmarks, None)
+                .expect_err("a skip naming an authored landmark must be refused");
         assert!(message.contains("authored landmark"), "{message}");
 
         // Infrastructure layout is never skippable either, even when its own
         // descriptor declares fallback=skip (road.object.toml does).
         let mut road_skip = landmark_skip.clone();
-        road_skip["inputEntityIds"] = serde_json::json!([
-            "generated.green-space.0",
-            "generated.road.0"
-        ]);
+        road_skip["inputEntityIds"] =
+            serde_json::json!(["generated.green-space.0", "generated.road.0"]);
         road_skip["skips"][0]["entityId"] = serde_json::json!("generated.road.0");
         road_skip["skips"][0]["kind"] = serde_json::json!("road");
         road_skip["skips"][0]["rule"] = serde_json::json!("road.object.toml");
-        let message = verify_published_placement(&road_skip, &landmark_published, &BTreeSet::new(), Some(&registry))
-            .expect_err("a skip naming infrastructure must be refused");
+        let message = verify_published_placement(
+            &road_skip,
+            &landmark_published,
+            &BTreeSet::new(),
+            Some(&registry),
+        )
+        .expect_err("a skip naming infrastructure must be refused");
         assert!(message.contains("infrastructure"), "{message}");
 
         // A report baked before removal bookkeeping existed stays readable: it
@@ -1026,9 +1032,8 @@ mod tests {
             "rejectedItems": 0,
             "plannedPadIds": ["generated.pad.kept"],
         });
-        let published = |ids: &[&str]| -> BTreeSet<String> {
-            ids.iter().map(|id| (*id).to_owned()).collect()
-        };
+        let published =
+            |ids: &[&str]| -> BTreeSet<String> { ids.iter().map(|id| (*id).to_owned()).collect() };
         let both = published(&["generated.pad.kept", "generated.tree.0"]);
         let audit = verify_published_placement(&report, &both, &BTreeSet::new(), None)
             .expect("a consistent pad triangle must recompute");
@@ -1037,8 +1042,7 @@ mod tests {
         //    reconcile output (it was deleted from the world earlier) and was never
         //    named as a skip. Nothing else in the report moves.
         let mut lost = report.clone();
-        lost["plannedPadIds"] =
-            serde_json::json!(["generated.pad.kept", "generated.pad.church"]);
+        lost["plannedPadIds"] = serde_json::json!(["generated.pad.kept", "generated.pad.church"]);
         let error = verify_published_placement(&lost, &both, &BTreeSet::new(), None)
             .expect_err("a planned pad the world does not carry must be refused by name");
         assert_eq!(
@@ -1076,8 +1080,13 @@ mod tests {
             "round": 1,
             "exit": "search-exhausted",
         }]);
-        let audit = verify_published_placement(&skipped, &published(&["generated.tree.0"]), &BTreeSet::new(), None)
-            .expect("a planned pad removed by name is accounted for");
+        let audit = verify_published_placement(
+            &skipped,
+            &published(&["generated.tree.0"]),
+            &BTreeSet::new(),
+            None,
+        )
+        .expect("a planned pad removed by name is accounted for");
         assert_eq!(audit.skipped_items, 1);
         // 4. A refusal the planner published must be honoured: the same report that
         //    is fine above fails the moment the refused id reappears in the plan.

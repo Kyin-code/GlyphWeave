@@ -26,10 +26,8 @@ impl TempWorld {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "glyphweave-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("glyphweave-{label}-{}-{nonce}", std::process::id()));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -45,7 +43,8 @@ impl Drop for TempWorld {
 
 fn hillside() -> WorldManifest {
     let mut manifest: WorldManifest = serde_json::from_str(SAMPLE).expect("sample parses");
-    manifest.style["rulesDir"] = json!(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"));
+    manifest.style["rulesDir"] =
+        json!(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/objects"));
     manifest
 }
 
@@ -62,8 +61,11 @@ fn published_terrain(scene: &SceneIndex, dir: &std::path::Path) -> BakedTerrain 
     };
     let mut terrain = BakedTerrain::new(&spec).unwrap();
     for chunk in &scene.chunks {
-        let meta: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join(format!("chunk-{}-{}.json", chunk.chunk_x, chunk.chunk_z))).unwrap()).unwrap();
+        let meta: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.join(format!("chunk-{}-{}.json", chunk.chunk_x, chunk.chunk_z)))
+                .unwrap(),
+        )
+        .unwrap();
         let bytes = std::fs::read(dir.join(meta["heightFile"].as_str().unwrap())).unwrap();
         terrain
             .insert_chunk(
@@ -104,7 +106,10 @@ fn a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone(
     bake_world(&hillside(), &world.0).expect("the committed hillside bakes");
     let scene: SceneIndex =
         serde_json::from_slice(&std::fs::read(world.scene().join("scene.json")).unwrap()).unwrap();
-    let plan = scene.road_network_plan.as_ref().expect("the sample plans streets");
+    let plan = scene
+        .road_network_plan
+        .as_ref()
+        .expect("the sample plans streets");
     assert_eq!(plan.roadside_sites.len(), 22);
     let terrain = published_terrain(&scene, &world.scene());
     let spec = SceneSpec {
@@ -117,7 +122,10 @@ fn a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone(
     };
     let water = water_geometry(WaterKind::River, &scene.landmarks, &spec, &hillside().style);
     let graph = build_access_graph(&scene.entities, &terrain, water);
-    assert_eq!(graph.disconnected_entities, 0, "no accepted lot is stranded");
+    assert_eq!(
+        graph.disconnected_entities, 0,
+        "no accepted lot is stranded"
+    );
 
     // Every lot, one checked path each, ending on the street it was assigned.
     let mut lengths: BTreeMap<&str, f64> = BTreeMap::new();
@@ -133,7 +141,11 @@ fn a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone(
             "{} reaches another street",
             site.id
         );
-        assert!(!link.path.is_empty(), "{} carries no checked polyline", site.id);
+        assert!(
+            !link.path.is_empty(),
+            "{} carries no checked polyline",
+            site.id
+        );
         let road = scene
             .entities
             .iter()
@@ -148,8 +160,14 @@ fn a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone(
             end.z,
             site.road_id
         );
-        let length = link.distance_m.expect("a connected link carries its length");
-        assert!(length > 0. && length <= access::MAX_LENGTH, "{}: {length}", site.id);
+        let length = link
+            .distance_m
+            .expect("a connected link carries its length");
+        assert!(
+            length > 0. && length <= access::MAX_LENGTH,
+            "{}: {length}",
+            site.id
+        );
         lengths.insert(site.id.as_str(), length);
     }
     assert_eq!(lengths.len(), 22);
@@ -162,14 +180,23 @@ fn a_recomputed_graph_reaches_every_assigned_street_and_the_refused_lot_is_gone(
         .iter()
         .find(|link| link.entity_id == shop)
         .expect("the west-side shop is published");
-    assert_eq!(link.road_id.as_deref(), Some("generated.road-auto.scene-0.2"));
+    assert_eq!(
+        link.road_id.as_deref(),
+        Some("generated.road-auto.scene-0.2")
+    );
     assert_eq!(link.distance_m, Some(8.0));
     let end = link.path.last().unwrap();
     assert_eq!((end.x, end.z), (346.0, 160.0));
 
     // The lot this round refused is nowhere: no entity, no link, no planned site.
-    let refused = "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive";
-    assert!(!scene.entities.iter().any(|entity| entity.entity_id == refused));
+    let refused =
+        "generated.frontage.scene-0.gorge-shops.generated.road-auto.scene-0.2.64.positive";
+    assert!(
+        !scene
+            .entities
+            .iter()
+            .any(|entity| entity.entity_id == refused)
+    );
     assert!(!graph.links.iter().any(|link| link.entity_id == refused));
     assert!(!plan.roadside_sites.iter().any(|site| site.id == refused));
     // And the refusal is NAMED in the published frontage outcomes.
@@ -280,9 +307,9 @@ fn a_lot_above_its_own_street_is_refused_at_acceptance_by_name() {
         rotation_y_deg: 0.,
         natural_min_m: -1.0,
         natural_max_m: 0.0,
-    
+
         entry_corridor: None,
-};
+    };
     let step = raster(true);
     // The honest record: a plateau at 0.000 m, one metre above its street.
     let high = site(0);
@@ -314,7 +341,10 @@ fn a_lot_above_its_own_street_is_refused_at_acceptance_by_name() {
         water,
     )
     .expect("the gate composes a raster");
-    assert!(forged_verdict.is_some(), "a declared frontage point is not access");
+    assert!(
+        forged_verdict.is_some(),
+        "a declared frontage point is not access"
+    );
 
     // The control: the same lot on flat ground level with its street is
     // enterable, so the refusal above is the 1 m step, not the rule.
@@ -330,7 +360,10 @@ fn a_lot_above_its_own_street_is_refused_at_acceptance_by_name() {
         water,
     )
     .expect("the gate composes a raster");
-    assert!(accepted.is_none(), "a lot level with its street is enterable");
+    assert!(
+        accepted.is_none(),
+        "a lot level with its street is enterable"
+    );
 }
 
 /// The raster a test builds must be complete; a missing sample is an error, not a
@@ -364,9 +397,9 @@ fn a_missing_natural_sample_is_an_error_not_a_guess() {
         rotation_y_deg: 0.,
         natural_min_m: 0.,
         natural_max_m: 0.,
-    
+
         entry_corridor: None,
-};
+    };
     let road = EntityInstance {
         entity_id: "street".into(),
         asset_id: "prop.road".into(),
@@ -385,7 +418,8 @@ fn a_missing_natural_sample_is_an_error_not_a_guess() {
     };
     let water = water_geometry(WaterKind::None, &[], &scene, &json!({}));
     let error: TerrainError =
-        road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water).unwrap_err();
+        road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water)
+            .unwrap_err();
     assert!(error.0.contains("missing natural sample"), "{}", error.0);
 }
 
@@ -417,7 +451,8 @@ fn carve_composition_fixture() -> (SceneSpec, BakedTerrain, Vec<TerrainCarve>) {
             let gx = f64::from(x) - 128.;
             let gz = f64::from(z) - 128.;
             let hill = 6.0 * (-(gx * gx + gz * gz) / 6_000.0).exp();
-            let hollow = -3.0 * (-((gx - 0.) * (gx - 0.) + (gz - 80.) * (gz - 80.)) / 3_000.0).exp();
+            let hollow =
+                -3.0 * (-((gx - 0.) * (gx - 0.) + (gz - 80.) * (gz - 80.)) / 3_000.0).exp();
             values.push(1.5 + 0.006 * gx - 0.004 * gz + hill + hollow);
         }
     }
@@ -462,7 +497,15 @@ fn carve_composition_fixture() -> (SceneSpec, BakedTerrain, Vec<TerrainCarve>) {
             bounds: None,
         }
     };
-    let pad = |id: &str, kind: &str, x: i32, z: i32, w: f32, d: f32, rot: f32, cut: Option<i32>, blend: Option<f32>| {
+    let pad = |id: &str,
+               kind: &str,
+               x: i32,
+               z: i32,
+               w: f32,
+               d: f32,
+               rot: f32,
+               cut: Option<i32>,
+               blend: Option<f32>| {
         let mut grounding = GroundingSpec::default();
         grounding.bounded_cut_mm = cut;
         grounding.earthwork_blend_m = blend;
@@ -493,10 +536,50 @@ fn carve_composition_fixture() -> (SceneSpec, BakedTerrain, Vec<TerrainCarve>) {
     let entities = vec![
         road("graded", 128, 64, 224., 12., true, Some(2_000)),
         road("flat", 128, 200, 200., 8., false, None),
-        pad("home-a", "residential_home", 64, 96, 24., 24., 0., Some(2_000), Some(32.0)),
-        pad("home-b", "residential_home", 176, 96, 24., 24., 15., Some(2_000), None),
-        pad("shop-a", "storefront", 96, 160, 12., 10., 0., None, Some(20.0)),
-        pad("shop-b", "storefront", 200, 160, 12., 10., 45., Some(1_000), Some(20.0)),
+        pad(
+            "home-a",
+            "residential_home",
+            64,
+            96,
+            24.,
+            24.,
+            0.,
+            Some(2_000),
+            Some(32.0),
+        ),
+        pad(
+            "home-b",
+            "residential_home",
+            176,
+            96,
+            24.,
+            24.,
+            15.,
+            Some(2_000),
+            None,
+        ),
+        pad(
+            "shop-a",
+            "storefront",
+            96,
+            160,
+            12.,
+            10.,
+            0.,
+            None,
+            Some(20.0),
+        ),
+        pad(
+            "shop-b",
+            "storefront",
+            200,
+            160,
+            12.,
+            10.,
+            45.,
+            Some(1_000),
+            Some(20.0),
+        ),
     ];
     let carves = plan_terrain_carves(&entities);
     (scene, natural, carves)
@@ -517,7 +600,11 @@ fn pseudo_random(seed: &mut u64) -> u64 {
 #[test]
 fn the_indexed_window_composes_every_cell_the_full_list_composes() {
     let (scene, natural, carves) = carve_composition_fixture();
-    assert!(carves.len() > 12, "the fixture carries real carves: {}", carves.len());
+    assert!(
+        carves.len() > 12,
+        "the fixture carries real carves: {}",
+        carves.len()
+    );
     let index = CarveIndex::new(&carves);
     let water = water_geometry(WaterKind::River, &[], &scene, &json!({}));
     let zones = plan_landuse_zones(
@@ -580,7 +667,10 @@ fn the_indexed_window_composes_every_cell_the_full_list_composes() {
             }
         }
     }
-    assert!(compared > 20_000, "the windows cover real area: {compared} cells");
+    assert!(
+        compared > 20_000,
+        "the windows cover real area: {compared} cells"
+    );
 }
 
 /// 2. A window memo HIT is the raster a MISS produces, byte for byte: the window is
@@ -708,14 +798,17 @@ fn a_direct_entrance_never_composes_the_full_window() {
         rotation_y_deg: 0.,
         natural_min_m: 0.0,
         natural_max_m: 0.0,
-    
+
         entry_corridor: None,
-};
+    };
     let water = water_geometry(WaterKind::None, &[], &scene, &json!({}));
     super::access::observation::begin_plan_windows();
     let verdict = road_network::assigned_road_gate(&site, &[road], &[], &natural, None, 0, water)
         .expect("the gate composes a raster");
-    assert!(verdict.is_none(), "a lot level with its street is enterable");
+    assert!(
+        verdict.is_none(),
+        "a lot level with its street is enterable"
+    );
     let windows = super::access::observation::plan_windows();
     assert_eq!(
         windows.len(),
@@ -736,4 +829,3 @@ fn a_direct_entrance_never_composes_the_full_window() {
         "the full window would be far larger"
     );
 }
-

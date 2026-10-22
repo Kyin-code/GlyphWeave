@@ -804,12 +804,7 @@ fn carve_cell_bounds(carve: &super::TerrainCarve) -> (i32, i32, i32, i32) {
     )
 }
 
-fn carve_cut_depth_mm(
-    carve: &super::TerrainCarve,
-    base_m: f64,
-    x: i32,
-    z: i32,
-) -> i64 {
+fn carve_cut_depth_mm(carve: &super::TerrainCarve, base_m: f64, x: i32, z: i32) -> i64 {
     let Some(cap) = carve.cut_cap_mm else {
         return 0;
     };
@@ -820,12 +815,7 @@ fn carve_cut_depth_mm(
     cut_depth_mm(base_m, carve.target_h_m, outside, cap)
 }
 
-fn owner_cut_depth_mm(
-    carves: &[super::TerrainCarve],
-    base_m: f64,
-    x: i32,
-    z: i32,
-) -> i64 {
+fn owner_cut_depth_mm(carves: &[super::TerrainCarve], base_m: f64, x: i32, z: i32) -> i64 {
     carves
         .iter()
         .map(|carve| carve_cut_depth_mm(carve, base_m, x, z))
@@ -930,9 +920,10 @@ pub fn measure_cut_entities(
 ) -> Result<Vec<CutPad>, String> {
     let mut pads = vec![];
     let mut seen_ids = BTreeSet::<&str>::new();
-    for entity in entities.iter().filter(|entity| {
-        entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some()
-    }) {
+    for entity in entities
+        .iter()
+        .filter(|entity| entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some())
+    {
         if !seen_ids.insert(entity.entity_id.as_str()) {
             continue;
         }
@@ -1466,9 +1457,10 @@ pub fn verify_with_entities(
     let site_entities: Vec<EntityInstance> = sites.iter().map(RoadsideSite::entity).collect();
     let mut seen_pad_ids = BTreeSet::<&str>::new();
     let mut pad_entities: Vec<&EntityInstance> = Vec::new();
-    for entity in extra_entities.iter().filter(|entity| {
-        entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some()
-    }) {
+    for entity in extra_entities
+        .iter()
+        .filter(|entity| entity.kind != "road" && entity.grounding.bounded_cut_mm.is_some())
+    {
         if seen_pad_ids.insert(entity.entity_id.as_str()) {
             pad_entities.push(entity);
         }
@@ -1553,7 +1545,9 @@ pub fn verify_with_entities(
     }
     if let Some(plan) = plan {
         for entity in plan.entities() {
-            road_entities.entry(entity.entity_id.clone()).or_insert(entity);
+            road_entities
+                .entry(entity.entity_id.clone())
+                .or_insert(entity);
         }
     }
     let plan_roads: Vec<&EntityInstance> = road_entities
@@ -1630,10 +1624,7 @@ pub fn verify_with_entities(
     let mut cut_footprints: Vec<(&str, CutFootprint)> = Vec::new();
     for entity in &pad_entities {
         let cap = entity.grounding.bounded_cut_mm.unwrap_or(0);
-        cut_footprints.push((
-            entity.entity_id.as_str(),
-            CutFootprint::of(entity, cap),
-        ));
+        cut_footprints.push((entity.entity_id.as_str(), CutFootprint::of(entity, cap)));
     }
     for (index, (pad_id, footprint)) in cut_footprints.iter().enumerate() {
         for (other_id, other) in cut_footprints.iter().skip(index + 1) {
@@ -1697,18 +1688,17 @@ pub fn verify_with_entities(
         pad_carves.push(carves);
     }
     // The measured per-pad record, straight from the two rasters.
-    let measured_entities: Vec<EntityInstance> =
-        pad_entities.iter().map(|entity| (*entity).clone()).collect();
-    let measured =
-        measure_cut_entities(&measured_entities, natural, final_terrain, &road_tops)?;
+    let measured_entities: Vec<EntityInstance> = pad_entities
+        .iter()
+        .map(|entity| (*entity).clone())
+        .collect();
+    let measured = measure_cut_entities(&measured_entities, natural, final_terrain, &road_tops)?;
     // The road cut owners and the measured road records, from the plan and the
     // two rasters. A road's ring is clipped by every pad window and every other
     // road's graded band, and a shared road cell is owned by the deeper cut, so
     // no cell is booked twice.
     let road_plan = plan
-        .map(|plan| {
-            road_cut_plan_with_entities(scene, plan, extra_entities, natural, policy)
-        })
+        .map(|plan| road_cut_plan_with_entities(scene, plan, extra_entities, natural, policy))
         .transpose()?
         .unwrap_or(RoadCutPlan {
             footprints: vec![],
@@ -1913,12 +1903,8 @@ pub fn verify_with_entities(
                     footprint.cap_mm
                 ));
             }
-            let expected = owner_cut_depth_mm(
-                &pad_carves[slot as usize],
-                f64::from(base) / 1000.,
-                x,
-                z,
-            );
+            let expected =
+                owner_cut_depth_mm(&pad_carves[slot as usize], f64::from(base) / 1000., x, z);
             if (expected - cut_mm).abs() > CUT_MM_TOLERANCE {
                 audit.failures.push(format!(
                     "{LEDGER_MISMATCH}: cell ({x},{z}) was cut by {cut_mm} mm but the pad's own \
@@ -2550,14 +2536,10 @@ mod tests {
         let pads = measure_cut_entities(&[entity], &natural, &final_terrain, &[]).unwrap();
         assert_eq!(pads.len(), 1);
         assert_eq!(
-            pads[0].cut_cells,
-            ledger.pads[0].cut_cells,
+            pads[0].cut_cells, ledger.pads[0].cut_cells,
             "the same entity-owned support carves must be booked outside frontage too"
         );
-        assert_eq!(
-            pads[0].cut_depth_sum_mm,
-            ledger.pads[0].cut_depth_sum_mm
-        );
+        assert_eq!(pads[0].cut_depth_sum_mm, ledger.pads[0].cut_depth_sum_mm);
     }
 
     /// Two benches may not share a cut footprint: the ledger's total is the sum of
