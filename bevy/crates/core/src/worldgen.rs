@@ -2858,11 +2858,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                         serde_json::to_vec_pretty(&planning_plan)?,
                     )?;
                 }
-                if let Some(artifacts) = market_catchment::plan_with_artifacts(
+                if let Some(artifacts) = market_catchment::plan_with_water(
                     route_plan,
                     &settlement_plan,
                     &effective_style,
                     &scene.scene_id,
+                    water,
                 )
                 .map_err(WorldgenError::InvalidRules)?
                 {
@@ -3020,8 +3021,13 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
         }
         if let Some(plan) = &planning_history_result {
             let widening = planning_history::apply_road_widening(&mut entities, plan);
-            let centres =
-                planning_history::materialize_centres(plan, scene, &natural_samples, &entities);
+            let centres = planning_history::materialize_centres(
+                plan,
+                scene,
+                &natural_samples,
+                &entities,
+                water,
+            );
             let centre_count = centres.entities.len();
             let centre_ids = centres
                 .entities
@@ -3455,7 +3461,8 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
             }
             let mut promoted_frontage_stairs = Vec::new();
             for rejected_id in &rejected_access {
-                if !rejected_id.starts_with("generated.settlement-evolution.")
+                if !(rejected_id.starts_with("generated.settlement-evolution.")
+                    || rejected_id.starts_with("generated.market-catchment."))
                     || rejected_id.contains(".approach.")
                     || rejected_id.contains(".stairs.")
                 {
@@ -3533,6 +3540,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 .filter_map(|id| id.strip_prefix("generated.settlement-evolution."))
                 .collect::<BTreeSet<_>>();
             entities.retain(|entity| {
+                // A market is a planned network node. Its plan owns capacity and
+                // radiation evidence, so it cannot be deleted by this generic
+                // frontage cleanup; the promotion pass above must repair it.
+                if entity.kind == "market" {
+                    return true;
+                }
                 if rejected_access.contains(&entity.entity_id) {
                     return false;
                 }
@@ -6365,14 +6378,16 @@ pub(crate) fn oriented_local_coordinates(
         && matches!(cardinal, 0 | 90 | 180 | 270)
     {
         return match cardinal {
-            90 => (dz, -dx),
+            90 => (-dz, dx),
             180 => (-dx, -dz),
-            270 => (-dz, dx),
+            270 => (dz, -dx),
             _ => (dx, dz),
         };
     }
     let (sin, cos) = f64::from(rotation_y_deg).to_radians().sin_cos();
-    (dx * cos + dz * sin, -dx * sin + dz * cos)
+    // Inverse of the serialized Three/worldgen positive-Y rotation:
+    // worldX = localX*cos + localZ*sin, worldZ = -localX*sin + localZ*cos.
+    (dx * cos - dz * sin, dx * sin + dz * cos)
 }
 
 pub(crate) fn oriented_outside_m(
@@ -9125,6 +9140,38 @@ pub fn rebase_entities_to_baked_surface(
             set_entity_ground_height(entity, target);
         }
     }
+    // A frontage building normally owns a declared platform, so its published
+    // level must not drift with ordinary terrain. The platform can still be
+    // raised by a neighbouring supported pad after the plan is published. If
+    // the final raster intrudes by no more than the local access step, lift the
+    // building onto that completed surface instead of shipping a structure with
+    // terrain through its base. Larger intrusions remain hard failures and are
+    // not concealed by this repair.
+    for entity in entities.iter_mut().filter(|entity| {
+        is_building_kind(&entity.kind)
+            && (entity
+                .entity_id
+                .starts_with("generated.settlement-evolution.")
+                || entity
+                    .entity_id
+                    .starts_with("generated.market-catchment."))
+    }) {
+        let footprint = OrientedFootprint::from_entity(entity);
+        let mut ceiling = f32::NEG_INFINITY;
+        for (x, z) in footprint.grid_cells() {
+            if let Some(height) = baked_samples.height(x, z) {
+                ceiling = ceiling.max(height);
+            }
+        }
+        let current = entity.ground_height_m();
+        if ceiling.is_finite() && (ceiling - current).abs() > 1e-6 {
+            // A shared tier may raise the planned pad, and a neighbouring road
+            // support may finish below it. Reconcile the published building
+            // base to the highest actual support in its own footprint; the
+            // final audit still rejects unsupported or floating footprints.
+            set_entity_ground_height(entity, ceiling);
+        }
+    }
 }
 
 /// Generation-only baseline reconciliation for terrain-following transport.
@@ -9335,8 +9382,8 @@ impl OrientedFootprint {
         let (sin, cos) = self.rotation_y_deg.to_radians().sin_cos();
         let dx = x - self.center_x;
         let dz = z - self.center_z;
-        let local_x = dx * cos + dz * sin;
-        let local_z = -dx * sin + dz * cos;
+        let local_x = dx * cos - dz * sin;
+        let local_z = dx * sin + dz * cos;
         local_x.abs() <= self.width_m * 0.5 + 1e-9 && local_z.abs() <= self.depth_m * 0.5 + 1e-9
     }
 

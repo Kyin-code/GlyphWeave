@@ -258,6 +258,150 @@
           "x": 570,
           "z": 520,
           "role": "old-town-lane-hub"
+        },
+        {
+          "id": "urban-grid-v260-n",
+          "x": 260,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v260-s",
+          "x": 260,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v340-n",
+          "x": 340,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v340-s",
+          "x": 340,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v420-n",
+          "x": 420,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v420-s",
+          "x": 420,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v500-n",
+          "x": 500,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v500-s",
+          "x": 500,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v580-n",
+          "x": 580,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v580-s",
+          "x": 580,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v660-n",
+          "x": 660,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v660-s",
+          "x": 660,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v740-n",
+          "x": 740,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-v740-s",
+          "x": 740,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h300-w",
+          "x": 260,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h300-e",
+          "x": 740,
+          "z": 300,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h380-w",
+          "x": 260,
+          "z": 380,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h380-e",
+          "x": 740,
+          "z": 380,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h460-w",
+          "x": 260,
+          "z": 460,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h460-e",
+          "x": 740,
+          "z": 460,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h540-w",
+          "x": 260,
+          "z": 540,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h540-e",
+          "x": 740,
+          "z": 540,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h620-w",
+          "x": 260,
+          "z": 620,
+          "role": "core-service-street"
+        },
+        {
+          "id": "urban-grid-h620-e",
+          "x": 740,
+          "z": 620,
+          "role": "core-service-street"
         }
       ],
       "routes": [
@@ -295,7 +439,7 @@
           "id": "old-town-spine",
           "from": "natural-northwest",
           "to": "central-exchange",
-          "roadWidthM": 16
+          "roadWidthM": 10
         },
         {
           "id": "renewal-spine",
@@ -386,24 +530,72 @@
           "from": "core-inner-west-south",
           "to": "core-inner-east-south",
           "roadWidthM": 10
+        },
+        {
+          "id": "urban-grid-v260",
+          "from": "urban-grid-v260-n",
+          "to": "urban-grid-v260-s",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-v340",
+          "from": "urban-grid-v340-n",
+          "to": "urban-grid-v340-s",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-v420",
+          "from": "urban-grid-v420-n",
+          "to": "urban-grid-v420-s",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-v740",
+          "from": "urban-grid-v740-n",
+          "to": "urban-grid-v740-s",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-h300",
+          "from": "urban-grid-h300-w",
+          "to": "urban-grid-h300-e",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-h380",
+          "from": "urban-grid-h380-w",
+          "to": "urban-grid-h380-e",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-h460",
+          "from": "urban-grid-h460-w",
+          "to": "urban-grid-h460-e",
+          "roadWidthM": 8
+        },
+        {
+          "id": "urban-grid-h540",
+          "from": "urban-grid-h540-w",
+          "to": "urban-grid-h540-e",
+          "roadWidthM": 8
         }
       ]
     },
     "settlementEvolution": {
       "version": 1,
       "enabled": true,
-      "householdsTarget": 8000,
-      "jobsTarget": 40000,
-      "retailFloorAreaM2": 250000,
-      "serviceBudget": 160,
+      "householdsTarget": 16000,
+      "jobsTarget": 80000,
+      "retailFloorAreaM2": 400000,
+      "serviceBudget": 240,
       "lotWidthM": 8,
-      "lotDepthM": 24,
+      "lotDepthM": 28,
       "roadStepM": 9,
       "setbackM": 2,
       "maxSlope": 0.25,
       "floorAreaRatio": 6.0,
       "maxFloors": 40,
-      "accessHeightToleranceM": 8,
+      "accessHeightToleranceM": 4,
       "maxPadCutM": 14,
       "districtDemand": {
         "version": 1,

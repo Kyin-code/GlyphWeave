@@ -15,7 +15,8 @@ use crate::baked_terrain::BakedTerrain;
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
 use super::{
-    EntityInstance, OrientedFootprint, SpatialAnchor, oriented_footprints_overlap, urban_slice,
+    oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SpatialAnchor,
+    WaterGeometry,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -86,6 +87,13 @@ pub struct Market {
     pub width_m: f32,
     pub depth_m: f32,
     pub height_m: f32,
+    #[serde(default)]
+    pub rotation_y_deg: f32,
+    /// Route point chosen by the market planner. Recomputing it from a rounded
+    /// market centre may snap to a different segment and create a false long
+    /// stair or a collision that was not present in the plan.
+    #[serde(default)]
+    pub frontage_road_point: Option<[i32; 2]>,
     pub load: f64,
 }
 
@@ -362,6 +370,26 @@ pub fn plan_with_artifacts(
     style: &Value,
     scene_id: &str,
 ) -> Result<Option<Artifacts>, String> {
+    plan_with_artifacts_inner(routes, settlement, style, scene_id, None)
+}
+
+pub fn plan_with_water(
+    routes: &RoutePlan,
+    settlement: &SettlementPlan,
+    style: &Value,
+    scene_id: &str,
+    water: WaterGeometry,
+) -> Result<Option<Artifacts>, String> {
+    plan_with_artifacts_inner(routes, settlement, style, scene_id, Some(water))
+}
+
+fn plan_with_artifacts_inner(
+    routes: &RoutePlan,
+    settlement: &SettlementPlan,
+    style: &Value,
+    scene_id: &str,
+    water: Option<WaterGeometry>,
+) -> Result<Option<Artifacts>, String> {
     validate_style(style)?;
     let Some(program) = from_style(style)? else {
         return Ok(None);
@@ -434,6 +462,7 @@ pub fn plan_with_artifacts(
                     tier,
                     settlement,
                     road_width_m,
+                    water,
                 ) else {
                     continue;
                 };
@@ -445,6 +474,7 @@ pub fn plan_with_artifacts(
                         &tiers[*selected_tier],
                         settlement,
                         road_width_m,
+                        water,
                     )
                     .is_some_and(|other| {
                         footprints_overlap(candidate_site.footprint, other.footprint, 2.0)
@@ -525,6 +555,7 @@ pub fn plan_with_artifacts(
             tier,
             settlement,
             road_width_m,
+            water,
         )
         .expect("a selected market site remains feasible");
         markets.push(Market {
@@ -539,6 +570,11 @@ pub fn plan_with_artifacts(
             width_m: market_size(tier).0,
             depth_m: market_size(tier).1,
             height_m: market_size(tier).2,
+            rotation_y_deg: site.rotation_y_deg,
+            frontage_road_point: Some([
+                site.station_x.round() as i32,
+                site.station_z.round() as i32,
+            ]),
             load: 0.0,
         });
         all_times.push(times);
@@ -1166,13 +1202,21 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
         // back onto the widened road after planning.
         let center_x = f64::from(market.world_x);
         let center_z = f64::from(market.world_z);
-        let dx = station.x - center_x;
-        let dz = station.z - center_z;
-        let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
-        // Inverse of the entity rotation used by AccessGraph and OBB tests:
-        // world = (localX*cos - localZ*sin, localX*sin + localZ*cos).
-        let local_x = dx * cos + dz * sin;
-        let local_z = -dx * sin + dz * cos;
+        let [frontage_x, frontage_z] = market
+            .frontage_road_point
+            .unwrap_or([station.x.round() as i32, station.z.round() as i32]);
+        let dx = f64::from(frontage_x) - center_x;
+        let dz = f64::from(frontage_z) - center_z;
+        let market_yaw = if market.rotation_y_deg.is_finite() {
+            market.rotation_y_deg
+        } else {
+            station.rotation_y_deg
+        };
+        let (sin, cos) = f64::from(market_yaw).to_radians().sin_cos();
+        // Inverse of the serialized positive-Y rotation:
+        // world = (localX*cos + localZ*sin, -localX*sin + localZ*cos).
+        let local_x = dx * cos - dz * sin;
+        let local_z = dx * sin + dz * cos;
         let tx = if local_x.abs() > 1e-9 {
             f64::from(market.width_m) * 0.5 / local_x.abs()
         } else {
@@ -1187,7 +1231,11 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
         let anchor_x = center_x + dx * edge_t;
         let anchor_z = center_z + dz * edge_t;
         let direction = if dx.abs() > dz.abs() {
-            if dx > 0.0 { "east" } else { "west" }
+            if dx > 0.0 {
+                "east"
+            } else {
+                "west"
+            }
         } else if dz > 0.0 {
             "south"
         } else {
@@ -1212,7 +1260,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
             width_m: market.width_m,
             depth_m: market.depth_m,
             height_m: market.height_m,
-            rotation_y_deg: station.rotation_y_deg,
+            rotation_y_deg: market_yaw,
             grounding: super::GroundingSpec {
                 bottom_offset_m,
                 ..super::GroundingSpec::default()
@@ -1227,7 +1275,7 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
             bounds: None,
         };
         let anchor_grid = [anchor_x.round() as i32, anchor_z.round() as i32];
-        let station_grid = [station.x.round() as i32, station.z.round() as i32];
+        let station_grid = [frontage_x, frontage_z];
         if let (Some(edge_height), Some(station_height)) = (
             terrain.height(anchor_grid[0], anchor_grid[1]),
             terrain.height(station_grid[0], station_grid[1]),
@@ -1250,8 +1298,8 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
                 });
             }
         }
-        let approach_dx = station.x - anchor_x;
-        let approach_dz = station.z - anchor_z;
+        let approach_dx = f64::from(frontage_x) - anchor_x;
+        let approach_dz = f64::from(frontage_z) - anchor_z;
         let approach_length = approach_dx.hypot(approach_dz);
         let approach_y = building.ground_height_m();
         entities.push(building);
@@ -1260,8 +1308,8 @@ pub fn materialize(plan: &Plan, routes: &RoutePlan, terrain: &BakedTerrain) -> V
                 entity_id: format!("generated.market-catchment.approach.{}", market.id),
                 asset_id: "road.generated".into(),
                 kind: "road".into(),
-                world_x: ((f64::from(anchor_x) + station.x) * 0.5).round() as i32,
-                world_z: ((f64::from(anchor_z) + station.z) * 0.5).round() as i32,
+                world_x: ((anchor_x + f64::from(frontage_x)) * 0.5).round() as i32,
+                world_z: ((anchor_z + f64::from(frontage_z)) * 0.5).round() as i32,
                 world_y: approach_y.floor() as i32,
                 scale: 1.0,
                 width_m: (approach_length + 2.0) as f32,
@@ -1305,7 +1353,10 @@ struct Footprint {
 struct MarketSite {
     center_x: f64,
     center_z: f64,
+    station_x: f64,
+    station_z: f64,
     footprint: Footprint,
+    rotation_y_deg: f32,
 }
 
 fn market_site(
@@ -1315,64 +1366,104 @@ fn market_site(
     tier: &Tier,
     settlement: &SettlementPlan,
     road_width_m: f64,
+    water: Option<WaterGeometry>,
 ) -> Option<MarketSite> {
     let station = nearest_station(routes, x, z)?;
     let (width, depth, _) = market_size(tier);
     let (sin, cos) = f64::from(station.rotation_y_deg).to_radians().sin_cos();
     let half_x = f64::from(width) * 0.5 * cos.abs() + f64::from(depth) * 0.5 * sin.abs();
     let half_z = f64::from(width) * 0.5 * sin.abs() + f64::from(depth) * 0.5 * cos.abs();
+    let route_roads = super::route_evolution::materialize(routes);
+    let tangent_x = station.normal_z;
+    let tangent_z = -station.normal_x;
+    let lateral_step = f64::from(width) + 3.0;
+    // Legacy/no-water callers keep the original nearest-lot search exactly. A
+    // water-aware scene may step back from a blocked shoreline frontage to
+    // find a dry replacement instead of losing that part of the market network.
+    let depth_offsets: &[f64] = if water.is_some() {
+        &[0.0, 6.0, 12.0, 18.0]
+    } else {
+        &[0.0]
+    };
+    // Search across the street, not tens of metres along it. A large tangential
+    // shift can step past the route segment and manufacture a 40m stair that the
+    // access graph correctly rejects.
+    let along_offsets: &[f64] = &[0.0];
     for side in [1.0, -1.0] {
-        let road_clearance = road_width_m * 0.5 + 3.0 + 2.0;
-        let center_x =
-            station.x + station.normal_x * side * (road_clearance + f64::from(depth) * 0.5);
-        let center_z =
-            station.z + station.normal_z * side * (road_clearance + f64::from(depth) * 0.5);
-        let footprint = Footprint {
-            min_x: center_x - half_x,
-            max_x: center_x + half_x,
-            min_z: center_z - half_z,
-            max_z: center_z + half_z,
-        };
-        let oriented = OrientedFootprint {
-            center_x,
-            center_z,
-            width_m: f64::from(width),
-            depth_m: f64::from(depth),
-            rotation_y_deg: f64::from(station.rotation_y_deg),
-        };
-        let collides_with_planned_building = settlement.buildings.iter().any(|building| {
-            let building_footprint = OrientedFootprint {
-                center_x: f64::from(building.world_x),
-                center_z: f64::from(building.world_z),
-                width_m: f64::from(building.width_m),
-                depth_m: f64::from(building.depth_m),
-                rotation_y_deg: f64::from(building.rotation_y_deg),
-            };
-            oriented_footprints_overlap(&oriented, &building_footprint, 2.0)
-        });
-        // Check the exact segments that will be published. The planner used
-        // raw 1m vertices while the final audit consumed simplified segment
-        // OBBs; their chord geometry differed just enough to accept a market
-        // that later intersected the baked road.
-        let collides_with_road = super::route_evolution::materialize(routes)
-            .iter()
-            .filter(|road| road.kind == "road")
-            .any(|road| {
-                let influence = OrientedFootprint {
-                    center_x: f64::from(road.world_x),
-                    center_z: f64::from(road.world_z),
-                    width_m: f64::from(road.width_m),
-                    depth_m: f64::from(road.depth_m),
-                    rotation_y_deg: f64::from(road.rotation_y_deg),
+        for extra_depth in depth_offsets.iter().copied() {
+            for along_step in along_offsets.iter().copied() {
+                let along = along_step * lateral_step;
+                let road_clearance = road_width_m * 0.5 + 3.0 + 2.0 + extra_depth;
+                let center_x = station.x
+                    + tangent_x * along
+                    + station.normal_x * side * (road_clearance + f64::from(depth) * 0.5);
+                let center_z = station.z
+                    + tangent_z * along
+                    + station.normal_z * side * (road_clearance + f64::from(depth) * 0.5);
+                let footprint = Footprint {
+                    min_x: center_x - half_x,
+                    max_x: center_x + half_x,
+                    min_z: center_z - half_z,
+                    max_z: center_z + half_z,
                 };
-                oriented_footprints_overlap(&oriented, &influence, 0.5)
-            });
-        if !collides_with_planned_building && !collides_with_road {
-            return Some(MarketSite {
-                center_x,
-                center_z,
-                footprint,
-            });
+                let oriented = OrientedFootprint {
+                    center_x,
+                    center_z,
+                    width_m: f64::from(width),
+                    depth_m: f64::from(depth),
+                    rotation_y_deg: f64::from(station.rotation_y_deg),
+                };
+                if water.is_some_and(|water| {
+                    water.intersects_footprint(
+                        center_x,
+                        center_z,
+                        f64::from(width),
+                        f64::from(depth),
+                        f64::from(station.rotation_y_deg),
+                        2.0,
+                    )
+                }) {
+                    continue;
+                }
+                let collides_with_planned_building = settlement.buildings.iter().any(|building| {
+                    let building_footprint = OrientedFootprint {
+                        center_x: f64::from(building.world_x),
+                        center_z: f64::from(building.world_z),
+                        width_m: f64::from(building.width_m),
+                        depth_m: f64::from(building.depth_m),
+                        rotation_y_deg: f64::from(building.rotation_y_deg),
+                    };
+                    oriented_footprints_overlap(&oriented, &building_footprint, 4.0)
+                });
+                // Check the exact segments that will be published. The planner used
+                // raw 1m vertices while the final audit consumed simplified segment
+                // OBBs; their chord geometry differed just enough to accept a market
+                // that later intersected the baked road.
+                let collides_with_road =
+                    route_roads
+                        .iter()
+                        .filter(|road| road.kind == "road")
+                        .any(|road| {
+                            let influence = OrientedFootprint {
+                                center_x: f64::from(road.world_x),
+                                center_z: f64::from(road.world_z),
+                                width_m: f64::from(road.width_m),
+                                depth_m: f64::from(road.depth_m),
+                                rotation_y_deg: f64::from(road.rotation_y_deg),
+                            };
+                    oriented_footprints_overlap(&oriented, &influence, 2.0)
+                        });
+                if !collides_with_planned_building && !collides_with_road {
+                    return Some(MarketSite {
+                        center_x,
+                        center_z,
+                station_x: station.x,
+                station_z: station.z,
+                        footprint,
+                rotation_y_deg: station.rotation_y_deg,
+                    });
+                }
+            }
         }
     }
     None
@@ -1565,11 +1656,11 @@ impl PartialOrd for TimeEntry {
 mod tests {
     use super::*;
     use crate::height_payload::encode_millimetres;
-    use crate::worldgen::SceneSpec;
     use crate::worldgen::route_evolution::{Anchor, Route, RoutePoint};
     use crate::worldgen::settlement_evolution::{
         Building, Capacity, Demand, Plan as SettlementPlan,
     };
+    use crate::worldgen::SceneSpec;
 
     fn route_plan() -> RoutePlan {
         let polyline = (0..=30)
@@ -1706,11 +1797,10 @@ mod tests {
         assert_eq!(plan.status, "pass");
         assert!(!plan.markets.is_empty());
         assert!(plan.coverage_ratio >= 0.85);
-        assert!(
-            plan.accessibility
-                .iter()
-                .all(|point| point.nearest_market_id.is_some())
-        );
+        assert!(plan
+            .accessibility
+            .iter()
+            .all(|point| point.nearest_market_id.is_some()));
         assert!(plan.markets.iter().all(|market| market.tier == "market"));
         assert_eq!(
             plan.markets
@@ -1765,12 +1855,10 @@ mod tests {
             let allocated: f64 = field.allocations.iter().map(|a| a.demand).sum();
             assert!((allocated - field.served_demand).abs() < 1e-9);
             assert!((field.served_demand + field.deficit - field.demand).abs() < 1e-9);
-            assert!(
-                field
-                    .bands
-                    .iter()
-                    .all(|band| band.capacity_per_demand >= 0.0)
-            );
+            assert!(field
+                .bands
+                .iter()
+                .all(|band| band.capacity_per_demand >= 0.0));
         }
         assert!(
             (artifacts.deficits.total_deficit
@@ -1837,11 +1925,10 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert!(tiers.contains("street-market"));
         assert!(tiers.contains("neighbourhood"));
-        assert!(
-            plan.markets
-                .iter()
-                .all(|market| market.load <= market.capacity + 1e-6)
-        );
+        assert!(plan
+            .markets
+            .iter()
+            .all(|market| market.load <= market.capacity + 1e-6));
         let settlement = settlement();
         for (index, market) in plan.markets.iter().enumerate() {
             for other in plan.markets.iter().skip(index + 1) {
@@ -1852,6 +1939,7 @@ mod tests {
                     &tiers_for_test(&market.tier),
                     &settlement,
                     8.0,
+                    None,
                 )
                 .unwrap()
                 .footprint;
@@ -1862,6 +1950,7 @@ mod tests {
                     &tiers_for_test(&other.tier),
                     &settlement,
                     8.0,
+                    None,
                 )
                 .unwrap()
                 .footprint;
@@ -1874,7 +1963,7 @@ mod tests {
     fn market_site_yields_to_a_planned_building_on_the_near_side() {
         let settlement = settlement();
         let tier = tiers_for_test("street-market");
-        let site = market_site(&route_plan(), 100, 256, &tier, &settlement, 8.0).unwrap();
+        let site = market_site(&route_plan(), 100, 256, &tier, &settlement, 8.0, None).unwrap();
 
         assert!(site.center_z < 256.0);
         for building in &settlement.buildings {

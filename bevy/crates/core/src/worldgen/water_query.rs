@@ -1,6 +1,6 @@
 //! Continuous footprint queries. No finite list of sample points can prove
 //! absence of an intersection (a whole pond may fit between the samples).
-use super::{EntityInstance, WaterGeometry, WaterKind, lake_radius_at, river_half_width_at};
+use super::{lake_radius_at, river_half_width_at, EntityInstance, WaterGeometry, WaterKind};
 
 /// The frozen water-shore clearance band, in metres.
 ///
@@ -84,6 +84,36 @@ impl WaterGeometry {
                         )
             }
         }
+    }
+
+    /// Exact oriented-footprint test against the shared water surface.
+    pub fn intersects_footprint(
+        self,
+        x: f64,
+        z: f64,
+        width_m: f64,
+        depth_m: f64,
+        rotation_y_deg: f64,
+        margin_m: f64,
+    ) -> bool {
+        if ![x, z, width_m, depth_m, rotation_y_deg, margin_m]
+            .iter()
+            .all(|value| value.is_finite())
+            || width_m <= 0.0
+            || depth_m <= 0.0
+            || margin_m < 0.0
+        {
+            return true;
+        }
+        let angle = rotation_y_deg.to_radians();
+        self.intersects_rect(Rect {
+            x,
+            z,
+            hx: width_m * 0.5 + margin_m,
+            hz: depth_m * 0.5 + margin_m,
+            c: angle.cos(),
+            s: angle.sin(),
+        })
     }
 
     /// Does this scene carry the shoreline public passage band at all?

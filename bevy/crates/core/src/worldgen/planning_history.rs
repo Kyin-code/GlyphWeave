@@ -14,8 +14,8 @@ use serde_json::Value;
 use super::route_evolution::Plan as RoutePlan;
 use super::settlement_evolution::Plan as SettlementPlan;
 use super::{
-    BakedTerrain, EntityInstance, OrientedFootprint, SceneSpec, is_building_kind,
-    oriented_footprints_overlap, urban_slice,
+    is_building_kind, oriented_footprints_overlap, urban_slice, BakedTerrain, EntityInstance,
+    OrientedFootprint, SceneSpec,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -708,6 +708,7 @@ pub fn materialize_centres(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
     occupied: &[EntityInstance],
+    water: super::WaterGeometry,
 ) -> Materialization {
     let mut entities = Vec::new();
     let mut skipped = Vec::new();
@@ -734,6 +735,16 @@ pub fn materialize_centres(
                 let z = action.world_z + dz;
                 let half_x = f64::from(width) * 0.5 + 6.0;
                 let half_z = f64::from(depth) * 0.5 + 6.0;
+                if water.intersects_footprint(
+                    f64::from(x),
+                    f64::from(z),
+                    f64::from(width),
+                    f64::from(depth),
+                    0.0,
+                    2.0,
+                ) {
+                    continue;
+                }
                 if f64::from(x) - half_x < f64::from(scene.origin_x)
                     || f64::from(z) - half_z < f64::from(scene.origin_z)
                     || f64::from(x) + half_x >= f64::from(scene.origin_x + scene.width_m as i32)
@@ -1278,21 +1289,18 @@ mod tests {
             .unwrap();
         assert_eq!(plan.status, "pass");
         assert_eq!(plan.centres.len(), 1);
-        assert!(
-            plan.actions
-                .iter()
-                .any(|action| action.kind == "widen-and-rebuild-street")
-        );
-        assert!(
-            plan.actions
-                .iter()
-                .any(|action| action.kind == "public-park")
-        );
-        assert!(
-            plan.actions
-                .iter()
-                .any(|action| action.kind == "parcel-consolidation")
-        );
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| action.kind == "widen-and-rebuild-street"));
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| action.kind == "public-park"));
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| action.kind == "parcel-consolidation"));
     }
 
     #[test]
@@ -1306,17 +1314,15 @@ mod tests {
         .unwrap();
         assert_eq!(plan.centres[0].role, "financial");
         assert!(plan.centres.len() >= 2);
-        assert!(
-            plan.actions
-                .iter()
-                .any(|action| action.kind == "office-and-transit-cluster")
-        );
-        assert!(
-            plan.actions
-                .iter()
-                .find(|action| action.kind == "widen-and-rebuild-street")
-                .is_some_and(|action| action.area_m2 > 5_000.0)
-        );
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| action.kind == "office-and-transit-cluster"));
+        assert!(plan
+            .actions
+            .iter()
+            .find(|action| action.kind == "widen-and-rebuild-street")
+            .is_some_and(|action| action.area_m2 > 5_000.0));
     }
 
     #[test]

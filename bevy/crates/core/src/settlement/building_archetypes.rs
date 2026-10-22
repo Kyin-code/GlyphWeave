@@ -14,6 +14,9 @@ pub struct SelectionInput {
     pub center_pressure: f64,
     pub lot_width_m: f32,
     pub lot_depth_m: f32,
+    /// Deterministic [0,1) role draw for this parcel. It separates office,
+    /// street retail and mixed housing without hard-coding a count target.
+    pub use_mix: f64,
     pub needs_homes: bool,
     pub needs_jobs: bool,
     pub needs_retail: bool,
@@ -51,7 +54,7 @@ pub fn choose(input: &SelectionInput) -> Archetype {
     // Near the strongest network centre, employment can dominate the lot.
     // Away from it, mixed residential demand keeps the block residential and
     // lets the floor-area programme supply its ground-floor retail share.
-    if input.needs_jobs && input.center_pressure > 0.78 {
+    if input.needs_jobs && input.center_pressure > 0.82 && input.use_mix < 0.22 {
         return archetype(
             "office-tower-podium",
             "office_tower",
@@ -64,6 +67,12 @@ pub fn choose(input: &SelectionInput) -> Archetype {
             0.56,
             1,
         );
+    }
+    if input.needs_retail
+        && input.use_mix < 0.48
+        && (input.center_pressure > 0.70 || !input.needs_homes)
+    {
+        return retail_archetype(input);
     }
     if input.needs_homes && input.needs_jobs {
         return archetype(
@@ -93,10 +102,7 @@ pub fn choose(input: &SelectionInput) -> Archetype {
             1,
         );
     }
-    if input.needs_retail
-        && input.center_pressure > 0.52
-        && (!input.needs_homes || input.center_pressure > 0.70)
-    {
+    if input.needs_retail && input.center_pressure > 0.52 && !input.needs_homes {
         return retail_archetype(input);
     }
     if input.needs_homes || !input.needs_jobs {
@@ -409,6 +415,7 @@ mod tests {
             center_pressure: pressure,
             lot_width_m: 24.0,
             lot_depth_m: 26.0,
+            use_mix: 1.0,
             needs_homes: true,
             needs_jobs: false,
             needs_retail: false,
@@ -453,6 +460,7 @@ mod tests {
 
         let mut retail = input("japan-machiya", 0.75);
         retail.needs_retail = true;
+        retail.use_mix = 0.30;
         assert_eq!(choose(&retail).kind, "storefront");
     }
 
@@ -464,10 +472,12 @@ mod tests {
         assert_eq!(block.kind, "residential_home");
 
         mixed.center_pressure = 0.76;
+        mixed.use_mix = 0.30;
         assert_eq!(choose(&mixed).kind, "storefront");
 
         mixed.center_pressure = 0.92;
         mixed.needs_jobs = true;
+        mixed.use_mix = 0.10;
         assert_eq!(choose(&mixed).kind, "office_tower");
     }
 

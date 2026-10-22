@@ -59,15 +59,15 @@ fn local(e: &EntityInstance, p: P) -> P {
     let (s, c) = f64::from(e.rotation_y_deg).to_radians().sin_cos();
     let dx = p.x - f64::from(e.world_x);
     let dz = p.z - f64::from(e.world_z);
-    // Same positive-Y convention as terrain carves, road profiles and
-    // OrientedFootprint: local +X maps to world (cos, sin).
-    point(dx * c + dz * s, -dx * s + dz * c)
+    // Inverse of the serialized positive-Y rotation used by OrientedFootprint
+    // and Three.js.
+    point(dx * c - dz * s, dx * s + dz * c)
 }
 fn world(e: &EntityInstance, p: P) -> P {
     let (s, c) = f64::from(e.rotation_y_deg).to_radians().sin_cos();
     point(
-        f64::from(e.world_x) + p.x * c - p.z * s,
-        f64::from(e.world_z) + p.x * s + p.z * c,
+        f64::from(e.world_x) + p.x * c + p.z * s,
+        f64::from(e.world_z) - p.x * s + p.z * c,
     )
 }
 fn closest(e: &EntityInstance, p: P) -> P {
@@ -423,23 +423,24 @@ pub(super) fn access_for_entity(
                 link.status = "incomplete_terrain".into();
             } else if stair.is_some() && stair_routing.is_none() {
                 link.status = "stair_connection_invalid".into();
-            } else if stair_routing.is_none() && [start, facade_point].into_iter().any(|p| {
-                height(terrain, p).is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
-            }) {
+            } else if stair_routing.is_none()
+                && [start, facade_point].into_iter().any(|p| {
+                    height(terrain, p)
+                        .is_none_or(|h| (h - f64::from(e.ground_height_m())).abs() > 0.30)
+                })
+            {
                 link.status = "entrance_step_requires_engineering".into();
             } else if stair_routing.is_none()
                 && !segment_clear(facade_point, start, &entrance_obstacles, terrain, water)
             {
                 link.status = "entrance_clearance_blocked".into();
-            } else if let Some((road, mut path, length)) =
-                route(
-                    stair_routing.unwrap_or(start),
-                    &roads,
-                    &entrance_obstacles,
-                    terrain,
-                    water,
-                )
-            {
+            } else if let Some((road, mut path, length)) = route(
+                stair_routing.unwrap_or(start),
+                &roads,
+                &entrance_obstacles,
+                terrain,
+                water,
+            ) {
                 let routing_start = stair_routing.unwrap_or(start);
                 if length + distance(facade_point, routing_start) > MAX_LENGTH {
                     links.push(link);
@@ -2037,7 +2038,9 @@ mod tests {
         let mut wall = generated_intent_entity("wall".into(), "wall", 50, 50, 0, 30., 1., 2.);
         wall.rotation_y_deg = 45.;
         assert!(!crosses(&wall, point(60., 56.5), point(60., 57.)));
-        assert!(crosses(&wall, point(55., 55.), point(58., 58.)));
+        // With the serialized positive-Y convention the 30m-wide wall runs
+        // along (+X,-Z); this perpendicular segment crosses its 1m thickness.
+        assert!(crosses(&wall, point(50., 48.), point(50., 52.)));
     }
 
     // ---- B01-G12: passive observer synthetic differential --------------------
