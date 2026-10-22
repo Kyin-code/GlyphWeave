@@ -396,7 +396,7 @@ function makeModernResidentialBlock(entity, THREE) {
   const podium = new THREE.Mesh(new THREE.BoxGeometry(w, podiumH, d), pale)
   podium.position.y = podiumH * .5
   group.add(podium)
-  const plinth = new THREE.Mesh(new THREE.BoxGeometry(w + .8, .28, d + .8), concrete)
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(w, .28, d), concrete)
   plinth.position.y = .14
   group.add(plinth)
 
@@ -490,7 +490,7 @@ export function makeResidentialTower(entity, THREE, heightAt) {
   court.position.y = .5
   group.add(court)
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
-  return group
+  return orientGroupToPublishedFront(group, entity, Math.PI)
 }
 
 // American-style detached home on its own lot, with a front yard and a single
@@ -1242,7 +1242,9 @@ export const CGA_STOREFRONT = [
   // Window frames.
   { kind: 'mirrorX', part: { kind: 'box', w: .18, d: .2, h: 1.9, y: 1.35, x: '~0.35w', z: '~0.5d', mat: 'trim' } },
   // Planter by the door.
-  { kind: 'box', w: '~0.18w', d: .7, h: .5, y: .25, x: '~0.28w', z: '~0.5d', mat: 'green' },
+  // The planter sits in the public frontage, fully beyond the facade; placing
+  // its centre on the wall plane put half of a green box inside the building.
+  { kind: 'box', w: '~0.18w', d: .55, h: .5, y: .25, x: '~0.28w', z: '~0.56d', mat: 'green' },
 ]
 
 export const CGA_STYLES = {
@@ -1339,6 +1341,7 @@ export function makeCoastalFeature(spec, THREE) {
   } else box(w, h, d, material('#7f8870', .98), 0, h * .5)
   group.position.set(Number(spec.worldX) || 0, Number(spec.worldY) || 0, Number(spec.worldZ) || 0)
   if (Number.isFinite(spec.rotationYDeg)) group.rotation.y = THREE.MathUtils.degToRad(spec.rotationYDeg)
+  group.userData.authoredWorldAxes = true
   group.userData.visualContract = { kind: type, renderClass: 'coastal-procedural', widthM: w, depthM: d, heightM: h, rotationYDeg: Number(spec.rotationYDeg) || 0, pivot: spec.grounding?.pivot || 'bottom', collisionClass: spec.collisionClass || 'generated-box' }
   return group
 }

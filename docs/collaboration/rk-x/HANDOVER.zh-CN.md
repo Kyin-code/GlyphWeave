@@ -414,6 +414,17 @@ cargo test --manifest-path bevy/Cargo.toml -p glyphweave-cli --test hillside_cut
 3. **B 接口稳定后再做 C**：先做"台地挡墙"（`terrainPolicy.retainingWalls`，opt-in，
    高差 ≥ 阈值才生成、占地入账本、审计可复算），再做排水/涵洞/竖曲线。
 
+### 8.1 2026-10-23 最新交接状态
+
+- 最新烘焙：`bevy/work/rk-x/v3-final-r192-20261023`
+- `scale-audit=pass`，最大跨块高差 1.071m
+- `final-entity-audit=pass`，检查 329 栋建筑；建筑-建筑/道路/细节碰撞均为 0
+- `quality-report=warn`：24 栋建筑无完整步行入口
+- 已修：SAT 镜像旋转、分块 carve 漏烘、道路断面外扩、1,156 个重复路口盖面、重复未旋转规划盒、墙内花箱、双旋转风险
+- 当前 150m 中心覆盖率 8.34%，尚未达到香港中环样本；下一轮应做独立街廓组合体/庭院地块，不再简单调高需求数量
+
+完整证据见 `ROAD-SECTION-OBB-DENSITY-20261023.md`。
+
 ## 9. 注意事项（别踩）
 
 - **不要**改两条链金标、`WALKABLE_GRADE`、`ENTRANCE_APRON_RUN_M`、审计容差、

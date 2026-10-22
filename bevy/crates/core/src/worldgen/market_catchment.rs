@@ -1486,6 +1486,13 @@ fn market_site(
                     min_z: center_z - half_z,
                     max_z: center_z + half_z,
                 };
+                // The candidate node being far enough from a seam is not
+                // sufficient: market_site steps sideways from the station and
+                // publishes a larger footprint. Re-check the final centre so a
+                // market and its fill-transition ring cannot straddle the seam.
+                if near_stream_seam(center_x.round() as i32, center_z.round() as i32, 40) {
+                    continue;
+                }
                 let oriented = OrientedFootprint {
                     center_x,
                     center_z,

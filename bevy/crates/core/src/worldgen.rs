@@ -361,6 +361,10 @@ pub struct RoadDesign {
     pub lane_width_m: f32,
     pub median_width_m: f32,
     pub sidewalk_width_m: f32,
+    /// Sealed shoulder between the outer traffic lane and the raised footway.
+    /// It belongs to the road right-of-way and therefore to the collision
+    /// section, unlike decorative material widths.
+    pub shoulder_width_m: f32,
     pub speed_limit_kmh: u32,
     pub collision_height_m: f32,
 }
@@ -368,23 +372,35 @@ pub struct RoadDesign {
 impl RoadDesign {
     pub fn from_width(width_m: f32) -> Self {
         let width_m = width_m.max(4.0);
-        let (road_class, lane_count, lane_width_m, median_width_m, sidewalk_width_m, speed) =
-            if width_m >= 30.0 {
-                ("expressway", 6, 3.5, 3.0, 2.5, 80)
-            } else if width_m >= 22.0 {
-                ("arterial", 4, 3.4, 1.6, 3.0, 60)
-            } else if width_m >= 16.0 {
-                ("collector", 4, 3.2, 0.6, 2.5, 40)
-            } else if width_m >= 10.0 {
-                ("local", 2, 3.2, 0.0, 2.0, 30)
-            } else if width_m >= 8.0 {
-                // An 8m residential/service street still carries two opposing
-                // movements; treating it as a one-lane ribbon made every
-                // ordinary local road read as a private driveway.
-                ("local", 2, 3.2, 0.0, 0.8, 20)
-            } else {
-                ("lane", 1, 3.4, 0.0, 0.8, 20)
-            };
+        let (
+            road_class,
+            lane_count,
+            lane_width_m,
+            median_width_m,
+            sidewalk_width_m,
+            shoulder_width_m,
+            speed,
+        ) = if width_m >= 30.0 {
+            // 6 x 3.5 + 3.0 median + 2 x (1.2 shoulder + 2.5 footway) = 31.4m.
+            ("expressway", 6, 3.5, 3.0, 2.5, 1.2, 80)
+        } else if width_m >= 22.0 {
+            // A four-lane arterial, not a widened local street.
+            ("arterial", 4, 3.4, 1.6, 3.0, 0.6, 60)
+        } else if width_m >= 16.0 {
+            // Four urban lanes with narrow but walkable footways. The section
+            // fills the declared 16m right-of-way instead of implying a wider
+            // road than the collision contract owns.
+            ("collector", 4, 3.1, 0.0, 1.4, 0.4, 40)
+        } else if width_m >= 10.0 {
+            ("local", 2, 3.2, 0.0, 1.7, 0.15, 30)
+        } else if width_m >= 8.0 {
+            // An 8m residential/service street still carries two opposing
+            // movements; treating it as a one-lane ribbon made every
+            // ordinary local road read as a private driveway.
+            ("local", 2, 3.2, 0.0, 0.7, 0.0, 20)
+        } else {
+            ("lane", 1, 3.2, 0.0, 0.3, 0.0, 20)
+        };
         Self {
             version: 1,
             road_class: road_class.into(),
@@ -392,6 +408,7 @@ impl RoadDesign {
             lane_width_m,
             median_width_m,
             sidewalk_width_m,
+            shoulder_width_m,
             speed_limit_kmh: speed,
             collision_height_m: 0.35,
         }
@@ -3382,17 +3399,12 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 let surface_file = format!("{stem}.surface.bin");
                 let lod2_file = format!("{stem}.lod2.bin");
                 let terrain_file = format!("{stem}.terrain.bin");
-                // A large scene may contain thousands of pads. Restrict the
-                // per-cell terrain walk to carves whose expanded bounds touch
-                // this chunk; unrelated city districts no longer cost O(N)
-                // for every raster cell.
-                let chunk_carves: Vec<TerrainCarve> = carves
-                    .iter()
-                    .cloned()
-                    .filter(|carve| {
-                        carve_intersects_chunk(carve, base_x, base_z, valid_width_m, valid_depth_m)
-                    })
-                    .collect();
+                // Every chunk evaluates the same global carve set. The
+                // CarveIndex restricts the per-cell work to a constant number
+                // of nearby candidates. Pre-filtering carves by a chunk-local
+                // AABB can omit a fill ring on one side of a seam while the
+                // neighbouring chunk still bakes it, producing an artificial
+                // metre-scale cliff in an otherwise continuous surface.
                 let (height, surface, lod2, terrain) = generate_chunk_encoded(
                     manifest.world.seed ^ scene.seed_offset,
                     base_x,
@@ -3400,7 +3412,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     valid_width_m,
                     valid_depth_m,
                     water,
-                    &chunk_carves,
+                    &carves,
                     precise,
                     zoning_mask.as_ref(),
                 );
@@ -9592,11 +9604,13 @@ pub(crate) fn oriented_footprints_overlap(
 ) -> bool {
     let (a_sin, a_cos) = a.rotation_y_deg.to_radians().sin_cos();
     let (b_sin, b_cos) = b.rotation_y_deg.to_radians().sin_cos();
+    // The serialized positive-Y rotation maps local +X to (cos, -sin) and
+    // local +Z to (sin, cos), matching Three.js and `contains`.
     let axes = [
-        (a_cos, a_sin),
-        (-a_sin, a_cos),
-        (b_cos, b_sin),
-        (-b_sin, b_cos),
+        (a_cos, -a_sin),
+        (a_sin, a_cos),
+        (b_cos, -b_sin),
+        (b_sin, b_cos),
     ];
     let dx = b.center_x - a.center_x;
     let dz = b.center_z - a.center_z;
@@ -9606,10 +9620,10 @@ pub(crate) fn oriented_footprints_overlap(
     let b_half_d = b.depth_m * 0.5;
     for (axis_x, axis_z) in axes {
         let distance = (dx * axis_x + dz * axis_z).abs();
-        let a_radius = (axis_x * a_cos + axis_z * a_sin).abs() * a_half_w
-            + (-axis_x * a_sin + axis_z * a_cos).abs() * a_half_d;
-        let b_radius = (axis_x * b_cos + axis_z * b_sin).abs() * b_half_w
-            + (-axis_x * b_sin + axis_z * b_cos).abs() * b_half_d;
+        let a_radius = (axis_x * a_cos - axis_z * a_sin).abs() * a_half_w
+            + (axis_x * a_sin + axis_z * a_cos).abs() * a_half_d;
+        let b_radius = (axis_x * b_cos - axis_z * b_sin).abs() * b_half_w
+            + (axis_x * b_sin + axis_z * b_cos).abs() * b_half_d;
         if distance >= a_radius + b_radius + margin_m {
             return false;
         }
@@ -12493,6 +12507,21 @@ mod tests {
         assert_eq!(expressway.road_class, "expressway");
         assert_eq!(expressway.lane_count, 6);
         assert_eq!(expressway.median_width_m, 3.0);
+        assert_eq!(expressway.shoulder_width_m, 1.2);
+        for (width, design) in [
+            (8.0, local),
+            (16.0, collector),
+            (24.0, arterial),
+            (32.0, expressway),
+        ] {
+            let occupied = design.lane_count as f32 * design.lane_width_m
+                + design.median_width_m
+                + 2.0 * (design.sidewalk_width_m + design.shoulder_width_m);
+            assert!(
+                occupied <= width + 0.01,
+                "{width}m section occupies {occupied}m"
+            );
+        }
     }
 
     #[test]
@@ -12870,6 +12899,37 @@ mod tests {
         };
         assert!(oriented_footprints_overlap(&left, &overlapping, 0.0));
         assert!(!oriented_footprints_overlap(&left, &clear, 0.0));
+        // Asymmetric yaw pair: the former mirrored SAT reported the first pair
+        // clear and the second pair overlapping. These two assertions catch
+        // both polarities of the rotation-sign regression.
+        let building = OrientedFootprint {
+            center_x: 0.0,
+            center_z: 0.0,
+            width_m: 20.0,
+            depth_m: 10.0,
+            rotation_y_deg: -135.0,
+        };
+        let crossing = OrientedFootprint {
+            center_x: -20.0,
+            center_z: 6.0,
+            width_m: 20.0,
+            depth_m: 10.0,
+            rotation_y_deg: 45.0,
+        };
+        let separated = OrientedFootprint {
+            center_z: -6.0,
+            ..crossing
+        };
+        assert!(oriented_footprints_overlap(
+            &building,
+            &crossing,
+            0.0
+        ));
+        assert!(!oriented_footprints_overlap(
+            &building,
+            &separated,
+            0.0
+        ));
     }
 
     #[test]

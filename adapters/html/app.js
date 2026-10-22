@@ -51,7 +51,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'route-grade-building-r178-20261023'
+window.__glyphweaveBuild = 'road-section-building-audit-r190-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -862,7 +862,7 @@ async function drawNear(buildToken) {
       z: front?.[1] ?? candidate.entity.worldZ,
     })
     return clearOfCrossings
-      && centreDist(candidate.entity) <= 180
+      && centreDist(candidate.entity) <= 230
       && route.chain.length >= 12
       && route.index >= 5
       && route.index < route.chain.length - 3
@@ -1317,6 +1317,25 @@ async function drawNear(buildToken) {
   const roadRoutes = (scene.routeEvolutionPlan?.routes ?? [])
     .filter(route => route.status === 'pass' && route.polyline?.length >= 2)
   const roadJunctions = []
+  const addRoadJunction = candidate => {
+    // Route sampling used to publish one cap for every pair of nearby points.
+    // A long shared corridor therefore produced hundreds of overlapping discs
+    // which swallowed sidewalks, lane paint and the block corners. Keep one
+    // compact cap per real crossing instead.
+    const duplicate = roadJunctions.find(junction =>
+      Math.hypot(junction.x - candidate.x, junction.z - candidate.z)
+        <= Math.max(3, Math.min(junction.pavementRadius, candidate.pavementRadius) * .4)
+      && Math.abs(junction.surfaceY - candidate.surfaceY) < .35)
+    if (duplicate) {
+      if (candidate.pavementRadius > duplicate.pavementRadius) {
+        duplicate.pavementRadius = candidate.pavementRadius
+        duplicate.radius = Math.max(duplicate.radius, candidate.radius)
+      }
+      duplicate.surfaceY = Math.max(duplicate.surfaceY, candidate.surfaceY)
+      return
+    }
+    roadJunctions.push(candidate)
+  }
   const segmentIntersection = (a, b, c, d) => {
     const rX = b.x - a.x; const rZ = b.z - a.z
     const sX = d.x - c.x; const sZ = d.z - c.z
@@ -1356,120 +1375,16 @@ async function drawNear(buildToken) {
           // At grade-separated crossings the two ribbons already own separate
           // deck levels. A single flat cap would erase that separation.
           if (Math.abs(leftSurfaceY - rightSurfaceY) > 1.2) continue
-          const capRadius = Math.max(leftWidth, rightWidth) * .5 + 2
-          roadJunctions.push({
+          const capRadius = Math.max(leftWidth, rightWidth) * .5 + .75
+          addRoadJunction({
             ...hit,
-            radius: capRadius + 1.5,
+            radius: capRadius + .45,
             pavementRadius: capRadius,
-            surfaceY: Math.max(
-              leftSurfaceY,
-              rightSurfaceY,
-              heightAt(hit.x, hit.z),
-              heightAt(hit.x + capRadius, hit.z),
-              heightAt(hit.x - capRadius, hit.z),
-              heightAt(hit.x, hit.z + capRadius),
-              heightAt(hit.x, hit.z - capRadius),
-            ) + .98,
+            surfaceY: Math.max(leftSurfaceY, rightSurfaceY) + .98,
           })
         }
       }
     }
-  }
-  // Broken wedges also appeared where two same-level routes merged without a
-  // clean centreline crossing. Build a small spatial index over published route
-  // samples and cap those near-merge zones at the higher of the two design
-  // surfaces. Grade-separated pairs are deliberately excluded; they keep their
-  // distinct deck and ground pavement.
-  const routeSampleBuckets = new Map()
-  const sampleCellM = 12
-  const bucketKey = (x, z) => `${Math.floor(x / sampleCellM)}:${Math.floor(z / sampleCellM)}`
-  for (const route of roadRoutes) {
-    route.polyline.forEach((point, index) => {
-      const key = bucketKey(point.x, point.z)
-      const bucket = routeSampleBuckets.get(key) ?? []
-      bucket.push({ route, point, index })
-      routeSampleBuckets.set(key, bucket)
-    })
-  }
-  for (const [key, samples] of routeSampleBuckets) {
-    const [cellX, cellZ] = key.split(':').map(Number)
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        const neighbours = routeSampleBuckets.get(`${cellX + dx}:${cellZ + dz}`)
-        if (!neighbours) continue
-        for (const left of samples) {
-          for (const right of neighbours) {
-            if (left.route.id >= right.route.id) continue
-            const distance = Math.hypot(left.point.x - right.point.x, left.point.z - right.point.z)
-            const mergeDistance = Math.max(left.route.roadWidthM, right.route.roadWidthM) * .5 + 5
-            if (distance > mergeDistance) continue
-            const leftY = Number(left.point.designHeightM)
-            const rightY = Number(right.point.designHeightM)
-            if (!Number.isFinite(leftY) || !Number.isFinite(rightY)) continue
-            if (Math.abs(leftY - rightY) > 1.2) continue
-            const x = (left.point.x + right.point.x) * .5
-            const z = (left.point.z + right.point.z) * .5
-            const radius = Math.max(left.route.roadWidthM, right.route.roadWidthM) * .5 + 2
-            const surfaceY = Math.max(
-              leftY,
-              rightY,
-              heightAt(x, z),
-              heightAt(x + radius, z),
-              heightAt(x - radius, z),
-              heightAt(x, z + radius),
-              heightAt(x, z - radius),
-            ) + 1.02
-            if (roadJunctions.some(junction =>
-              Math.hypot(junction.x - x, junction.z - z) < 4
-              && Math.abs(junction.surfaceY - surfaceY) < 1.5)) continue
-            roadJunctions.push({ x, z, radius, pavementRadius: radius, surfaceY })
-          }
-        }
-      }
-    }
-  }
-  // A dense old/new-town centre can contain several nearby junctions whose
-  // individual caps leave grass wedges between road arms. Keep those as one
-  // designed paved junction, sourced only from at-grade caps (grade-separated
-  // crossings were excluded above).
-  const baseJunctions = roadJunctions.slice()
-  const clustered = new Set()
-  for (let index = 0; index < baseJunctions.length; index++) {
-    if (clustered.has(index)) continue
-    const group = [index]
-    clustered.add(index)
-    for (let cursor = 0; cursor < group.length; cursor++) {
-      const from = baseJunctions[group[cursor]]
-      for (let other = index + 1; other < baseJunctions.length; other++) {
-        if (clustered.has(other)) continue
-        const to = baseJunctions[other]
-        if (Math.hypot(from.x - to.x, from.z - to.z) < 60) {
-          clustered.add(other)
-          group.push(other)
-        }
-      }
-    }
-    if (group.length < 2) continue
-    const caps = group.map(item => baseJunctions[item])
-    const centreX = caps.reduce((sum, cap) => sum + cap.x, 0) / caps.length
-    const centreZ = caps.reduce((sum, cap) => sum + cap.z, 0) / caps.length
-    const outerRadius = caps.reduce((radius, cap) =>
-      Math.max(radius, Math.hypot(cap.x - centreX, cap.z - centreZ)), 0) + 15
-    let surfaceY = caps.reduce((surface, cap) => Math.max(surface, cap.surfaceY), -Infinity)
-    for (let step = 0; step < 8; step++) {
-      const angle = step * Math.PI / 4
-      surfaceY = Math.max(
-        surfaceY,
-        heightAt(centreX + Math.cos(angle) * outerRadius, centreZ + Math.sin(angle) * outerRadius) + 1.02,
-      )
-    }
-    roadJunctions.push({
-      x: centreX,
-      z: centreZ,
-      radius: outerRadius,
-      pavementRadius: outerRadius * .96,
-      surfaceY,
-    })
   }
   const junctionMaterial = new THREE.MeshStandardMaterial({
     color: '#5d6364', roughness: .95, side: THREE.DoubleSide,
@@ -1563,17 +1478,28 @@ async function drawNear(buildToken) {
       laneWidthM: 3.2,
       medianWidthM: route.roadWidthM >= 30 ? 3 : route.roadWidthM >= 22 ? 1.6 : 0,
       sidewalkWidthM: route.roadWidthM >= 22 ? 3 : route.roadWidthM >= 10 ? 2 : .8,
+      shoulderWidthM: route.roadWidthM >= 30 ? 1.2 : route.roadWidthM >= 22 ? .6 : .2,
       speedLimitKmh: route.roadWidthM >= 30 ? 80 : route.roadWidthM >= 22 ? 60 : route.roadWidthM >= 16 ? 40 : 30,
       collisionHeightM: .35,
     }
     const halfWidth = Math.max(2, route.roadWidthM * .5)
     const sidewalkWidth = Math.max(.8, Number(design.sidewalkWidthM) || 1.6)
+    const shoulderWidth = Math.max(0, Number(design.shoulderWidthM) || 0)
+    const laneCount = Math.max(1, Number(design.laneCount) || 2)
+    const laneWidth = Math.max(2.8, Number(design.laneWidthM) || 3.2)
+    const medianWidth = Math.max(0, Number(design.medianWidthM) || 0)
+    const carriagewayWidth = Math.min(
+      route.roadWidthM,
+      Math.max(4, laneCount * laneWidth + medianWidth),
+    )
+    const carriagewayHalf = carriagewayWidth * .5
+    const sidewalkOffset = Math.max(0, halfWidth - sidewalkWidth * .5)
     const pavementMaterial = new THREE.MeshStandardMaterial({
       color: '#a39a8a', roughness: .96,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     })
     for (const side of [-1, 1]) {
-      const sidewalkPoints = offsetPolylinePoints(route.polyline, side * (halfWidth + sidewalkWidth * .5))
+      const sidewalkPoints = offsetPolylinePoints(route.polyline, side * sidewalkOffset)
       // Sidewalk ribbons must not pass through a junction box as one folded
       // polygon. At a corner their independent offsets can self-intersect and
       // leave the large triangular wedges seen in the street preview. Clip
@@ -1592,18 +1518,44 @@ async function drawNear(buildToken) {
         nearGroupRoot.add(pavement)
       }
     }
+    // Sealed verge/shoulder: this is the part of the right-of-way between the
+    // outer traffic lane and the footway. It is visible pavement design, not a
+    // widened carriageway or a texture-only line.
+    const shoulderSpan = Math.max(0, halfWidth - sidewalkWidth - carriagewayHalf)
+    if (shoulderSpan > .08) {
+      const shoulderHalf = Math.min(shoulderWidth, shoulderSpan) * .5
+      if (shoulderHalf > .04) {
+        const shoulderMaterial = new THREE.MeshStandardMaterial({ color: '#6b6d68', roughness: .98 })
+        for (const side of [-1, 1]) {
+          const offset = side * (carriagewayHalf + shoulderSpan * .5)
+          const geometry = makePolylineRibbonGeometry(
+            offsetPolylinePoints(route.polyline, offset),
+            shoulderHalf,
+            heightAt,
+            THREE,
+            .94,
+            scene.originX,
+            scene.originZ,
+          )
+          if (!geometry) continue
+          const shoulder = new THREE.Mesh(geometry, shoulderMaterial)
+          shoulder.name = `route-shoulder:${route.id}:${side < 0 ? 'left' : 'right'}`
+          shoulder.renderOrder = 3
+          nearGroupRoot.add(shoulder)
+        }
+      }
+    }
     const carriagewayMaterial = new THREE.MeshStandardMaterial({
       color: '#5d6364', roughness: .95,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     })
-    const carriagewayGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth, heightAt, THREE, .96, scene.originX, scene.originZ)
+    const carriagewayGeometry = makePolylineRibbonGeometry(route.polyline, carriagewayHalf, heightAt, THREE, .96, scene.originX, scene.originZ)
     if (carriagewayGeometry) {
       const carriageway = new THREE.Mesh(carriagewayGeometry, carriagewayMaterial)
       carriageway.name = 'route-evolution:' + route.id
       carriageway.renderOrder = 4
       nearGroupRoot.add(carriageway)
     }
-    const medianWidth = Math.max(0, Number(design.medianWidthM) || 0)
     if (medianWidth > .2) {
       for (const [runIndex, run] of splitRoadPaint(
         route.polyline,
@@ -1619,7 +1571,6 @@ async function drawNear(buildToken) {
         }
       }
     }
-    const laneCount = Math.max(1, Number(design.laneCount) || 2)
     const whitePaint = new THREE.MeshStandardMaterial({ color: '#e8e4d5', roughness: .72 })
     const yellowPaint = new THREE.MeshStandardMaterial({ color: '#d5b85e', roughness: .74 })
     const paintWidth = .12
@@ -1627,14 +1578,14 @@ async function drawNear(buildToken) {
     const lanesPerSide = Math.max(1, Math.floor(laneCount / 2))
     for (const side of [-1, 1]) {
       for (let lane = 1; lane < lanesPerSide; lane++) {
-        const offset = side * (medianHalf + Number(design.laneWidthM || 3.2) * lane)
-        if (Math.abs(offset) >= halfWidth - .25) continue
+        const offset = side * (medianHalf + laneWidth * lane)
+        if (Math.abs(offset) >= carriagewayHalf - .2) continue
         addRoadPaint(nearGroupRoot, route, offsetPolylinePoints(route.polyline, offset), paintWidth, whitePaint, 'route-lane', true)
       }
       addRoadPaint(
         nearGroupRoot,
         route,
-        offsetPolylinePoints(route.polyline, side * Math.max(.15, halfWidth - .22)),
+        offsetPolylinePoints(route.polyline, side * Math.max(.15, carriagewayHalf - .18)),
         .1,
         whitePaint,
         'route-edge',
@@ -1705,49 +1656,9 @@ async function drawNear(buildToken) {
       }
     }
   }
-  for (const building of scene.settlementEvolutionPlan?.buildings ?? []) {
-    const ground = heightAt(building.worldX, building.worldZ)
-    const material = new THREE.MeshStandardMaterial({
-      color: building.kind === 'storefront' ? '#a85a43'
-        : building.kind === 'office_tower' ? '#71848d'
-        : '#c6aa80',
-      roughness: .9,
-      metalness: building.kind === 'office_tower' ? .12 : 0,
-    })
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(building.widthM, building.heightM, building.depthM),
-      material,
-    )
-    mesh.position.set(
-      building.worldX - scene.originX,
-      ground + building.heightM * .5,
-      building.worldZ - scene.originZ,
-    )
-    mesh.name = 'settlement-building:' + building.id
-    nearGroupRoot.add(mesh)
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(building.widthM * 1.04, .35, building.depthM * 1.04),
-      new THREE.MeshStandardMaterial({ color: '#4e4a43', roughness: .95 }),
-    )
-    roof.position.set(mesh.position.x, mesh.position.y + building.heightM * .5 + .18, mesh.position.z)
-    nearGroupRoot.add(roof)
-  }
-  for (const market of scene.marketCatchmentPlan?.markets ?? []) {
-    const ground = heightAt(market.worldX, market.worldZ)
-    const hall = new THREE.Mesh(
-      new THREE.BoxGeometry(18, 6, 22),
-      new THREE.MeshStandardMaterial({ color: '#b87938', roughness: .92 }),
-    )
-    hall.position.set(market.worldX - scene.originX, ground + 3, market.worldZ - scene.originZ)
-    hall.name = 'fresh-market:' + market.id
-    nearGroupRoot.add(hall)
-    const canopy = new THREE.Mesh(
-      new THREE.BoxGeometry(20, .5, 24),
-      new THREE.MeshStandardMaterial({ color: '#5d4630', roughness: .95 }),
-    )
-    canopy.position.set(hall.position.x, ground + 6.2, hall.position.z)
-    nearGroupRoot.add(canopy)
-  }
+  // Settlement and market plans describe authoritative entities. They are
+  // rendered once through the entity dispatcher below. Drawing plan boxes here
+  // added an unrotated second mass on every building and a duplicate market.
   const groundedRenderY = entity => {
     const scale = Number.isFinite(entity.scale) ? entity.scale : 1
     const halfW = Math.abs((entity.widthM || 0) * scale) * .5
@@ -1830,10 +1741,17 @@ async function drawNear(buildToken) {
     return Math.abs(localX) <= hw && Math.abs(localZ) <= hd
   }
   const roadFootprints = (scene.entities ?? []).filter(entity => entity.kind === 'road' || entity.kind === 'sidewalk')
+  const buildingFootprints = (scene.entities ?? []).filter(entity =>
+    ['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building',
+      'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center',
+      'industrial'].includes(entity.kind))
+  const onBuildingFootprint = (x, z, padding = .45) =>
+    buildingFootprints.some(building => footprintContains(building, x, z, padding))
   const onRoadFootprint = (entity, padding = 0) => roadFootprints.some(road => footprintContains(road, entity.worldX, entity.worldZ, padding + Math.max(entity.widthM || 0, entity.depthM || 0) * .5))
   const vegetationFitsTerrain = entity => {
     const terrain = terrainAt(entity.worldX, entity.worldZ)
-    if (onRoadFootprint(entity, .35) || terrain.disturbance > .04 || terrain.surface === 3) return false
+    if (onRoadFootprint(entity, .35) || onBuildingFootprint(entity.worldX, entity.worldZ, .2)
+      || terrain.disturbance > .04 || terrain.surface === 3) return false
     if (entity.kind === 'tree') return terrain.slope < .78 && terrain.wetness > .12
     if (entity.kind === 'bush') return terrain.slope < .7 && terrain.wetness > .18 && terrain.wetness < .96 && terrain.surface !== 2
     if (entity.kind === 'grass_clump') return terrain.slope < .9 && terrain.wetness > .06 && terrain.surface !== 2
@@ -1882,12 +1800,6 @@ async function drawNear(buildToken) {
     })
     // Suppress unowned procedural blades over Rust-managed yards/pavement.
     // Rust meshes below remain the only actual landscaping geometry there.
-    const buildingFootprints = (scene.entities ?? []).filter(entity =>
-      ['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building',
-        'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center',
-        'industrial'].includes(entity.kind))
-    const onBuildingFootprint = (x, z, padding = .45) =>
-      buildingFootprints.some(building => footprintContains(building, x, z, padding))
     const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || onRouteFootprint(x,z)
       || roadFootprints.some(road => footprintContains(road, x, z))
       || onBuildingFootprint(x, z)

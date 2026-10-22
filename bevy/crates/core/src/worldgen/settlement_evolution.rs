@@ -25,6 +25,9 @@ use crate::settlement::building_archetypes;
 /// Candidate parcels keep a conservative margin from streaming seams. Once a
 /// building body has been selected, its exact approach corridor is checked
 /// again below, so this early guard does not have to discard the whole block.
+// Candidate and fill-transition work must stay clear of a streaming seam.
+// The final approach check is narrower than the earthwork ring and therefore
+// cannot substitute for this guard.
 const SETTLEMENT_SEAM_GUARD_M: f64 = 10.5;
 const SETTLEMENT_APPROACH_HALF_WIDTH_M: f64 = 2.0;
 
@@ -769,8 +772,12 @@ pub fn plan(
         // empty. Sample a deterministic low-rise infill lattice inside that
         // envelope. These are not road lots: the nearest legal road is still
         // the access target and every physical/engineering gate remains live.
-        let spacing = 16_i32;
-        let radius = 300.0_f64;
+        // Interior rows are part of the block, not a second uniform grid laid
+        // over the city. A 12m cadence with deterministic per-cell dimensions
+        // admits courtyard infill, workshops and rear apartment rows while the
+        // exact road/building OBB checks still reject every real conflict.
+        let spacing = 12_i32;
+        let radius = 400.0_f64;
         let first_x = (center.0 - radius).ceil() as i32;
         let last_x = (center.0 + radius).floor() as i32;
         let first_z = (center.1 - radius).ceil() as i32;
@@ -1308,14 +1315,12 @@ fn try_build_candidate(
     roads: &[EntityInstance],
     buildings: &[Building],
 ) -> Result<AcceptedCandidate, &'static str> {
-    let interior_infill = candidate.route_id == "zz-infill";
-    let wants_retail =
-        !interior_infill && limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.20;
+    let wants_retail = limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.20;
     // Office demand is not a centre-only switch. Outlying and renewal
     // frontages can host clinics, workshops, studios and local employment;
     // center pressure still chooses the archetype, while the demand ledger
     // decides whether that capacity is consumed.
-    let wants_jobs = !interior_infill && limit.jobs > 0;
+    let wants_jobs = limit.jobs > 0;
     let selection = building_archetypes::SelectionInput {
         community_profile: rules.community_profile.clone(),
         district_stage: candidate.district_stage.clone(),
@@ -1365,23 +1370,11 @@ fn try_build_candidate(
             households: household_capacity
                 .min(limit.households)
                 .min(household_grain),
-            jobs: if interior_infill {
-                0
-            } else {
-                job_capacity.min(limit.jobs).min(job_grain)
-            },
-            retail_floor_area_m2: if interior_infill {
-                0.0
-            } else {
-                retail_capacity
-                    .min(retail_grain_m2)
-                    .min(limit.retail_floor_area_m2)
-            },
-            service_budget: if interior_infill {
-                0.0
-            } else {
-                service_capacity.min(service_grain).min(limit.service_budget)
-            },
+            jobs: job_capacity.min(limit.jobs).min(job_grain),
+            retail_floor_area_m2: retail_capacity
+                .min(retail_grain_m2)
+                .min(limit.retail_floor_area_m2),
+            service_budget: service_capacity.min(service_grain).min(limit.service_budget),
         };
         if demand_is_empty(&spent) {
             continue;
@@ -1701,11 +1694,41 @@ fn frontage_module_count(route_id: &str, position_m: f64, stage: &str) -> u8 {
             .try_into()
             .expect("four-byte module hash"),
     )) / f64::from(u32::MAX);
-    // One frontage slot is the legal unit. Building volume may shrink inside
-    // it through the adaptive envelope pass; widening the slot itself reduced
-    // the number of legal corners and made the centre emptier.
-    let _ = (route_id, unit, stage);
-    1
+    // Historic streets preserve small shop-house frontages and occasionally
+    // join two neighbours. Renewal and new-town blocks use larger assemblies.
+    // The selected module count advances the parcel cursor by the same number
+    // of frontage units, so a wider building never overlaps its neighbour.
+    match stage {
+        // The historic core keeps its narrow shop-house rhythm. Its variation
+        // comes from depth, roof form and use rather than erasing adjoining
+        // frontages into a uniform large block.
+        "old-core" => 1,
+        "renewal" => {
+            if unit < 0.05 {
+                2
+            } else {
+                1
+            }
+        }
+        "new-growth" => {
+            if unit < 0.03 {
+                3
+            } else if unit < 0.18 {
+                2
+            } else {
+                1
+            }
+        }
+        _ => {
+            if unit < 0.10 {
+                3
+            } else if unit < 0.60 {
+                2
+            } else {
+                1
+            }
+        }
+    }
 }
 
 fn demand_is_empty(demand: &Demand) -> bool {
@@ -2722,16 +2745,26 @@ mod tests {
         );
         assert!((1..=2).contains(&key));
 
-        let values = (0..64)
+        let samples = (0..512)
             .map(|index| {
                 frontage_module_count(
                     "urban-grid-v260",
-                    f64::from(index * 19),
+                    f64::from(index * 11),
                     "renewal",
                 )
             })
+            .collect::<Vec<_>>();
+        let values = samples
+            .iter()
+            .copied()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(values, std::collections::BTreeSet::from([1]));
+        assert!(values.contains(&1));
+        assert!(values.contains(&2));
+        assert!(values.iter().all(|value| (1..=3).contains(value)));
+        assert!(
+            samples.iter().any(|value| *value > 1),
+            "renewal blocks must contain at least some joined frontages"
+        );
     }
 
     #[test]
