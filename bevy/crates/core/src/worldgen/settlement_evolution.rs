@@ -39,6 +39,10 @@ pub struct Program {
     pub retail_floor_area_m2: f64,
     #[serde(default)]
     pub service_budget: f64,
+    /// Opt-in low-rise infill inside blocks already bounded by the road
+    /// network. Candidates still pass the same placement and access contracts.
+    #[serde(default)]
+    pub interior_infill: bool,
     #[serde(default = "default_lot_width")]
     pub lot_width_m: f32,
     #[serde(default = "default_lot_depth")]
@@ -392,6 +396,34 @@ fn from_style(style: &Value) -> Result<Option<Program>, String> {
         .map_err(|error| error.to_string())
 }
 
+fn nearest_route_station(routes: &RoutePlan, x: f64, z: f64) -> Option<([i32; 2], f64, f64)> {
+    let mut best: Option<([i32; 2], f64, f64)> = None;
+    for route in routes.routes.iter().filter(|route| route.status == "pass") {
+        for segment in route.polyline.windows(2) {
+            let ax = f64::from(segment[0].x);
+            let az = f64::from(segment[0].z);
+            let bx = f64::from(segment[1].x);
+            let bz = f64::from(segment[1].z);
+            let dx = bx - ax;
+            let dz = bz - az;
+            let length_squared = dx * dx + dz * dz;
+            if length_squared < 1e-9 {
+                continue;
+            }
+            let t = (((x - ax) * dx + (z - az) * dz) / length_squared).clamp(0.0, 1.0);
+            let px = ax + dx * t;
+            let pz = az + dz * t;
+            let distance = (x - px).hypot(z - pz);
+            if best.is_none_or(|(_, prior, _)| distance < prior) {
+                let design_m =
+                    segment[0].design_height_m + (segment[1].design_height_m - segment[0].design_height_m) * t;
+                best = Some(([px.round() as i32, pz.round() as i32], distance, design_m));
+            }
+        }
+    }
+    best
+}
+
 pub fn plan(
     scene: &SceneSpec,
     terrain: &BakedTerrain,
@@ -730,6 +762,126 @@ pub fn plan(
                 });
             }
             cursor_m += parcel_step_m;
+        }
+    }
+    if program.interior_infill {
+        // Dense street walls alone leave the middle of every 60-100m block
+        // empty. Sample a deterministic low-rise infill lattice inside that
+        // envelope. These are not road lots: the nearest legal road is still
+        // the access target and every physical/engineering gate remains live.
+        let spacing = 16_i32;
+        let radius = 300.0_f64;
+        let first_x = (center.0 - radius).ceil() as i32;
+        let last_x = (center.0 + radius).floor() as i32;
+        let first_z = (center.1 - radius).ceil() as i32;
+        let last_z = (center.1 + radius).floor() as i32;
+        for grid_x in (first_x..=last_x).step_by(spacing as usize) {
+            for grid_z in (first_z..=last_z).step_by(spacing as usize) {
+                let hash = blake3::hash(format!("interior-infill:{grid_x}:{grid_z}").as_bytes());
+                let jitter = |offset: usize| {
+                    let value = u32::from_le_bytes(
+                        hash.as_bytes()[offset..offset + 4]
+                            .try_into()
+                            .expect("four-byte infill hash"),
+                    );
+                    f64::from(value) / f64::from(u32::MAX) * 8.0 - 4.0
+                };
+                let x = (f64::from(grid_x) + jitter(0)).round() as i32;
+                let z = (f64::from(grid_z) + jitter(4)).round() as i32;
+                let center_distance = (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
+                if center_distance > radius {
+                    continue;
+                }
+                let district_stage = district_stage(style, center_distance);
+                if district_stage == "periphery" {
+                    continue;
+                }
+                let Some((road_point, road_distance, road_design_m)) =
+                    nearest_route_station(routes, f64::from(x), f64::from(z))
+                else {
+                    continue;
+                };
+                if !(12.0..=48.0).contains(&road_distance) {
+                    continue;
+                }
+                let (stage_width, stage_depth) =
+                    staged_lot_size(district_stage, base_lot_width_m, base_lot_depth_m);
+                let lot_width_m = (stage_width * 0.75).clamp(6.0, 10.0);
+                let lot_depth_m = (stage_depth * 0.50).clamp(8.0, 16.0);
+                let rotation_y_deg = (-f64::from(road_point[0] - x))
+                    .atan2(-f64::from(road_point[1] - z))
+                    .to_degrees() as f32;
+                if lot_is_legal(scene, terrain, water, x, z, lot_width_m, lot_depth_m).is_err() {
+                    continue;
+                }
+                let lot_footprint = OrientedFootprint {
+                    center_x: f64::from(x),
+                    center_z: f64::from(z),
+                    width_m: f64::from(lot_width_m),
+                    depth_m: f64::from(lot_depth_m),
+                    rotation_y_deg: f64::from(rotation_y_deg),
+                };
+                if materialized_roads.iter().any(|road| {
+                    road.kind == "road"
+                        && oriented_footprints_overlap(
+                            &lot_footprint,
+                            &OrientedFootprint::from_entity(road),
+                            0.5,
+                        )
+                }) {
+                    continue;
+                }
+                let lot_ground_m = terrain.height(x, z).unwrap_or(f32::INFINITY);
+                if (road_design_m - f64::from(lot_ground_m)).abs()
+                    > f64::from(program.access_height_tolerance_m)
+                {
+                    continue;
+                }
+                let natural_ceiling_m =
+                    lot_ground_ceiling_m(terrain, x, z, lot_width_m, lot_depth_m, rotation_y_deg)
+                        .unwrap_or(f32::INFINITY);
+                let required_cut_m =
+                    (f64::from(natural_ceiling_m) - road_design_m).max(0.0);
+                if required_cut_m > f64::from(program.max_pad_cut_m) {
+                    continue;
+                }
+                let (half_x, half_z) = lot_footprint.aabb_half_extents();
+                // Infill platforms have a larger symmetric fill ring than a
+                // normal frontage pad because they are not backed by a road
+                // platform. Keep that complete earthwork away from the seam.
+                let seam_guard = 32.0;
+                let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
+                    .map(|chunk| {
+                        f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32)
+                    })
+                    .any(|seam| (lot_footprint.center_x - seam).abs() < half_x + seam_guard);
+                let crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
+                    .map(|chunk| {
+                        f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32)
+                    })
+                    .any(|seam| (lot_footprint.center_z - seam).abs() < half_z + seam_guard);
+                if crosses_x || crosses_z {
+                    continue;
+                }
+                candidates.push(Candidate {
+                    id: format!("zz-infill.lot.{x}.{z}"),
+                    route_id: "zz-infill".into(),
+                    side: "inner".into(),
+                    world_x: x,
+                    world_z: z,
+                    width_m: lot_width_m,
+                    depth_m: lot_depth_m,
+                    access_distance_m: road_distance as f32,
+                    center_distance_m: center_distance,
+                    pressure: (1.0 - center_distance / 650.0).clamp(0.15, 1.0),
+                    frontage_road_point: road_point,
+                    frontage_position_m: road_distance,
+                    district_stage: district_stage.into(),
+                    road_design_m,
+                    required_cut_mm: (required_cut_m * 1000.0 + 64.0).ceil() as i32,
+                    rotation_y_deg,
+                });
+            }
         }
     }
     let rules = SelectionRules {
@@ -1142,12 +1294,14 @@ fn try_build_candidate(
     roads: &[EntityInstance],
     buildings: &[Building],
 ) -> Result<AcceptedCandidate, &'static str> {
-    let wants_retail = limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.20;
+    let interior_infill = candidate.route_id == "zz-infill";
+    let wants_retail =
+        !interior_infill && limit.retail_floor_area_m2 > 0.0 && candidate.pressure > 0.20;
     // Office demand is not a centre-only switch. Outlying and renewal
     // frontages can host clinics, workshops, studios and local employment;
     // center pressure still chooses the archetype, while the demand ledger
     // decides whether that capacity is consumed.
-    let wants_jobs = limit.jobs > 0;
+    let wants_jobs = !interior_infill && limit.jobs > 0;
     let selection = building_archetypes::SelectionInput {
         community_profile: rules.community_profile.clone(),
         district_stage: candidate.district_stage.clone(),
@@ -1197,11 +1351,23 @@ fn try_build_candidate(
             households: household_capacity
                 .min(limit.households)
                 .min(household_grain),
-            jobs: job_capacity.min(limit.jobs).min(job_grain),
-            retail_floor_area_m2: retail_capacity
-                .min(retail_grain_m2)
-                .min(limit.retail_floor_area_m2),
-            service_budget: service_capacity.min(service_grain).min(limit.service_budget),
+            jobs: if interior_infill {
+                0
+            } else {
+                job_capacity.min(limit.jobs).min(job_grain)
+            },
+            retail_floor_area_m2: if interior_infill {
+                0.0
+            } else {
+                retail_capacity
+                    .min(retail_grain_m2)
+                    .min(limit.retail_floor_area_m2)
+            },
+            service_budget: if interior_infill {
+                0.0
+            } else {
+                service_capacity.min(service_grain).min(limit.service_budget)
+            },
         };
         if demand_is_empty(&spent) {
             continue;

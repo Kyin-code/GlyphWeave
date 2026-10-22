@@ -588,6 +588,7 @@
       "jobsTarget": 80000,
       "retailFloorAreaM2": 400000,
       "serviceBudget": 240,
+      "interiorInfill": true,
       "lotWidthM": 8,
       "lotDepthM": 28,
       "roadStepM": 9,

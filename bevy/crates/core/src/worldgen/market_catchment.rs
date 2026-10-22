@@ -461,6 +461,9 @@ fn plan_with_artifacts_inner(
                 if selected.iter().any(|(node, _)| *node == candidate) {
                     continue;
                 }
+                if near_stream_seam(graph.nodes[candidate].x, graph.nodes[candidate].z, 48) {
+                    continue;
+                }
                 let Some(candidate_site) = market_site(
                     routes,
                     graph.nodes[candidate].x,
@@ -944,6 +947,15 @@ pub fn audit_artifacts(artifacts: &Artifacts) -> Result<(), String> {
         return Err("market deficit records do not match the radiation field".into());
     }
     Ok(())
+}
+
+fn near_stream_seam(x: i32, z: i32, margin_m: i32) -> bool {
+    const STREAM_CHUNK_M: i32 = 512;
+    let near = |value: i32| {
+        let rem = value.rem_euclid(STREAM_CHUNK_M);
+        rem < margin_m || rem > STREAM_CHUNK_M - margin_m
+    };
+    near(x) || near(z)
 }
 
 fn close(left: f64, right: f64) -> bool {
