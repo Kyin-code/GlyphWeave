@@ -1,13 +1,26 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-23 核心密度/道路碰撞复核**：当前工作分支
+> `refactor/authoritative-baked-audit`。已统一 Rust OBB、入口局部坐标与
+> THREE 正 Y 旋转；建筑可见 root 保留权威 yaw，立面翻转仅在子节点完成。
+> 道路改为同一横断面设计面、分级车道断面与独立碰撞链，建筑用途恢复
+> 办公/店面/混合住宅/市场的确定性混合。r104 输出
+> `bevy/work/rk-x/v3-final-r104-20261023/`：3,888 实体、195 最终建筑、
+> 20,641.9m² footprint、1,331 道路段，中心 150m 为 51 栋；
+> `scale-audit=pass`、`final-entity-audit=pass`，碰撞/悬空/穿地/落水均为 0。
+> `quality-report=warn`，仍有 28 个入口失败；战略图和街景已运行态检查，
+> 街景道路/建筑不再明显压路或悬浮，但路口标线碎片、连续立面、街具和密度
+> 仍未验收。不得把 r104 当作完整 B/C 签收。详见
+> [`URBAN-DENSITY-ROAD-COLLISION-20261023.zh-CN.md`](URBAN-DENSITY-ROAD-COLLISION-20261023.zh-CN.md)。
+
 > **2026-10-22 城区密度、道路与立面复核**：本轮修复了道路宽度被全城统一
 > 目标吞掉、旧城只允许单侧街墙、斜向道路/地块 yaw 镜像、规划拓宽二次
-> 穿楼、市场斜向入口锚点与入口高差等根因。香港 1km r64 为 3,293 实体、
+> 穿楼、市场斜向入口锚点与入口高差等根因。香港 1km r65 为 3,293 实体、
 > 140 最终建筑、686 道路段、434 树；中心 150m 半径 46 栋，最终
 > 建筑—建筑/道路/草木碰撞、悬空、穿地、落水全部为 0；6/6 市场物化，
 > 10 分钟覆盖 93.46%，AccessGraph 0 断点。scale 与 quality 均 pass。
-> 浏览器地址为 `http://127.0.0.1:8164/preview/index.html?view=street`，
-> 输出目录 `bevy/work/rk-x/v3-density-road-r64-20261022/`。详见
+> 浏览器地址为 `http://127.0.0.1:8165/preview/index.html?view=street`，
+> 输出目录 `bevy/work/rk-x/v3-density-road-r65-20261022/`。详见
 > [`DENSITY-ROADS-FACADES-20261022.zh-CN.md`](DENSITY-ROADS-FACADES-20261022.zh-CN.md)。
 
 > **2026-10-22 最终实体占用与接地回归闭合**：提交 `c965dc6` 已推送。

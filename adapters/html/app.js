@@ -5,7 +5,7 @@ import { createEcologyRenderer } from './render/ecology.js'
 import { loadLandUseLedger } from './core/world.js'
 import { decodeHeightPayload } from './core/height.js'
 import { color, colorRgb, hashNoise, smoothNoise, fractalNoise, deterministicRand } from './core/shared.js'
-import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makePolylineRibbonGeometry, offsetPolylinePoints, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
+import { makeSurfaceTexture, makeLodTexture, makeStripGeometry, makePolylineRibbonGeometry, offsetPolylinePoints, densifyPolylinePoints, makeArtisticGroundTexture, makeSteppeGrass, makeMCTerrain } from './render/terrain.js'
 import { makeGrassBlades } from './render/grass.js'
 import { createWorldWind } from './render/wind.js'
 import { createPostFX } from './render/postfx.js'
@@ -772,6 +772,7 @@ async function drawNear(buildToken) {
       if (d <= 90) score += streetWeight(other) * (1 - d / 110)
     }
     const road = nearestStreetRoad(candidate)
+    let crossingPressure = 0
     if (road && road.distance <= 46) {
       score += 8 * (1 - road.distance / 52)
       // The default street view should read as a modern city street, not a
@@ -781,7 +782,7 @@ async function drawNear(buildToken) {
     }
     if (road?.road) {
       const roadPrefix = road.road.entityId.match(/^(.*)\.(\d+)$/)?.[1] ?? road.road.entityId
-      const crossingPressure = allStreetRoads.filter(other => {
+      crossingPressure = allStreetRoads.filter(other => {
         const otherPrefix = other.entityId.match(/^(.*)\.(\d+)$/)?.[1] ?? other.entityId
         return otherPrefix !== roadPrefix
           && Math.hypot(other.worldX - road.road.worldX, other.worldZ - road.road.worldZ) < 30
@@ -790,17 +791,35 @@ async function drawNear(buildToken) {
       // twelve-way junction communicates noise, not street hierarchy.
       score -= crossingPressure * 5
     }
-    score -= centreDist(candidate) * .0008
-    return { entity: candidate, road, score }
+    score -= centreDist(candidate) * .02
+    return { entity: candidate, road, score, crossingPressure }
   }).sort((a, b) => b.score - a.score || a.entity.entityId.localeCompare(b.entity.entityId))
-  const streetHotspot = rankedStreetHotspots.find(candidate => {
+  const isMidBlockHotspot = candidate => {
     const front = candidate.entity.grounding?.frontageRoadPoint
+    const roadPrefix = candidate.road?.road?.entityId.match(/^(.*)\.(\d+)$/)?.[1]
+      ?? candidate.road?.road?.entityId
+    const clearOfCrossings = !roadPrefix || !allStreetRoads.some(other => {
+      const otherPrefix = other.entityId.match(/^(.*)\.(\d+)$/)?.[1] ?? other.entityId
+      return otherPrefix !== roadPrefix
+        && Math.hypot(
+          other.worldX - (front?.[0] ?? candidate.entity.worldX),
+          other.worldZ - (front?.[1] ?? candidate.entity.worldZ),
+        ) < 35
+    })
     const route = routeChainFor(candidate.road?.road, {
       x: front?.[0] ?? candidate.entity.worldX,
       z: front?.[1] ?? candidate.entity.worldZ,
     })
-    return route.chain.length >= 12 && route.index >= 5 && route.index < route.chain.length - 3
-  }) ?? rankedStreetHotspots[0] ?? null
+    return clearOfCrossings
+      && centreDist(candidate.entity) <= 260
+      && route.chain.length >= 12
+      && route.index >= 5
+      && route.index < route.chain.length - 3
+  }
+  const streetHotspot = rankedStreetHotspots.find(isMidBlockHotspot)
+    ?? rankedStreetHotspots.find(candidate => candidate.crossingPressure === 0)
+    ?? rankedStreetHotspots[0]
+    ?? null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'street_lamp').sort((a, b) => centreDist(a) - centreDist(b))[0]
     ?? (scene.entities ?? []).filter(entity => entity.kind === 'road').sort((a, b) => centreDist(a) - centreDist(b))[0]
@@ -1242,7 +1261,102 @@ async function drawNear(buildToken) {
       entity.entityId.startsWith(`generated.route-evolution.${candidate.id}.`))
     if (route && entity.grounding?.roadDesign) routeDesignById.set(route.id, entity.grounding.roadDesign)
   }
-  for (const route of scene.routeEvolutionPlan?.routes ?? []) {
+  const roadRoutes = (scene.routeEvolutionPlan?.routes ?? [])
+    .filter(route => route.status === 'pass' && route.polyline?.length >= 2)
+  const roadJunctions = []
+  const segmentIntersection = (a, b, c, d) => {
+    const rX = b.x - a.x; const rZ = b.z - a.z
+    const sX = d.x - c.x; const sZ = d.z - c.z
+    const denominator = rX * sZ - rZ * sX
+    if (Math.abs(denominator) < 1e-7) return null
+    const qx = c.x - a.x; const qz = c.z - a.z
+    const t = (qx * sZ - qz * sX) / denominator
+    const u = (qx * rZ - qz * rX) / denominator
+    if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null
+    return { x: a.x + rX * t, z: a.z + rZ * t }
+  }
+  for (let leftIndex = 0; leftIndex < roadRoutes.length; leftIndex++) {
+    for (let rightIndex = leftIndex + 1; rightIndex < roadRoutes.length; rightIndex++) {
+      const left = roadRoutes[leftIndex]
+      const right = roadRoutes[rightIndex]
+      if (left.id === right.id) continue
+      for (let a = 1; a < left.polyline.length; a++) {
+        for (let b = 1; b < right.polyline.length; b++) {
+          const hit = segmentIntersection(
+            left.polyline[a - 1], left.polyline[a],
+            right.polyline[b - 1], right.polyline[b],
+          )
+          if (!hit) continue
+          roadJunctions.push({
+            ...hit,
+            radius: Math.max(left.roadWidthM ?? 8, right.roadWidthM ?? 8) * .5 + 3.5,
+          })
+        }
+      }
+    }
+  }
+  // A route is rendered as one continuous carriageway. Its lane paint is
+  // clipped around true polyline intersections so the preview no longer draws
+  // a lattice of yellow/white lines straight through junction boxes.
+  const splitRoadPaint = (points, lift = 1.12) => {
+    const sampled = densifyPolylinePoints(points, 2.5)
+    const runs = []
+    let run = []
+    const flush = () => {
+      if (run.length >= 2) runs.push(run)
+      run = []
+    }
+    for (const point of sampled) {
+      const insideJunction = roadJunctions.some(junction =>
+        Math.hypot(point.x - junction.x, point.z - junction.z) <= junction.radius)
+      if (insideJunction) flush()
+      else run.push(point)
+    }
+    flush()
+    return runs
+  }
+  const addRoadPaint = (container, route, points, width, material, name, dashed = false) => {
+    for (const [runIndex, run] of splitRoadPaint(points).entries()) {
+      const sampled = densifyPolylinePoints(run, dashed ? 2 : 4)
+      const chunks = []
+      if (!dashed) {
+        chunks.push(sampled)
+      } else {
+        let current = [sampled[0]]
+        let distance = 0
+        let paintVisible = true
+        for (let index = 1; index < sampled.length; index++) {
+          const from = sampled[index - 1]
+          const to = sampled[index]
+          const length = Math.hypot(to.x - from.x, to.z - from.z)
+          if (length < 1e-6) continue
+          distance += length
+          if (paintVisible) current.push(to)
+          if (paintVisible && distance >= 4) {
+            if (current.length >= 2) chunks.push(current)
+            current = [to]
+            distance = 0
+            paintVisible = false
+          } else if (!paintVisible && distance >= 6) {
+            current = [to]
+            distance = 0
+            paintVisible = true
+          }
+        }
+        if (paintVisible && current.length >= 2) chunks.push(current)
+      }
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        if (chunk.length < 2) continue
+        const geometry = makePolylineRibbonGeometry(chunk, width, heightAt, THREE, 1.12, scene.originX, scene.originZ)
+        if (!geometry) continue
+        const paint = new THREE.Mesh(geometry, material)
+        paint.name = `${name}:${route.id}:${runIndex}:${chunkIndex}`
+        paint.renderOrder = 8
+        container.add(paint)
+      }
+    }
+  }
+  for (const route of roadRoutes) {
     if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
     const design = routeDesignById.get(route.id) ?? {
       roadClass: route.roadWidthM >= 30 ? 'expressway' : route.roadWidthM >= 22 ? 'arterial' : route.roadWidthM >= 16 ? 'collector' : route.roadWidthM >= 10 ? 'local' : 'lane',
@@ -1259,10 +1373,12 @@ async function drawNear(buildToken) {
       color: '#a39a8a', roughness: .96,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     })
-    const pavementGeometry = makePolylineRibbonGeometry(route.polyline, halfWidth + sidewalkWidth, heightAt, THREE, .9, scene.originX, scene.originZ)
-    if (pavementGeometry) {
-      const pavement = new THREE.Mesh(pavementGeometry, pavementMaterial)
-      pavement.name = 'route-pavement:' + route.id
+    for (const side of [-1, 1]) {
+      const sidewalkPoints = offsetPolylinePoints(route.polyline, side * (halfWidth + sidewalkWidth * .5))
+      const geometry = makePolylineRibbonGeometry(sidewalkPoints, sidewalkWidth * .5, heightAt, THREE, .9, scene.originX, scene.originZ)
+      if (!geometry) continue
+      const pavement = new THREE.Mesh(geometry, pavementMaterial)
+      pavement.name = `route-sidewalk:${route.id}:${side < 0 ? 'left' : 'right'}`
       pavement.renderOrder = 3
       nearGroupRoot.add(pavement)
     }
@@ -1288,25 +1404,29 @@ async function drawNear(buildToken) {
       }
     }
     const laneCount = Math.max(1, Number(design.laneCount) || 2)
-    const markingMaterial = new THREE.MeshStandardMaterial({ color: '#e4d9ad', roughness: .72 })
-    for (let lane = 1; lane < laneCount; lane++) {
-      const laneOffset = -halfWidth + lane * (halfWidth * 2 / laneCount)
-      if (Math.abs(laneOffset) <= medianWidth * .5) continue
-      const linePoints = offsetPolylinePoints(route.polyline, laneOffset)
-      const lineGeometry = makePolylineRibbonGeometry(linePoints, Math.max(.07, design.laneWidthM * .025), heightAt, THREE, 1.12, scene.originX, scene.originZ)
-      if (!lineGeometry) continue
-      const line = new THREE.Mesh(lineGeometry, markingMaterial)
-      line.name = `route-lane:${route.id}:${lane}`
-      line.renderOrder = 6
-      nearGroupRoot.add(line)
+    const whitePaint = new THREE.MeshStandardMaterial({ color: '#e8e4d5', roughness: .72 })
+    const yellowPaint = new THREE.MeshStandardMaterial({ color: '#d5b85e', roughness: .74 })
+    const paintWidth = .12
+    const medianHalf = medianWidth * .5
+    const lanesPerSide = Math.max(1, Math.floor(laneCount / 2))
+    for (const side of [-1, 1]) {
+      for (let lane = 1; lane < lanesPerSide; lane++) {
+        const offset = side * (medianHalf + Number(design.laneWidthM || 3.2) * lane)
+        if (Math.abs(offset) >= halfWidth - .25) continue
+        addRoadPaint(nearGroupRoot, route, offsetPolylinePoints(route.polyline, offset), paintWidth, whitePaint, 'route-lane', true)
+      }
+      addRoadPaint(
+        nearGroupRoot,
+        route,
+        offsetPolylinePoints(route.polyline, side * Math.max(.15, halfWidth - .22)),
+        .1,
+        whitePaint,
+        'route-edge',
+      )
     }
     if (medianWidth <= .2 && laneCount <= 2) {
-      const centerGeometry = makePolylineRibbonGeometry(route.polyline, .2, heightAt, THREE, 1.12, scene.originX, scene.originZ)
-      if (centerGeometry) {
-        const center = new THREE.Mesh(centerGeometry, markingMaterial)
-        center.name = 'route-centerline:' + route.id
-        center.renderOrder = 6
-        nearGroupRoot.add(center)
+      for (const offset of [-.16, .16]) {
+        addRoadPaint(nearGroupRoot, route, offsetPolylinePoints(route.polyline, offset), .075, yellowPaint, 'route-centerline')
       }
     }
     // The carriageway is a solid volume, not a paint decal. It follows the
@@ -1334,7 +1454,20 @@ async function drawNear(buildToken) {
       // collision index below.
       volume.visible = false
       volume.userData.collisionVolume = { type: 'road', roadClass: design.roadClass, laneCount, widthM: route.roadWidthM, heightM: design.collisionHeightM }
-      nearCollisionVolumes.push({ kind: 'road', routeId: route.id, x: (from.x + to.x) * .5, z: (from.z + to.z) * .5, length, width: route.roadWidthM, yaw })
+      nearCollisionVolumes.push({
+        kind: 'road',
+        routeId: route.id,
+        x: (from.x + to.x) * .5,
+        z: (from.z + to.z) * .5,
+        length,
+        width: route.roadWidthM,
+        yaw,
+        height: design.collisionHeightM,
+        surfaceY: Math.max(
+          from.designHeightM ?? heightAt(from.x, from.z),
+          to.designHeightM ?? heightAt(to.x, to.z),
+        ) + .96,
+      })
       nearGroupRoot.add(volume)
     }
     for (const span of route.bridgeSpans ?? []) {
@@ -1534,7 +1667,17 @@ async function drawNear(buildToken) {
     })
     // Suppress unowned procedural blades over Rust-managed yards/pavement.
     // Rust meshes below remain the only actual landscaping geometry there.
-    const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || onRouteFootprint(x,z) || roadFootprints.some(road => footprintContains(road, x, z)) ? { slope: 0, curvature: 0, wetness: 0, disturbance: 1, surface: 2 } : terrainAt(x, z)
+    const buildingFootprints = (scene.entities ?? []).filter(entity =>
+      ['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building',
+        'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center',
+        'industrial'].includes(entity.kind))
+    const onBuildingFootprint = (x, z, padding = .45) =>
+      buildingFootprints.some(building => footprintContains(building, x, z, padding))
+    const grassTerrainAt = (x, z) => inManagedYard(x,z) || onFarmSurface(x,z) || onRouteFootprint(x,z)
+      || roadFootprints.some(road => footprintContains(road, x, z))
+      || onBuildingFootprint(x, z)
+      ? { slope: 0, curvature: 0, wetness: 0, disturbance: 1, surface: 2 }
+      : terrainAt(x, z)
     // The terrain raster is authoritative for placement, but legacy semantic
     // bytes can be absent or overly conservative. Keep a deterministic neutral
     // fallback for genuinely land-covered chunks so the render adapter still
@@ -1927,7 +2070,7 @@ async function drawNear(buildToken) {
       const settlementEvolutionPlan = entity.entityId.startsWith('generated.settlement-evolution.')
       if(!settlementEvolutionPlan && !plannedBuildingIds.has(entity.entityId))throw new Error('Frontage entity missing Rust building plan: '+entity.entityId)
       addEntityToGroup(entity,buildEntityCached(entity,()=>{
-        if(entity.kind==='residential_home')return makePlannedResidentialHome(entity,THREE)
+        if(entity.kind==='residential_home')return makePlannedResidentialHome(entity,THREE,heightAt)
         if(entity.kind==='residential_block'||entity.kind==='residential_tower')return makeResidentialBlock(entity,THREE,heightAt)
         if(entity.kind==='storefront')return makeStorefront(entity,THREE)
         if(entity.kind==='office_tower')return makeHongKongTower(entity,THREE)
@@ -2008,6 +2151,12 @@ async function drawNear(buildToken) {
       addRendered(entity, makeBridgeStructure(entity, THREE, heightAt))
       continue
     }
+    // Route-evolution roads already own a continuous ribbon and collision
+    // strip above. Falling through to the legacy strip builder drew a second
+    // 7 m tan road over every junction, which was the source of the large
+    // wedge-shaped patches and misleading "dirt lane" appearance.
+    if ((entity.kind === 'road' || entity.kind === 'sidewalk')
+      && entity.entityId.startsWith('generated.route-evolution.')) continue
     if (entity.kind === 'mountain_forest' || entity.kind === 'nature_reserve' || entity.kind === 'green_space') {
       const built = buildEntityCached(entity, () => makeForestPatch(entity, THREE, entity.kind === 'nature_reserve'))
       built.traverse(o => { if (o.isMesh) o.userData.vegetation = true })
@@ -2062,7 +2211,7 @@ async function drawNear(buildToken) {
     if (entity.kind === 'residential_home') {
       addEntityToGroup(entity, buildEntityCached(entity, () => {
         const planned=scene.developmentPlan?.buildings.some(b=>b.entity.entityId===entity.entityId)
-        const built = planned ? makePlannedResidentialHome(entity, THREE) : makeResidentialHome(entity, THREE, heightAt)
+        const built = planned ? makePlannedResidentialHome(entity, THREE, heightAt) : makeResidentialHome(entity, THREE, heightAt)
         // Planned foundations already belong to final Rust terrain; don't add
         // a larger browser-invented plinth outside the building footprint.
         if(!planned) applySlopeFoundation(built, entity, heightAt, THREE)
@@ -2405,6 +2554,7 @@ async function drawNear(buildToken) {
     roads: nearCollisionVolumes.filter(volume => volume.kind === 'road').length,
     buildings: nearCollisionVolumes.filter(volume => volume.kind === 'building').length,
     firstPersonBlocking: nearCollisionVolumes.filter(volume => volume.kind === 'building').length,
+    walkableRoadSurfaces: nearCollisionVolumes.filter(volume => volume.kind === 'road').length,
     roadClasses: [...new Set((scene.routeEvolutionPlan?.routes ?? []).map(route => routeDesignById.get(route.id)?.roadClass).filter(Boolean))],
   }
   // Cinematic post-processing (DoF opt-in for street/explore, bloom + film
@@ -2492,8 +2642,8 @@ async function drawNear(buildToken) {
           const dz = candidateZ - (volume.z - scene.originZ)
           const cos = Math.cos(volume.yaw)
           const sin = Math.sin(volume.yaw)
-          const localX = dx * cos + dz * sin
-          const localZ = -dx * sin + dz * cos
+          const localX = dx * cos - dz * sin
+          const localZ = dx * sin + dz * cos
           return Math.abs(localX) < volume.width * .5 + .6
             && Math.abs(localZ) < volume.depth * .5 + .6
             && nearCamera.position.y < volume.baseY + volume.height + 1
@@ -2505,8 +2655,22 @@ async function drawNear(buildToken) {
       }
     }
     if (isExplore) {
-      const ground = heightAt(nearCamera.position.x, nearCamera.position.z)
-      nearCamera.position.y = Math.max(nearCamera.position.y, ground + 6)
+      const terrainGround = heightAt(nearCamera.position.x, nearCamera.position.z)
+      const cameraWorldX = nearCamera.position.x + scene.originX
+      const cameraWorldZ = nearCamera.position.z + scene.originZ
+      const roadSurface = nearCollisionVolumes
+        .filter(volume => volume.kind === 'road')
+        .reduce((highest, volume) => {
+          const dx = cameraWorldX - volume.x
+          const dz = cameraWorldZ - volume.z
+          const cos = Math.cos(volume.yaw)
+          const sin = Math.sin(volume.yaw)
+          const localX = dx * cos - dz * sin
+          const localZ = dx * sin + dz * cos
+          if (Math.abs(localX) > volume.length * .5 || Math.abs(localZ) > volume.width * .5) return highest
+          return Math.max(highest, volume.surfaceY ?? terrainGround)
+        }, terrainGround)
+      nearCamera.position.y = Math.max(nearCamera.position.y, roadSurface + 6)
       nearControls.target.y = Math.max(nearControls.target.y, nearCamera.position.y + 12)
     }
     // Throttle renders so a large scene (thousands of meshes) doesn't block

@@ -8,13 +8,17 @@ export function orientGroupToPublishedFront(group, entity, localFrontRadians = 0
   const anchor = (entity.anchors ?? []).find(item => item.target === 'road')
     ?? (entity.anchors ?? [])[0]
   const authoredYaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
+  // The Rust-owned yaw describes the collision OBB and must survive verbatim.
+  // Facing the authored road uses a child-only half turn; rotating the root
+  // also rotated the visual OBB away from the audited footprint.
+  let facadeTurn = 0
   if (!anchor) {
-    group.rotation.y = authoredYaw
+    facadeTurn = 0
   } else {
     const dx = Number(anchor.worldX) - Number(entity.worldX)
     const dz = Number(anchor.worldZ) - Number(entity.worldZ)
     if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) < .25) {
-      group.rotation.y = authoredYaw
+      facadeTurn = 0
     } else {
       const anchorYaw = Math.atan2(dx, dz)
       const angleDelta = radians => Math.abs(Math.atan2(
@@ -23,9 +27,17 @@ export function orientGroupToPublishedFront(group, entity, localFrontRadians = 0
       ))
       const frontError = angleDelta(anchorYaw - authoredYaw - localFrontRadians)
       const backError = angleDelta(anchorYaw - authoredYaw - localFrontRadians - Math.PI)
-      group.rotation.y = authoredYaw + (backError < frontError ? Math.PI : 0)
+      facadeTurn = backError < frontError ? Math.PI : 0
     }
   }
+  if (facadeTurn !== 0) {
+    const content = new group.constructor()
+    content.name = 'published-front-content'
+    content.rotation.y = facadeTurn
+    while (group.children.length) content.add(group.children[0])
+    group.add(content)
+  }
+  group.rotation.y = authoredYaw
   group.userData.authoredWorldAxes = true
   return group
 }
@@ -202,8 +214,8 @@ export function makeBridgeStructure(spec, THREE, heightAt) {
 
 export function makeHongKongTower(spec, THREE) {
   const tower = new THREE.Group()
-  const glass = new THREE.MeshStandardMaterial({ color: '#718894', roughness: .28, metalness: .52 })
-  const darkGlass = new THREE.MeshStandardMaterial({ color: '#263f4b', roughness: .22, metalness: .62 })
+  const glass = new THREE.MeshStandardMaterial({ color: '#718894', emissive: '#16272d', emissiveIntensity: .18, roughness: .28, metalness: .52 })
+  const darkGlass = new THREE.MeshStandardMaterial({ color: '#3d5965', emissive: '#101d23', emissiveIntensity: .16, roughness: .22, metalness: .62 })
   const edge = new THREE.MeshStandardMaterial({ color: '#b8c5c7', roughness: .38, metalness: .7 })
   const light = new THREE.MeshStandardMaterial({ color: '#f6d993', emissive: '#a77b32', emissiveIntensity: .7, roughness: .35 })
   const width = spec.widthM || 60
@@ -377,8 +389,6 @@ function makeModernResidentialBlock(entity, THREE) {
   const graphite = new THREE.MeshStandardMaterial({ color: tone.trim, roughness: .55, metalness: .18 })
   const glass = new THREE.MeshStandardMaterial({ color: tone.glass, roughness: .2, metalness: .42 })
   const glassLight = new THREE.MeshStandardMaterial({ color: tone.glassLight, roughness: .18, metalness: .3 })
-  const green = new THREE.MeshStandardMaterial({ color: '#527b44', roughness: 1 })
-
   const podiumH = Math.max(2.8, Math.min(4.2, h * .2))
   const podium = new THREE.Mesh(new THREE.BoxGeometry(w, podiumH, d), pale)
   podium.position.y = podiumH * .5
@@ -431,10 +441,6 @@ function makeModernResidentialBlock(entity, THREE) {
     group.add(lift)
   }
 
-  const court = new THREE.Mesh(new THREE.BoxGeometry(w * .28, .18, d * .3), green)
-  court.position.set(0, podiumH + .09, twoTowers ? -d * .23 : d * .02)
-  group.add(court)
-
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
   return orientGroupToPublishedFront(group, entity, Math.PI)
 }
@@ -477,7 +483,7 @@ export function makeResidentialTower(entity, THREE, heightAt) {
       }
     }
   }
-  const court = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM * .34, .2, entity.depthM * .34), new THREE.MeshStandardMaterial({ color: '#5d8a4a', roughness: 1 }))
+  const court = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM * .34, .2, entity.depthM * .34), new THREE.MeshStandardMaterial({ color: '#8b8274', roughness: 1 }))
   court.position.y = .5
   group.add(court)
   group.position.set(entity.worldX, entity.worldY, entity.worldZ)
@@ -512,7 +518,7 @@ export function makePlannedServiceBuilding(entity, THREE) {
   return orientGroupToPublishedFront(group, entity, Math.PI)
 }
 
-export function makePlannedResidentialHome(entity, THREE) {
+export function makePlannedResidentialHome(entity, THREE, heightAt) {
   const group=new THREE.Group()
   group.name='planned-building:'+entity.entityId
   group.userData.footprintOnly=true
@@ -532,6 +538,23 @@ export function makePlannedResidentialHome(entity, THREE) {
   for(const side of [-1,1]) {
     const win=new THREE.Mesh(new THREE.PlaneGeometry(Math.min(2,w*.16),1.5),new THREE.MeshStandardMaterial({color:'#8eb4c0',roughness:.35}))
     win.name='front-window';win.rotation.y=Math.PI;win.position.set(side*w*.3,wallH*.55,-d*.5-.002);group.add(win)
+  }
+  if (heightAt) {
+    const yaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
+    const cos = Math.cos(yaw); const sin = Math.sin(yaw)
+    const corners = [[-w * .5, -d * .5], [w * .5, -d * .5], [-w * .5, d * .5], [w * .5, d * .5]]
+      .map(([x, z]) => heightAt(entity.worldX + x * cos + z * sin, entity.worldZ - x * sin + z * cos))
+      .filter(Number.isFinite)
+    const foundationBottom = corners.length ? Math.min(...corners) - entity.worldY : 0
+    if (foundationBottom < -.08) {
+      const foundation = new THREE.Mesh(
+        new THREE.BoxGeometry(w, -foundationBottom, d),
+        new THREE.MeshStandardMaterial({ color: '#8c877d', roughness: .98 }),
+      )
+      foundation.name = 'building-foundation'
+      foundation.position.y = foundationBottom * .5
+      group.add(foundation)
+    }
   }
   group.position.set(entity.worldX,entity.worldY,entity.worldZ)
   return orientGroupToPublishedFront(group, entity, Math.PI)
@@ -559,7 +582,10 @@ function constructionTone(entity) {
 
 export function makeResidentialHome(entity, THREE, heightAt) {
   const group = new THREE.Group()
-  const lotMat = new THREE.MeshStandardMaterial({ color: '#6d9a52', roughness: 1 })
+  // The lot is the building envelope, not a garden. A green slab inside the
+  // exact building OBB read as vegetation growing through the house; planting
+  // belongs to independently audited Rust vegetation entities outside it.
+  const lotMat = new THREE.MeshStandardMaterial({ color: '#8f8a7d', roughness: 1 })
   const lot = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM, .3, entity.depthM), lotMat)
   lot.position.y = .15
   group.add(lot)

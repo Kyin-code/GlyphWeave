@@ -187,58 +187,112 @@ export function makeStripGeometry(entity, halfWidth, centerZ, heightAt, THREE, l
   return geometry
 }
 
+export function densifyPolylinePoints(points, maxStep = 4) {
+  if (!Array.isArray(points) || points.length < 2) return []
+  const step = Math.max(.5, Number(maxStep) || 4)
+  const result = [points[0]]
+  for (let index = 1; index < points.length; index++) {
+    const from = points[index - 1]
+    const to = points[index]
+    const dx = Number(to.x) - Number(from.x)
+    const dz = Number(to.z) - Number(from.z)
+    const length = Math.hypot(dx, dz)
+    const count = Math.max(1, Math.ceil(length / step))
+    for (let part = 1; part <= count; part++) {
+      const t = part / count
+      if (part === count) {
+        result.push(to)
+        continue
+      }
+      const designFrom = Number.isFinite(from.designHeightM) ? from.designHeightM : null
+      const designTo = Number.isFinite(to.designHeightM) ? to.designHeightM : null
+      result.push({
+        ...from,
+        x: from.x + dx * t,
+        z: from.z + dz * t,
+        designHeightM: designFrom != null && designTo != null
+          ? designFrom + (designTo - designFrom) * t
+          : from.designHeightM,
+      })
+    }
+  }
+  return result
+}
+
 export function makePolylineRibbonGeometry(points, halfWidth, heightAt, THREE, lift, originX, originZ) {
   if (!Array.isArray(points) || points.length < 2) return null
+  const sampled = densifyPolylinePoints(points, Math.max(2, Math.min(5, halfWidth)))
+  if (sampled.length < 2) return null
   const vertices = []
   const indices = []
-  const pointY = point => {
-    const designY = Number.isFinite(point.designHeightM)
-      ? point.designHeightM
-      : heightAt(point.x, point.z)
-    return Math.max(designY, heightAt(point.x, point.z)) + lift
-  }
   const appendVertex = (x, y, z) => {
     const index = vertices.length / 3
     vertices.push(x - originX, y, z - originZ)
     return index
   }
-  for (let index = 1; index < points.length; index++) {
-    const from = points[index - 1]
-    const to = points[index]
-    const dx = to.x - from.x
-    const dz = to.z - from.z
-    const length = Math.hypot(dx, dz)
-    if (length < 1e-6) continue
-    const nx = -dz / length
-    const nz = dx / length
-    const fromY = pointY(from)
-    const toY = pointY(to)
-    const a = appendVertex(from.x - nx * halfWidth, fromY, from.z - nz * halfWidth)
-    const b = appendVertex(from.x + nx * halfWidth, fromY, from.z + nz * halfWidth)
-    const c = appendVertex(to.x - nx * halfWidth, toY, to.z - nz * halfWidth)
-    const d = appendVertex(to.x + nx * halfWidth, toY, to.z + nz * halfWidth)
-    indices.push(a, b, c, b, d, c)
+  const rows = []
+  for (let index = 0; index < sampled.length; index++) {
+    const point = sampled[index]
+    const before = sampled[Math.max(0, index - 1)]
+    const after = sampled[Math.min(sampled.length - 1, index + 1)]
+    let tx = after.x - before.x
+    let tz = after.z - before.z
+    let tangentLength = Math.hypot(tx, tz)
+    if (tangentLength < 1e-6) {
+      tx = 1
+      tz = 0
+      tangentLength = 1
+    }
+    const nx = -tz / tangentLength
+    const nz = tx / tangentLength
+    const previousDx = point.x - before.x
+    const previousDz = point.z - before.z
+    const nextDx = after.x - point.x
+    const nextDz = after.z - point.z
+    const previousLength = Math.hypot(previousDx, previousDz)
+    const nextLength = Math.hypot(nextDx, nextDz)
+    const previousProjection = previousLength > 1e-6
+      ? Math.abs(nx * (-previousDz / previousLength) + nz * (previousDx / previousLength))
+      : 1
+    const nextProjection = nextLength > 1e-6
+      ? Math.abs(nx * (-nextDz / nextLength) + nz * (nextDx / nextLength))
+      : 1
+    // Keep the join finite. The former 0.55 projection allowed a miter up to
+    // 1.82 half-widths, which folded into a long spike on right-angle bends.
+    // A bounded 1.25x miter preserves continuity without treating the road as
+    // a disconnected decal at every polyline vertex.
+    const miterProjection = Math.max(.8, Math.min(previousProjection, nextProjection))
+    const miter = halfWidth / miterProjection
+    const designY = Number.isFinite(point.designHeightM) ? point.designHeightM : null
+    const leftX = point.x - nx * miter
+    const leftZ = point.z - nz * miter
+    const rightX = point.x + nx * miter
+    const rightZ = point.z + nz * miter
+    // A carriageway cross-section is one designed surface. Sampling left,
+    // centre and right independently made the ribbon twist across bends and
+    // let terrain poke through one edge. Use the highest bearing of the three
+    // samples for the whole row and add only a shallow crown at the centre.
+    const baseY = Math.max(
+      designY ?? heightAt(point.x, point.z),
+      heightAt(leftX, leftZ),
+      heightAt(point.x, point.z),
+      heightAt(rightX, rightZ),
+    ) + lift
+    rows.push([
+      appendVertex(leftX, baseY, leftZ),
+      appendVertex(point.x, baseY + .035, point.z),
+      appendVertex(rightX, baseY, rightZ),
+    ])
   }
-  // Round joints fill the wedge removed by rectangle-only segments. The
-  // previous miter strip created long spikes and inverted triangles on
-  // staircase-like terrain routes, which appeared as holes in the asphalt.
-  const joinSteps = Math.max(6, Math.min(16, Math.ceil(halfWidth * 1.5)))
-  for (let index = 1; index < points.length - 1; index++) {
-    const point = points[index]
-    const y = pointY(point)
-    const center = appendVertex(point.x, y + .002, point.z)
-    const ring = []
-    for (let step = 0; step < joinSteps; step++) {
-      const angle = step / joinSteps * Math.PI * 2
-      ring.push(appendVertex(
-        point.x + Math.cos(angle) * halfWidth,
-        y + .002,
-        point.z + Math.sin(angle) * halfWidth,
-      ))
-    }
-    for (let step = 0; step < joinSteps; step++) {
-      indices.push(center, ring[step], ring[(step + 1) % joinSteps])
-    }
+  for (let index = 1; index < rows.length; index++) {
+    const previous = rows[index - 1]
+    const current = rows[index]
+    indices.push(
+      previous[0], previous[1], current[0],
+      previous[1], current[1], current[0],
+      previous[1], previous[2], current[1],
+      previous[2], current[2], current[1],
+    )
   }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
