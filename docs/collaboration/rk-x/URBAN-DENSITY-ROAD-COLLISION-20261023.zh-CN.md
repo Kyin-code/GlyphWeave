@@ -4,6 +4,17 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
+> **2026-10-23 r131 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r131-20261023/`。世界修订
+> `98626a5dcd6cc269e4a9021302bbebaecff0c4c8b5cc0a3b5907c5f5cab420d5`，
+> 4,108 实体、278 建筑、1,401 道路段、409 树、建筑 footprint
+> 30,069m²；跨 Chunk 最大高差 3.556m。建筑—建筑、建筑—道路、
+> 建筑—草木、悬空、穿地、落水均为 0；10 个市场覆盖 100%。
+> `quality-report=warn` 的原因是 40 栋建筑仍没有一条完整可走入口，
+> 以及运行态视觉反馈确认中心街廓内部仍偏空。r125/r126 的 24m 钝性
+> seam guard 已撤回；现在地块先保留 10.5m 余量，选中具体建筑后再按
+> “建筑 OBB + 4m 门前通路 + 道路点”的完整包络精确检查 Chunk 接缝。
+
 ## 1. 复核口径
 
 基准样本仍是 48 城的一平方公里核心窗口，而不是整城 GIS 汇总：
@@ -54,51 +65,63 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
   实体存在于建筑 OBB 外。
 - 规划住宅增加贴合最低地面的 footprint 内基础，不再以超出 OBB 的浏览器
   装饰地基掩盖高差。
+- 住宅侧立面和背立面补充分层窗带与后门，街角镜头不再只看到整面涂色
+  防火墙。
 
-## 3. r104 实测
+### 2.4 道路和地块的最终复核（r131）
 
-输出：`bevy/work/rk-x/v3-final-r104-20261023/`
+- HTML 道路 ribbon 在 Rust 已发布 `designHeightM` 时只使用该设计高程，
+  不再把左右两侧地形最大值混入横断面；截图中的弯道三角形破口已消失。
+- 建筑位置在同一合法地块内搜索五个纵深位置；每次移动后重新检查水体
+  footprint、坡度、填挖上限、建筑/道路 OBB 和实际门前通路接缝。
+- 市场初始部署增加 2% 小型安全余量，并在最终分配时把浮点残余准确记入
+  最后可服务的市场，保证计划、辐射和缺口三份报告守恒。
 
-- 世界修订：`fe0cd0e0e7f310aed340eb825ab1c4ac89b804257c4366607f52fe5d535627e1`
-- 实体：3,888
-- 普通/市场/中心建筑：195
-- 建筑 footprint：20,641.9m²（整幅 1km² 的 2.06%）
-- 用途：121 residential block、41 storefront、24 office tower、
-  8 market、1 industrial
-- 道路段：1,331；快速路 32、主干路 26、集散路 219、本地路 885、巷道 169
-- 树 406、灌木 271、草丛 1,220、岩石 367
+## 3. r131 实测
+
+输出：`bevy/work/rk-x/v3-final-r131-20261023/`
+
+- 世界修订：`98626a5dcd6cc269e4a9021302bbebaecff0c4c8b5cc0a3b5907c5f5cab420d5`
+- 实体：4,108
+- 常规/市场建筑：278
+- 建筑 footprint：30,069m²（整幅 1km² 的 3.01%）
+- 用途：135 residential block、91 storefront、42 office tower、10 market
+- 道路段：1,401
+- 树 409
 - 中心 `(500,450)` 密度：
 
 | 半径 | 建筑 | footprint |
 |---:|---:|---:|
-| 100m | 21 | 2,586.8m² |
-| 150m | 51 | 5,484.0m² |
-| 200m | 93 | 9,331.2m² |
-| 300m | 172 | 18,012.7m² |
-| 500m | 194 | 20,641.9m² |
+| 100m | 22 | 1,822.0m² |
+| 150m | 59 | 5,477.0m² |
+| 200m | 139 | 12,958.5m² |
+| 300m | 249 | 26,813.0m² |
+| 500m | 278 | 30,069.0m² |
+
+r104 的 195 栋、2.06% footprint 保留为历史中间结果，不再作为当前结论。
 
 ## 4. 硬门结果
 
-- `scale-audit=pass`；跨 Chunk 最大高差 3.916m，低于 4m 门限。
+- `scale-audit=pass`；跨 Chunk 最大高差 3.556m，低于 4m 门限。
 - `final-entity-audit=pass`；建筑—建筑 0、建筑—道路 0、
   建筑—草木 0、悬空 0、穿地 0、落水 0、无支撑 0。
-- 市场 8 个；10 分钟覆盖率 92.64%，不是 pass。
-- `quality-report=warn`：167 个入口连通、28 个断开。
-- 断开原因：12 `entrance_step_requires_engineering`、
-  10 `stair_connection_invalid`、3 `entrance_clearance_blocked`、
-  3 `no_walkable_route_within_budget`。
+- 市场 10 个；10 分钟覆盖率和总覆盖率均为 100%，计划和辐射报告守恒。
+- `quality-report=warn`：238 栋有至少一条入口连通，40 栋所有入口均断开。
+- 运行态 `visual-feedback.json` 为 `warn`，已记录道路连续化通过、侧立面
+  已补充，同时保留 `core-footprint-too-low`、`internal-block-underused`
+  和 `intersection-edge-geometry` 三项问题。
 
 ## 5. 未签收项
 
-1. **密度仍不足。** 当前中心 150m 为 51 栋，只有香港样本 410 栋的约八分之一；
-   2.06% footprint 也远低于样本 30.2%。不能把 195 栋解释为“已经达到中环”。
-2. **入口仍具名失败。** 28 个断开入口必须逐项生成楼梯、坡道、平台或改选
+1. **密度和单体体量仍不足。** 150m 内 59 栋已接近 p75 城市均匀折算值，
+   但平均 footprint 只有约 108m²；街廓内部仍空。不能把 278 栋解释为
+   “已经达到中环”。下一优先级是合法后排/庭院地块和 250–700m² 组合建筑。
+2. **入口仍具名失败。** 40 栋建筑的所有入口均断开，必须逐项生成楼梯、坡道、平台或改选
    地块；不得通过放宽入口距离、坡度或 OBB 合同消除。
-3. **街景仍选中交叉口附近。** 当前默认核心街段可加载，但 4 车道断面在
-   路口附近的标线仍呈短碎段；需要把道路标线改成连续路口模板，而不是由
-   路口圆形裁剪任意打断。
-4. **立面与街具仍偏简。** 大面墙、暗玻璃与稀疏街具尚未达到“现代高密街区”
-   所需的连续店面、雨棚、门厅、招牌和尺度参照。
+3. **交叉口边缘仍复杂。** 路面本身已连续，但路口周边仍有重叠人行道、
+   台地和碎片边缘；需要单独的路口模板及统一三角剖分。
+4. **立面与街具仍偏简。** 侧立面窗带已补齐，但大面墙、连续店面、雨棚、
+   门厅、招牌、路灯和尺度参照仍未达到“现代高密街区”。
 
 ## 6. 设计结论
 
@@ -134,8 +157,8 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r104-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r104-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r131-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r131-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast

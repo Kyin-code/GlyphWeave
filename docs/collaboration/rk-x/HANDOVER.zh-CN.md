@@ -4,13 +4,17 @@
 > `refactor/authoritative-baked-audit`。已统一 Rust OBB、入口局部坐标与
 > THREE 正 Y 旋转；建筑可见 root 保留权威 yaw，立面翻转仅在子节点完成。
 > 道路改为同一横断面设计面、分级车道断面与独立碰撞链，建筑用途恢复
-> 办公/店面/混合住宅/市场的确定性混合。r104 输出
-> `bevy/work/rk-x/v3-final-r104-20261023/`：3,888 实体、195 最终建筑、
-> 20,641.9m² footprint、1,331 道路段，中心 150m 为 51 栋；
-> `scale-audit=pass`、`final-entity-audit=pass`，碰撞/悬空/穿地/落水均为 0。
-> `quality-report=warn`，仍有 28 个入口失败；战略图和街景已运行态检查，
-> 街景道路/建筑不再明显压路或悬浮，但路口标线碎片、连续立面、街具和密度
-> 仍未验收。不得把 r104 当作完整 B/C 签收。详见
+> 办公/店面/混合住宅/市场的确定性混合。r131 输出
+> `bevy/work/rk-x/v3-final-r131-20261023/`：4,108 实体、278 最终建筑、
+> 30,069m² footprint、1,401 道路段，中心 150m 为 59 栋；
+> `scale-audit=pass`、`final-entity-audit=pass`、市场覆盖 100%，
+> 碰撞/悬空/穿地/落水均为 0，跨 Chunk 最大高差 3.556m。
+> `quality-report=warn`，仍有 40 栋建筑的所有入口失败；运行态战略图和
+> 街景已检查，设计高程驱动的路面连续、侧立面窗带已补齐，但中心街廓内部、
+> 单体体量、路口边缘模板和街具仍未验收。不得把 r131 当作完整 B/C 签收。
+> 参考审计见
+> [`REFERENCE-AUDIT-20261023.zh-CN.md`](REFERENCE-AUDIT-20261023.zh-CN.md)，
+> 实现记录见
 > [`URBAN-DENSITY-ROAD-COLLISION-20261023.zh-CN.md`](URBAN-DENSITY-ROAD-COLLISION-20261023.zh-CN.md)。
 
 > **2026-10-22 城区密度、道路与立面复核**：本轮修复了道路宽度被全城统一
