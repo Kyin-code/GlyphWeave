@@ -4,8 +4,8 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
-> **2026-10-23 r152 更新**：最新合法候选为
-> `bevy/work/rk-x/v3-final-r152-20261023/`。世界修订
+> **2026-10-23 r153 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r153-20261023/`。世界修订
 > `6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`，
 > 4,371 实体、335 建筑、309 楼梯、1,475 道路段、393 树、建筑 footprint
 > 34,811.2m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
@@ -20,6 +20,9 @@
 > 距离选择合法楼梯，不再把非正门楼梯预先判死。
 > HTML 端将人行道和隔离带在交叉口 box 内裁断，并用道路 OBB 距离而非
 > 长条路段中心距选择街景焦点；主路面与碰撞链仍保持连续。
+> 交叉口新增封闭盖面覆盖多段路面交汇缝；强制中心视角确认大面积黑色
+> 矩形主要是建筑投影阴影而非路面破洞，阴影对比度和非圆形路口模板
+> 仍待处理。
 
 ## 1. 复核口径
 
@@ -115,9 +118,19 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 运行态仍能看到少量交叉口边缘楔形；它们已不属于车道线或人行道连续
   路径，后续需要单独的 junction mesh 模板，而不是继续在 ribbon 层修补。
 
-## 3. r152 实测
+### 2.8 交叉口盖面与阴影判断（r153）
 
-输出：`bevy/work/rk-x/v3-final-r152-20261023/`
+- 对每条真实相交的两条路线生成封闭 16 边形盖面，使用两者设计高程最大值，
+  半径限制在车行道半宽加 0.35m；不覆盖人行道，也不取代独立碰撞链。
+- 通过 `window.__focusAt(500,450)` 强制中心核验后确认，画面内大部分黑色
+  矩形是高楼阴影投射在地面和路面上。下一步应降低方向光阴影对比度并增加
+  环境填充光，而不是继续删除路面。
+- 交叉口盖面当前仍是圆形近似；下一轮需从相交路段生成并集多边形或
+  道路级别专用模板。
+
+## 3. r153 实测
+
+输出：`bevy/work/rk-x/v3-final-r153-20261023/`
 
 - 世界修订：`6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`
 - 实体：4,371
@@ -197,8 +210,8 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r152-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r152-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r153-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r153-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast
