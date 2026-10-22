@@ -4,8 +4,8 @@
 `final-entity-audit=pass`；`quality-report=warn`，仍未把所有入口与视觉问题
 闭合。本文不把“能打开预览”当作完成。
 
-> **2026-10-23 r144 更新**：最新合法候选为
-> `bevy/work/rk-x/v3-final-r144-20261023/`。世界修订
+> **2026-10-23 r152 更新**：最新合法候选为
+> `bevy/work/rk-x/v3-final-r152-20261023/`。世界修订
 > `6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`，
 > 4,371 实体、335 建筑、309 楼梯、1,475 道路段、393 树、建筑 footprint
 > 34,811.2m²；跨 Chunk 最大高差 2.834m。建筑—建筑、建筑—道路、
@@ -18,6 +18,8 @@
 > 避免移动的 approach / pad 制造新的边界高差。
 > 每个入口面都可发布独立短梯实体，AccessGraph 会按梯子起点和门面
 > 距离选择合法楼梯，不再把非正门楼梯预先判死。
+> HTML 端将人行道和隔离带在交叉口 box 内裁断，并用道路 OBB 距离而非
+> 长条路段中心距选择街景焦点；主路面与碰撞链仍保持连续。
 
 ## 1. 复核口径
 
@@ -104,9 +106,18 @@ OSM 只提供该窗口的可观测 building way 和小体量主体；它不是�
 - 结果：断开建筑从 48 降到 23，连通建筑从 325 升到 350；没有放宽
   0.30m 台阶门限，也没有把未物化楼梯视为已工程。
 
-## 3. r144 实测
+### 2.7 交叉口附属带裁断（r152）
 
-输出：`bevy/work/rk-x/v3-final-r144-20261023/`
+- 人行道和中央隔离带在真实路口 box 内分段，不再以一条连续 ribbon
+  穿过交叉口；主车行道及独立碰撞链不变。
+- 街景焦点用“点到道路 OBB/路段矩形”的距离选择，长路段即使中心很远，
+  只要实际穿过中心城区仍能被选中。
+- 运行态仍能看到少量交叉口边缘楔形；它们已不属于车道线或人行道连续
+  路径，后续需要单独的 junction mesh 模板，而不是继续在 ribbon 层修补。
+
+## 3. r152 实测
+
+输出：`bevy/work/rk-x/v3-final-r152-20261023/`
 
 - 世界修订：`6f5ec5810138173d6cb9d8d5e37c66d46e05c6f125dfa8bf53b319fd70cf2784`
 - 实体：4,371
@@ -186,8 +197,8 @@ r140 的 340 栋、3.47% footprint，r131 的 278 栋、3.01% footprint
 ## 8. 验证命令
 
 ```powershell
-bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r144-20261023
-bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r144-20261023
+bevy\target\debug\glyphweave.exe scale-audit bevy\work\rk-x\v3-final-r152-20261023
+bevy\target\debug\glyphweave.exe quality-report bevy\work\rk-x\v3-final-r152-20261023
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib settlement::building_archetypes --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::access --no-fail-fast
 cargo test --manifest-path bevy\Cargo.toml -p glyphweave-core --lib worldgen::market_catchment --no-fail-fast
