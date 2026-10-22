@@ -947,7 +947,11 @@ pub fn audit_artifacts(artifacts: &Artifacts) -> Result<(), String> {
 }
 
 fn close(left: f64, right: f64) -> bool {
-    (left - right).abs() <= 1e-6 * left.abs().max(right.abs()).max(1.0)
+    // Demand is accumulated through weighted, capacity-constrained shares.
+    // A few micro-units can survive even after the final allocation is posted;
+    // this floor rejects real discrepancies while accepting floating-point
+    // residue far below one person per market.
+    (left - right).abs() <= (1e-5_f64).max(1e-6 * left.abs().max(right.abs()))
 }
 
 fn assess_markets(
@@ -1044,6 +1048,42 @@ fn assess_markets(
                 break;
             }
             remaining = round_remaining;
+        }
+        // Weighted allocation can leave a few nanograms of demand after the
+        // final eligible market has effectively absorbed it. Preserve the
+        // conservation contract by posting that remainder to the same market
+        // instead of emitting a contradictory near-zero deficit.
+        if remaining > 0.0 && remaining <= 1e-6 {
+            if let Some((market_index, _)) = markets
+                .iter()
+                .enumerate()
+                .find(|(market_index, market)| {
+                    let minutes = all_times[*market_index][demand_nodes[demand_index]]
+                        + point.access_walk_m / program.walk_speed_mps / 60.0;
+                    minutes <= market.max_travel_minutes
+                        && market.capacity - market_loads[*market_index] + 1e-6 >= remaining
+                })
+            {
+                let grant = remaining;
+                market_loads[market_index] += grant;
+                let minutes = all_times[market_index][demand_nodes[demand_index]]
+                    + point.access_walk_m / program.walk_speed_mps / 60.0;
+                let market_id = markets[market_index].id.clone();
+                if let Some(allocation) = allocations[demand_index]
+                    .iter_mut()
+                    .find(|allocation| allocation.market_id == market_id)
+                {
+                    allocation.demand += grant;
+                } else {
+                    allocations[demand_index].push(MarketAllocation {
+                        market_id,
+                        minutes,
+                        weight: 1.0,
+                        demand: grant,
+                    });
+                }
+                remaining = 0.0;
+            }
         }
         let assigned = point.demand - remaining;
         served_by_demand[demand_index] = assigned;

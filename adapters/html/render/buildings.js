@@ -539,6 +539,37 @@ export function makePlannedResidentialHome(entity, THREE, heightAt) {
     const win=new THREE.Mesh(new THREE.PlaneGeometry(Math.min(2,w*.16),1.5),new THREE.MeshStandardMaterial({color:'#8eb4c0',roughness:.35}))
     win.name='front-window';win.rotation.y=Math.PI;win.position.set(side*w*.3,wallH*.55,-d*.5-.002);group.add(win)
   }
+  // A street-corner camera must not see a blank fire wall. Publish the same
+  // material family on the two side elevations and the rear, with one glazed
+  // band per storey so height stays legible from every approach.
+  const sideWindowMaterial = new THREE.MeshStandardMaterial({ color: '#7fa8b4', roughness: .38, metalness: .18 })
+  const ceilingStep = Math.max(3, Math.min(3.4, wallH / Math.max(1, Math.floor(wallH / 3))))
+  for (let y = 1.65; y < wallH - .55; y += ceilingStep) {
+    for (const side of [-1, 1]) {
+      const sideWin = new THREE.Mesh(
+        new THREE.PlaneGeometry(Math.max(.7, d * .34), 1.15),
+        sideWindowMaterial,
+      )
+      sideWin.name = 'side-window'
+      sideWin.rotation.y = side < 0 ? -Math.PI / 2 : Math.PI / 2
+      sideWin.position.set(side * (w * .5 + .002), y, 0)
+      group.add(sideWin)
+    }
+    const rearWin = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.max(.8, w * .42), 1.15),
+      sideWindowMaterial,
+    )
+    rearWin.name = 'rear-window'
+    rearWin.position.set(0, y, d * .5 + .002)
+    group.add(rearWin)
+  }
+  const rearDoor = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.min(1.15, w * .24), 2.05),
+    new THREE.MeshStandardMaterial({ color: '#4c4a43', roughness: .88 }),
+  )
+  rearDoor.name = 'rear-service-door'
+  rearDoor.position.set(0, 1.03, d * .5 + .003)
+  group.add(rearDoor)
   if (heightAt) {
     const yaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
     const cos = Math.cos(yaw); const sin = Math.sin(yaw)

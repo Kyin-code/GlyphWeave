@@ -15,11 +15,18 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 use super::community_typology;
 use super::epoch_evolution;
 use super::route_evolution::Plan as RoutePlan;
+use super::water_query::WATER_SHORE_CLEARANCE_M;
 use super::{
     oriented_footprints_overlap, urban_slice, EntityInstance, OrientedFootprint, SceneSpec,
     WaterGeometry, STREAM_CHUNK_METERS,
 };
 use crate::settlement::building_archetypes;
+
+/// Candidate parcels keep a conservative margin from streaming seams. Once a
+/// building body has been selected, its exact approach corridor is checked
+/// again below, so this early guard does not have to discard the whole block.
+const SETTLEMENT_SEAM_GUARD_M: f64 = 10.5;
+const SETTLEMENT_APPROACH_HALF_WIDTH_M: f64 = 2.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -481,7 +488,7 @@ pub fn plan(
     // size. A five-metre cadence is legal for the four-metre row-house
     // archetype and is confined to the innermost 125 m, leaving renewal and
     // new-growth parcels at their coarser cadence.
-    let core_frontage_step_m = 7.5_f64;
+    let core_frontage_step_m = 6.6_f64;
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         // Frontage cadence is measured along the whole route, not restarted at
         // every terrain-grid vertex. Route polylines commonly have 4-8 m
@@ -686,7 +693,7 @@ pub fn plan(
                 // short building depth beyond the lot. Keep that whole working
                 // envelope off a streaming seam so the two chunks never bake
                 // opposite halves of the same sloped approach independently.
-                let seam_guard = 10.5;
+                let seam_guard = SETTLEMENT_SEAM_GUARD_M;
                 let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
                     .map(|chunk| f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32))
                     .any(|seam| (lot_footprint.center_x - seam).abs() < half_x + seam_guard);
@@ -843,6 +850,12 @@ pub fn plan(
                     candidate,
                     &limit,
                     &rules,
+                    scene,
+                    terrain,
+                    water,
+                    program.max_pad_cut_m,
+                    program.max_slope,
+                    terrace_authorized,
                     &road_reservations,
                     &buildings,
                 ) {
@@ -890,6 +903,12 @@ pub fn plan(
                     candidate,
                     &demand,
                     &rules,
+                    scene,
+                    terrain,
+                    water,
+                    program.max_pad_cut_m,
+                    program.max_slope,
+                    terrace_authorized,
                     &road_reservations,
                     &buildings,
                 ) {
@@ -947,6 +966,12 @@ pub fn plan(
                 candidate,
                 &demand,
                 &rules,
+                scene,
+                terrain,
+                water,
+                program.max_pad_cut_m,
+                program.max_slope,
+                terrace_authorized,
                 &road_reservations,
                 &buildings,
             ) {
@@ -1103,10 +1128,17 @@ fn effective_district_shares(
     normalized
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_build_candidate(
     candidate: &Candidate,
     limit: &Demand,
     rules: &SelectionRules,
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    max_pad_cut_m: f32,
+    max_slope: f32,
+    terrace_authorized: bool,
     roads: &[EntityInstance],
     buildings: &[Building],
 ) -> Result<AcceptedCandidate, &'static str> {
@@ -1201,6 +1233,79 @@ fn try_build_candidate(
             } else {
                 candidate.world_z
             };
+            // The placement search may move the body rearward inside the
+            // parsed lot. Re-run the physical envelope checks at that exact
+            // footprint: a valid frontage does not imply the rear of the lot
+            // is dry, level or within the declared cut contract.
+            let actual_slope =
+                match lot_is_legal(scene, terrain, water, world_x, world_z, width_m, depth_m) {
+                    Ok(slope) => slope,
+                    Err(reason) => {
+                        rejected = match reason.as_str() {
+                            "intersects_water" => "intersects_water",
+                            "outside_scene" => "outside_scene",
+                            "missing_terrain" => "missing_terrain",
+                            _ => "actual_footprint_outside_contract",
+                        };
+                        continue;
+                    }
+                };
+            let actual_ceiling = lot_ground_ceiling_m(
+                terrain,
+                world_x,
+                world_z,
+                width_m,
+                depth_m,
+                candidate.rotation_y_deg,
+            )
+            .map(f64::from)
+            .unwrap_or(f64::INFINITY);
+            if actual_ceiling - candidate.road_design_m > f64::from(max_pad_cut_m) {
+                rejected = "road_support_cut_exceeds_contract";
+                continue;
+            }
+            if actual_slope > max_slope && !terrace_authorized {
+                rejected = "slope_exceeds_contract";
+                continue;
+            }
+            let actual_footprint = OrientedFootprint {
+                center_x: f64::from(world_x),
+                center_z: f64::from(world_z),
+                width_m: f64::from(width_m),
+                depth_m: f64::from(depth_m),
+                rotation_y_deg: f64::from(candidate.rotation_y_deg),
+            };
+            if water.intersects_footprint(
+                f64::from(world_x),
+                f64::from(world_z),
+                f64::from(width_m),
+                f64::from(depth_m),
+                f64::from(candidate.rotation_y_deg),
+                WATER_SHORE_CLEARANCE_M,
+            ) {
+                rejected = "intersects_water";
+                continue;
+            }
+            let (half_x, half_z) = actual_footprint.aabb_half_extents();
+            let [road_x, road_z] = candidate.frontage_road_point;
+            let approach_min_x = (actual_footprint.center_x - half_x)
+                .min(f64::from(road_x) - SETTLEMENT_APPROACH_HALF_WIDTH_M);
+            let approach_max_x = (actual_footprint.center_x + half_x)
+                .max(f64::from(road_x) + SETTLEMENT_APPROACH_HALF_WIDTH_M);
+            let approach_min_z = (actual_footprint.center_z - half_z)
+                .min(f64::from(road_z) - SETTLEMENT_APPROACH_HALF_WIDTH_M);
+            let approach_max_z = (actual_footprint.center_z + half_z)
+                .max(f64::from(road_z) + SETTLEMENT_APPROACH_HALF_WIDTH_M);
+            let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
+                .map(|chunk| f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32))
+                .any(|seam| approach_min_x < seam && approach_max_x > seam);
+            let crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
+                .map(|chunk| f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32))
+                .any(|seam| approach_min_z < seam && approach_max_z > seam);
+            if crosses_x || crosses_z {
+                rejected = "straddles_chunk_seam_without_shared_support";
+                continue;
+            }
             let building = Building {
                 id: candidate.id.clone(),
                 kind: form.kind.clone(),
@@ -1239,13 +1344,7 @@ fn try_build_candidate(
                 max_pad_cut_mm: Some(candidate.required_cut_mm.max(1)),
                 rotation_y_deg: candidate.rotation_y_deg,
             };
-            let footprint = OrientedFootprint {
-                center_x: f64::from(building.world_x),
-                center_z: f64::from(building.world_z),
-                width_m: f64::from(building.width_m),
-                depth_m: f64::from(building.depth_m),
-                rotation_y_deg: f64::from(building.rotation_y_deg),
-            };
+            let footprint = actual_footprint;
             let conflicts_with_road = roads.iter().any(|road| {
                 road.kind == "road"
                     && !road
