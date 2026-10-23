@@ -265,6 +265,8 @@ mod tests {
                 to: "b".into(),
                 status: "pass".into(),
                 road_width_m: 8,
+                road_class: "township".into(),
+                alignment: "terrain-following".into(),
                 polyline: vec![
                     RoutePoint {
                         x: 0,

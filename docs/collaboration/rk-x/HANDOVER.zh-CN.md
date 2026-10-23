@@ -1,5 +1,15 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-23 道路等级 r247**：`routeEvolution.routes[]` 增加显式
+> `roadClass` 与 `alignment`。快速路/国道/县道/乡道/本地路/巷道现在由规划
+> 决定并校验 right-of-way，不再只按宽度猜；Core 支持平地强制直线与
+> `straight-preferred` 地形回退。香港 r247-retry1 为 4,582 实体、1 快速路/
+> 1 国道/8 县道/13 乡道/6 本地路、7 市场/100% 覆盖、入口断连 0、碰撞 0，
+> scale/quality 均 pass。直线试验暴露宽路平交被误升级为超长高架并令市场
+> 覆盖降至 0.869，故香港暂保留地形拟合，待路口/转盘/互通模板完成后启用。
+> 详见
+> [`ROAD-HIERARCHY-R247-20261023.zh-CN.md`](ROAD-HIERARCHY-R247-20261023.zh-CN.md)。
+
 > **2026-10-23 人口与设施需求 r246**：`settlementEvolution.populationProgram`
 > 已从居民/日间岗位和人均零售面积推导 16,000 户、80,000 岗位和约
 > 400,009m² 零售面积，并按七类设施服务人口阈值物化学校、诊所、教堂。

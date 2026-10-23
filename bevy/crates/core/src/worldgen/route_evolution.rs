@@ -41,6 +41,13 @@ pub struct RouteRequest {
     pub road_width_m: Option<u32>,
     #[serde(default)]
     pub allow_bridge: Option<bool>,
+    /// Authored hierarchy: expressway, national, county, township, local, lane.
+    /// A missing value preserves legacy width-derived sections.
+    #[serde(default)]
+    pub road_class: Option<String>,
+    /// `terrain-following` (default), `straight`, or `straight-preferred`.
+    #[serde(default)]
+    pub alignment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -113,6 +120,10 @@ pub struct Route {
     pub to: String,
     pub status: String,
     pub road_width_m: u32,
+    #[serde(default)]
+    pub road_class: String,
+    #[serde(default)]
+    pub alignment: String,
     pub polyline: Vec<RoutePoint>,
     pub length_m: f64,
     pub direct_length_m: f64,
@@ -223,6 +234,26 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
             .is_some_and(|width| !(4..=32).contains(&width) || width % 2 != 0)
         {
             return Err("routeEvolution route width must be even and 4..=32m".into());
+        }
+        if let Some(class) = route.road_class.as_deref() {
+            let width = route.road_width_m.unwrap_or(program.road_width_m) as f32;
+            if super::RoadDesign::for_class(class, width).is_none() {
+                return Err(format!(
+                    "routeEvolution route {} class {class} does not fit {width}m right-of-way",
+                    route.id
+                ));
+            }
+        }
+        if route.alignment.as_deref().is_some_and(|alignment| {
+            !matches!(
+                alignment,
+                "terrain-following" | "straight" | "straight-preferred"
+            )
+        }) {
+            return Err(format!(
+                "routeEvolution route {} has unsupported alignment",
+                route.id
+            ));
         }
     }
     Ok(())
@@ -713,12 +744,23 @@ fn solve_route(
     let direct_length_m = f64::from(from.x - to.x).hypot(f64::from(from.z - to.z));
     let width = request.road_width_m.unwrap_or(program.road_width_m);
     let allow_bridge = request.allow_bridge.unwrap_or(program.allow_bridge);
+    let alignment = request
+        .alignment
+        .clone()
+        .unwrap_or_else(|| "terrain-following".into());
+    let road_class = request.road_class.clone().unwrap_or_else(|| {
+        super::RoadDesign::from_width(width as f32)
+            .road_class
+            .to_owned()
+    });
     let failure = |message: String| Route {
         id: request.id.clone(),
         from: request.from.clone(),
         to: request.to.clone(),
         status: "fail".into(),
         road_width_m: width,
+        road_class: road_class.clone(),
+        alignment: alignment.clone(),
         polyline: Vec::new(),
         length_m: 0.0,
         direct_length_m,
@@ -803,7 +845,21 @@ fn solve_route(
             });
         }
     }
-    points = smooth_polyline(&points, grid, 2);
+    if matches!(alignment.as_str(), "straight" | "straight-preferred") {
+        let waypoints = request.via.map_or_else(
+            || vec![[from.x, from.z], [to.x, to.z]],
+            |via| vec![[from.x, from.z], via, [to.x, to.z]],
+        );
+        match straight_points(&waypoints, grid, program, allow_bridge) {
+            Ok(straight) => points = straight,
+            Err(error) if alignment == "straight" => {
+                return failure(format!("straight alignment is infeasible: {error}"));
+            }
+            Err(_) => points = smooth_polyline(&points, grid, 2),
+        }
+    } else {
+        points = smooth_polyline(&points, grid, 2);
+    }
     grade_profile(&mut points, program, water_level_m);
     let fill_point = points
         .iter()
@@ -890,6 +946,8 @@ fn solve_route(
         to: request.to.clone(),
         status: "pass".into(),
         road_width_m: width,
+        road_class,
+        alignment,
         polyline: points,
         length_m,
         direct_length_m,
@@ -901,6 +959,68 @@ fn solve_route(
         bridge_spans,
         failure: None,
     }
+}
+
+fn straight_points(
+    waypoints: &[[i32; 2]],
+    grid: &Grid<'_>,
+    program: &Program,
+    allow_bridge: bool,
+) -> Result<Vec<RoutePoint>, String> {
+    if waypoints.len() < 2 {
+        return Err("straight alignment needs at least two points".into());
+    }
+    let mut points = Vec::<RoutePoint>::new();
+    for pair in waypoints.windows(2) {
+        let [ax, az] = pair[0];
+        let [bx, bz] = pair[1];
+        let distance = f64::from(bx - ax).hypot(f64::from(bz - az));
+        if distance < 1.0 {
+            continue;
+        }
+        let sample_count = (distance / f64::from(program.grid_step_m)).ceil().max(1.0) as usize;
+        for index in 0..=sample_count {
+            let t = index as f64 / sample_count as f64;
+            let x = (f64::from(ax) + f64::from(bx - ax) * t).round() as i32;
+            let z = (f64::from(az) + f64::from(bz - az) * t).round() as i32;
+            if points
+                .last()
+                .is_some_and(|point| point.x == x && point.z == z)
+            {
+                continue;
+            }
+            let natural_height_m = grid
+                .terrain
+                .height(x, z)
+                .ok_or_else(|| format!("straight alignment has no terrain at {x},{z}"))?
+                as f64;
+            let water = grid.water_at(x, z);
+            if water && !allow_bridge {
+                return Err(format!("straight alignment enters water at {x},{z}"));
+            }
+            points.push(RoutePoint {
+                x,
+                z,
+                natural_height_m,
+                design_height_m: natural_height_m,
+                water,
+            });
+        }
+    }
+    for pair in points.windows(2) {
+        let distance = f64::from(pair[1].x - pair[0].x).hypot(f64::from(pair[1].z - pair[0].z));
+        if distance < 1.0 {
+            continue;
+        }
+        let slope = (pair[1].natural_height_m - pair[0].natural_height_m).abs() / distance;
+        if slope > program.max_terrain_slope + 1e-6 {
+            return Err(format!(
+                "straight alignment terrain slope {slope:.3} exceeds {:.3}",
+                program.max_terrain_slope
+            ));
+        }
+    }
+    Ok(points)
 }
 
 fn find_path_nodes(
@@ -1237,6 +1357,8 @@ fn auto_route_requests(anchors: &[Anchor]) -> Vec<RouteRequest> {
             via: None,
             road_width_m: None,
             allow_bridge: None,
+            road_class: None,
+            alignment: None,
         });
     }
     requests
@@ -1501,7 +1623,12 @@ pub fn materialize(plan: &Plan) -> Vec<EntityInstance> {
                     structure_deck,
                     roadbed_offset_m: if structure_deck { 0.0 } else { 0.5 },
                     route_grade: Some(route_grade),
-                    road_design: Some(super::RoadDesign::from_width(route.road_width_m as f32)),
+                    road_design: Some(
+                        super::RoadDesign::for_class(&route.road_class, route.road_width_m as f32)
+                            .unwrap_or_else(|| {
+                                super::RoadDesign::from_width(route.road_width_m as f32)
+                            }),
+                    ),
                     ..super::GroundingSpec::default()
                 },
                 anchors: Vec::new(),
@@ -1824,6 +1951,8 @@ mod tests {
             to: "b".into(),
             status: "pass".into(),
             road_width_m: 8,
+            road_class: "township".into(),
+            alignment: "terrain-following".into(),
             polyline: points
                 .iter()
                 .map(|(x, z, y)| RoutePoint {
@@ -1902,6 +2031,8 @@ mod tests {
             to: "b".into(),
             status: "pass".into(),
             road_width_m: 8,
+            road_class: "township".into(),
+            alignment: "terrain-following".into(),
             polyline: points
                 .iter()
                 .map(|(x, z, y)| RoutePoint {
@@ -1967,6 +2098,8 @@ mod tests {
             to: "b".into(),
             status: "pass".into(),
             road_width_m: width,
+            road_class: "township".into(),
+            alignment: "terrain-following".into(),
             polyline: points
                 .iter()
                 .map(|(x, z, y)| RoutePoint {

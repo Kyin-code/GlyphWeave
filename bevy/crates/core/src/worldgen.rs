@@ -371,6 +371,33 @@ pub struct RoadDesign {
 }
 
 impl RoadDesign {
+    /// Resolve an authored hierarchy class into a lane cross-section. The class
+    /// is the planning decision; width is checked against it rather than used to
+    /// guess what kind of road the author intended.
+    pub fn for_class(class: &str, width_m: f32) -> Option<Self> {
+        let width_m = width_m.max(4.0);
+        let section = match class {
+            "expressway" if width_m >= 28.0 => ("expressway", 6, 3.5, 3.0, 2.5, 1.2, 100),
+            "national" if width_m >= 20.0 => ("national", 4, 3.5, 1.6, 2.5, 0.8, 80),
+            "county" if width_m >= 14.0 => ("county", 4, 3.25, 0.0, 1.5, 0.5, 60),
+            "township" if width_m >= 8.0 => ("township", 2, 3.2, 0.0, 1.2, 0.25, 40),
+            "local" if width_m >= 6.0 => ("local", 2, 3.2, 0.0, 0.8, 0.0, 30),
+            "lane" => ("lane", 1, 3.2, 0.0, 0.3, 0.0, 20),
+            _ => return None,
+        };
+        Some(Self {
+            version: 1,
+            road_class: section.0.into(),
+            lane_count: section.1,
+            lane_width_m: section.2,
+            median_width_m: section.3,
+            sidewalk_width_m: section.4,
+            shoulder_width_m: section.5,
+            speed_limit_kmh: section.6,
+            collision_height_m: 0.35,
+        })
+    }
+
     pub fn from_width(width_m: f32) -> Self {
         let width_m = width_m.max(4.0);
         let (
@@ -12697,6 +12724,23 @@ mod tests {
                 "{width}m section occupies {occupied}m"
             );
         }
+    }
+
+    #[test]
+    fn explicit_road_hierarchy_does_not_guess_from_width() {
+        let national = RoadDesign::for_class("national", 24.0).unwrap();
+        assert_eq!(national.road_class, "national");
+        assert_eq!(national.lane_count, 4);
+        assert_eq!(national.speed_limit_kmh, 80);
+
+        let county = RoadDesign::for_class("county", 16.0).unwrap();
+        assert_eq!(county.road_class, "county");
+        assert_eq!(county.lane_count, 4);
+
+        let township = RoadDesign::for_class("township", 8.0).unwrap();
+        assert_eq!(township.road_class, "township");
+        assert_eq!(township.lane_count, 2);
+        assert!(RoadDesign::for_class("expressway", 12.0).is_none());
     }
 
     #[test]

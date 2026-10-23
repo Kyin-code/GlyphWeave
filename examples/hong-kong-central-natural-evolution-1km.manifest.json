@@ -409,175 +409,233 @@
           "id": "harbour-expressway",
           "from": "natural-southwest",
           "to": "natural-southeast",
-          "roadWidthM": 32
+          "roadWidthM": 32,
+          "roadClass": "expressway",
+          "alignment": "terrain-following"
         },
         {
           "id": "central-arterial",
           "from": "natural-northeast",
           "to": "natural-southeast",
-          "roadWidthM": 24
+          "roadWidthM": 24,
+          "roadClass": "national",
+          "alignment": "terrain-following"
         },
         {
           "id": "hillside-local",
           "from": "natural-northwest",
           "to": "natural-southwest",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "cross-town-north-south",
           "from": "natural-northwest",
           "to": "natural-southeast",
-          "roadWidthM": 20
+          "roadWidthM": 20,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "cross-town-east-west",
           "from": "natural-northeast",
           "to": "natural-southwest",
-          "roadWidthM": 18
+          "roadWidthM": 18,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-spine",
           "from": "natural-northwest",
           "to": "central-exchange",
-          "roadWidthM": 10
+          "roadWidthM": 10,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "renewal-spine",
           "from": "natural-northeast",
           "to": "central-exchange",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "hillside-spine",
           "from": "natural-southwest",
           "to": "central-exchange",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-core-south",
           "from": "central-exchange",
           "to": "core-centre-south",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-core-west",
           "from": "core-west-middle",
           "to": "central-exchange",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "renewal-core-east",
           "from": "central-exchange",
           "to": "core-east-middle",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-west-street",
           "from": "core-west-north",
           "to": "core-west-south",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "renewal-east-street",
           "from": "core-east-north",
           "to": "core-east-south",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-north-street",
           "from": "core-west-north",
           "to": "core-east-north",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-south-street",
           "from": "core-west-south",
           "to": "core-east-south",
-          "roadWidthM": 12
+          "roadWidthM": 12,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-core-north",
           "from": "core-centre-north",
           "to": "central-exchange",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-middle-street",
           "from": "core-west-middle",
           "to": "core-east-middle",
-          "roadWidthM": 16
+          "roadWidthM": 16,
+          "roadClass": "county",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-inner-west",
           "from": "core-inner-west-north",
           "to": "core-inner-west-south",
-          "roadWidthM": 10
+          "roadWidthM": 10,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-inner-east",
           "from": "core-inner-east-north",
           "to": "core-inner-east-south",
-          "roadWidthM": 10
+          "roadWidthM": 10,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-inner-north",
           "from": "core-inner-west-north",
           "to": "core-inner-east-north",
-          "roadWidthM": 10
+          "roadWidthM": 10,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "old-town-inner-south",
           "from": "core-inner-west-south",
           "to": "core-inner-east-south",
-          "roadWidthM": 10
+          "roadWidthM": 10,
+          "roadClass": "local",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-v260",
           "from": "urban-grid-v260-n",
           "to": "urban-grid-v260-s",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-v340",
           "from": "urban-grid-v340-n",
           "to": "urban-grid-v340-s",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-v420",
           "from": "urban-grid-v420-n",
           "to": "urban-grid-v420-s",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-v740",
           "from": "urban-grid-v740-n",
           "to": "urban-grid-v740-s",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-h300",
           "from": "urban-grid-h300-w",
           "to": "urban-grid-h300-e",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-h380",
           "from": "urban-grid-h380-w",
           "to": "urban-grid-h380-e",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-h460",
           "from": "urban-grid-h460-w",
           "to": "urban-grid-h460-e",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         },
         {
           "id": "urban-grid-h540",
           "from": "urban-grid-h540-w",
           "to": "urban-grid-h540-e",
-          "roadWidthM": 8
+          "roadWidthM": 8,
+          "roadClass": "township",
+          "alignment": "terrain-following"
         }
       ]
     },

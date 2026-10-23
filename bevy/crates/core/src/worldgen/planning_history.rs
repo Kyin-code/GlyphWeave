@@ -1213,6 +1213,8 @@ mod tests {
                 to: "new".into(),
                 status: "pass".into(),
                 road_width_m: 8,
+                road_class: "township".into(),
+                alignment: "terrain-following".into(),
                 polyline,
                 length_m: 440.0,
                 direct_length_m: 440.0,

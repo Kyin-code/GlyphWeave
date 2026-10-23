@@ -56,7 +56,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'population-facilities-r246-20261023'
+window.__glyphweaveBuild = 'road-hierarchy-r247-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
