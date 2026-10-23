@@ -2,7 +2,7 @@
 
 状态：**待项目负责人审核**
 
-核验基线：`refactor/authoritative-baked-audit`，提交 `02d4116`；
+核验基线：`refactor/authoritative-baked-audit`，提交 `777c29f`；
 三城运行态证据为 `bevy/work/rk-x/*-r254-20261023`。
 
 本文回答四件事：
@@ -973,42 +973,131 @@ water-edge
 
 ---
 
-## 8. 当前已确认的核心规则矩阵
+## 8. 当前检查的硬性规则
 
-| 领域 | 规则 | 级别 |
-|---|---|---|
-| 自然 | `naturalOnly` 中存在任何人工对象即 fail | 硬约束 |
-| 自然 | 场景必须声明宏观自然地理 | 硬约束 |
-| 自然 | 1m 高度和 0.25m 高度精度 | 数据合同 |
-| 自然 | 自然 heightfield 与最终 heightfield 必须可差分 | 工程合同 |
-| 排水 | 保留封闭洼地和平坦终端，不伪造海洋出口 | 审计合同 |
-| 水 | 陆生实体不得落入水/深水 | 硬约束 |
-| 水 | 河湖宽度必须与渲染使用同一 source | 硬约束 |
-| 水 | 水面使用水平基准或明确河道纵坡 | 硬约束 |
-| 道路 | 普通道路纵坡默认不超过 8% | 硬约束/可声明的局部合同 |
-| 道路 | 普通地形填方默认不超过 6m | 硬约束 |
-| 道路 | 超过 6m 填方需要 feature-cut 规划授权 | 硬约束 |
-| 道路 | 道路等级决定车道、隔离、路肩和人行道 | 生产规则 |
-| 道路 | 平地主干路优先直线，地形处允许受控拟合 | 当前规则/仍需统一决策器 |
-| 道路 | 路面与道路 OBB 不得离地、悬空或错宽 | 最终审计 |
-| 建筑 | 建筑数量由需求、地块和入口产生，不是固定 target | 生产规则 |
-| 建筑 | 建筑 footprint 必须有完整地形支撑 | 硬约束 |
-| 建筑 | 建筑禁止压主道路、压其他建筑、进入水体 | 硬约束 |
-| 建筑 | 树冠、岩石和细节不得进入建筑 OBB | 硬约束 |
-| 建筑 | 生成建筑必须至少有一个经过验证的步行入口 | 硬约束 |
-| 入口 | 步行坡不超过 25%，路线不超过 120m | 硬约束 |
-| 楼梯 | 高差用显式楼梯/台地连接，不允许静默放宽坡度 | 硬约束 |
-| 入口 | 门前净空、路缘落点和侧/后入口需独立记录 | 合同 |
-| 时代 | 新旧城使用保留/修改/拆除/替换的父对象链 | 生产规则 |
-| 设施 | 学校、医院、教堂等按人口/岗位阈值申请 | 生产规则 |
-| 设施 | 不允许通过缩小设施尺寸静默满足请求 | 硬约束 |
-| 市场 | 服务使用步行网络时距，不使用直线半径 | 硬约束 |
-| 市场 | 市场有容量、竞争、负载和缺口 | 审计合同 |
-| 用地 | 城市/郊区/绿地/农田/林地/牧场/保护地分别预算 | 合同 |
-| 工程 | 挖填、桥、挡墙、涵洞和入口坡道均需工程账本 | 合同 |
-| 保护 | 保护区、水面和岸线带禁止普通削方 | 硬约束 |
-| 确定性 | 同 seed 应可重建相同世界 | 审计合同 |
-| 分块 | 不可在 chunk 边界出现地形、水岸、道路或材质断崖 | 硬约束 |
+本节是项目负责人复核用口径。`fail-closed` 表示当前代码在冲突时必须非零退出或
+阻止发布；`audit` 表示已有独立报告，但发布链是否完全阻断要看 CLI 退出码和
+quality/world gate；`规则未闭合` 表示设计已确定，但当前没有全局强制器。
+
+### 8.1 全局输入与证据门
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| Manifest 只接受已知字段 | 嵌套对象 `deny_unknown_fields`；尺寸/坐标/相机等必须有限 | Manifest/程序 schema 反序列化 | 直接拒绝 |
+| 真实地点先有来源 | 至少两个独立发布者；记录 URL、访问日期、访问状态、支持断言 | `urban-case-evidence.json` + `pnpm check:urban-cases` | 审计失败 |
+| 真实地点必须声明 crop | 当前 512m/1km 窗口不得冒充完整景区或整城 | Manifest `referenceData.crop` / `inferenceReason` | 审核不通过 |
+| 场景名与画面一致 | 不能生成“贵阳”却引用昆明 case 或外滩 viewpoint | 当前主要靠文档/人审，尚无 fail-closed 语义校验 | **规则未闭合** |
+| 所有实体有米制尺寸 | `widthM/depthM/heightM` 必填；`scale` 不能替代 | 实体 schema、scale audit | 拒绝/审计失败 |
+| 生成器只生成静态物 | 不生成 car/pedestrian/boat/NPC 等动态实体 | 设计合同；当前静态生成器无 actor 生成路径 | 违规即返工 |
+| 同 seed 可复现 | 同 Manifest + 生成器版本 + seed 应重烘一致 | worldRevision、历史逐字节测试 | 审计失败 |
+| 生成器版本可追溯 | 版本字符串必须与当前构建/程序哈希一致 | 当前仍是旧 r51 字符串 | **已知缺陷** |
+| 失败必须具名 | 拒绝写清 entity/candidate、规则和原因 | 各 plan/rejection/audit JSON | 静默丢弃即返工 |
+
+### 8.2 地形、坐标与分块
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 水平逻辑网格 | 1m × 1m | Rust heightfield/sidecar | 不符合即数据错误 |
+| 高度精度 | 默认 0.25m；声明 millimeter 时使用毫米编码 | GWHM / sidecar `heightPrecisionM` | 长度或精度不符即拒绝 |
+| 坐标方向 | `world_x` 东正、`world_z` 南正、`world_y` 米高 | 核心与适配器 | 坐标混淆即返工 |
+| 流式分块 | 默认 512m；Storage Chunk 16m；Region 32×32 Storage Chunk | world/scene/chunk 索引 | 分块元数据不一致即失败 |
+| 完整场景烘焙 | 不能只生成焦点分块 | build gate | 缺块即失败 |
+| 跨块连续 | 相邻高度差 >4m 即失败；水岸/道路/材质还需各自连续审计 | `scale-audit` continuity + 专项审计 | 高度超 4m 即 exit 1 |
+| 分块不只查中心 | 实体用完整 footprint / OBB 检查 | final scene audit、rules audit | 交叉即失败 |
+| 地形修改可重建 | 自然高度 + 工程 carve = 最终高度，三者可差分 | carve ledger、bounded-cut audit | 账本不一致即失败 |
+
+### 8.3 自然阶段
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 纯自然模式零人工痕 | 只允许自然 allow-list；任何 road/building/bridge/furniture/工程均失败 | `natural_only::audit_scene` | fail-closed |
+| 自然必须声明宏观地理 | 不能只给 seed | `naturalOnly` style validation | fail-closed |
+| 排水不得伪造出口 | 保留封闭盆地和平坦终端；边必须下降或明确 terminal | `audit_drainage_graph` | 审计失败 |
+| 自然水陆边界必须一致 | 同一水体宽度/水位同时用于地形、实体禁区和渲染 | 水体合同；但 structured-water 仍有独立路径 | **部分闭合** |
+| 自然阶段不得暗改人工结果 | 后阶段只能读冻结自然基线，不能静默重写 | 自然 baseline/差分 | 新重构目标 |
+
+### 8.4 水体与岸线
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 水面高度 | 湖/塘水平基准；河流必须声明流向和纵坡/坡降策略 | water schema | 缺 level policy 即拒绝 |
+| 水体宽度同源 | river/lake footprint 与地形、渲染使用同一 source | Manifest + water geometry + scale audit | 宽度不一致即失败 |
+| 陆生实体禁止落水 | 建筑、树、灌木、岩石、倒木及多数街具不得与水面相交 | rules、final scene audit、scale audit | fail-closed |
+| 水边例外显式声明 | 芦苇、桥、码头等必须有独立 water surface/depth 许可 | object descriptor | 无契约即失败 |
+| 岸线公共净空 | 默认 4m | shore band / shoreline audit | 不足即失败 |
+| 岸线公共带连续 | 城市水岸要有可通行公共带和面积归因 | shore band audit | 当前 SF 仍有 fail 案例 |
+
+### 8.5 道路与交通结构
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 普通道路规划纵坡 | 默认 ≤8% | `routeEvolution`、road profile | 超限即拒绝 |
+| 普通路线地形坡 | 默认 ≤35% | route evolution validation | 超限即失败 |
+| 普通地形填方 | 默认 ≤6m | route/engineering plan | 超限即拒绝 |
+| 宏观填方授权 | >6m 仅 `urbanSlice.mode=feature-cut`，且仍进工程预算/审计 | engineering scale | 未授权即 fail |
+| 桥跨 | 默认 ≤300m；Manifest 可显式声明至 2,000m | route/engineering plan | 超限即 fail |
+| 道路总宽 | 4–32m、偶数 | road/route schema | 非法宽度即 fail |
+| 道路等级先于材质 | 等级决定车道数、车道宽、中央隔离、路肩和人行道 | `RoadDesign::for_class` | 断面不足即拒绝 |
+| 可见宽度 = OBB 总路权 | 不能画得比碰撞断面更宽，也不能只按贴图反推宽度 | final entity audit / HTML renderer | 不一致即返工 |
+| 纵断面同源 | 路面设计高度、地形 carve、碰撞和 HTML 必须用同一 profile | routeGrade/RoadProfile | 固定标高或无法重建即失败 |
+| 弯道/交叉口 | 不允许碎片三角、错位车道线；跨线必须显式高架 | HTML + overpass/audit | 视觉/几何失败 |
+| 平地主干路直线 | 平地默认直线或 straight-preferred | alignment 规则 | **全局决策器未完成** |
+| 路口完整性 | 需要完整并集多边形、转盘/渠化岛/互通模板 | 当前仅有盖面和局部裁断 | **未完成** |
+
+### 8.6 建筑、地块与规则引擎
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 建筑数量涌现 | 由人口/岗位/零售需求、地块容量、FAR 和入口条件产生 | settlement evolution | 固定 count 冒充当完成即返工 |
+| 推荐数只做核对 | `recommendedCount` 不是硬配额 | 计划/审计 | 不得据此强行补齐 |
+| 建筑必须有地形支撑 | footprint 全采样，不能只查中心 | final scene audit | 无支撑即 fail |
+| 贴地 | 底部不能悬空，最高地形不能穿入基座；最终审计容差约 0.5m | final scene audit | 超出即 fail |
+| 建筑—建筑 | OBB 不得重叠；审计留 0.05m | final scene audit / rules | fail-closed |
+| 建筑—主道路 | OBB 不得重叠；审计留 0.25m | final scene audit | fail-closed |
+| 建筑—自然细节 | 树冠/灌木/岩石/倒木不得进入建筑 OBB；审计留 0.05m | final scene audit | fail-closed |
+| 规则引擎硬约束 | 水、地表、坡度、下陷、biome、hazard、AvoidKind/AvoidTag、入口净空、通用碰撞 | `rules/validator.rs` | 不满足即拒绝 |
+| 软约束不能冒充硬通过 | prefer/priority 只影响候选排序 | rules engine | 硬约束失败仍拒绝 |
+| 门禁不收缩尺寸 | 学校/医院等请求不能悄悄缩小来满足 | service schema | 非法尺寸即拒绝 |
+| 生成建筑必须有入口 | 至少一个 anchor 有完整 AccessGraph 路径 | final entrance closure | 无入口建筑移除并具名 |
+
+### 8.7 入口与楼梯
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 入口路线宽度 | 半宽 0.75m | AccessGraph | 障碍相交即失败 |
+| 路线长度 | ≤120m | AccessGraph | 超限即未连通 |
+| 最大步行坡 | ≤25% | AccessGraph；入口 corridor 设计坡 24% | 超限即失败 |
+| 地形采样 | 每个 0.5m | `terrain_segment_clear_xy` | 任一点超限即拒绝 |
+| 楼梯触发 | 门槛到落点约 0.30–2.40m，短梯每级理论 0.18m | settlement evolution | 不满足即不建短梯 |
+| 楼梯宽 | 主入口 2.4m；侧/后入口 2.0m；资产合同 1.2–24m | stairs entity | 过窄即拒绝 |
+| 长梯分段 | 每段约 ≤22m；总 rise 约 `8m × ceil(run/22m)` | `attach_frontage_stairs` | 超限即拒绝 |
+| 楼梯落点 | 从建筑门槛出发，落到道路 OBB 边缘/步行铺装，不能跨车道中心线 | frontage landing | 落点错误即失败 |
+| 门/侧门/后门 | 可以有多个候选；至少一个 `required` 子集必须连通 | AccessGraph | 无任何合法入口即移除建筑 |
+
+### 8.8 人口设施、市场与用地
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 需求推导 | residents/workers、家庭规模、人均零售面积、设施人口阈值 | population program | 输入非法即拒绝 |
+| 设施不缩水 | 作者宽/深/高必须落入对应设施合同 | services validation | 非法即拒绝 |
+| 市场使用真实网络 | 1.3m/s 步行网络；不按圆半径判定 | market catchment | 超时/不可达即缺口 |
+| 市场容量竞争 | `beta` 默认 0.08；负载不得超过容量 | radiation/deficit | 守恒失败即失败 |
+| 市场统计带 | 5/10/15/30 分钟 | radiation report | 顺序/守恒不符即失败 |
+| 需求—供给守恒 | allocated demand = served；总需求 = 服务 + 缺口 | quality report | 伪造高覆盖即失败 |
+| 用地预算 | 城市/郊区/绿地/农田/林地/牧场/保护地各自的面积账本 | landuse/landcover | 未实现面积保留为缺口 |
+
+### 8.9 工程、保护与交付
+
+| 规则 | 精确口径 | 当前执行点 | 失败方式 |
+|---|---|---|---|
+| 普通局部挖方 | 默认 2m；frontage bounded-cut 上限 2,000mm | bounded-cut policy | 超限即拒绝 |
+| 特征城区规划授权 | feature-cut 可声明更高 pad cut/宏观预算，但每项必须进账本 | urbanSlice + engineering scale | 未记账即失败 |
+| 保护区/水面/岸线带 | 普通削方禁止进入 | bounded-cut guards | fail-closed |
+| 工程实体 | 桥、高架、挡墙、涵洞、台阶必须独立实体与碰撞 | engineering plans/audits | 只有高度场变形不合格 |
+| 市场/设施/建筑拒绝 | 必须具名写入 plan/report | reports | 静默丢弃即返工 |
+| 质量判定 | 同时检查进程退出码与 JSON `status` | CLI/quality/world gate | 只读 exit 0 不合格 |
+| 视觉验收 | 战略图 + 近景/街景 + 细节；不能只看缩略图 | 运行态截图/feedback | 视觉 warn/fail 不得宣称完成 |
+| 适配器边界 | HTML/Godot 只消费已烘焙世界，不重算城市逻辑 | adapter | 预览造物即返工 |
 
 ---
 

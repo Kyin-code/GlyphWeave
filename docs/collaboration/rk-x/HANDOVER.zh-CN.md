@@ -1,5 +1,11 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-24 新 Agent 请先读**
+> [`AGENT-FULL-HANDOVER-20261024.zh-CN.md`](AGENT-FULL-HANDOVER-20261024.zh-CN.md)。
+> 新文件是当前 canonical 交接入口，包含架构分层、设计理由、旧 A/B/C
+> 里程碑、目标生成步骤、实施顺序、运行命令和已知风险。本文件以下内容
+> 保留为按日期累积的历史交接日志与证据索引，不再作为单独上手的完整说明。
+
 > **2026-10-23 全量能力与分阶段生成审核稿**：已重新清点当前 Rust/HTML
 > 路径、48 城数据、已确认硬规则、导入/程序化建模资源、参考算法、
 > 碰撞与楼梯合同，并给出“自然 → 道路 → 聚落 → 街区/地块 → 建筑/设施
@@ -248,7 +254,7 @@
 > [`NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md`](NATURAL-EVOLUTION-W1-W5-20261021.zh-CN.md)。
 
 > 生成于本轮会话结束时。**基线需求**始终是
-> [`requirements-and-progress-master.zh-CN.md`](requirements-and-progress-master.zh-CN.md)，
+> [`requirements-and-progress-master.zh-CN.md`](../requirements-and-progress-master.zh-CN.md)，
 > 本文件是它的"当前状态快照 + 待办 + 操作手册"，不替代基线。
 
 > **2026-10-21 追加**：五项可见问题的控制场景收口、白色伪影根因、

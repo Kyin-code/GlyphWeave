@@ -11,6 +11,8 @@
 > Demand → Markets → Buildings → Engineering → Ecology → Bake。
 > 首要结论是多套道路/聚落入口并存；下一步应先统一单一主生成器和
 > 阶段闸门，而不是继续追加末端规则。该文为审核稿，尚无对应代码重构。
+> 下一位 Agent 的完整架构、旧里程碑、实施顺序和运行手册见
+> [`rk-x/AGENT-FULL-HANDOVER-20261024.zh-CN.md`](rk-x/AGENT-FULL-HANDOVER-20261024.zh-CN.md)。
 
 > **2026-10-23 道路纵断面/跨线/碰撞复核**：r169 修复了道路设计面与最终
 > Heightfield 脱链的问题。r155 曾有 2,451/2,588 个中心线采样低于地面、
