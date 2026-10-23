@@ -36,6 +36,7 @@ let nearScene
 let nearCamera
 let nearControls
 let exploreKeys = new Set()
+let altPressed = false
 // Skyline/strategic frames can stay static, but interactive exploration and
 // street inspection must keep the animation loop alive for WASD, orbit damping,
 // animated water and the grade-following camera.
@@ -56,7 +57,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'redevelopment-r248-20261023'
+window.__glyphweaveBuild = 'three-city-r253-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -1049,7 +1050,10 @@ async function drawNear(buildToken) {
     nearPreset = 'focus'; mode = 'near'; draw()
   }
   webglCanvas.addEventListener('pointerdown', event => {
-    if (event.button === 0) applyOrbitButtonModes(event.altKey)
+    if (event.button === 0) {
+      applyOrbitButtonModes(event.altKey || altPressed)
+      webglCanvas.dataset.lastOrbitPress = webglCanvas.dataset.orbitInput
+    }
   }, true)
   webglCanvas.addEventListener('pointerup', event => {
     if (event.button === 0) applyOrbitButtonModes(false)
@@ -1064,19 +1068,30 @@ async function drawNear(buildToken) {
   })
   webglCanvas.addEventListener('pointerleave', () => { edgePointer = null })
   const onKeyDown = event => {
+    if (event.key === 'Alt' || event.code === 'AltLeft' || event.code === 'AltRight') {
+      altPressed = true
+      applyOrbitButtonModes(true)
+    }
     if (isExplore && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft'].includes(event.code)) { exploreKeys.add(event.code); event.preventDefault() }
     if (!isExplore && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code) && window.__chunkNav) {
       const map = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }
       window.__chunkNav(...map[event.code]); event.preventDefault()
     }
   }
-  const onKeyUp = event => { exploreKeys.delete(event.code) }
+  const onKeyUp = event => {
+    if (event.key === 'Alt' || event.code === 'AltLeft' || event.code === 'AltRight') {
+      altPressed = false
+      applyOrbitButtonModes(false)
+    }
+    exploreKeys.delete(event.code)
+  }
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
   exploreInputCleanup = () => {
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
     window.removeEventListener('blur', onWindowBlur)
+    altPressed = false
     exploreKeys.clear()
   }
   const group = new THREE.Group()

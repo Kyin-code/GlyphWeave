@@ -32,4 +32,13 @@ OrbitControls 自身的 `pointerdown` 读取；释放、取消和窗口失焦时
 - `node --check adapters/html/app.js`
 - `node --check adapters/html/core/camera.js`
 
-浏览器运行态证据在重新复制适配器并烘焙后补入。
+浏览器运行态回归：
+
+- 普通左键按下映射为 `pan:pan:rotate`；
+- `Alt+左键` 按下映射为 `rotate:pan:rotate`；
+- 释放后恢复普通左键平移；
+- 2026-10-23 r254 浏览器实测记录为
+  `lastOrbitPress=rotate:pan:rotate`。
+
+只依赖 `PointerEvent.altKey` 在部分浏览器/自动化输入中会被吞掉，因此
+r253 又加入键盘 Alt 状态跟踪；Alt 按下时即更新 OrbitControls 映射。
