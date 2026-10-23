@@ -35,7 +35,10 @@ let nearScene
 let nearCamera
 let nearControls
 let exploreKeys = new Set()
-const STATIC_PREVIEW = true
+// Skyline/strategic frames can stay static, but interactive exploration and
+// street inspection must keep the animation loop alive for WASD, orbit damping,
+// animated water and the grade-following camera.
+const STATIC_PREVIEW = !['explore', 'street'].includes(urlView)
 let worldWind
 let exploreInputCleanup
 const chunkDataCache = new Map()
@@ -52,7 +55,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'density-road-collision-r243-20261023'
+window.__glyphweaveBuild = 'density-road-collision-r244-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -2965,8 +2968,13 @@ async function drawNear(buildToken) {
             : THREE.MathUtils.lerp(volume.surfaceStartY, volume.surfaceEndY, t)
           return Math.max(highest, surfaceY)
         }, terrainGround)
-      nearCamera.position.y = Math.max(nearCamera.position.y, roadSurface + 6)
-      nearControls.target.y = Math.max(nearControls.target.y, nearCamera.position.y + 12)
+      // Follow a downhill grade as well as an uphill one. The previous max()
+      // kept the camera at the highest elevation ever reached and made the
+      // first-person view float after cresting a road.
+      const targetEyeY = roadSurface + 6
+      const eyeDelta = THREE.MathUtils.lerp(nearCamera.position.y, targetEyeY, .35) - nearCamera.position.y
+      nearCamera.position.y += eyeDelta
+      nearControls.target.y += eyeDelta
     }
     // Throttle renders so a large scene (thousands of meshes) doesn't block
     // the main thread every frame; static ortho views render ~8fps, while
