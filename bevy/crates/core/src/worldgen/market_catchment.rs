@@ -304,8 +304,8 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         || !(0.2..=3.0).contains(&program.market_quality)
         || !(0.1..=1.0).contains(&program.coverage_target)
         || program.max_markets == 0
-        || program.max_markets > 32
-        || !(24.0..=1000.0).contains(&program.candidate_spacing_m)
+        || program.max_markets > 48
+        || !(12.0..=1000.0).contains(&program.candidate_spacing_m)
     {
         return Err("invalid marketCatchment limits".into());
     }
@@ -318,8 +318,8 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
             || !(0.2..=3.0).contains(&tier.quality)
             || !(3.0..=60.0).contains(&tier.max_travel_minutes)
             || tier.max_count == 0
-            || tier.max_count > 32
-            || !(24.0..=1000.0).contains(&tier.candidate_spacing_m)
+            || tier.max_count > 48
+            || !(12.0..=1000.0).contains(&tier.candidate_spacing_m)
             || !(0.2..=2.0).contains(&tier.preference)
         {
             return Err("invalid marketCatchment tier".into());
@@ -1856,6 +1856,7 @@ mod tests {
             community_profile: None,
             district_allocation: Vec::new(),
             street_frontage: Default::default(),
+            density_curve: Vec::new(),
         }
     }
 

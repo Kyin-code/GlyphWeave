@@ -619,6 +619,21 @@
             "share": 0.04
           }
         ]
+      },
+      "densityProfile": {
+        "version": 1,
+        "coreRadiusM": 180,
+        "middleRadiusM": 320,
+        "outerRadiusM": 500,
+        "coreSpacingM": 6,
+        "middleSpacingM": 8,
+        "outerSpacingM": 10,
+        "coreTwoModuleShare": 0.18,
+        "coreThreeModuleShare": 0.03,
+        "referenceBuildingCountP50": 410,
+        "referenceBuildingCountP75": 942,
+        "referenceFootprintCoverageP50": 0.32,
+        "unmappedStructureFactor": 1.18
       }
     },
     "planningHistory": {
@@ -637,36 +652,36 @@
       "marketCapacity": 2800,
       "marketQuality": 1.0,
       "coverageTarget": 0.9,
-      "maxMarkets": 24,
-      "candidateSpacingM": 24,
+      "maxMarkets": 40,
+      "candidateSpacingM": 12,
       "tiers": [
         {
           "id": "street-market",
           "kind": "community-market-hall",
-        "capacity": 2800,
+          "capacity": 3400,
           "quality": 1.15,
-          "maxTravelMinutes": 10,
-        "maxCount": 16,
-          "candidateSpacingM": 24,
+          "maxTravelMinutes": 12,
+          "maxCount": 28,
+          "candidateSpacingM": 12,
           "preference": 1.25
         },
         {
           "id": "neighbourhood",
           "kind": "neighbourhood-supermarket",
-        "capacity": 3500,
+          "capacity": 4800,
           "quality": 1.0,
-          "maxTravelMinutes": 12,
-          "maxCount": 8,
+          "maxTravelMinutes": 15,
+          "maxCount": 14,
           "candidateSpacingM": 60,
           "preference": 1.0
         },
         {
           "id": "district",
           "kind": "large-supermarket",
-        "capacity": 5000,
+          "capacity": 5000,
           "quality": 0.9,
           "maxTravelMinutes": 20,
-          "maxCount": 6,
+          "maxCount": 10,
           "candidateSpacingM": 100,
           "preference": 0.8
         }

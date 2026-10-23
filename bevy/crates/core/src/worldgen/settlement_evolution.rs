@@ -73,6 +73,34 @@ pub struct Program {
     /// cross-section without turning district share into a building count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub district_demand: Option<DistrictDemandProgram>,
+    /// Optional density calibration for dense cores. The profile changes where
+    /// legal infill candidates are searched and how frontage modules combine;
+    /// demand, legal lots, access and collision still decide the final count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density_profile: Option<DensityProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DensityProfile {
+    pub version: u32,
+    /// Distance bands, in metres, from the settlement network centre.
+    pub core_radius_m: f32,
+    pub middle_radius_m: f32,
+    pub outer_radius_m: f32,
+    /// Infill sampling cadence inside each band.
+    pub core_spacing_m: f32,
+    pub middle_spacing_m: f32,
+    pub outer_spacing_m: f32,
+    /// Share of old-core frontages assembled from two or three adjacent
+    /// modules. The rest remain narrow shop-house parcels.
+    pub core_two_module_share: f64,
+    pub core_three_module_share: f64,
+    /// Sample calibration is recorded, not used as a hard building count.
+    pub reference_building_count_p50: u32,
+    pub reference_building_count_p75: u32,
+    pub reference_footprint_coverage_p50: f64,
+    pub unmapped_structure_factor: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -168,6 +196,16 @@ pub struct StreetFrontageAudit {
     pub runs: Vec<StreetFrontageRun>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DensityBand {
+    pub radius_m: u32,
+    pub building_count: usize,
+    pub building_footprint_m2: f64,
+    pub footprint_coverage_ratio: f64,
+    pub median_building_footprint_m2: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Building {
@@ -242,6 +280,8 @@ pub struct Plan {
     pub district_allocation: Vec<DistrictAllocation>,
     #[serde(default)]
     pub street_frontage: StreetFrontageAudit,
+    #[serde(default)]
+    pub density_curve: Vec<DensityBand>,
 }
 
 #[derive(Debug, Clone)]
@@ -387,6 +427,25 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
             return Err("settlementEvolution districtDemand shares must sum to 1".into());
         }
     }
+    if let Some(profile) = &program.density_profile {
+        if profile.version != 1
+            || !(40.0..=500.0).contains(&profile.core_radius_m)
+            || !(profile.core_radius_m..=700.0).contains(&profile.middle_radius_m)
+            || !(profile.middle_radius_m..=900.0).contains(&profile.outer_radius_m)
+            || !(4.0..=16.0).contains(&profile.core_spacing_m)
+            || !(profile.core_spacing_m..=20.0).contains(&profile.middle_spacing_m)
+            || !(profile.middle_spacing_m..=24.0).contains(&profile.outer_spacing_m)
+            || !(0.0..=0.85).contains(&profile.core_two_module_share)
+            || !(0.0..=0.60).contains(&profile.core_three_module_share)
+            || profile.core_two_module_share + profile.core_three_module_share > 0.90
+            || profile.reference_building_count_p50 == 0
+            || profile.reference_building_count_p75 < profile.reference_building_count_p50
+            || !(0.0..=1.0).contains(&profile.reference_footprint_coverage_p50)
+            || !(1.0..=2.0).contains(&profile.unmapped_structure_factor)
+        {
+            return Err("invalid settlementEvolution densityProfile".into());
+        }
+    }
     Ok(())
 }
 
@@ -523,7 +582,7 @@ pub fn plan(
     // size. A five-metre cadence is legal for the four-metre row-house
     // archetype and is confined to the innermost 125 m, leaving renewal and
     // new-growth parcels at their coarser cadence.
-    let core_frontage_step_m = 6.6_f64;
+    let core_frontage_step_m = 5.8_f64;
     for route in routes.routes.iter().filter(|route| route.status == "pass") {
         // Frontage cadence is measured along the whole route, not restarted at
         // every terrain-grid vertex. Route polylines commonly have 4-8 m
@@ -571,7 +630,12 @@ pub fn plan(
             // module count changes the frontage lot width and the advance along
             // the route together, so wider blocks do not create overlapping
             // candidates while narrow infill remains possible.
-            let modules = frontage_module_count(route.id.as_str(), probe_m, probe_stage);
+            let modules = frontage_module_count(
+                route.id.as_str(),
+                probe_m,
+                probe_stage,
+                program.density_profile.as_ref(),
+            );
             let parcel_step_m = step * f64::from(modules);
             let route_position_m = cursor_m + parcel_step_m * 0.5;
             let (segment_index, segment_start_m, length, local_t) = {
@@ -775,22 +839,32 @@ pub fn plan(
         // over the city. A 12m cadence with deterministic per-cell dimensions
         // admits courtyard infill, workshops and rear apartment rows while the
         // exact road/building OBB checks still reject every real conflict.
-        let spacing = 12_i32;
-        let radius = 400.0_f64;
+        let radius = program
+            .density_profile
+            .as_ref()
+            .map_or(400.0, |profile| f64::from(profile.outer_radius_m));
         let first_x = (center.0 - radius).ceil() as i32;
         let last_x = (center.0 + radius).floor() as i32;
         let first_z = (center.1 - radius).ceil() as i32;
         let last_z = (center.1 + radius).floor() as i32;
-        for grid_x in (first_x..=last_x).step_by(spacing as usize) {
-            for grid_z in (first_z..=last_z).step_by(spacing as usize) {
+        for grid_x in (first_x..=last_x).step_by(4) {
+            for grid_z in (first_z..=last_z).step_by(4) {
+                let probe_x = f64::from(grid_x);
+                let probe_z = f64::from(grid_z);
+                let probe_distance = (probe_x - center.0).hypot(probe_z - center.1);
+                let spacing = infill_spacing(program.density_profile.as_ref(), probe_distance);
+                if (grid_x - first_x) % spacing != 0 || (grid_z - first_z) % spacing != 0 {
+                    continue;
+                }
                 let hash = blake3::hash(format!("interior-infill:{grid_x}:{grid_z}").as_bytes());
+                let jitter_range = (f64::from(spacing) * 0.18).clamp(0.75, 4.0);
                 let jitter = |offset: usize| {
                     let value = u32::from_le_bytes(
                         hash.as_bytes()[offset..offset + 4]
                             .try_into()
                             .expect("four-byte infill hash"),
                     );
-                    f64::from(value) / f64::from(u32::MAX) * 8.0 - 4.0
+                    f64::from(value) / f64::from(u32::MAX) * jitter_range * 2.0 - jitter_range
                 };
                 let x = (f64::from(grid_x) + jitter(0)).round() as i32;
                 let z = (f64::from(grid_z) + jitter(4)).round() as i32;
@@ -865,17 +939,36 @@ pub fn plan(
                     continue;
                 }
                 let (half_x, half_z) = lot_footprint.aabb_half_extents();
-                // Infill platforms have a larger symmetric fill ring than a
-                // normal frontage pad because they are not backed by a road
-                // platform. Keep that complete earthwork away from the seam.
-                let seam_guard = 32.0;
+                // The access spur runs from this interior lot to a road and can
+                // cross a streaming seam even when the building footprint
+                // itself is clear. Check the whole apron envelope, matching
+                // the frontage path below, instead of a fixed lot-only margin.
+                let [road_x, road_z] = road_point;
+                let approach_min_x = (lot_footprint.center_x - half_x)
+                    .min(f64::from(road_x) - SETTLEMENT_APPROACH_HALF_WIDTH_M);
+                let approach_max_x = (lot_footprint.center_x + half_x)
+                    .max(f64::from(road_x) + SETTLEMENT_APPROACH_HALF_WIDTH_M);
+                let approach_min_z = (lot_footprint.center_z - half_z)
+                    .min(f64::from(road_z) - SETTLEMENT_APPROACH_HALF_WIDTH_M);
+                let approach_max_z = (lot_footprint.center_z + half_z)
+                    .max(f64::from(road_z) + SETTLEMENT_APPROACH_HALF_WIDTH_M);
                 let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
                     .map(|chunk| f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32))
-                    .any(|seam| (lot_footprint.center_x - seam).abs() < half_x + seam_guard);
+                    .any(|seam| approach_min_x < seam && approach_max_x > seam);
                 let crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
                     .map(|chunk| f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32))
-                    .any(|seam| (lot_footprint.center_z - seam).abs() < half_z + seam_guard);
-                if crosses_x || crosses_z {
+                    .any(|seam| approach_min_z < seam && approach_max_z > seam);
+                let earthwork_crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
+                    .map(|chunk| f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32))
+                    .any(|seam| {
+                        (lot_footprint.center_x - seam).abs() < half_x + SETTLEMENT_SEAM_GUARD_M
+                    });
+                let earthwork_crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
+                    .map(|chunk| f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32))
+                    .any(|seam| {
+                        (lot_footprint.center_z - seam).abs() < half_z + SETTLEMENT_SEAM_GUARD_M
+                    });
+                if crosses_x || crosses_z || earthwork_crosses_x || earthwork_crosses_z {
                     continue;
                 }
                 candidates.push(Candidate {
@@ -1178,6 +1271,7 @@ pub fn plan(
     let unmet_demand = demand.clone();
     let complete = demand_is_empty(&unmet_demand);
     let street_frontage = audit_street_frontage(&buildings);
+    let density_curve = audit_density_curve(center, &buildings);
     Ok(Some(Plan {
         format: "glyphweave.settlement-evolution-plan".into(),
         version: 1,
@@ -1200,6 +1294,7 @@ pub fn plan(
         community_profile: typology.as_ref().map(|value| value.profile.clone()),
         district_allocation,
         street_frontage,
+        density_curve,
     }))
 }
 
@@ -1347,8 +1442,22 @@ fn try_build_candidate(
     // building and later access/grounding audits; this is not collision
     // tolerance relaxation.
     for scale in [1.0_f32, 0.85, 0.70, 0.55] {
-        let width_m = (form.width_m * scale).max(6.0);
-        let depth_m = (form.depth_m * scale).max(6.0);
+        let minimum_width_m =
+            if candidate.district_stage == "old-core" && form.kind == "residential_home" {
+                4.0
+            } else {
+                6.0
+            };
+        let width_m = (form.width_m * scale).max(minimum_width_m);
+        // Narrow historic frontages usually resolve a tight corner by keeping
+        // a deep rear wing, not by shrinking the whole building into a shed.
+        // Preserve more depth in old-core fallbacks while still varying width.
+        let fallback_depth_scale = if candidate.district_stage == "old-core" {
+            1.0 - (1.0 - scale) * 0.35
+        } else {
+            scale
+        };
+        let depth_m = (form.depth_m * fallback_depth_scale).max(6.0);
         let footprint_m2 = width_m * depth_m * form.coverage_ratio;
         let floor_area = f64::from(footprint_m2) * f64::from(form.floors) * rules.floor_area_ratio;
         let household_capacity = (floor_area / rules.household_area_m2).floor() as u32;
@@ -1657,22 +1766,41 @@ fn district_stage(style: &Value, center_distance_m: f64) -> &'static str {
 
 fn staged_lot_size(stage: &str, width_m: f32, depth_m: f32) -> (f32, f32) {
     let (width_scale, depth_scale) = match stage {
-        "old-core" => (0.72, 1.25),
+        "old-core" => (0.68, 1.25),
         "renewal" => (0.95, 1.15),
         "new-growth" => (1.20, 1.05),
         _ => (1.30, 0.95),
     };
     (
-        (width_m * width_scale).clamp(if stage == "old-core" { 7.0 } else { 8.0 }, 80.0),
+        (width_m * width_scale).clamp(if stage == "old-core" { 5.0 } else { 8.0 }, 80.0),
         (depth_m * depth_scale).clamp(8.0, 80.0),
     )
+}
+
+fn infill_spacing(profile: Option<&DensityProfile>, center_distance_m: f64) -> i32 {
+    let Some(profile) = profile else {
+        return 12;
+    };
+    let spacing = if center_distance_m <= f64::from(profile.core_radius_m) {
+        profile.core_spacing_m
+    } else if center_distance_m <= f64::from(profile.middle_radius_m) {
+        profile.middle_spacing_m
+    } else {
+        profile.outer_spacing_m
+    };
+    spacing.round().clamp(4.0, 24.0) as i32
 }
 
 /// Frontage module count is a deterministic morphology coefficient. It is not
 /// a building-count target: demand and the overlap gate still decide whether a
 /// parcel builds. Wider assemblies are concentrated in newer districts, while
 /// the historic core keeps both one-module infill and two-module block faces.
-fn frontage_module_count(route_id: &str, position_m: f64, stage: &str) -> u8 {
+fn frontage_module_count(
+    route_id: &str,
+    position_m: f64,
+    stage: &str,
+    density: Option<&DensityProfile>,
+) -> u8 {
     let hash = blake3::hash(
         format!(
             "{route_id}:frontage-module:{:.3}:{stage}",
@@ -1690,10 +1818,21 @@ fn frontage_module_count(route_id: &str, position_m: f64, stage: &str) -> u8 {
     // The selected module count advances the parcel cursor by the same number
     // of frontage units, so a wider building never overlaps its neighbour.
     match stage {
-        // The historic core keeps its narrow shop-house rhythm. Its variation
-        // comes from depth, roof form and use rather than erasing adjoining
-        // frontages into a uniform large block.
-        "old-core" => 1,
+        // Historic streets retain a majority of narrow shop-house frontages,
+        // but real high-density cores also contain joined shophouses and
+        // 250-700 m² mixed-use assemblies. The profile makes that share a
+        // calibrated input instead of forcing every old-core lot to 6 m.
+        "old-core" => {
+            let two_share = density.map_or(0.0, |value| value.core_two_module_share);
+            let three_share = density.map_or(0.0, |value| value.core_three_module_share);
+            if unit < three_share {
+                3
+            } else if unit < three_share + two_share {
+                2
+            } else {
+                1
+            }
+        }
         "renewal" => {
             if unit < 0.05 {
                 2
@@ -1739,6 +1878,41 @@ fn old_core_has_frontage_neighbor(candidates: &[Candidate], index: usize) -> boo
             && (other.frontage_position_m - candidate.frontage_position_m).abs()
                 <= f64::from(candidate.width_m.max(other.width_m)) + 8.0
     })
+}
+
+fn audit_density_curve(center: (f64, f64), buildings: &[Building]) -> Vec<DensityBand> {
+    [100_u32, 150, 200, 300, 500]
+        .into_iter()
+        .map(|radius_m| {
+            let radius = f64::from(radius_m);
+            let mut footprints = buildings
+                .iter()
+                .filter(|building| {
+                    (f64::from(building.world_x) - center.0)
+                        .hypot(f64::from(building.world_z) - center.1)
+                        <= radius
+                })
+                .map(|building| f64::from(building.width_m) * f64::from(building.depth_m))
+                .collect::<Vec<_>>();
+            footprints.sort_by(f64::total_cmp);
+            let total = footprints.iter().sum::<f64>();
+            let median = if footprints.is_empty() {
+                0.0
+            } else if footprints.len() % 2 == 0 {
+                let half = footprints.len() / 2;
+                (footprints[half - 1] + footprints[half]) * 0.5
+            } else {
+                footprints[footprints.len() / 2]
+            };
+            DensityBand {
+                radius_m,
+                building_count: footprints.len(),
+                building_footprint_m2: total,
+                footprint_coverage_ratio: total / (std::f64::consts::PI * radius * radius),
+                median_building_footprint_m2: median,
+            }
+        })
+        .collect()
 }
 
 fn audit_street_frontage(buildings: &[Building]) -> StreetFrontageAudit {
@@ -2202,6 +2376,12 @@ pub fn attach_frontage_stairs(
     let end_height_m = f64::from(terrain.height(to[0], to[1])?);
     let delta_m = (end_height_m - start_height_m).abs();
     let run_m = f64::from(to[0] - anchor.world_x).hypot(f64::from(to[1] - anchor.world_z));
+    // A pavement-edge landing can resolve to the door facade itself when the
+    // road OBB already reaches the threshold. That is a direct connection, not
+    // a 0.4 m stair sliver that violates the 1.2 m-wide asset contract.
+    if run_m < 0.8 {
+        return None;
+    }
     // Long stairs are published as <=22m flights. Each flight must still fit
     // the 8.5m stair contract; the whole connection may therefore step through
     // more than one legal flight on a steep block.
@@ -2792,15 +2972,17 @@ mod tests {
 
     #[test]
     fn frontage_modules_are_deterministic_and_era_specific() {
-        let key = frontage_module_count("old-town-core-north", 123.5, "old-core");
+        let key = frontage_module_count("old-town-core-north", 123.5, "old-core", None);
         assert_eq!(
             key,
-            frontage_module_count("old-town-core-north", 123.5, "old-core")
+            frontage_module_count("old-town-core-north", 123.5, "old-core", None)
         );
-        assert!((1..=2).contains(&key));
+        assert_eq!(key, 1, "legacy worlds must keep one-module frontages");
 
         let samples = (0..512)
-            .map(|index| frontage_module_count("urban-grid-v260", f64::from(index * 11), "renewal"))
+            .map(|index| {
+                frontage_module_count("urban-grid-v260", f64::from(index * 11), "renewal", None)
+            })
             .collect::<Vec<_>>();
         let values = samples
             .iter()
@@ -2813,6 +2995,60 @@ mod tests {
             samples.iter().any(|value| *value > 1),
             "renewal blocks must contain at least some joined frontages"
         );
+
+        let density = DensityProfile {
+            version: 1,
+            core_radius_m: 180.0,
+            middle_radius_m: 320.0,
+            outer_radius_m: 500.0,
+            core_spacing_m: 8.0,
+            middle_spacing_m: 10.0,
+            outer_spacing_m: 12.0,
+            core_two_module_share: 0.35,
+            core_three_module_share: 0.10,
+            reference_building_count_p50: 410,
+            reference_building_count_p75: 942,
+            reference_footprint_coverage_p50: 0.32,
+            unmapped_structure_factor: 1.18,
+        };
+        let core = (0..512)
+            .map(|index| {
+                frontage_module_count(
+                    "old-town-core-north",
+                    f64::from(index * 11),
+                    "old-core",
+                    Some(&density),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(core.iter().any(|value| *value == 2));
+        assert!(core.iter().any(|value| *value == 3));
+        assert!(core.iter().any(|value| *value == 1));
+    }
+
+    #[test]
+    fn density_curve_counts_whole_building_footprints_by_radius() {
+        let building = |x: i32, width: f32, depth: f32| Building {
+            world_x: x,
+            world_z: 0,
+            width_m: width,
+            depth_m: depth,
+            ..Building::default()
+        };
+        let curve = audit_density_curve(
+            (0.0, 0.0),
+            &[
+                building(50, 10.0, 20.0),
+                building(120, 20.0, 20.0),
+                building(220, 30.0, 10.0),
+            ],
+        );
+        assert_eq!(curve[0].building_count, 1);
+        assert_eq!(curve[1].building_count, 2);
+        assert_eq!(curve[2].building_count, 2);
+        assert_eq!(curve[3].building_count, 3);
+        assert!((curve[1].building_footprint_m2 - 600.0).abs() < 1e-6);
+        assert!(curve[1].footprint_coverage_ratio > curve[0].footprint_coverage_ratio);
     }
 
     #[test]

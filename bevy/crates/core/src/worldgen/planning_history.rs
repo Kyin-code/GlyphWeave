@@ -937,18 +937,23 @@ pub fn apply_road_widening(entities: &mut [EntityInstance], planning: &Plan) -> 
         }
         let target_width = (action.area_m2 / action.length_m).clamp(8.0, 32.0) as f32;
         let prefix = format!("generated.route-evolution.{}.", action.target_id);
-        for entity in entities.iter_mut().filter(|entity| {
-            entity.kind == "road"
-                    && entity.entity_id.starts_with(&prefix)
-                    // Route-evolution width is a route-level contract consumed by
-                    // HTML and collision. A late per-segment entity widening
-                    // changes terrain and collision without changing the visible
-                    // road. Keep the published route width until the plan itself
-                    // supports segment-local widening.
-                    && !entity
-                        .entity_id
-                        .starts_with("generated.route-evolution.")
-        }) {
+        for entity in entities
+            .iter_mut()
+            .filter(|entity| entity.kind == "road" && entity.entity_id.starts_with(&prefix))
+        {
+            // Route-evolution width is a route-level contract consumed by
+            // HTML and collision. A late per-segment entity widening changes
+            // terrain and collision without changing the visible road. Keep
+            // the published route width and record the refusal by name until
+            // segment-local widths can be applied to all three consumers.
+            if entity.entity_id.starts_with("generated.route-evolution.") {
+                skipped.push(SkippedAction {
+                    action_id: format!("{}:{}", action.id, entity.entity_id),
+                    kind: action.kind.clone(),
+                    reason: "route-level width is authoritative; segment entity widening would diverge from preview and collision".into(),
+                });
+                continue;
+            }
             if entity.depth_m < target_width && !near_stream_chunk_boundary(entity, 48) {
                 let widened = OrientedFootprint {
                     center_x: f64::from(entity.world_x),
@@ -1283,6 +1288,7 @@ mod tests {
             community_profile: Some("china-gated".into()),
             district_allocation: Vec::new(),
             street_frontage: Default::default(),
+            density_curve: Vec::new(),
         }
     }
 
@@ -1408,7 +1414,7 @@ mod tests {
     }
 
     #[test]
-    fn road_widening_actions_change_matching_materialized_segments() {
+    fn route_evolution_widening_is_refused_instead_of_creating_a_second_width_source() {
         let planning = plan(&route_plan(true), &settlement(), &style("town", &[]))
             .unwrap()
             .unwrap();
@@ -1434,8 +1440,14 @@ mod tests {
             bounds: None,
         }];
         let changed = apply_road_widening(&mut roads, &planning);
-        assert!(!changed.applied.is_empty());
-        assert!(roads[0].depth_m > 8.0);
+        assert!(changed.applied.is_empty());
+        assert_eq!(roads[0].depth_m, 8.0);
+        assert!(
+            changed
+                .skipped
+                .iter()
+                .any(|skip| { skip.reason.contains("route-level width is authoritative") })
+        );
     }
 
     #[test]

@@ -118,32 +118,36 @@ export function buildTreeInstances(treeEntities, THREE, terrainAt, wind) {
   const color = new THREE.Color()
   for (let i = 0; i < count; i++) {
     const e = eligibleTrees[i]
-    const crown = Math.max(e.widthM, e.depthM) * .85
+    // Entity width/depth already describe the mature crown extent. The old
+    // multiplier treated that diameter as a radius and made every canopy about
+    // 2.1x wider than its audited footprint, visibly overhanging roads and
+    // building roofs even when the trunk was legally placed.
+    const crownRadius = Math.max(e.widthM, e.depthM) * .5
     const terrain = terrainAt?.(e.worldX, e.worldZ) ?? { wetness: .5, slope: 0 }
     const h = e.heightM * (.86 + terrain.wetness * .2 - terrain.slope * .12)
     const tintSeed = e.worldX * .017 + e.worldZ * .023
     const leanX = ((tintSeed * 137.5) % 1 + 1) % 1 * .16 - .08
     // Trunk: thicker so the canopy reads as supported, not a floating ball.
     pos.set(e.worldX, e.worldY + h * .3, e.worldZ)
-    s.set(crown * .16, h * .62, crown * .16)
+    s.set(crownRadius * .16, h * .62, crownRadius * .16)
     q.setFromEuler(new THREE.Euler(0, 0, leanX, 'XYZ'))
     m.compose(pos, q, s)
     trunks.setMatrixAt(i, m)
     // Lower canopy: the widest, densest mass — broad enough to cast shade
     // over the ground and read as a real tree silhouette.
     pos.set(e.worldX, e.worldY + h * .52, e.worldZ)
-    s.set(crown * 1.25, crown * .95, crown * 1.25)
+    s.set(crownRadius * .9, crownRadius * .68, crownRadius * .9)
     m.compose(pos, q, s)
     foliageLow.setMatrixAt(i, m)
     // Upper canopy: smaller, slightly offset lobe for a natural crown.
-    pos.set(e.worldX + crown * .2, e.worldY + h * .82, e.worldZ + crown * .14)
-    s.set(crown * .78, crown * .62, crown * .78)
+    pos.set(e.worldX + crownRadius * .16, e.worldY + h * .82, e.worldZ + crownRadius * .12)
+    s.set(crownRadius * .62, crownRadius * .5, crownRadius * .62)
     m.compose(pos, q, s)
     foliageHigh.setMatrixAt(i, m)
     const hue = .30 + terrain.wetness * .08 + ((tintSeed % .09) - .045)
-    color.setHSL(hue, .46, .3 + ((tintSeed * 3 % .08) + .02))
+    color.setHSL(hue, .42, .35 + ((tintSeed * 3 % .08) + .02))
     foliageLow.setColorAt(i, color)
-    color.setHSL(hue + .02, .5, .36)
+    color.setHSL(hue + .02, .46, .42)
     foliageHigh.setColorAt(i, color)
   }
   trunks.instanceMatrix.needsUpdate = true

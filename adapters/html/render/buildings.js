@@ -5,7 +5,11 @@ import { deterministicRand } from '../core/shared.js'
 // authored facade is on the local +Z/-Z side. Reconstructing a new facade
 // angle from rounded points made diagonal buildings leave their OBB.
 export function orientGroupToPublishedFront(group, entity, localFrontRadians = 0) {
-  const anchor = (entity.anchors ?? []).find(item => item.target === 'road')
+  // Rust publishes an explicit `front` anchor. Never depend on anchor array
+  // order: some assets expose several road-facing anchors (front, sides and
+  // rear service door), all with target=road.
+  const anchor = (entity.anchors ?? []).find(item => item.id === 'front')
+    ?? (entity.anchors ?? []).find(item => item.target === 'road')
     ?? (entity.anchors ?? [])[0]
   const authoredYaw = (Number(entity.rotationYDeg) || 0) * Math.PI / 180
   // The Rust-owned yaw describes the collision OBB and must survive verbatim.
@@ -1229,6 +1233,11 @@ export const CGA_STOREFRONT = [
   { kind: 'repeatY', start: 4.6, step: 3, part: { kind: 'box', w: .12, d: '~0.72d', h: .9, x: '~-0.5w', mat: 'glass' } },
   // Shopfront header bar separating glazing from upper facade.
   { kind: 'box', w: '~0.98w', d: '~0.96d', h: .5, y: 2.95, mat: 'trim' },
+  // Projecting cornice and vertical piers make wall planes, glazing and
+  // structure legible instead of reading as one flat dark decal.
+  { kind: 'box', w: '~1.02w', d: '~1.01d', h: .22, y: '~0.98h', mat: 'trim' },
+  { kind: 'mirrorX', part: { kind: 'box', w: .16, d: '~0.96d', h: '~0.84h', y: '~0.48h', x: '~0.49w', mat: 'terrace' } },
+  { kind: 'box', w: .14, d: .16, h: '~0.78h', y: '~0.49h', z: '~0.5d', mat: 'trim', cond: 'width>14' },
   // Ground-floor display window.
   { kind: 'box', w: '~0.72w', d: .12, h: 1.9, y: 1.35, z: '~0.5d', mat: 'glass' },
   { kind: 'box', w: .12, d: '~0.56d', h: 1.65, y: 1.3, x: '~0.5w', mat: 'glass' },
@@ -1244,7 +1253,10 @@ export const CGA_STOREFRONT = [
   // Planter by the door.
   // The planter sits in the public frontage, fully beyond the facade; placing
   // its centre on the wall plane put half of a green box inside the building.
-  { kind: 'box', w: '~0.18w', d: .55, h: .5, y: .25, x: '~0.28w', z: '~0.56d', mat: 'green' },
+  // Use a contained pot + shrub silhouette instead of a raw bright-green box;
+  // both pieces remain entirely outside the audited building footprint.
+  { kind: 'box', w: '~0.16w', d: .48, h: .34, y: .17, x: '~0.28w', z: '~0.57d', mat: 'terrace' },
+  { kind: 'box', w: '~0.13w', d: .34, h: .42, y: .55, x: '~0.28w', z: '~0.57d', mat: 'green' },
 ]
 
 export const CGA_STYLES = {

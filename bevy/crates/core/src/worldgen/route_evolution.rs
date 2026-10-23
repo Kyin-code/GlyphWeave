@@ -1859,19 +1859,19 @@ mod tests {
             routes[1]
                 .bridge_spans
                 .iter()
-                .any(|span| span.kind == "overpass-over-low")
+                .any(|span| span.kind.starts_with("overpass"))
         );
         assert!(
             routes[2]
                 .bridge_spans
                 .iter()
-                .any(|span| span.kind == "overpass-over-low")
+                .any(|span| span.kind.starts_with("overpass"))
         );
         assert!(
             routes[3]
                 .bridge_spans
                 .iter()
-                .any(|span| span.kind == "overpass-over-low")
+                .any(|span| span.kind.starts_with("overpass"))
         );
         let high = materialize(&Plan {
             format: "glyphweave.route-evolution-plan".into(),

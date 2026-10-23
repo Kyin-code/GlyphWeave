@@ -3403,12 +3403,16 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 // AABB can omit a fill ring on one side of a seam while the
                 // neighbouring chunk still bakes it, producing an artificial
                 // metre-scale cliff in an otherwise continuous surface.
-                let (height, surface, lod2, terrain) = generate_chunk_encoded(
+                let (height, surface, lod2, terrain) = generate_chunk_encoded_seams(
                     manifest.world.seed ^ scene.seed_offset,
                     base_x,
                     base_z,
                     valid_width_m,
                     valid_depth_m,
+                    base_x > scene.origin_x,
+                    base_x + (valid_width_m as i32) < scene.origin_x + scene.width_m as i32,
+                    base_z > scene.origin_z,
+                    base_z + (valid_depth_m as i32) < scene.origin_z + scene.depth_m as i32,
                     water,
                     &carves,
                     precise,
@@ -5507,6 +5511,27 @@ fn generate_chunk_encoded(
     precise: bool,
     zoning: Option<&zoning::ZoningMask>,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+    generate_chunk_encoded_seams(
+        seed, base_x, base_z, width, depth, false, false, false, false, water, carves, precise,
+        zoning,
+    )
+}
+
+fn generate_chunk_encoded_seams(
+    seed: u64,
+    base_x: i32,
+    base_z: i32,
+    width: u32,
+    depth: u32,
+    seam_west: bool,
+    seam_east: bool,
+    seam_north: bool,
+    seam_south: bool,
+    water: WaterGeometry,
+    carves: &[TerrainCarve],
+    precise: bool,
+    zoning: Option<&zoning::ZoningMask>,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
     let cell_count = (width * depth) as usize;
     let mut height = Vec::with_capacity(cell_count * 2);
     let mut surface = Vec::with_capacity(cell_count);
@@ -5521,7 +5546,18 @@ fn generate_chunk_encoded(
         for x in 0..width {
             let world_x = base_x + x as i32;
             let world_z = base_z + z as i32;
-            let source = published_terrain_height_zoned_indexed(
+            let raw_height = |sample_x: i32, sample_z: i32| {
+                published_terrain_height_zoned_indexed(
+                    seed,
+                    sample_x,
+                    sample_z,
+                    water,
+                    carves,
+                    &carve_index,
+                    zoning,
+                )
+            };
+            let mut source = published_terrain_height_zoned_indexed(
                 seed,
                 world_x,
                 world_z,
@@ -5530,6 +5566,47 @@ fn generate_chunk_encoded(
                 &carve_index,
                 zoning,
             );
+            // A fill ring can end exactly on a streaming seam. Both chunks are
+            // otherwise correct, but the two adjacent 1 m cells then describe
+            // different sides of one engineered slope. Apply a deterministic
+            // one-cell three-tap blend on internal seams only. Both neighbours
+            // read the same global function, so the stitched row is identical
+            // regardless of bake order and road samples remain on their design
+            // profile.
+            let x_seam = if seam_west && x < 4 {
+                Some((base_x, x))
+            } else if seam_east && width - 1 - x < 4 {
+                Some((base_x + width as i32, width - 1 - x))
+            } else {
+                None
+            };
+            if let Some((boundary, distance)) = x_seam {
+                let left = raw_height(boundary - 1, world_z);
+                let right = raw_height(boundary, world_z);
+                let step = (right - left).abs();
+                if step > 2.0 {
+                    let target = (left + right) * 0.5;
+                    let weight = 1.0 - f64::from(distance) * 0.25;
+                    source = source * (1.0 - weight) + target * weight;
+                }
+            }
+            let z_seam = if seam_north && z < 4 {
+                Some((base_z, z))
+            } else if seam_south && depth - 1 - z < 4 {
+                Some((base_z + depth as i32, depth - 1 - z))
+            } else {
+                None
+            };
+            if let Some((boundary, distance)) = z_seam {
+                let top = raw_height(world_x, boundary - 1);
+                let bottom = raw_height(world_x, boundary);
+                let step = (bottom - top).abs();
+                if step > 2.0 {
+                    let target = (top + bottom) * 0.5;
+                    let weight = 1.0 - f64::from(distance) * 0.25;
+                    source = source * (1.0 - weight) + target * weight;
+                }
+            }
             let quarter_meters = (source * 4.).clamp(-128., 1024.) as i16;
             let index = (z * width + x) as usize;
             samples[index] = if precise {

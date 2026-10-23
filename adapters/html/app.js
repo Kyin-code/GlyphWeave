@@ -43,6 +43,7 @@ const entityMeshCache = new Map()
 const entityGroupCache = new Map()
 let nearGroupRoot = null
 let nearCollisionVolumes = []
+let nearRoadSummary = null
 let ecologyRenderer = null
 let activeChunkKeys = new Set()
 let nearBuildToken = 0
@@ -51,7 +52,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'road-section-building-audit-r190-20261023'
+window.__glyphweaveBuild = 'density-road-collision-r229-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -647,6 +648,7 @@ function drawStrategic() {
 
 async function drawNear(buildToken) {
   nearCollisionVolumes = []
+  nearRoadSummary = null
   const hiddenRenderLayers = new Set((new URLSearchParams(location.search).get('hide') ?? '').split(',').filter(Boolean))
   const THREE = await import('three')
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
@@ -883,6 +885,8 @@ async function drawNear(buildToken) {
     z: streetHotspot?.entity.grounding?.frontageRoadPoint?.[1] ?? streetHotspot?.entity.worldZ ?? streetFabricCentre?.z ?? streetAnchor?.worldZ ?? scene.depthM * .5,
   }
   const streetRoad = streetHotspot?.road?.road ?? null
+  const selectedStreetRouteId = streetRoad?.entityId
+    ?.match(/^generated\.route-evolution\.(.*)\.\d+$/)?.[1] ?? null
   const selectedStreetRoute = routeChainFor(streetRoad, requestedStreetPoint)
   const streetChain = selectedStreetRoute.chain
   const nearestChainIndex = selectedStreetRoute.index
@@ -1334,6 +1338,10 @@ async function drawNear(buildToken) {
         duplicate.radius = Math.max(duplicate.radius, candidate.radius)
       }
       duplicate.surfaceY = Math.max(duplicate.surfaceY, candidate.surfaceY)
+      duplicate.polygon = convexHull([
+        ...(duplicate.polygon ?? []),
+        ...(candidate.polygon ?? []),
+      ])
       return
     }
     roadJunctions.push(candidate)
@@ -1348,6 +1356,48 @@ async function drawNear(buildToken) {
     const u = (qx * rZ - qz * rX) / denominator
     if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null
     return { x: a.x + rX * t, z: a.z + rZ * t, leftT: t, rightT: u }
+  }
+  const convexHull = points => {
+    if (points.length < 3) return points
+    const ordered = [...points].sort((a, b) => a.x - b.x || a.z - b.z)
+    const cross = (origin, a, b) =>
+      (a.x - origin.x) * (b.z - origin.z) - (a.z - origin.z) * (b.x - origin.x)
+    const lower = []
+    for (const point of ordered) {
+      while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), point) <= 0) lower.pop()
+      lower.push(point)
+    }
+    const upper = []
+    for (const point of ordered.reverse()) {
+      while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), point) <= 0) upper.pop()
+      upper.push(point)
+    }
+    lower.pop()
+    upper.pop()
+    return [...lower, ...upper]
+  }
+  const junctionCorners = (segment, width, extent) => {
+    const dx = segment[1].x - segment[0].x
+    const dz = segment[1].z - segment[0].z
+    const length = Math.hypot(dx, dz) || 1
+    const ux = dx / length
+    const uz = dz / length
+    const nx = -uz
+    const nz = ux
+    const center = {
+      x: (segment[0].x + segment[1].x) * .5,
+      z: (segment[0].z + segment[1].z) * .5,
+    }
+    const corners = []
+    for (const along of [-extent, extent]) {
+      for (const across of [-width * .5, width * .5]) {
+        corners.push({
+          x: center.x + ux * along + nx * across,
+          z: center.z + uz * along + nz * across,
+        })
+      }
+    }
+    return corners
   }
   for (let leftIndex = 0; leftIndex < roadRoutes.length; leftIndex++) {
     for (let rightIndex = leftIndex + 1; rightIndex < roadRoutes.length; rightIndex++) {
@@ -1378,11 +1428,17 @@ async function drawNear(buildToken) {
           // deck levels. A single flat cap would erase that separation.
           if (Math.abs(leftSurfaceY - rightSurfaceY) > 1.2) continue
           const capRadius = Math.max(leftWidth, rightWidth) * .5 + .75
+          const extent = Math.max(leftWidth, rightWidth) * .7
+          const polygon = convexHull([
+            ...junctionCorners([leftFrom, leftTo], leftWidth, extent),
+            ...junctionCorners([rightFrom, rightTo], rightWidth, extent),
+          ])
           addRoadJunction({
             ...hit,
             radius: capRadius + .45,
             pavementRadius: capRadius,
             surfaceY: Math.max(leftSurfaceY, rightSurfaceY) + .98,
+            polygon,
           })
         }
       }
@@ -1394,19 +1450,36 @@ async function drawNear(buildToken) {
   })
   for (const [index, junction] of roadJunctions.entries()) {
     // A junction is a designed pavement surface, not the accidental union of
-    // two segment quads. A closed low-sided polygon hides ribbon corner gaps
-    // while staying inside the carriageway footprint; collision still uses the
-    // independent road-chain volumes below.
-    const junctionMesh = new THREE.Mesh(
-      new THREE.CircleGeometry(junction.pavementRadius, 16),
-      junctionMaterial,
-    )
+    // two segment quads. Use the convex union of the intersecting road
+    // rectangles so diagonal and three-way joins are filled without the round
+    // teal cap and exposed triangular grass wedges seen in the old preview.
+    const points = junction.polygon?.length >= 3
+      ? junction.polygon
+      : Array.from({ length: 16 }, (_, step) => {
+          const angle = step / 16 * Math.PI * 2
+          return {
+            x: junction.x + Math.cos(angle) * junction.pavementRadius,
+            z: junction.z + Math.sin(angle) * junction.pavementRadius,
+          }
+        })
+    const vertices = []
+    const indices = []
+    for (const point of points) {
+      vertices.push(point.x - scene.originX, 0, point.z - scene.originZ)
+    }
+    for (let vertex = 1; vertex + 1 < points.length; vertex++) {
+      indices.push(0, vertex, vertex + 1)
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    const junctionMesh = new THREE.Mesh(geometry, junctionMaterial)
     junctionMesh.name = `route-junction:${index}`
-    junctionMesh.rotation.x = -Math.PI / 2
     junctionMesh.position.set(
-      junction.x - scene.originX,
+      0,
       junction.surfaceY + .01,
-      junction.z - scene.originZ,
+      0,
     )
     junctionMesh.renderOrder = 5
     nearGroupRoot.add(junctionMesh)
@@ -1463,6 +1536,31 @@ async function drawNear(buildToken) {
       }
       for (const [chunkIndex, chunk] of chunks.entries()) {
         if (chunk.length < 2) continue
+        if (dashed) {
+          // Dashes are short, rigid paint rectangles. Passing each little dash
+          // through a mitered polygon builder produced folded triangles where
+          // a bend crossed a chunk. A straight body between the sampled dash
+          // endpoints keeps every dash planar and aligned with the road.
+          const from = chunk[0]
+          const to = chunk[chunk.length - 1]
+          const length = Math.hypot(to.x - from.x, to.z - from.z)
+          if (length < .18) continue
+          const yaw = Math.atan2(to.z - from.z, to.x - from.x)
+          const dash = new THREE.Mesh(
+            new THREE.BoxGeometry(length, .025, width * 2),
+            material,
+          )
+          dash.name = `${name}:${route.id}:${runIndex}:${chunkIndex}`
+          dash.position.set(
+            (from.x + to.x) * .5 - scene.originX,
+            Math.max(heightAt(from.x, from.z), heightAt(to.x, to.z)) + 1.14,
+            (from.z + to.z) * .5 - scene.originZ,
+          )
+          dash.rotation.y = -yaw
+          dash.renderOrder = 8
+          container.add(dash)
+          continue
+        }
         const geometry = makePolylineRibbonGeometry(chunk, width, heightAt, THREE, 1.12, scene.originX, scene.originZ)
         if (!geometry) continue
         const paint = new THREE.Mesh(geometry, material)
@@ -1474,15 +1572,22 @@ async function drawNear(buildToken) {
   }
   for (const route of roadRoutes) {
     if (route.status !== 'pass' || !(route.polyline?.length >= 2)) continue
-    const design = routeDesignById.get(route.id) ?? {
-      roadClass: route.roadWidthM >= 30 ? 'expressway' : route.roadWidthM >= 22 ? 'arterial' : route.roadWidthM >= 16 ? 'collector' : route.roadWidthM >= 10 ? 'local' : 'lane',
-      laneCount: Math.max(1, Math.round(route.roadWidthM / 3.2)),
-      laneWidthM: 3.2,
-      medianWidthM: route.roadWidthM >= 30 ? 3 : route.roadWidthM >= 22 ? 1.6 : 0,
-      sidewalkWidthM: route.roadWidthM >= 22 ? 3 : route.roadWidthM >= 10 ? 2 : .8,
-      shoulderWidthM: route.roadWidthM >= 30 ? 1.2 : route.roadWidthM >= 22 ? .6 : .2,
-      speedLimitKmh: route.roadWidthM >= 30 ? 80 : route.roadWidthM >= 22 ? 60 : route.roadWidthM >= 16 ? 40 : 30,
-      collisionHeightM: .35,
+    const design = routeDesignById.get(route.id)
+    if (!design) {
+      // Road class, lanes, median and right-of-way are Rust contracts. Guessing
+      // them from whatever width happens to exist turns a highway into a local
+      // lane and makes the visible section disagree with its collision band.
+      window.glyphweaveFeedback?.visualChecks?.missingRoadDesigns?.push(route.id)
+      continue
+    }
+    if (!nearRoadSummary && selectedStreetRouteId === route.id) {
+      nearRoadSummary = {
+        roadClass: design.roadClass,
+        laneCount: design.laneCount,
+        laneWidthM: design.laneWidthM,
+        medianWidthM: design.medianWidthM,
+        speedLimitKmh: design.speedLimitKmh,
+      }
     }
     const halfWidth = Math.max(2, route.roadWidthM * .5)
     const sidewalkWidth = Math.max(.8, Number(design.sidewalkWidthM) || 1.6)
@@ -1631,10 +1736,8 @@ async function drawNear(buildToken) {
         width: route.roadWidthM,
         yaw,
         height: design.collisionHeightM,
-        surfaceY: Math.max(
-          from.designHeightM ?? heightAt(from.x, from.z),
-          to.designHeightM ?? heightAt(to.x, to.z),
-        ) + .96,
+        surfaceStartY: (from.designHeightM ?? heightAt(from.x, from.z)) + .96,
+        surfaceEndY: (to.designHeightM ?? heightAt(to.x, to.z)) + .96,
       })
       nearGroupRoot.add(volume)
     }
@@ -2812,7 +2915,14 @@ async function drawNear(buildToken) {
           const localX = dx * cos - dz * sin
           const localZ = dx * sin + dz * cos
           if (Math.abs(localX) > volume.length * .5 || Math.abs(localZ) > volume.width * .5) return highest
-          return Math.max(highest, volume.surfaceY ?? terrainGround)
+          // The old segment maximum made the camera hop by up to the whole
+          // grade at every sample. Interpolate along the authoritative road
+          // design profile so first-person height follows the curve.
+          const t = THREE.MathUtils.clamp(localX / Math.max(.001, volume.length) + .5, 0, 1)
+          const surfaceY = volume.surfaceStartY == null
+            ? (volume.surfaceY ?? terrainGround)
+            : THREE.MathUtils.lerp(volume.surfaceStartY, volume.surfaceEndY, t)
+          return Math.max(highest, surfaceY)
         }, terrainGround)
       nearCamera.position.y = Math.max(nearCamera.position.y, roadSurface + 6)
       nearControls.target.y = Math.max(nearControls.target.y, nearCamera.position.y + 12)
@@ -2840,7 +2950,10 @@ function updateNearCoordinateInfo() {
   const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
   window.glyphweaveFeedback.cameraDistance = nearControls.getDistance()
   const viewName = nearPreset === 'explore' ? 'first-person' : nearPreset === 'skyline' ? 'skyline-2.5d' : nearPreset === 'street' ? 'street-2.5d' : nearPreset === 'waterfront' ? 'waterfront-2.5d' : nearPreset === 'bridgehead' ? 'bridgehead-2.5d' : 'harbour-2.5d'
-  info.textContent = `${scene.sceneId}  X=${x} Z=${z}  terrain detail=${window.glyphweaveFeedback.visualChecks.highDetailChunk ? '1m geometry / 1m data' : 'coarse'}  view=${viewName}`
+  const roadInfo = nearRoadSummary
+    ? `  ${nearRoadSummary.roadClass} · ${nearRoadSummary.laneCount} lanes · ${nearRoadSummary.laneWidthM}m lane · ${nearRoadSummary.speedLimitKmh}km/h`
+    : ''
+  info.textContent = `${scene.sceneId}  X=${x} Z=${z}  terrain detail=${window.glyphweaveFeedback.visualChecks.highDetailChunk ? '1m geometry / 1m data' : 'coarse'}  view=${viewName}${roadInfo}`
   const focusChunk = scene.chunks.find(chunk => x >= chunk.worldX - scene.originX && x < chunk.worldX - scene.originX + chunk.validWidthM && z >= chunk.worldZ - scene.originZ && z < chunk.worldZ - scene.originZ + chunk.validDepthM)
   const label = document.getElementById('chunk-label')
   if (label && focusChunk) {
@@ -2866,6 +2979,7 @@ function draw() {
       sceneLoaded: true,
       chunkIndexComplete: scene.chunks.length === scene.chunkCountX * scene.chunkCountZ,
       nearCanvasReady: mode === 'near' ? Boolean(webglCanvas?.width && webglCanvas?.height) : null,
+      missingRoadDesigns: [],
     },
   }
   info.textContent = `${scene.sceneId}  ${scene.widthM}m 脳 ${scene.depthM}m  ${scene.chunkCountX}脳${scene.chunkCountZ} chunks`
