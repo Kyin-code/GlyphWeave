@@ -56,7 +56,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'road-hierarchy-r247-20261023'
+window.__glyphweaveBuild = 'redevelopment-r248-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -1020,6 +1020,7 @@ async function drawNear(buildToken) {
     if (webglCanvas) {
       webglCanvas.dataset.orbitInput = `${plan.left}:${plan.middle}:${plan.right}`
       webglCanvas.dataset.altHeld = String(Boolean(altKey))
+      webglCanvas.dataset.lastOrbitInput = webglCanvas.dataset.orbitInput
     }
   }
   applyOrbitButtonModes(false)

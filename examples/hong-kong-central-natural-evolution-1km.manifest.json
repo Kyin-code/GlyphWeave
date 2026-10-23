@@ -703,10 +703,10 @@
           {
             "kind": "school",
             "basis": "residents",
-            "populationPerFacility": 30000,
+            "populationPerFacility": 60000,
             "maxCount": 6,
             "widthM": 40,
-            "depthM": 32,
+            "depthM": 28,
             "heightM": 14
           },
           {
@@ -723,8 +723,8 @@
             "basis": "daytime-population",
             "populationPerFacility": 150000,
             "maxCount": 2,
-            "widthM": 44,
-            "depthM": 32,
+            "widthM": 48,
+            "depthM": 40,
             "heightM": 38
           },
           {
@@ -753,15 +753,6 @@
             "widthM": 40,
             "depthM": 32,
             "heightM": 14
-          },
-          {
-            "kind": "stadium",
-            "basis": "daytime-population",
-            "populationPerFacility": 200000,
-            "maxCount": 1,
-            "widthM": 72,
-            "depthM": 48,
-            "heightM": 24
           }
         ],
         "model": "resident-plus-daytime-worker facility service thresholds",
@@ -1116,7 +1107,7 @@
         "placement": "surface-grounded",
         "allowedSurfaces": ["grass", "forest", "soil", "stone"],
         "forbiddenSurfaces": ["water", "deep_water", "underground"],
-        "minWidthM": 80,
+        "minWidthM": 64,
         "maxWidthM": 240,
         "minDepthM": 60,
         "maxDepthM": 200,

@@ -450,6 +450,7 @@ mod tests {
             density_curve: Vec::new(),
             population: None,
             facility_requirements: Vec::new(),
+            redevelopment_decisions: Vec::new(),
         }
     }
 

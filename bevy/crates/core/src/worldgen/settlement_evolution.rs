@@ -213,6 +213,16 @@ pub struct DensityBand {
     pub median_building_footprint_m2: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RedevelopmentDecision {
+    pub facility_id: String,
+    pub removed_building_ids: Vec<String>,
+    pub replacement_weight: f64,
+    pub model: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Building {
@@ -293,6 +303,8 @@ pub struct Plan {
     pub population: Option<PopulationSummary>,
     #[serde(default)]
     pub facility_requirements: Vec<FacilityRequirement>,
+    #[serde(default)]
+    pub redevelopment_decisions: Vec<RedevelopmentDecision>,
 }
 
 #[derive(Debug, Clone)]
@@ -329,6 +341,12 @@ struct AcceptedCandidate {
     building: Building,
     spent: Demand,
     floor_area_m2: f64,
+}
+
+#[derive(Default)]
+struct FacilityPlacementResult {
+    rejections: Vec<Rejection>,
+    redevelopment: Vec<RedevelopmentDecision>,
 }
 
 const fn default_true() -> bool {
@@ -1326,6 +1344,7 @@ pub fn plan(
         density_curve,
         population,
         facility_requirements,
+        redevelopment_decisions: Vec::new(),
     }))
 }
 
@@ -1372,7 +1391,7 @@ pub fn append_population_facilities(
         .and_then(Value::as_str)
         == Some("feature-cut");
     let roads = route_evolution::materialize(routes);
-    let rejections = place_population_facilities(
+    let placement = place_population_facilities(
         scene,
         terrain,
         water,
@@ -1386,7 +1405,13 @@ pub fn append_population_facilities(
         &mut plan.buildings,
         &mut plan.facility_requirements,
     );
-    plan.rejections.extend(rejections);
+    plan.rejections.extend(placement.rejections);
+    plan.redevelopment_decisions.extend(placement.redevelopment);
+    plan.delivered = demand_delivered_by_buildings(&plan.buildings);
+    plan.unmet_demand = plan.demand.clone();
+    subtract_demand(&mut plan.unmet_demand, &plan.delivered);
+    plan.capacity.accepted_lots = plan.buildings.len();
+    plan.density_curve = audit_density_curve(route_center(routes), &plan.buildings);
     let facilities_complete = plan
         .facility_requirements
         .iter()
@@ -1397,6 +1422,17 @@ pub fn append_population_facilities(
         "incomplete".into()
     };
     Ok(())
+}
+
+fn demand_delivered_by_buildings(buildings: &[Building]) -> Demand {
+    let mut delivered = Demand::default();
+    for building in buildings {
+        delivered.households = delivered.households.saturating_add(building.households);
+        delivered.jobs = delivered.jobs.saturating_add(building.jobs);
+        delivered.retail_floor_area_m2 += building.retail_floor_area_m2;
+        delivered.service_budget += building.service_budget;
+    }
+    delivered
 }
 
 fn allocate_district_demands(
@@ -1782,15 +1818,15 @@ fn place_population_facilities(
     obstacles: &[EntityInstance],
     buildings: &mut Vec<Building>,
     facilities: &mut [FacilityRequirement],
-) -> Vec<Rejection> {
-    let mut rejections = Vec::new();
+) -> FacilityPlacementResult {
+    let mut result = FacilityPlacementResult::default();
     let center = route_center(routes);
     for requirement in facilities.iter_mut() {
         while requirement.delivered_count < requirement.required_count {
             let mut attempt_counts = BTreeMap::<String, u32>::new();
             let slot = requirement.delivered_count;
             let target_distance_m = match requirement.kind.as_str() {
-                "school" => 220.0,
+                "school" => 420.0,
                 "clinic" => 170.0,
                 "hospital" => 430.0,
                 "church" => 190.0,
@@ -1799,7 +1835,7 @@ fn place_population_facilities(
                 "stadium" => 620.0,
                 _ => 320.0,
             };
-            let mut best: Option<(f64, Building)> = None;
+            let mut best: Option<(f64, Building, Vec<usize>, f64)> = None;
             let mut last_rejection: Option<Rejection> = None;
             for route in routes.routes.iter().filter(|route| route.status == "pass") {
                 if route.polyline.len() < 2 {
@@ -1840,8 +1876,7 @@ fn place_population_facilities(
                     let road_z = f64::from(segment[0].z) + dz * t;
                     let road_design_m = segment[0].design_height_m
                         + (segment[1].design_height_m - segment[0].design_height_m) * t;
-                    for (clearance_index, clearance) in
-                        [3.0_f64, 12.0, 24.0, 36.0].into_iter().enumerate()
+                    for (clearance_index, clearance) in [3.0_f64, 8.0, 16.0].into_iter().enumerate()
                     {
                         for side in [-1.0_f64, 1.0] {
                             let access = f64::from(route.road_width_m) * 0.5
@@ -1953,19 +1988,7 @@ fn place_population_facilities(
                                 });
                                 continue;
                             }
-                            if buildings.iter().any(|building| {
-                                oriented_footprints_overlap(
-                                    &footprint,
-                                    &OrientedFootprint {
-                                        center_x: f64::from(building.world_x),
-                                        center_z: f64::from(building.world_z),
-                                        width_m: f64::from(building.width_m),
-                                        depth_m: f64::from(building.depth_m),
-                                        rotation_y_deg: f64::from(building.rotation_y_deg),
-                                    },
-                                    3.0,
-                                )
-                            }) || obstacles.iter().any(|entity| {
+                            if obstacles.iter().any(|entity| {
                                 matches!(
                                     entity.kind.as_str(),
                                     "building"
@@ -1993,6 +2016,87 @@ fn place_population_facilities(
                                 });
                                 continue;
                             }
+                            let conflicting_buildings = buildings
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, building)| {
+                                    oriented_footprints_overlap(
+                                        &footprint,
+                                        &OrientedFootprint {
+                                            center_x: f64::from(building.world_x),
+                                            center_z: f64::from(building.world_z),
+                                            width_m: f64::from(building.width_m),
+                                            depth_m: f64::from(building.depth_m),
+                                            rotation_y_deg: f64::from(building.rotation_y_deg),
+                                        },
+                                        3.0,
+                                    )
+                                })
+                                .map(|(index, _)| index)
+                                .collect::<Vec<_>>();
+                            let redevelopment_weight = if conflicting_buildings.is_empty() {
+                                0.0
+                            } else {
+                                if conflicting_buildings.len() > 12 {
+                                    *attempt_counts
+                                        .entry("facility_redevelopment_exceeds_owner_cap".into())
+                                        .or_default() += 1;
+                                    last_rejection = Some(Rejection {
+                                        candidate_id,
+                                        route_id: route.id.clone(),
+                                        world_x: x,
+                                        world_z: z,
+                                        reason: "facility_redevelopment_exceeds_owner_cap".into(),
+                                    });
+                                    continue;
+                                }
+                                let weights = conflicting_buildings
+                                    .iter()
+                                    .map(|index| {
+                                        redevelopment_weight(
+                                            &buildings[*index],
+                                            &footprint,
+                                            &requirement.kind,
+                                        )
+                                    })
+                                    .collect::<Option<Vec<_>>>();
+                                let Some(weights) = weights else {
+                                    *attempt_counts
+                                        .entry("facility_redevelopment_is_protected".into())
+                                        .or_default() += 1;
+                                    last_rejection = Some(Rejection {
+                                        candidate_id,
+                                        route_id: route.id.clone(),
+                                        world_x: x,
+                                        world_z: z,
+                                        reason: "facility_redevelopment_is_protected".into(),
+                                    });
+                                    continue;
+                                };
+                                let average = weights.iter().sum::<f64>() / weights.len() as f64;
+                                let threshold = if matches!(
+                                    requirement.kind.as_str(),
+                                    "hospital" | "stadium"
+                                ) {
+                                    0.48
+                                } else {
+                                    0.55
+                                };
+                                if average < threshold {
+                                    *attempt_counts
+                                        .entry("facility_redevelopment_below_weight".into())
+                                        .or_default() += 1;
+                                    last_rejection = Some(Rejection {
+                                        candidate_id,
+                                        route_id: route.id.clone(),
+                                        world_x: x,
+                                        world_z: z,
+                                        reason: "facility_redevelopment_below_weight".into(),
+                                    });
+                                    continue;
+                                }
+                                average
+                            };
                             let natural_ceiling = lot_ground_ceiling_m(
                                 terrain,
                                 x,
@@ -2033,7 +2137,9 @@ fn place_population_facilities(
                             let jitter = f64::from(u32::from_le_bytes(
                                 hash.as_bytes()[..4].try_into().expect("four bytes"),
                             )) / f64::from(u32::MAX);
-                            let score = -distance_penalty + jitter * 0.15;
+                            let score = -distance_penalty + jitter * 0.15
+                                - redevelopment_weight * 0.35
+                                - clearance * 0.08;
                             let floors = (requirement.height_m / 3).max(1);
                             let floor_area_m2 = f64::from(requirement.width_m)
                                 * f64::from(requirement.depth_m)
@@ -2054,7 +2160,7 @@ fn place_population_facilities(
                                 households: 0,
                                 jobs: 0,
                                 retail_floor_area_m2: 0.0,
-                                service_budget: 1.0,
+                                service_budget: 0.0,
                                 access_distance_m: access as f32,
                                 center_distance_m: center_distance,
                                 community_profile: rules.community_profile.clone(),
@@ -2074,15 +2180,20 @@ fn place_population_facilities(
                                 max_pad_cut_mm: Some((required_cut_m * 1000.0).ceil() as i32 + 1),
                                 rotation_y_deg,
                             };
-                            if best.as_ref().is_none_or(|(prior, _)| score > *prior) {
-                                best = Some((score, building));
+                            if best.as_ref().is_none_or(|(prior, _, _, _)| score > *prior) {
+                                best = Some((
+                                    score,
+                                    building,
+                                    conflicting_buildings,
+                                    redevelopment_weight,
+                                ));
                             }
                         }
                     }
                     station_m += step_m;
                 }
             }
-            let Some((_, building)) = best else {
+            let Some((_, building, removed_indices, replacement_weight)) = best else {
                 let dominant = attempt_counts.into_iter().max_by_key(|(_, count)| *count);
                 let fallback = Rejection {
                     candidate_id: format!("population.{}.{}", requirement.kind, slot),
@@ -2091,7 +2202,7 @@ fn place_population_facilities(
                     world_z: 0,
                     reason: "no_legal_population_facility_site".into(),
                 };
-                rejections.push(match dominant {
+                result.rejections.push(match dominant {
                     Some((reason, count)) => Rejection {
                         reason: format!("no_legal_population_facility_site: {reason} x{count}"),
                         ..fallback
@@ -2100,11 +2211,66 @@ fn place_population_facilities(
                 });
                 break;
             };
+            if !removed_indices.is_empty() {
+                let removed_ids = removed_indices
+                    .iter()
+                    .map(|index| buildings[*index].id.clone())
+                    .collect::<Vec<_>>();
+                result.redevelopment.push(RedevelopmentDecision {
+                    facility_id: format!("{}.{}", requirement.kind, slot),
+                    removed_building_ids: removed_ids,
+                    replacement_weight,
+                    model: "age+density+access+centrality-protection-v1".into(),
+                    reason: format!(
+                        "population facility {} replaces a lower-weight urban block",
+                        requirement.kind
+                    ),
+                });
+                for index in removed_indices.into_iter().rev() {
+                    buildings.remove(index);
+                }
+            }
             buildings.push(building);
             requirement.delivered_count += 1;
         }
     }
-    rejections
+    result
+}
+
+fn redevelopment_weight(
+    building: &Building,
+    _facility_footprint: &OrientedFootprint,
+    _facility_kind: &str,
+) -> Option<f64> {
+    if matches!(
+        building.kind.as_str(),
+        "school"
+            | "clinic"
+            | "hospital"
+            | "church"
+            | "temple"
+            | "town_hall"
+            | "community_center"
+            | "sports_center"
+            | "stadium"
+            | "market"
+    ) || building.archetype_id.contains("historic")
+        || building.archetype_id.contains("machiya")
+        || building.archetype_id.contains("perimeter")
+    {
+        return None;
+    }
+    let age = match building.district_stage.as_str() {
+        "old-core" => 1.0,
+        "renewal" => 0.78,
+        "new-growth" => 0.35,
+        _ => 0.18,
+    };
+    let low_density = (1.0 - (building.lot_area_m2 / 520.0).clamp(0.0, 1.0)).max(0.0);
+    let poor_access = (1.0 - f64::from(building.access_distance_m) / 42.0).clamp(0.0, 1.0);
+    let centrality = (1.0 - building.center_distance_m / 720.0).clamp(0.0, 1.0);
+    let low_rise = (1.0 - f64::from(building.height_m) / 110.0).clamp(0.0, 1.0);
+    Some(age * 0.35 + low_density * 0.25 + poor_access * 0.18 + centrality * 0.14 + low_rise * 0.08)
 }
 
 fn parcel_use_mix(id: &str) -> f64 {
@@ -3417,6 +3583,34 @@ mod tests {
         assert_eq!(scattered.status, "warn");
         assert_eq!(scattered.runs.len(), 2);
         assert!(scattered.runs.iter().all(|run| !run.continuous));
+    }
+
+    #[test]
+    fn redevelopment_weight_favours_old_low_density_blocks_and_protects_civic_assets() {
+        let footprint = OrientedFootprint {
+            center_x: 0.0,
+            center_z: 0.0,
+            width_m: 40.0,
+            depth_m: 32.0,
+            rotation_y_deg: 0.0,
+        };
+        let replaceable = Building {
+            id: "old-shop-house".into(),
+            kind: "residential_home".into(),
+            district_stage: "old-core".into(),
+            lot_area_m2: 90.0,
+            access_distance_m: 20.0,
+            center_distance_m: 120.0,
+            height_m: 12.0,
+            archetype_id: "old-core-lane-house".into(),
+            ..Building::default()
+        };
+        assert!(redevelopment_weight(&replaceable, &footprint, "hospital").unwrap() > 0.7);
+        let protected = Building {
+            kind: "church".into(),
+            ..replaceable
+        };
+        assert!(redevelopment_weight(&protected, &footprint, "hospital").is_none());
     }
 
     #[test]

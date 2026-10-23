@@ -2081,7 +2081,12 @@ impl EntityInstance {
                 | "commercial_center"
                 | "entertainment_center"
                 | "school"
+                | "clinic"
+                | "hospital"
                 | "town_hall"
+                | "community_center"
+                | "sports_center"
+                | "stadium"
                 | "market"
                 | "industrial"
                 | "temple"
@@ -3134,6 +3139,7 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                     "countPolicy": "emergent-no-fill",
                     "population": &plan.population,
                     "facilityRequirements": &plan.facility_requirements,
+                    "redevelopmentDecisions": &plan.redevelopment_decisions,
                     "streetFrontage": &plan.street_frontage,
                 }))?,
             )?;
@@ -8361,7 +8367,12 @@ fn generate_entities_with_profile_report(
                     | "commercial_center"
                     | "entertainment_center"
                     | "school"
+                    | "clinic"
+                    | "hospital"
                     | "town_hall"
+                    | "community_center"
+                    | "sports_center"
+                    | "stadium"
                     | "market"
                     | "industrial"
                     | "temple"
