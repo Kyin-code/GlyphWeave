@@ -10,6 +10,8 @@
 > `bevy/work/rk-x/v3-density-road-final-r244-20261023`，
 > 592 建筑、7 市场、100% 鲜食覆盖、入口断连 0，scale/quality/final
 > audit 均 pass。中心固定 100m 密度与道路并集多边形仍是下一轮工作。
+> 最终预览：
+> `http://127.0.0.1:8244/preview/index.html?view=street&build=r244`。
 > 详见
 > [`DENSITY-ROADS-VISUAL-R244-20261023.md`](DENSITY-ROADS-VISUAL-R244-20261023.md)。
 
