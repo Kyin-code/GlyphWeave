@@ -1,0 +1,532 @@
+{
+  "format": "glyphweave-world",
+  "version": 1,
+  "world": {
+    "name": "上海外滩 512m：黄浦江西岸新旧城剖面",
+    "seed": 3101,
+    "renderMode": "2.5d"
+  },
+  "scenes": [
+    {
+      "sceneId": "scene-0",
+      "widthM": 512,
+      "depthM": 512,
+      "originX": 0,
+      "originZ": 0,
+      "seedOffset": 0
+    }
+  ],
+  "style": {
+    "family": "procedural-natural-settlement",
+    "terrain": "continuous-heightfield",
+    "terrainProfile": "plains",
+    "heightPrecision": "millimeter",
+    "terrainPolicy": {
+      "earthworkBlend": "derived-from-fill"
+    },
+    "naturalGeography": {
+      "version": 1,
+      "mode": "derived",
+      "setting": "river-delta",
+      "regionalReliefM": 28,
+      "climateBand": "humid-subtropical",
+      "derivationSeed": 3101,
+      "hints": {
+        "karst": false,
+        "glacial": false
+      }
+    },
+    "urbanSlice": {
+      "version": 1,
+      "semanticsVersion": 2,
+      "settlementScale": "metropolis",
+      "mode": "feature-cut",
+      "focusFeature": "bund-historic-wall-and-modern-riverfront",
+      "cropReason": "show the Bund historic wall, public embankment, one cross-street and the western edge of the Huangpu River at one comparable scale",
+      "contextRadiusM": 2500,
+      "offMapContinuity": [
+        "roads",
+        "rail",
+        "river",
+        "urban-fabric",
+        "coast"
+      ],
+      "specialFactors": [
+        "financial-center",
+        "historic-core",
+        "coastal-reclamation",
+        "mountainous"
+      ],
+      "viewpoint": "old-core-to-financial-waterfront",
+      "focusRelations": [
+        {
+          "subject": "bund-historic-wall",
+          "relation": "faces-and-drains-to",
+          "object": "huangpu-river"
+        },
+        {
+          "subject": "public-embankment",
+          "relation": "runs-along",
+          "object": "huangpu-river"
+        },
+        {
+          "subject": "new-growth",
+          "relation": "follows-terrain-corridors-around",
+          "object": "inland-lilong-block-edge"
+        }
+      ],
+      "requiredAnchors": [
+        {
+          "id": "lake-shore",
+          "kind": "waterfront",
+          "role": "main-public-frontage"
+        },
+        {
+          "id": "old-market",
+          "kind": "market",
+          "role": "historic-core"
+        },
+        {
+          "id": "financial-station",
+          "kind": "employment",
+          "role": "new-financial-centre"
+        }
+      ],
+      "contextAnchors": [
+        {
+          "id": "regional-rail",
+          "kind": "transit",
+          "role": "off-map-access"
+        }
+      ],
+      "edgeIntents": [
+        {
+          "edge": "west",
+          "kind": "rail",
+          "destinationRole": "regional-metropolis"
+        },
+        {
+          "edge": "north",
+          "kind": "roads",
+          "destinationRole": "upstream-valley"
+        },
+        {
+          "edge": "east",
+          "kind": "coast",
+          "destinationRole": "outer-bay"
+        }
+      ]
+    },
+    "referenceData": {
+      "sources": [
+        "https://www.britannica.com/place/the-Bund",
+        "https://english.shanghai.gov.cn/",
+        "https://www.openstreetmap.org/relation/913067"
+      ],
+      "caseIds": ["cn-shanghai"],
+      "crop": "512m west-bank Bund window; not the full 1.5km Bund and not a whole-city density average",
+      "retrievedAt": "2026-10-23",
+      "seedBasis": "seed 3101 is fixed before generation and only applies to this crop",
+      "inferenceReason": "historic street wall, public riverfront, inland redevelopment blocks and a broad Huangpu edge are expressed as one relational local cut"
+    },
+    "communityProfile": {
+      "version": 1,
+      "profile": "china-gated"
+    },
+    "routeEvolution": {
+      "version": 1,
+      "enabled": true,
+      "gridStepM": 16,
+      "roadWidthM": 8,
+      "maxGrade": 0.08,
+      "maxTerrainSlope": 0.55,
+      "maxFillM": 6,
+      "allowBridge": true,
+      "maxBridgeSpanM": 420,
+      "turnPenalty": 1.4,
+      "anchors": [],
+      "routes": []
+    },
+    "settlementEvolution": {
+      "version": 1,
+      "enabled": true,
+      "householdsTarget": 6000,
+      "jobsTarget": 16000,
+      "retailFloorAreaM2": 120000,
+      "serviceBudget": 64,
+      "lotWidthM": 8,
+      "lotDepthM": 24,
+      "roadStepM": 9,
+      "setbackM": 2,
+      "maxSlope": 0.25,
+      "floorAreaRatio": 4.0,
+      "maxFloors": 32,
+      "accessHeightToleranceM": 6,
+      "maxPadCutM": 12,
+      "districtDemand": {
+        "version": 1,
+        "allowSpill": true,
+        "shares": [
+          {
+            "stage": "old-core",
+          "share": 0.34
+          },
+          {
+            "stage": "renewal",
+          "share": 0.35
+          },
+          {
+            "stage": "new-growth",
+          "share": 0.25
+          },
+          {
+            "stage": "periphery",
+          "share": 0.06
+          }
+        ]
+      }
+    },
+    "planningHistory": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 100,
+      "parkAreaM2PerPerson": 4,
+      "renewalShare": 0.5
+    },
+    "marketCatchment": {
+      "version": 1,
+      "enabled": true,
+      "beta": 0.08,
+      "maxTravelMinutes": 15,
+      "walkSpeedMps": 1.3,
+      "marketCapacity": 1500,
+      "marketQuality": 1.0,
+      "coverageTarget": 0.9,
+      "maxMarkets": 20,
+      "candidateSpacingM": 120,
+      "tiers": [
+        {
+          "id": "street-market",
+          "kind": "community-market-hall",
+          "capacity": 1200,
+          "quality": 1.12,
+          "maxTravelMinutes": 8,
+          "maxCount": 8,
+          "candidateSpacingM": 80,
+          "preference": 1.2
+        },
+        {
+          "id": "neighbourhood",
+          "kind": "neighbourhood-supermarket",
+          "capacity": 1600,
+          "quality": 1.0,
+          "maxTravelMinutes": 15,
+          "maxCount": 6,
+          "candidateSpacingM": 160,
+          "preference": 1.0
+        },
+        {
+          "id": "district",
+          "kind": "large-supermarket",
+          "capacity": 3200,
+          "quality": 0.92,
+          "maxTravelMinutes": 25,
+          "maxCount": 3,
+          "candidateSpacingM": 240,
+          "preference": 0.82
+        }
+      ]
+    },
+    "epochProgram": {
+      "version": 1,
+      "enabled": true,
+      "oldCoreRadiusM": 120,
+      "expansionRadiusM": 240,
+      "modernRadiusM": 420
+    },
+    "water": {
+    "waterType": "river",
+      "levelPolicy": "horizontal-datum",
+      "levelM": 0,
+      "shoreProfile": {
+      "transitionWidthM": 24,
+      "shallowBandM": 14,
+      "navigationDepthM": 9
+      },
+      "waveModel": {
+      "preset": "river-breeze",
+      "amplitudeM": 0.12,
+      "wavelengthM": 12,
+      "roughness": 0.16
+      },
+      "flowDirection": "world_z",
+      "flowSpeedMps": 1.0
+    },
+    "assetContracts": {
+      "tree": {
+        "type": "tree",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 2,
+        "maxWidthM": 5.5,
+        "minDepthM": 2,
+        "maxDepthM": 5.5,
+        "minHeightM": 4,
+        "maxHeightM": 9
+      },
+      "bush": {
+        "type": "bush",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.6,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.6,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.6,
+        "maxHeightM": 2.6
+      },
+      "grass_clump": {
+        "type": "grass",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.3,
+        "maxWidthM": 2.6,
+        "minDepthM": 0.3,
+        "maxDepthM": 2.6,
+        "minHeightM": 0.5,
+        "maxHeightM": 1.6
+      },
+      "rock": {
+        "type": "rock",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 0.2,
+        "maxWidthM": 8,
+        "minDepthM": 0.2,
+        "maxDepthM": 8,
+        "minHeightM": 0.2,
+        "maxHeightM": 5
+      },
+      "road": {
+        "type": "road",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 4,
+        "maxWidthM": 10000,
+        "minDepthM": 4,
+        "maxDepthM": 32,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "stairs": {
+        "type": "stair",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 1.2,
+        "maxWidthM": 24,
+        "minDepthM": 1,
+        "maxDepthM": 24,
+        "minHeightM": 0.2,
+        "maxHeightM": 8.5
+      },
+      "residential_home": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 40,
+        "minDepthM": 8,
+        "maxDepthM": 40,
+        "minHeightM": 3,
+        "maxHeightM": 24
+      },
+      "residential_block": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 120,
+        "minDepthM": 8,
+        "maxDepthM": 90,
+        "minHeightM": 12,
+        "maxHeightM": 60
+      },
+      "residential_tower": {
+        "type": "residential",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 120,
+        "minDepthM": 16,
+        "maxDepthM": 90,
+        "minHeightM": 50,
+        "maxHeightM": 100
+      },
+      "urban_building": {
+        "type": "building",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 8,
+        "maxWidthM": 120,
+        "minDepthM": 8,
+        "maxDepthM": 120,
+        "minHeightM": 24,
+        "maxHeightM": 100
+      },
+      "market": {
+        "type": "market",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone", "shore"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 100,
+        "minDepthM": 10,
+        "maxDepthM": 80,
+        "minHeightM": 3,
+        "maxHeightM": 20
+      },
+      "storefront": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 40,
+        "minDepthM": 6,
+        "maxDepthM": 32,
+        "minHeightM": 2,
+        "maxHeightM": 30
+      },
+      "office_tower": {
+        "type": "commercial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 6,
+        "maxWidthM": 60,
+        "minDepthM": 12,
+        "maxDepthM": 60,
+        "minHeightM": 12,
+        "maxHeightM": 120
+      },
+      "town_hall": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 24,
+        "maxWidthM": 100,
+        "minDepthM": 20,
+        "maxDepthM": 80,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "industrial": {
+        "type": "industrial",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 30,
+        "maxWidthM": 180,
+        "minDepthM": 24,
+        "maxDepthM": 120,
+        "minHeightM": 6,
+        "maxHeightM": 40
+      },
+      "community_plaza": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 20,
+        "maxWidthM": 160,
+        "minDepthM": 20,
+        "maxDepthM": 120,
+        "minHeightM": 0.1,
+        "maxHeightM": 2
+      },
+      "park": {
+        "type": "green",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 240,
+        "minDepthM": 16,
+        "maxDepthM": 240,
+        "minHeightM": 0.1,
+        "maxHeightM": 1
+      },
+      "river": {
+        "type": "water",
+        "placement": "water-surface",
+        "allowedSurfaces": ["water", "deep_water"],
+        "forbiddenSurfaces": ["grass", "forest", "soil", "stone", "underground"],
+        "minWidthM": 300,
+        "maxWidthM": 300,
+        "minDepthM": 512,
+        "maxDepthM": 512,
+        "minHeightM": 1,
+        "maxHeightM": 1
+      },
+      "bridge": {
+        "type": "bridge",
+        "placement": "bridge-span",
+        "allowedSurfaces": ["water", "deep_water", "shore", "stone"],
+        "forbiddenSurfaces": ["underground"],
+        "minWidthM": 6,
+        "maxWidthM": 600,
+        "minDepthM": 6,
+        "maxDepthM": 80,
+        "minHeightM": 0.1,
+        "maxHeightM": 80
+      }
+    }
+  },
+  "landmarks": [
+    {
+      "entityId": "landmark.huangpu-river-west-bank",
+      "name": "黄浦江西岸（外滩剖面）",
+      "type": "river",
+      "purpose": "提供真实尺度的西岸、滨水步道和河道关系",
+      "description": "512m 窗口展示外滩历史街墙、滨水公共空间与黄浦江西缘，不声称复刻整条外滩。",
+      "sceneId": "scene-0",
+      "worldX": 350,
+      "worldZ": 256,
+      "worldY": 0,
+      "widthM": 300,
+      "depthM": 512,
+      "heightM": 1,
+      "assetId": "water.huangpu-west-bank"
+    },
+    {
+      "entityId": "landmark.bund-public-crossing",
+      "name": "外滩滨水跨桥",
+      "type": "bridge",
+      "purpose": "提供跨水工程和尺度参照，同时维持滨江步行连通",
+      "description": "桥面跨越切面东侧水域，作为滨水步行与观景构筑物，岸上路线仍由 Rust 道路与入口审计决定。",
+      "sceneId": "scene-0",
+      "worldX": 350,
+      "worldZ": 310,
+      "worldY": 10,
+      "widthM": 300,
+      "depthM": 18,
+      "heightM": 8,
+      "assetId": "bridge.bund-public-crossing"
+    }
+  ],
+  "sceneGraph": {
+    "transitions": []
+  },
+  "patchChainHash": ""
+}

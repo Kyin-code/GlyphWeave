@@ -1,5 +1,12 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-23 三城独立切面 r249–r252**：旧金山金门大桥南岸、上海外滩
+> 和贵阳阿哈湖湿地已分别建立 512m Manifest、来源/crop 记录并逐城烘焙。
+> 三城 `scale-audit` 全 pass，建筑碰撞与入口断连均为 0；上海、贵阳
+> `quality-report=pass`，旧金山因 structured-water land-use realization
+> 尚未完整而保持 `warn`。最终预览端口分别为 8250、8251、8252。详见
+> [`THREE-CITY-SLICES-R249-R252-20261023.zh-CN.md`](THREE-CITY-SLICES-R249-R252-20261023.zh-CN.md)。
+
 > **2026-10-23 城市重规划 r248**：大型人口设施可在空地块不足时成组替换
 > 普通建筑。权重由年代、低密程度、入口条件、中心性和低层程度组成；历史
 > 原型及 civic/market 设施不可替换，单次最多 12 个 Owner。香港学校/诊所/
