@@ -634,6 +634,81 @@
         "referenceBuildingCountP75": 942,
         "referenceFootprintCoverageP50": 0.32,
         "unmappedStructureFactor": 1.18
+      },
+      "populationProgram": {
+        "version": 1,
+        "residents": 45212,
+        "daytimeWorkers": 80000,
+        "householdSize": 2.82575,
+        "retailFloorAreaM2PerResident": 8.8474,
+        "facilities": [
+          {
+            "kind": "school",
+            "basis": "residents",
+            "populationPerFacility": 30000,
+            "maxCount": 6,
+            "widthM": 40,
+            "depthM": 32,
+            "heightM": 14
+          },
+          {
+            "kind": "clinic",
+            "basis": "daytime-population",
+            "populationPerFacility": 75000,
+            "maxCount": 4,
+            "widthM": 24,
+            "depthM": 20,
+            "heightM": 12
+          },
+          {
+            "kind": "hospital",
+            "basis": "daytime-population",
+            "populationPerFacility": 150000,
+            "maxCount": 2,
+            "widthM": 44,
+            "depthM": 32,
+            "heightM": 38
+          },
+          {
+            "kind": "church",
+            "basis": "residents",
+            "populationPerFacility": 45000,
+            "maxCount": 3,
+            "widthM": 20,
+            "depthM": 28,
+            "heightM": 18
+          },
+          {
+            "kind": "community_center",
+            "basis": "daytime-population",
+            "populationPerFacility": 80000,
+            "maxCount": 4,
+            "widthM": 32,
+            "depthM": 24,
+            "heightM": 10
+          },
+          {
+            "kind": "sports_center",
+            "basis": "daytime-population",
+            "populationPerFacility": 120000,
+            "maxCount": 3,
+            "widthM": 40,
+            "depthM": 32,
+            "heightM": 14
+          },
+          {
+            "kind": "stadium",
+            "basis": "daytime-population",
+            "populationPerFacility": 200000,
+            "maxCount": 1,
+            "widthM": 72,
+            "depthM": 48,
+            "heightM": 24
+          }
+        ],
+        "model": "resident-plus-daytime-worker facility service thresholds",
+        "inferred": true,
+        "inferenceReason": "The 1 km Central feature cut uses the measured residential baseline plus an explicit daytime worker scenario; facility thresholds are editable planning assumptions, not census facts."
       }
     },
     "planningHistory": {
@@ -905,6 +980,90 @@
         "maxDepthM": 80,
         "minHeightM": 3,
         "maxHeightM": 24
+      },
+      "school": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 30,
+        "maxWidthM": 128,
+        "minDepthM": 26,
+        "maxDepthM": 120,
+        "minHeightM": 4,
+        "maxHeightM": 30
+      },
+      "clinic": {
+        "type": "health",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 16,
+        "maxWidthM": 64,
+        "minDepthM": 16,
+        "maxDepthM": 56,
+        "minHeightM": 6,
+        "maxHeightM": 28
+      },
+      "hospital": {
+        "type": "health",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 48,
+        "maxWidthM": 180,
+        "minDepthM": 40,
+        "maxDepthM": 140,
+        "minHeightM": 12,
+        "maxHeightM": 80
+      },
+      "church": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 12,
+        "maxWidthM": 80,
+        "minDepthM": 12,
+        "maxDepthM": 80,
+        "minHeightM": 3,
+        "maxHeightM": 40
+      },
+      "community_center": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 24,
+        "maxWidthM": 120,
+        "minDepthM": 20,
+        "maxDepthM": 100,
+        "minHeightM": 4,
+        "maxHeightM": 30
+      },
+      "sports_center": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 30,
+        "maxWidthM": 140,
+        "minDepthM": 24,
+        "maxDepthM": 120,
+        "minHeightM": 6,
+        "maxHeightM": 36
+      },
+      "stadium": {
+        "type": "civic",
+        "placement": "surface-grounded",
+        "allowedSurfaces": ["grass", "forest", "soil", "stone"],
+        "forbiddenSurfaces": ["water", "deep_water", "underground"],
+        "minWidthM": 80,
+        "maxWidthM": 240,
+        "minDepthM": 60,
+        "maxDepthM": 200,
+        "minHeightM": 12,
+        "maxHeightM": 80
       },
       "community_plaza": {
         "type": "civic",

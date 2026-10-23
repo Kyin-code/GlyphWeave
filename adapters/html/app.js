@@ -56,7 +56,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'camera-input-r245-20261023'
+window.__glyphweaveBuild = 'population-facilities-r246-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -1197,7 +1197,7 @@ async function drawNear(buildToken) {
       built.userData.constructionCohortBand = true
     }
     if (built?.userData) built.userData.constructionCohort = cohort ?? null
-    if (['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building', 'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center', 'industrial'].includes(entity.kind)) {
+    if (['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building', 'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center', 'industrial', 'clinic', 'hospital', 'community_center', 'sports_center', 'stadium'].includes(entity.kind)) {
       nearCollisionVolumes.push({
         kind: 'building',
         entityId: entity.entityId,
@@ -1911,7 +1911,7 @@ async function drawNear(buildToken) {
   const buildingFootprints = (scene.entities ?? []).filter(entity =>
     ['residential_home', 'residential_block', 'residential_tower', 'storefront', 'urban_building',
       'office_tower', 'market', 'school', 'church', 'temple', 'town_hall', 'commercial_center',
-      'industrial'].includes(entity.kind))
+      'industrial', 'clinic', 'hospital', 'community_center', 'sports_center', 'stadium'].includes(entity.kind))
   const onBuildingFootprint = (x, z, padding = .45) =>
     buildingFootprints.some(building => footprintContains(building, x, z, padding))
   const onRoadFootprint = (entity, padding = 0) => roadFootprints.some(road => footprintContains(road, entity.worldX, entity.worldZ, padding + Math.max(entity.widthM || 0, entity.depthM || 0) * .5))
@@ -2342,7 +2342,7 @@ async function drawNear(buildToken) {
       || ((inActiveChunk(entity) || gradedInActiveChunk(entity)) && (
         inFocusChunk(entity) || gradedInActiveChunk(entity)
         || inStreetFrame(entity)
-        || ['storefront', 'stairs', 'pedestrian', 'residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot'].includes(entity.kind)
+        || ['storefront', 'stairs', 'pedestrian', 'residential_block', 'residential_home', 'residential_tower', 'school', 'industrial', 'town_hall', 'market', 'commercial_center', 'parking_lot', 'clinic', 'hospital', 'community_center', 'sports_center', 'stadium'].includes(entity.kind)
         || (['tree', 'bush', 'rock'].includes(entity.kind) && shouldRenderVegetation(entity, 7) && vegetationFitsTerrain(entity))
       ))
     )
@@ -2535,6 +2535,10 @@ async function drawNear(buildToken) {
     }
     if (entity.kind === 'church') {
       addEntityToGroup(entity, buildEntityCached(entity, () => makeChurch(entity, THREE)))
+      continue
+    }
+    if (['clinic', 'hospital', 'community_center', 'sports_center', 'stadium'].includes(entity.kind)) {
+      addEntityToGroup(entity, buildEntityCached(entity, () => makePlannedServiceBuilding(entity, THREE)))
       continue
     }
     if (entity.kind === 'farmland') {

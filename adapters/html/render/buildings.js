@@ -509,7 +509,18 @@ export function makePlannedServiceBuilding(entity, THREE) {
   group.userData.sourceEntityId = entity.entityId
   group.userData.footprintOnly = true
   group.userData.programKind = entity.kind
-  const colors = { school: '#dbc798', church: '#c7c5bc', town_hall: '#b4c5cd', market: '#c7b287', convenience_store: '#c8d5c0' }
+  const colors = {
+    school: '#dbc798',
+    church: '#c7c5bc',
+    town_hall: '#b4c5cd',
+    market: '#c7b287',
+    convenience_store: '#c8d5c0',
+    clinic: '#c8d7d2',
+    hospital: '#d8dedb',
+    community_center: '#cdbfa6',
+    sports_center: '#b8c9b5',
+    stadium: '#aebbb8',
+  }
   const roofHeight = .35
   const body = new THREE.Mesh(new THREE.BoxGeometry(entity.widthM, entity.heightM - roofHeight, entity.depthM), new THREE.MeshStandardMaterial({ color: colors[entity.kind] ?? '#d0cbc0', roughness: .9 }))
   body.name = 'building-body'; body.position.y = (entity.heightM - roofHeight) / 2; group.add(body)

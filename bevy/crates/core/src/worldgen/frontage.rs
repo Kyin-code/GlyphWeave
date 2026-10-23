@@ -622,7 +622,10 @@ pub fn validate_entity(e: &EntityInstance) -> Result<(), TerrainError> {
         })
         || e.grounding.road_profile.is_some()
     {
-        return Err(err("invalid frontage support owner"));
+        return Err(err(format!(
+            "invalid frontage support owner {}/{}",
+            e.entity_id, e.kind
+        )));
     }
     let a = front;
     let dx = i64::from(x) - i64::from(a.world_x);

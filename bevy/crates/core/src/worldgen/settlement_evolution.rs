@@ -14,7 +14,9 @@ use crate::baked_terrain::{BakedTerrain, TerrainError};
 
 use super::community_typology;
 use super::epoch_evolution;
-use super::route_evolution::Plan as RoutePlan;
+use super::population_program;
+use super::population_program::{FacilityRequirement, PopulationSummary};
+use super::route_evolution::{self, Plan as RoutePlan};
 use super::water_query::WATER_SHORE_CLEARANCE_M;
 use super::{
     EntityInstance, OrientedFootprint, STREAM_CHUNK_METERS, SceneSpec, WaterGeometry,
@@ -78,6 +80,11 @@ pub struct Program {
     /// demand, legal lots, access and collision still decide the final count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density_profile: Option<DensityProfile>,
+    /// Optional population baseline. When present, household, job and retail
+    /// demand are derived from residents, workers and per-capita intensity
+    /// instead of trusting authored aggregate totals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub population_program: Option<population_program::PopulationProgram>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -282,6 +289,10 @@ pub struct Plan {
     pub street_frontage: StreetFrontageAudit,
     #[serde(default)]
     pub density_curve: Vec<DensityBand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub population: Option<PopulationSummary>,
+    #[serde(default)]
+    pub facility_requirements: Vec<FacilityRequirement>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,6 +457,9 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
             return Err("invalid settlementEvolution densityProfile".into());
         }
     }
+    if let Some(population) = &program.population_program {
+        population_program::validate(population)?;
+    }
     Ok(())
 }
 
@@ -536,10 +550,24 @@ pub fn plan(
         .and_then(|slice| slice.get("mode"))
         .and_then(Value::as_str)
         == Some("feature-cut");
+    let (population, facility_requirements) = if let Some(program) = &program.population_program {
+        let (summary, requirements) = population_program::derive(program);
+        (Some(summary.clone()), requirements)
+    } else {
+        (None, Vec::new())
+    };
     let target_demand = Demand {
-        households: program.households_target,
-        jobs: program.jobs_target,
-        retail_floor_area_m2: program.retail_floor_area_m2,
+        households: population
+            .as_ref()
+            .map_or(program.households_target, |value| value.households),
+        jobs: population
+            .as_ref()
+            .map_or(program.jobs_target, |value| value.daytime_workers),
+        retail_floor_area_m2: population
+            .as_ref()
+            .map_or(program.retail_floor_area_m2, |value| {
+                value.retail_floor_area_m2
+            }),
         service_budget: program.service_budget,
     };
     let mut demand = Demand {
@@ -1267,7 +1295,10 @@ pub fn plan(
         }
     }
     let unmet_demand = demand.clone();
-    let complete = demand_is_empty(&unmet_demand);
+    let facilities_complete = facility_requirements
+        .iter()
+        .all(|facility| facility.delivered_count >= facility.required_count);
+    let complete = demand_is_empty(&unmet_demand) && facilities_complete;
     let street_frontage = audit_street_frontage(&buildings);
     let density_curve = audit_density_curve(center, &buildings);
     Ok(Some(Plan {
@@ -1293,7 +1324,79 @@ pub fn plan(
         district_allocation,
         street_frontage,
         density_curve,
+        population,
+        facility_requirements,
     }))
+}
+
+/// Place population-derived civic facilities after market sites have been
+/// selected. This ordering prevents large hospitals and stadiums from silently
+/// consuming the only legal fresh-food frontages before the market coverage
+/// gate has run. Facility sites still avoid both roads and the already-planned
+/// market footprints.
+pub fn append_population_facilities(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    routes: &RoutePlan,
+    style: &Value,
+    obstacles: &[EntityInstance],
+    plan: &mut Plan,
+) -> Result<(), TerrainError> {
+    let Some(program) = from_style(style).map_err(TerrainError)? else {
+        return Ok(());
+    };
+    let Some(_) = &program.population_program else {
+        return Ok(());
+    };
+    let typology = community_typology::resolve(style).map_err(TerrainError)?;
+    let rules = SelectionRules {
+        community_profile: typology
+            .as_ref()
+            .map_or_else(|| "generic".into(), |value| value.profile.clone()),
+        household_area_m2: typology
+            .as_ref()
+            .map_or(85.0, |value| value.household_area_m2),
+        job_area_m2: typology.as_ref().map_or(38.0, |value| value.job_area_m2),
+        retail_share: typology.as_ref().map_or(0.12, |value| value.retail_share),
+        floor_area_ratio: f64::from(program.floor_area_ratio)
+            * f64::from(typology.as_ref().map_or(1.0, |value| value.far_scale)),
+        max_floors: ((program.max_floors as f32
+            * typology.as_ref().map_or(1.0, |value| value.floors_scale))
+        .round() as u32)
+            .max(1),
+    };
+    let terrace_authorized = style
+        .get("urbanSlice")
+        .and_then(|slice| slice.get("mode"))
+        .and_then(Value::as_str)
+        == Some("feature-cut");
+    let roads = route_evolution::materialize(routes);
+    let rejections = place_population_facilities(
+        scene,
+        terrain,
+        water,
+        routes,
+        &program,
+        &rules,
+        style,
+        terrace_authorized,
+        &roads,
+        obstacles,
+        &mut plan.buildings,
+        &mut plan.facility_requirements,
+    );
+    plan.rejections.extend(rejections);
+    let facilities_complete = plan
+        .facility_requirements
+        .iter()
+        .all(|facility| facility.delivered_count >= facility.required_count);
+    plan.status = if demand_is_empty(&plan.unmet_demand) && facilities_complete {
+        "pass".into()
+    } else {
+        "incomplete".into()
+    };
+    Ok(())
 }
 
 fn allocate_district_demands(
@@ -1658,6 +1761,350 @@ fn try_build_candidate(
         }
     }
     Err(rejected)
+}
+
+/// Population facilities need a larger envelope than a frontage house, but
+/// they obey the same physical gates as every other building: terrain/water,
+/// road and building clearance, chunk seams, a declared access point and the
+/// final access graph. A shortage is reported by kind instead of filling the
+/// count with visually invented boxes.
+#[allow(clippy::too_many_arguments)]
+fn place_population_facilities(
+    scene: &SceneSpec,
+    terrain: &BakedTerrain,
+    water: WaterGeometry,
+    routes: &RoutePlan,
+    program: &Program,
+    rules: &SelectionRules,
+    style: &Value,
+    terrace_authorized: bool,
+    roads: &[EntityInstance],
+    obstacles: &[EntityInstance],
+    buildings: &mut Vec<Building>,
+    facilities: &mut [FacilityRequirement],
+) -> Vec<Rejection> {
+    let mut rejections = Vec::new();
+    let center = route_center(routes);
+    for requirement in facilities.iter_mut() {
+        while requirement.delivered_count < requirement.required_count {
+            let mut attempt_counts = BTreeMap::<String, u32>::new();
+            let slot = requirement.delivered_count;
+            let target_distance_m = match requirement.kind.as_str() {
+                "school" => 220.0,
+                "clinic" => 170.0,
+                "hospital" => 430.0,
+                "church" => 190.0,
+                "community_center" => 150.0,
+                "sports_center" => 360.0,
+                "stadium" => 620.0,
+                _ => 320.0,
+            };
+            let mut best: Option<(f64, Building)> = None;
+            let mut last_rejection: Option<Rejection> = None;
+            for route in routes.routes.iter().filter(|route| route.status == "pass") {
+                if route.polyline.len() < 2 {
+                    continue;
+                }
+                let mut segment_lengths = Vec::with_capacity(route.polyline.len() - 1);
+                let mut route_length_m = 0.0_f64;
+                for segment in route.polyline.windows(2) {
+                    let length = f64::from(segment[1].x - segment[0].x)
+                        .hypot(f64::from(segment[1].z - segment[0].z));
+                    segment_lengths.push(length);
+                    route_length_m += length;
+                }
+                let step_m = 28.0_f64;
+                let mut station_m = 14.0_f64;
+                let mut segment_index = 0_usize;
+                let mut segment_start_m = 0.0_f64;
+                while station_m < route_length_m - 14.0 {
+                    while segment_index + 1 < segment_lengths.len()
+                        && station_m > segment_start_m + segment_lengths[segment_index]
+                    {
+                        segment_start_m += segment_lengths[segment_index];
+                        segment_index += 1;
+                    }
+                    let length = segment_lengths[segment_index];
+                    if length < 1.0 {
+                        station_m += step_m;
+                        continue;
+                    }
+                    let segment = &route.polyline[segment_index..=segment_index + 1];
+                    let t = ((station_m - segment_start_m) / length).clamp(0.0, 1.0);
+                    let dx = f64::from(segment[1].x - segment[0].x);
+                    let dz = f64::from(segment[1].z - segment[0].z);
+                    let normal_x = -dz / length;
+                    let normal_z = dx / length;
+                    let rotation_y_deg = (-dz).atan2(dx).to_degrees() as f32;
+                    let road_x = f64::from(segment[0].x) + dx * t;
+                    let road_z = f64::from(segment[0].z) + dz * t;
+                    let road_design_m = segment[0].design_height_m
+                        + (segment[1].design_height_m - segment[0].design_height_m) * t;
+                    for (clearance_index, clearance) in
+                        [3.0_f64, 12.0, 24.0, 36.0].into_iter().enumerate()
+                    {
+                        for side in [-1.0_f64, 1.0] {
+                            let access = f64::from(route.road_width_m) * 0.5
+                                + f64::from(program.setback_m)
+                                + clearance;
+                            let center_x = road_x
+                                + normal_x * side * (access + f64::from(requirement.depth_m) * 0.5);
+                            let center_z = road_z
+                                + normal_z * side * (access + f64::from(requirement.depth_m) * 0.5);
+                            let x = center_x.round() as i32;
+                            let z = center_z.round() as i32;
+                            let candidate_id = format!(
+                                "population.{}.{}.{}",
+                                requirement.kind,
+                                slot,
+                                ((station_m * 1000.0) as i64) * 8
+                                    + clearance_index as i64 * 2
+                                    + i64::from(side > 0.0)
+                            );
+                            let slope = match lot_is_legal(
+                                scene,
+                                terrain,
+                                water,
+                                x,
+                                z,
+                                requirement.width_m as f32,
+                                requirement.depth_m as f32,
+                            ) {
+                                Ok(slope) => slope,
+                                Err(reason) => {
+                                    *attempt_counts.entry(reason.clone()).or_default() += 1;
+                                    last_rejection = Some(Rejection {
+                                        candidate_id,
+                                        route_id: route.id.clone(),
+                                        world_x: x,
+                                        world_z: z,
+                                        reason: reason.into(),
+                                    });
+                                    continue;
+                                }
+                            };
+                            if slope > program.max_slope && !terrace_authorized {
+                                *attempt_counts
+                                    .entry("facility_slope_exceeds_contract".into())
+                                    .or_default() += 1;
+                                last_rejection = Some(Rejection {
+                                    candidate_id,
+                                    route_id: route.id.clone(),
+                                    world_x: x,
+                                    world_z: z,
+                                    reason: "facility_slope_exceeds_contract".into(),
+                                });
+                                continue;
+                            }
+                            let footprint = OrientedFootprint {
+                                center_x: f64::from(x),
+                                center_z: f64::from(z),
+                                width_m: f64::from(requirement.width_m),
+                                depth_m: f64::from(requirement.depth_m),
+                                rotation_y_deg: f64::from(rotation_y_deg),
+                            };
+                            let (half_x, half_z) = footprint.aabb_half_extents();
+                            let crosses_x = (1..scene.width_m.div_ceil(STREAM_CHUNK_METERS))
+                                .map(|chunk| {
+                                    f64::from(scene.origin_x + (chunk * STREAM_CHUNK_METERS) as i32)
+                                })
+                                .any(|seam| {
+                                    (footprint.center_x - seam).abs()
+                                        < half_x + SETTLEMENT_SEAM_GUARD_M
+                                });
+                            let crosses_z = (1..scene.depth_m.div_ceil(STREAM_CHUNK_METERS))
+                                .map(|chunk| {
+                                    f64::from(scene.origin_z + (chunk * STREAM_CHUNK_METERS) as i32)
+                                })
+                                .any(|seam| {
+                                    (footprint.center_z - seam).abs()
+                                        < half_z + SETTLEMENT_SEAM_GUARD_M
+                                });
+                            if crosses_x || crosses_z {
+                                *attempt_counts
+                                    .entry("facility_straddles_chunk_seam".into())
+                                    .or_default() += 1;
+                                last_rejection = Some(Rejection {
+                                    candidate_id,
+                                    route_id: route.id.clone(),
+                                    world_x: x,
+                                    world_z: z,
+                                    reason: "facility_straddles_chunk_seam".into(),
+                                });
+                                continue;
+                            }
+                            if roads.iter().any(|road| {
+                                road.kind == "road"
+                                    && oriented_footprints_overlap(
+                                        &footprint,
+                                        &OrientedFootprint::from_entity(road),
+                                        1.0,
+                                    )
+                            }) {
+                                *attempt_counts
+                                    .entry("facility_conflicts_with_road".into())
+                                    .or_default() += 1;
+                                last_rejection = Some(Rejection {
+                                    candidate_id,
+                                    route_id: route.id.clone(),
+                                    world_x: x,
+                                    world_z: z,
+                                    reason: "facility_conflicts_with_road".into(),
+                                });
+                                continue;
+                            }
+                            if buildings.iter().any(|building| {
+                                oriented_footprints_overlap(
+                                    &footprint,
+                                    &OrientedFootprint {
+                                        center_x: f64::from(building.world_x),
+                                        center_z: f64::from(building.world_z),
+                                        width_m: f64::from(building.width_m),
+                                        depth_m: f64::from(building.depth_m),
+                                        rotation_y_deg: f64::from(building.rotation_y_deg),
+                                    },
+                                    3.0,
+                                )
+                            }) || obstacles.iter().any(|entity| {
+                                matches!(
+                                    entity.kind.as_str(),
+                                    "building"
+                                        | "residential_home"
+                                        | "residential_block"
+                                        | "residential_tower"
+                                        | "market"
+                                        | "storefront"
+                                        | "school"
+                                ) && oriented_footprints_overlap(
+                                    &footprint,
+                                    &OrientedFootprint::from_entity(entity),
+                                    3.0,
+                                )
+                            }) {
+                                *attempt_counts
+                                    .entry("facility_conflicts_with_building".into())
+                                    .or_default() += 1;
+                                last_rejection = Some(Rejection {
+                                    candidate_id,
+                                    route_id: route.id.clone(),
+                                    world_x: x,
+                                    world_z: z,
+                                    reason: "facility_conflicts_with_building".into(),
+                                });
+                                continue;
+                            }
+                            let natural_ceiling = lot_ground_ceiling_m(
+                                terrain,
+                                x,
+                                z,
+                                requirement.width_m as f32,
+                                requirement.depth_m as f32,
+                                rotation_y_deg,
+                            )
+                            .map(f64::from)
+                            .unwrap_or(f64::INFINITY);
+                            let foundation_m = road_design_m.max(nearby_road_surface_m(
+                                roads,
+                                x,
+                                z,
+                                requirement.width_m as f32,
+                                requirement.depth_m as f32,
+                                rotation_y_deg,
+                            ));
+                            let required_cut_m = (natural_ceiling - foundation_m).max(0.0);
+                            if required_cut_m > f64::from(program.max_pad_cut_m) {
+                                *attempt_counts
+                                    .entry("facility_cut_exceeds_contract".into())
+                                    .or_default() += 1;
+                                last_rejection = Some(Rejection {
+                                    candidate_id,
+                                    route_id: route.id.clone(),
+                                    world_x: x,
+                                    world_z: z,
+                                    reason: "facility_cut_exceeds_contract".into(),
+                                });
+                                continue;
+                            }
+                            let center_distance =
+                                (f64::from(x) - center.0).hypot(f64::from(z) - center.1);
+                            let distance_penalty =
+                                ((center_distance - target_distance_m) / 90.0).powi(2);
+                            let hash = blake3::hash(candidate_id.as_bytes());
+                            let jitter = f64::from(u32::from_le_bytes(
+                                hash.as_bytes()[..4].try_into().expect("four bytes"),
+                            )) / f64::from(u32::MAX);
+                            let score = -distance_penalty + jitter * 0.15;
+                            let floors = (requirement.height_m / 3).max(1);
+                            let floor_area_m2 = f64::from(requirement.width_m)
+                                * f64::from(requirement.depth_m)
+                                * f64::from(floors)
+                                * f64::from(program.floor_area_ratio);
+                            let building = Building {
+                                id: format!("{}.{}", requirement.kind, slot),
+                                kind: requirement.kind.clone(),
+                                route_id: route.id.clone(),
+                                side: if side < 0.0 { "left" } else { "right" }.into(),
+                                world_x: x,
+                                world_z: z,
+                                width_m: requirement.width_m as f32,
+                                depth_m: requirement.depth_m as f32,
+                                height_m: requirement.height_m as f32,
+                                floors,
+                                floor_area_m2,
+                                households: 0,
+                                jobs: 0,
+                                retail_floor_area_m2: 0.0,
+                                service_budget: 1.0,
+                                access_distance_m: access as f32,
+                                center_distance_m: center_distance,
+                                community_profile: rules.community_profile.clone(),
+                                income_band: "civic".into(),
+                                archetype_id: format!("population-{}", requirement.kind),
+                                recommended_count: 1,
+                                lot_area_m2: f64::from(requirement.width_m)
+                                    * f64::from(requirement.depth_m),
+                                coverage_ratio: 1.0,
+                                frontage_road_point: Some([
+                                    road_x.round() as i32,
+                                    road_z.round() as i32,
+                                ]),
+                                frontage_position_m: station_m,
+                                district_stage: district_stage(style, center_distance).into(),
+                                frontage_level_m: Some(foundation_m),
+                                max_pad_cut_mm: Some((required_cut_m * 1000.0).ceil() as i32 + 1),
+                                rotation_y_deg,
+                            };
+                            if best.as_ref().is_none_or(|(prior, _)| score > *prior) {
+                                best = Some((score, building));
+                            }
+                        }
+                    }
+                    station_m += step_m;
+                }
+            }
+            let Some((_, building)) = best else {
+                let dominant = attempt_counts.into_iter().max_by_key(|(_, count)| *count);
+                let fallback = Rejection {
+                    candidate_id: format!("population.{}.{}", requirement.kind, slot),
+                    route_id: String::new(),
+                    world_x: 0,
+                    world_z: 0,
+                    reason: "no_legal_population_facility_site".into(),
+                };
+                rejections.push(match dominant {
+                    Some((reason, count)) => Rejection {
+                        reason: format!("no_legal_population_facility_site: {reason} x{count}"),
+                        ..fallback
+                    },
+                    None => last_rejection.unwrap_or(fallback),
+                });
+                break;
+            };
+            buildings.push(building);
+            requirement.delivered_count += 1;
+        }
+    }
+    rejections
 }
 
 fn parcel_use_mix(id: &str) -> f64 {

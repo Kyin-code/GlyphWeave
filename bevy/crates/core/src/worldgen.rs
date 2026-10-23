@@ -75,6 +75,7 @@ pub mod natural_geography;
 pub mod natural_only;
 pub mod parcel_geometry;
 pub mod planning_history;
+pub mod population_program;
 pub mod road_alignment;
 pub mod road_extensions;
 pub mod road_network;
@@ -3068,6 +3069,48 @@ pub fn bake_world(manifest: &WorldManifest, output: &Path) -> WorldgenResult<Wor
                 development_plan.as_ref(),
                 planned_zones.as_deref(),
             )?;
+        if let (Some(plan), Some(routes)) =
+            (&mut settlement_evolution_result, &route_evolution_plan)
+        {
+            // Fresh-food sites are selected first. Large civic facilities may
+            // not consume those legal road frontages before the coverage gate.
+            let market_obstacles = market_catchment_result
+                .as_ref()
+                .map(|market| market_catchment::materialize(market, routes, &natural_samples))
+                .unwrap_or_default();
+            settlement_evolution::append_population_facilities(
+                scene,
+                &natural_samples,
+                water,
+                routes,
+                &effective_style,
+                &market_obstacles,
+                plan,
+            )?;
+            fs::write(
+                scene_dir.join("settlement-evolution-plan.json"),
+                serde_json::to_vec_pretty(plan)?,
+            )?;
+            fs::write(
+                scene_dir.join("settlement-candidates.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "format": "glyphweave.settlement-candidates",
+                    "version": 2,
+                    "sceneId": scene.scene_id,
+                    "status": &plan.status,
+                    "demand": &plan.demand,
+                    "delivered": &plan.delivered,
+                    "unmetDemand": &plan.unmet_demand,
+                    "capacity": &plan.capacity,
+                    "acceptedBuildings": &plan.buildings,
+                    "rejectedCandidates": &plan.rejections,
+                    "countPolicy": "emergent-no-fill",
+                    "population": &plan.population,
+                    "facilityRequirements": &plan.facility_requirements,
+                    "streetFrontage": &plan.street_frontage,
+                }))?,
+            )?;
+        }
         if let Some(route_plan) = &route_evolution_plan {
             let existing = entities
                 .iter()
@@ -6507,7 +6550,12 @@ pub(crate) fn carves_as_building(kind: &str) -> bool {
             | "commercial_center"
             | "entertainment_center"
             | "school"
+            | "clinic"
+            | "hospital"
             | "town_hall"
+            | "community_center"
+            | "sports_center"
+            | "stadium"
             | "market"
             | "community_plaza"
             | "industrial"
@@ -9768,7 +9816,12 @@ fn is_building_kind(kind: &str) -> bool {
             | "commercial_center"
             | "entertainment_center"
             | "school"
+            | "clinic"
+            | "hospital"
             | "town_hall"
+            | "community_center"
+            | "sports_center"
+            | "stadium"
             | "market"
             | "industrial"
             | "temple"

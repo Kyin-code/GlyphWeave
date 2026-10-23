@@ -1857,6 +1857,8 @@ mod tests {
             district_allocation: Vec::new(),
             street_frontage: Default::default(),
             density_curve: Vec::new(),
+            population: None,
+            facility_requirements: Vec::new(),
         }
     }
 
