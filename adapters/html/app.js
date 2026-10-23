@@ -1,4 +1,5 @@
 import { makeGradedRoad } from './render/road-profile.js'
+import { resolveOrbitButtonModes } from './core/camera.js'
 import { verticesOverlapChunks, createPreviewResourceTracker } from './core/render-stream.js'
 import { loadPreviewScene, createRenderStream } from './core/render-stream.js'
 import { createEcologyRenderer } from './render/ecology.js'
@@ -55,7 +56,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'density-road-collision-r244-20261023'
+window.__glyphweaveBuild = 'camera-input-r245-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -1005,9 +1006,23 @@ async function drawNear(buildToken) {
   nearControls.enableDamping = true
   nearControls.enablePan = true
   nearControls.enableRotate = true
-  nearControls.mouseButtons.LEFT = isExplore || isStreet ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
-  nearControls.mouseButtons.MIDDLE = THREE.MOUSE.PAN
-  nearControls.mouseButtons.RIGHT = isExplore ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
+  const applyOrbitButtonModes = altKey => {
+    const plan = resolveOrbitButtonModes({ altKey })
+    nearControls.mouseButtons.LEFT = plan.left === 'rotate' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
+    nearControls.mouseButtons.MIDDLE = plan.middle === 'rotate' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
+    nearControls.mouseButtons.RIGHT = plan.right === 'rotate' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
+    if (window.glyphweaveFeedback) {
+      window.glyphweaveFeedback.cameraInput = {
+        ...plan,
+        altHeld: Boolean(altKey),
+      }
+    }
+    if (webglCanvas) {
+      webglCanvas.dataset.orbitInput = `${plan.left}:${plan.middle}:${plan.right}`
+      webglCanvas.dataset.altHeld = String(Boolean(altKey))
+    }
+  }
+  applyOrbitButtonModes(false)
   nearControls.minDistance = 10
   nearControls.maxDistance = 2400
   nearControls.maxPolarAngle = isExplore ? Math.PI * .8 : isStreet ? Math.PI * .58 : Math.PI * .48
@@ -1033,12 +1048,14 @@ async function drawNear(buildToken) {
     nearPreset = 'focus'; mode = 'near'; draw()
   }
   webglCanvas.addEventListener('pointerdown', event => {
-    if (event.button === 0 && event.altKey) nearControls.mouseButtons.LEFT = THREE.MOUSE.ROTATE
+    if (event.button === 0) applyOrbitButtonModes(event.altKey)
   }, true)
   webglCanvas.addEventListener('pointerup', event => {
-    if (event.button === 0) nearControls.mouseButtons.LEFT = THREE.MOUSE.PAN
+    if (event.button === 0) applyOrbitButtonModes(false)
   }, true)
-  webglCanvas.addEventListener('pointercancel', () => { nearControls.mouseButtons.LEFT = THREE.MOUSE.PAN }, true)
+  webglCanvas.addEventListener('pointercancel', () => { applyOrbitButtonModes(false) }, true)
+  const onWindowBlur = () => { applyOrbitButtonModes(false) }
+  window.addEventListener('blur', onWindowBlur)
   let edgePointer = null
   webglCanvas.addEventListener('pointermove', event => {
     const rect = webglCanvas.getBoundingClientRect()
@@ -1058,6 +1075,7 @@ async function drawNear(buildToken) {
   exploreInputCleanup = () => {
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('blur', onWindowBlur)
     exploreKeys.clear()
   }
   const group = new THREE.Group()
@@ -2998,6 +3016,10 @@ function updateNearCoordinateInfo() {
   const x = Math.max(0, Math.min(scene.widthM - 1, Math.floor(nearControls.target.x)))
   const z = Math.max(0, Math.min(scene.depthM - 1, Math.floor(nearControls.target.z)))
   window.glyphweaveFeedback.cameraDistance = nearControls.getDistance()
+  if (webglCanvas) {
+    webglCanvas.dataset.cameraPosition = nearCamera.position.toArray().map(value => value.toFixed(3)).join(',')
+    webglCanvas.dataset.cameraTarget = nearControls.target.toArray().map(value => value.toFixed(3)).join(',')
+  }
   const viewName = nearPreset === 'explore' ? 'first-person' : nearPreset === 'skyline' ? 'skyline-2.5d' : nearPreset === 'street' ? 'street-2.5d' : nearPreset === 'waterfront' ? 'waterfront-2.5d' : nearPreset === 'bridgehead' ? 'bridgehead-2.5d' : 'harbour-2.5d'
   const roadInfo = nearRoadSummary
     ? `  ${nearRoadSummary.roadClass} · ${nearRoadSummary.laneCount} lanes · ${nearRoadSummary.laneWidthM}m lane · ${nearRoadSummary.speedLimitKmh}km/h`

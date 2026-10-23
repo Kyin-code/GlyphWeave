@@ -1,5 +1,18 @@
 import { state } from './state.js'
 
+/**
+ * OrbitControls does not treat Alt as a modifier. Preview input therefore has
+ * one stable contract in every camera mode: plain left drag pans, Alt+left
+ * (or right drag) orbits, and middle drag also pans.
+ */
+export function resolveOrbitButtonModes({ altKey = false } = {}) {
+  return {
+    left: altKey ? 'rotate' : 'pan',
+    middle: 'pan',
+    right: 'rotate',
+  }
+}
+
 // Wrap OrbitControls change event to update coordinate info.
 export function attachCoordinateInfo(controls, infoEl) {
   controls.addEventListener('change', () => {
