@@ -52,7 +52,7 @@ const previewResources = createPreviewResourceTracker()
 let frameAssets = [], nearDrawing = false
 let previewState = {status: 'idle', requestedGeneration: 0, completedGeneration: 0, error: null}
 const previewPageId = crypto.randomUUID()
-window.__glyphweaveBuild = 'density-road-collision-r229-20261023'
+window.__glyphweaveBuild = 'density-road-collision-r243-20261023'
 function frameRoots() { return [nearGroupRoot, ...entityMeshCache.values(), ...entityGroupCache.values(), ...frameAssets] }
 function releasePreviewFrame() {
   renderNearFrame = null
@@ -871,10 +871,21 @@ async function drawNear(buildToken) {
       && route.index >= 5
       && route.index < route.chain.length - 3
   }
+  const isInteriorStreetHotspot = candidate => {
+    const front = candidate.entity.grounding?.frontageRoadPoint
+    const route = routeChainFor(candidate.road?.road, {
+      x: front?.[0] ?? candidate.entity.worldX,
+      z: front?.[1] ?? candidate.entity.worldZ,
+    })
+    return route.chain.length >= 8
+      && route.index >= 3
+      && route.index < route.chain.length - 4
+  }
   const centralStreetHotspot = [...rankedStreetHotspots].sort((left, right) =>
     centreDist(left.entity) - centreDist(right.entity)
     || left.entity.entityId.localeCompare(right.entity.entityId))[0]
   const streetHotspot = rankedStreetHotspots.find(isMidBlockHotspot)
+    ?? rankedStreetHotspots.find(isInteriorStreetHotspot)
     ?? centralStreetHotspot
     ?? null
   const streetAnchor = (scene.entities ?? []).filter(entity => entity.kind === 'storefront').sort((a, b) => centreDist(a) - centreDist(b))[0]
@@ -1662,6 +1673,36 @@ async function drawNear(buildToken) {
       carriageway.name = 'route-evolution:' + route.id
       carriageway.renderOrder = 4
       nearGroupRoot.add(carriageway)
+    }
+    // A sharp polyline vertex has two independently clipped ribbon ends. The
+    // bounded miter keeps them from folding, but a narrow terrain wedge can
+    // remain on the inside of the turn. Add a same-section asphalt fillet below
+    // the ribbon; it only becomes visible where the two ribbon rows leave a
+    // hole and never expands beyond the carriageway half-width.
+    for (let index = 1; index + 1 < route.polyline.length; index++) {
+      const before = route.polyline[index - 1]
+      const point = route.polyline[index]
+      const after = route.polyline[index + 1]
+      const ax = point.x - before.x
+      const az = point.z - before.z
+      const bx = after.x - point.x
+      const bz = after.z - point.z
+      const al = Math.hypot(ax, az)
+      const bl = Math.hypot(bx, bz)
+      if (al < .5 || bl < .5) continue
+      const cosine = THREE.MathUtils.clamp((ax * bx + az * bz) / (al * bl), -1, 1)
+      const turn = Math.acos(cosine)
+      if (turn < .28 || turn > Math.PI * .86) continue
+      const y = (point.designHeightM ?? heightAt(point.x, point.z)) + .95
+      const fillet = new THREE.Mesh(
+        new THREE.CircleGeometry(carriagewayHalf * 1.02, 24),
+        carriagewayMaterial,
+      )
+      fillet.name = `route-bend:${route.id}:${index}`
+      fillet.rotation.x = -Math.PI / 2
+      fillet.position.set(point.x - scene.originX, y, point.z - scene.originZ)
+      fillet.renderOrder = 3
+      nearGroupRoot.add(fillet)
     }
     if (medianWidth > .2) {
       for (const [runIndex, run] of splitRoadPaint(

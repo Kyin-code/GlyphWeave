@@ -407,8 +407,8 @@
       "routes": [
         {
           "id": "harbour-expressway",
-          "from": "natural-northwest",
-          "to": "natural-northeast",
+          "from": "natural-southwest",
+          "to": "natural-southeast",
           "roadWidthM": 32
         },
         {
@@ -592,7 +592,7 @@
       "lotWidthM": 8,
       "lotDepthM": 28,
       "roadStepM": 9,
-      "setbackM": 2,
+      "setbackM": 1,
       "maxSlope": 0.25,
       "floorAreaRatio": 6.0,
       "maxFloors": 40,
@@ -625,9 +625,9 @@
         "coreRadiusM": 180,
         "middleRadiusM": 320,
         "outerRadiusM": 500,
-        "coreSpacingM": 6,
-        "middleSpacingM": 8,
-        "outerSpacingM": 10,
+        "coreSpacingM": 4,
+        "middleSpacingM": 6,
+        "outerSpacingM": 8,
         "coreTwoModuleShare": 0.18,
         "coreThreeModuleShare": 0.03,
         "referenceBuildingCountP50": 410,
@@ -649,7 +649,7 @@
       "beta": 0.1,
       "maxTravelMinutes": 12,
       "walkSpeedMps": 1.25,
-      "marketCapacity": 2800,
+      "marketCapacity": 7000,
       "marketQuality": 1.0,
       "coverageTarget": 0.9,
       "maxMarkets": 40,
@@ -658,7 +658,7 @@
         {
           "id": "street-market",
           "kind": "community-market-hall",
-          "capacity": 3400,
+          "capacity": 7000,
           "quality": 1.15,
           "maxTravelMinutes": 12,
           "maxCount": 28,
@@ -668,7 +668,7 @@
         {
           "id": "neighbourhood",
           "kind": "neighbourhood-supermarket",
-          "capacity": 4800,
+          "capacity": 6500,
           "quality": 1.0,
           "maxTravelMinutes": 15,
           "maxCount": 14,
@@ -678,7 +678,7 @@
         {
           "id": "district",
           "kind": "large-supermarket",
-          "capacity": 5000,
+          "capacity": 7000,
           "quality": 0.9,
           "maxTravelMinutes": 20,
           "maxCount": 10,

@@ -367,7 +367,7 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         || !(8.0..=80.0).contains(&program.lot_width_m)
         || !(8.0..=80.0).contains(&program.lot_depth_m)
         || !(8.0..=120.0).contains(&program.road_step_m)
-        || !(2.0..=32.0).contains(&program.setback_m)
+        || !(1.0..=32.0).contains(&program.setback_m)
         || !(0.02..=0.25).contains(&program.max_slope)
         || !(0.2..=8.0).contains(&program.floor_area_ratio)
         || !(1..=60).contains(&program.max_floors)
@@ -561,16 +561,11 @@ pub fn plan(
     let mut total_floor_area = 0.0;
     let mut candidates = Vec::<Candidate>::new();
     let materialized_roads = super::route_evolution::materialize(routes);
-    let mut road_reservations = materialized_roads.clone();
-    for road in &mut road_reservations {
-        if road.kind == "road" {
-            // The published road owns its pavement plus the graded transport
-            // shoulder. Buildings must clear the shoulder as well as the visible
-            // carriageway or the road's support resolution can raise terrain
-            // through the neighbouring building pad.
-            road.depth_m += 6.0;
-        }
-    }
+    // The published road entity already carries the complete right-of-way.
+    // Frontage access adds sidewalk and setback separately. Inflating this
+    // reservation again was double-counting the edge and removing legal
+    // central lots; keep the published OBB as the single road-exclusion body.
+    let road_reservations = materialized_roads.clone();
     // Old-core frontage is sampled at the narrow-lot cadence, not the coarse
     // district lot pitch. Demand still decides how many buildings land; this
     // only removes the artificial 10-20m holes between otherwise legal row
@@ -681,8 +676,11 @@ pub fn plan(
                     (route_position_m * 1000.0).round() as i64,
                     side_index
                 );
-                let access =
-                    f64::from(route.road_width_m) * 0.5 + 3.0 + f64::from(program.setback_m);
+                // The route width is the full right-of-way and already includes
+                // curbs and sidewalks. Add only the authored building setback;
+                // the old extra 3m counted the footway a second time and pushed
+                // central frontages into the next block.
+                let access = f64::from(route.road_width_m) * 0.5 + f64::from(program.setback_m);
                 let mut center_x =
                     road_x + normal_x * side * (access + f64::from(base_lot_depth_m) * 0.5);
                 let mut center_z =
@@ -881,7 +879,7 @@ pub fn plan(
                 else {
                     continue;
                 };
-                if !(12.0..=48.0).contains(&road_distance) {
+                if !(4.0..=80.0).contains(&road_distance) {
                     continue;
                 }
                 let (stage_width, stage_depth) =
@@ -893,13 +891,13 @@ pub fn plan(
                 let large_block = hash.as_bytes()[8] % 4 == 0;
                 let (lot_width_m, lot_depth_m) = if large_block {
                     (
-                        (stage_width * 1.20).clamp(10.0, 20.0),
+                        (stage_width * 1.20).clamp(8.0, 20.0),
                         (stage_depth * 0.80).clamp(16.0, 28.0),
                     )
                 } else {
                     (
-                        (stage_width * 0.75).clamp(6.0, 10.0),
-                        (stage_depth * 0.50).clamp(8.0, 16.0),
+                        (stage_width * 0.75).clamp(4.0, 10.0),
+                        (stage_depth * 0.50).clamp(6.0, 16.0),
                     )
                 };
                 let rotation_y_deg = (-f64::from(road_point[0] - x))

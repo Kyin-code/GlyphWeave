@@ -300,7 +300,7 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         || !(0.005..=0.5).contains(&program.beta)
         || !(3.0..=60.0).contains(&program.max_travel_minutes)
         || !(0.5..=2.5).contains(&program.walk_speed_mps)
-        || !(20.0..=5000.0).contains(&program.market_capacity)
+        || !(20.0..=12000.0).contains(&program.market_capacity)
         || !(0.2..=3.0).contains(&program.market_quality)
         || !(0.1..=1.0).contains(&program.coverage_target)
         || program.max_markets == 0
@@ -314,7 +314,7 @@ pub fn validate_style(style: &Value) -> Result<(), String> {
         if tier.id.trim().is_empty()
             || tier.kind.trim().is_empty()
             || !tier_ids.insert(tier.id.as_str())
-            || !(20.0..=5000.0).contains(&tier.capacity)
+            || !(20.0..=12000.0).contains(&tier.capacity)
             || !(0.2..=3.0).contains(&tier.quality)
             || !(3.0..=60.0).contains(&tier.max_travel_minutes)
             || tier.max_count == 0
