@@ -100,6 +100,12 @@ bevy/work/rk-x/v3-density-road-final-r229-20261023
 
 150–300 m 的建筑数量、footprint 和覆盖率均有提升，但完全固定圆心附近有中央道路汇流和水面，100 m 半径不能单独代表城区中心。下一轮仍需把“街廓组合体/内院第二排”做成独立可建供给，而不是继续压缩 6 m 盒体。
 
+回归：
+
+- `glyphweave-core --lib`：908 passed / 0 failed / 34 ignored；
+- `pnpm test`：22 files / 170 tests passed；
+- 原本两条道路测试已按“单一路线宽度真源”和“多跨线合并后 kind 为 overpass”修正。
+
 ## 4. 公开参考
 
 - Three.js Terrain: https://threejs.org/examples/webgl_geometry_terrain.html
