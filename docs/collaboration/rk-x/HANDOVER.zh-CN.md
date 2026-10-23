@@ -1,5 +1,16 @@
 # 交接文档（GlyphWeave · B/C 里程碑推进）
 
+> **2026-10-23 全量能力与分阶段生成审核稿**：已重新清点当前 Rust/HTML
+> 路径、48 城数据、已确认硬规则、导入/程序化建模资源、参考算法、
+> 碰撞与楼梯合同，并给出“自然 → 道路 → 聚落 → 街区/地块 → 建筑/设施
+> → 工程/生态”的阶段化重构方案。关键结论是当前仍并存
+> `routeEvolution/settlementEvolution` 与旧
+> `roadNetwork/frontageProgram` 两条主生成路径，必须先统一生成入口，
+> 不能继续靠末端 sanitize 叠加。三城 r254 中上海、贵阳通过，旧金山
+> structured-water 链仍为 `warn`；`WORLD_GENERATOR_REVISION` 仍停留在
+> r51 字符串，也需与当前构建统一。详见
+> [`CAPABILITY-INVENTORY-AND-STAGED-GENERATION-20261023.zh-CN.md`](CAPABILITY-INVENTORY-AND-STAGED-GENERATION-20261023.zh-CN.md)。
+
 > **2026-10-23 三城独立切面 r249–r252**：旧金山金门大桥南岸、上海外滩
 > 和贵阳阿哈湖湿地已分别建立 512m Manifest、来源/crop 记录并逐城烘焙。
 > 三城 `scale-audit` 全 pass，建筑碰撞与入口断连均为 0；上海、贵阳

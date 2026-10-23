@@ -3,6 +3,15 @@
 生成日期：2026-10-18；最近更新：2026-10-23（核心密度、道路碰撞、建筑朝向与入口复核）。性质：**需求台账 + 进度台账**，不是验收裁定，不替代任何合同文件。
 读者：项目负责人、接手的主 Agent、实现 Agent、独立检查 Agent。
 
+> **2026-10-23 能力清点与分阶段生成审核**：新增
+> [`rk-x/CAPABILITY-INVENTORY-AND-STAGED-GENERATION-20261023.zh-CN.md`](rk-x/CAPABILITY-INVENTORY-AND-STAGED-GENERATION-20261023.zh-CN.md)。
+> 该文按“已有/可选/接口/参考/未完成”清点 48 城数据、道路、自然、
+> 聚落、市场、工程、建模资源、碰撞与楼梯，并把生成顺序拆为
+> Source → Natural → Routes → Seeding → Epoch → Blocks → Parcels →
+> Demand → Markets → Buildings → Engineering → Ecology → Bake。
+> 首要结论是多套道路/聚落入口并存；下一步应先统一单一主生成器和
+> 阶段闸门，而不是继续追加末端规则。该文为审核稿，尚无对应代码重构。
+
 > **2026-10-23 道路纵断面/跨线/碰撞复核**：r169 修复了道路设计面与最终
 > Heightfield 脱链的问题。r155 曾有 2,451/2,588 个中心线采样低于地面、
 > 最大埋深 14.716m；现在任意朝向分段发布 `routeGrade`，Rust 同步执行道路
